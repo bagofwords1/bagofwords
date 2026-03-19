@@ -54,7 +54,10 @@ class PlannerV2:
         prompt = self.prompt_builder.build_prompt(planner_input)
         # Calculate prompt tokens
         prompt_tokens = count_tokens(prompt, getattr(self.llm, "model_name", None))
+        import logging as _logging
+        _logging.info(f"[AGENT_TIMING] planner_prompt_tokens: {prompt_tokens}, prompt_build+count done at {(time.monotonic() - state.start_time)*1000:.0f}ms")
         completion_tokens = 0
+        _llm_stream_t0 = time.monotonic()
         # Stream LLM tokens and build decision snapshots
         async for chunk in self.llm.inference_stream(
             prompt,
@@ -69,13 +72,14 @@ class PlannerV2:
                 continue
 
             state.buffer += chunk
-            
+
             # Emit typed token event
             yield PlannerTokenEvent(type="planner.tokens", delta=chunk)
-            
+
             # Track first token timing
             if state.first_token_time is None:
                 state.first_token_time = time.monotonic()
+                _logging.info(f"[AGENT_TIMING] llm_ttft: {(state.first_token_time - _llm_stream_t0)*1000:.0f}ms")
             completion_tokens += count_tokens(chunk, getattr(self.llm, "model_name", None))
 
             # Try parsing partial decision (be resilient to JSON decode errors)

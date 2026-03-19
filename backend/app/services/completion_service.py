@@ -1577,6 +1577,12 @@ class CompletionService:
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
+                import time as _time
+                _t0 = _time.monotonic()
+                def _lap(label):
+                    elapsed = (_time.monotonic() - _t0) * 1000
+                    logging.info(f"[COMPLETION_TIMING] {label}: {elapsed:.0f}ms")
+
                 async_session = create_async_session_factory()
                 async with async_session() as session:
                     try:
@@ -1586,6 +1592,7 @@ class CompletionService:
                         system_completion_obj = await session.get(Completion, system_completion.id)
                         widget_obj = await session.get(Widget, widget.id) if widget else None
                         step_obj = await session.get(Step, step.id) if step else None
+                        _lap("db_refetch")
 
                         if not all([report_obj, completion_obj, system_completion_obj]):
                             logging.error("Failed to fetch necessary objects for streaming agent.")
@@ -1596,11 +1603,12 @@ class CompletionService:
                             )
                             await event_queue.put(error_event)
                             return
-                        
+
                         clients = {}
                         for data_source in report_obj.data_sources:
                             ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
                             clients.update(ds_clients)
+                        _lap("construct_clients")
 
                         # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                         # (AgentV2.__init__ is synchronous, so lazy-loading files there would fail)
@@ -1624,6 +1632,7 @@ class CompletionService:
                             clients=clients,
                             build_id=resolved_build_id,
                         )
+                        _lap("agent_init")
 
                         # Emit telemetry: stream started
                         try:
@@ -1640,6 +1649,7 @@ class CompletionService:
                             )
                         except Exception:
                             pass
+                        _lap("telemetry_captured")
 
                         # Run agent execution
                         await agent.main_execution()

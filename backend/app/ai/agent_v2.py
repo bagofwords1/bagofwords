@@ -564,6 +564,12 @@ class AgentV2:
 
     async def main_execution(self):
         try:
+            import time as _time
+            _me_t0 = _time.monotonic()
+            def _me_lap(label):
+                elapsed = (_time.monotonic() - _me_t0) * 1000
+                logger.info(f"[AGENT_TIMING] {label}: {elapsed:.0f}ms")
+
             # Start agent execution tracking
             self.current_execution = await self.project_manager.start_agent_execution(
                 self.db,
@@ -573,6 +579,7 @@ class AgentV2:
                 report_id=str(self.report.id) if self.report else None,
                 build_id=self.build_id,
             )
+            _me_lap("start_agent_execution")
 
             # Telemetry in background (non-blocking)
             asyncio.create_task(self._capture_telemetry_background(
@@ -586,13 +593,14 @@ class AgentV2:
 
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
-            
+
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
             await asyncio.gather(
                 self.context_hub.prime_static(query=prompt_text),
                 self.context_hub.refresh_warm(),
             )
+            _me_lap("context_prime_and_warm")
             view = self.context_hub.get_view()
             # Token metadata update in background (non-blocking)
             asyncio.create_task(self._update_context_token_metadata_background(view))
@@ -845,7 +853,12 @@ class AgentV2:
                         block_id=current_block_id,
                     )
                 
+                _me_lap("pre_planner_execute")
+                _first_token_logged = False
                 async for evt in self.planner.execute(planner_input, self.sigkill_event):
+                    if not _first_token_logged:
+                        _me_lap("first_planner_event")
+                        _first_token_logged = True
                     if self.sigkill_event.is_set():
                         break
 

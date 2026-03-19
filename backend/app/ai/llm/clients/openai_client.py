@@ -88,13 +88,20 @@ class OpenAi(LLMClient):
     async def inference_stream(
         self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
     ) -> AsyncGenerator[str, None]:
+        import time as _time, logging as _logging
+        _is_t0 = _time.monotonic()
         stream = await self.async_client.chat.completions.create(
             **self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
         )
+        _logging.info(f"[AGENT_TIMING] openai_create_stream: {(_time.monotonic() - _is_t0)*1000:.0f}ms (model={model_id})")
 
         prompt_tokens = 0
         completion_tokens = 0
+        _first_chunk = True
         async for chunk in stream:
+            if _first_chunk:
+                _logging.info(f"[AGENT_TIMING] openai_first_chunk: {(_time.monotonic() - _is_t0)*1000:.0f}ms")
+                _first_chunk = False
             if not chunk.choices:
                 usage = self._extract_usage(getattr(chunk, "usage", None))
                 if usage.prompt_tokens or usage.completion_tokens:

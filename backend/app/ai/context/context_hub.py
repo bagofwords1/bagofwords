@@ -396,9 +396,9 @@ class ContextHub:
     # --------------------------------------------------------------
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
-        
+
         Runs all builders in parallel for faster startup.
-        
+
         Parameters
         ----------
         query : str | None, optional
@@ -406,19 +406,31 @@ class ContextHub:
             search to find relevant instructions beyond just 'always' load mode.
         """
         import asyncio
+        import time as _time
+        import logging as _logging
+        _ps_t0 = _time.monotonic()
+
         # Run all static builders in parallel
         schemas_task = asyncio.create_task(self.schema_builder.build())
         # Pass query and build_id to enable intelligent instruction search from specific build
         instructions_task = asyncio.create_task(self.instruction_builder.build(query, build_id=self.build_id))
         resources_task = asyncio.create_task(self.resource_builder.build())
         files_task = asyncio.create_task(self.files_builder.build())
-        
+
         # Wait for all to complete
         schemas, instructions, resources, files = await asyncio.gather(
             schemas_task, instructions_task, resources_task, files_task,
             return_exceptions=True
         )
-        
+        _ps_elapsed = (_time.monotonic() - _ps_t0) * 1000
+        _logging.info(
+            f"[AGENT_TIMING] prime_static: {_ps_elapsed:.0f}ms "
+            f"(schemas={'err' if isinstance(schemas, Exception) else 'ok'}, "
+            f"instructions={'err' if isinstance(instructions, Exception) else 'ok'}, "
+            f"resources={'err' if isinstance(resources, Exception) else 'ok'}, "
+            f"files={'err' if isinstance(files, Exception) else 'ok'})"
+        )
+
         # Store results (handle exceptions gracefully)
         self._static_cache["schemas"] = schemas if not isinstance(schemas, Exception) else None
         self._static_cache["instructions"] = instructions if not isinstance(instructions, Exception) else None
