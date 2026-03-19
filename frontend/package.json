@@ -17,6 +17,7 @@
     "@vue-flow/core": "^1.41.4",
     "ag-grid-vue3": "^31.3.2",
     "gridstack": "^12.0.0",
+    "markstream-vue": "^0.0.10-beta.0",
     "monaco-editor": "*",
     "nuxt": "^3.13.2",
     "nuxt-echarts": "0.2.4",
