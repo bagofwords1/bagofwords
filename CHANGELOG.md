@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.342 (March 19, 2026)
+## Version 0.0.342 (March 20, 2026)
 - Fix context bloat when designing dashboards
 - Add full SCIM support
 - Enhanced audit trail with more activities
