@@ -2,6 +2,7 @@
 
 **Status:** Draft / Design Phase
 **Date:** 2026-03-20
+**Approach:** Option C — Summary Fork
 
 ---
 
@@ -11,9 +12,15 @@ When a user views a shared report (`/r/ID`) or conversation (`/c/TOKEN`), they c
 
 ---
 
-## Core Concept
+## Core Concept: Summary Fork
 
-A logged-in user can "fork" a published report or shared conversation, creating a new report under their account that is seeded with the original conversation history. The fork inherits the data source associations, allowing the user to continue querying the same data.
+A logged-in user can "fork" a published report or shared conversation. Instead of copying the full message history, the fork creates:
+
+1. **An AI-generated summary** of the original conversation — what was asked, what was found, key insights
+2. **References to existing data assets** — queries, steps (with their results/visualizations), and the latest artifact
+3. **A fresh conversation thread** where the user can build on the summarized context
+
+This is lightweight, avoids redundant data, and gives the AI agent clear context about prior work without replaying every message.
 
 ---
 
@@ -39,47 +46,100 @@ If any connection requires `auth_policy = "user_required"`, the button is either
 |-------|----------|
 | **Report** | New report created, owned by forking user |
 | **Data source associations** | Same data sources linked to the new report |
-| **Completions (messages)** | Copied as read-only seed history (`is_forked_seed=True`) |
-| **CompletionBlocks** | Copied to preserve reasoning/tool/answer structure |
-| **Steps** (query results + viz) | **Referenced, not copied** — step data is immutable |
+| **Summary completion** | Single AI-generated system message summarizing the original report |
+| **Queries** | New Query records created, referencing original steps |
+| **Steps** | **Referenced, not copied** — original steps linked to new widgets (step data is immutable) |
 | **Widgets** | New widgets created, pointing to referenced steps |
 | **Artifacts** | Latest artifact version duplicated (existing `duplicate` logic) |
 
-**NOT forked:** AgentExecutions, ToolExecutions, PlanDecisions (execution internals, not user content).
+**NOT forked:** Original completions, completion blocks, agent executions, tool executions, plan decisions.
 
 ---
 
-## Recommended Approach: Snapshot Fork
-
-The forked report gets a **frozen copy** of the conversation history as context. The user starts a **new conversation thread** that can reference the prior work.
+## How the Summary Fork Works
 
 ```
-Original Report (read-only source)
+Original Report
   ├── Message 1: "Show me revenue by region"
-  ├── AI: [SQL query] → chart
+  ├── AI: [SQL query] → chart (Step A)
   ├── Message 2: "Break it down by quarter"
-  └── AI: [SQL query] → chart
+  ├── AI: [SQL query] → table (Step B)
+  ├── Message 3: "Create a slide deck"
+  └── AI: [artifact generated] (Artifact v3)
 
-Forked Report (user's copy)
-  ├── [Forked from "Revenue Analysis" by @alice]  ← visual header
-  │   ├── Message 1 (read-only, seed)
-  │   ├── AI response (read-only, seed)
-  │   ├── Message 2 (read-only, seed)
-  │   └── AI response (read-only, seed)
+Forked Report
+  ├── [Forked from "Revenue Analysis" by @alice]  ← banner with link
   │
-  └── [Your conversation starts here]  ← divider
-      ├── Message 3: "Now add profit margins"  ← user's new work
-      └── AI: [new SQL query] → new step
+  ├── 🔒 Summary (system message, read-only)
+  │   │
+  │   │  "This report analyzed revenue data across regions and quarters.
+  │   │   Key findings:
+  │   │   - Revenue by region chart shows APAC leading at $4.2M (Step A)
+  │   │   - Quarterly breakdown reveals Q3 spike across all regions (Step B)
+  │   │   - A slide deck was generated summarizing the analysis (Artifact)"
+  │   │
+  │   ├── Widget: "Revenue by Region" → Step A (referenced, chart)
+  │   ├── Widget: "Quarterly Breakdown" → Step B (referenced, table)
+  │   └── Artifact: slide deck (duplicated, v1 in new report)
+  │
+  └── [Your conversation starts here]  ← user types new messages
+      ├── Message 1: "Now add profit margins to the regional view"
+      └── AI: [new SQL query] → new Step C
 ```
 
-### Why Snapshot over Live Fork
+### Why Summary over Full Copy
 
-| | Snapshot Fork | Live Fork |
+| | Summary Fork | Full Snapshot Fork |
 |--|---|---|
-| **Complexity** | Lower | Higher |
-| **Ownership clarity** | Clear separation of original vs new | Blurred |
-| **AI context** | Seed messages included as context | Full history |
-| **Risk of confusion** | Low | User might think they're editing original |
+| **Data volume** | Minimal — one summary message | All messages + blocks copied |
+| **AI context quality** | Distilled, high-signal context | Raw conversation (noise + signal) |
+| **Fork speed** | Fast (1 LLM call + lightweight DB ops) | Slower (N completions + blocks copied) |
+| **Long conversations** | Scales well — summary stays concise | Grows linearly with conversation length |
+| **Data asset access** | References original steps (no duplication) | Same |
+| **Tradeoff** | Loses nuance of intermediate reasoning | Preserves full history |
+
+---
+
+## Summary Generation
+
+The summary is generated server-side during the fork operation using a focused LLM call.
+
+### Input to summary generator
+
+```
+Report title: "{title}"
+Data sources: {list of data source names}
+
+Conversation ({N} messages):
+{formatted messages from _get_report_messages()}
+
+Created assets:
+- Queries: {list of query titles + descriptions}
+- Steps: {list of step titles, types, SQL/code snippets, descriptions}
+- Artifact: {artifact title, mode (page/slides), content summary}
+```
+
+### Prompt template
+
+```
+Summarize this data analysis conversation for someone who wants to continue
+the work. Include:
+1. What questions were asked and what data was explored
+2. Key findings and insights discovered
+3. What data assets were created (reference by name)
+4. Any open threads or areas not yet explored
+
+Keep it concise (3-8 sentences). Use specific numbers and findings from the
+step results where available. Reference created assets by their titles.
+```
+
+### Output
+
+A structured summary stored as the first completion in the forked report, with:
+- `role = "system"`
+- `is_fork_summary = True`
+- `source_report_id = original.id`
+- Rich content that references the widgets/steps by name
 
 ---
 
@@ -90,16 +150,17 @@ Forked Report (user's copy)
 ```python
 # New fields on Report
 forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True)
-forked_from_token = Column(String, nullable=True)  # if forked from /c/TOKEN
 ```
 
 ### Completion model
 
 ```python
-# New fields on Completion
-is_forked_seed = Column(Boolean, default=False)  # marks imported messages
+# New field on Completion
+is_fork_summary = Column(Boolean, default=False)  # marks the fork summary message
 source_report_id = Column(String(36), nullable=True)  # origin report for attribution
 ```
+
+No changes needed on Step, Widget, Query, or Artifact models — we use existing fields and relationships.
 
 ---
 
@@ -129,6 +190,8 @@ POST /api/reports/{report_id}/fork
 ```
 
 **Permission:** `create_reports` + data source access checks.
+
+**Note:** This is an async-feeling operation. The endpoint creates the report and redirects immediately. The summary completion is generated in the background (or streamed to the client via WebSocket once ready).
 
 ### Fork eligibility (returned with existing endpoints)
 
@@ -163,10 +226,13 @@ Possible reasons when `can_fork = false`:
 
 ### /reports/[id] (chat editor) — forked report
 
-- Seed messages render with a subtle visual indicator (muted background, small badge)
 - Show a header banner: "Forked from [Original Report Title]" with link to original
-- Visual divider between seed messages and new conversation
-- Seed messages are not editable or deletable
+- Summary message renders as a special system card:
+  - Distinct visual style (e.g., muted background, fork icon, "Summary of original analysis" label)
+  - Inline references to widgets/steps are clickable (scroll to the widget)
+  - Not editable or deletable
+- Widgets from the original report appear in the dashboard/canvas area
+- Clear visual separator between the summary context and the user's new conversation
 
 ---
 
@@ -191,22 +257,49 @@ Possible reasons when `can_fork = false`:
 3. Link data sources
    └── Copy report_data_source_association entries
 
-4. Copy completions as seeds
-   ├── For each completion in original (ordered by turn_index):
-   │   ├── Create new Completion with is_forked_seed=True
-   │   ├── Copy prompt, completion, role, turn_index
-   │   └── Set source_report_id = original.id
-   └── Copy associated completion_blocks (reference same steps)
+4. Create widgets + link steps
+   ├── For each Widget in original report that has successful steps:
+   │   ├── Create new Widget in new report
+   │   ├── Create new Query in new report (title, description from original)
+   │   └── Link original Step records to new Widget
+   │       (steps are immutable — safe to reference across reports)
+   └── Copy dashboard layout (DashboardLayoutVersion) if exists
 
-5. Create widgets for referenced steps
-   ├── Create new Widget entries
-   └── Link to original Step records (steps are immutable/shared)
-
-6. Duplicate latest artifact (if exists)
+5. Duplicate latest artifact (if exists)
    └── Use existing ArtifactService.duplicate() logic
+   └── Reset version to 1 in new report
 
-7. Return new report
+6. Generate summary (async / background)
+   ├── Gather context:
+   │   ├── Original report title + description
+   │   ├── Completions (via _get_report_messages)
+   │   ├── Query titles + descriptions
+   │   ├── Step titles, types, code snippets, descriptions
+   │   └── Artifact title + mode + content outline
+   ├── Call LLM with summary prompt
+   ├── Create Completion:
+   │   ├── role = "system"
+   │   ├── is_fork_summary = True
+   │   ├── source_report_id = original.id
+   │   ├── turn_index = 0
+   │   └── completion = { summary text }
+   └── Broadcast via WebSocket to report subscribers
+
+7. Return new report (immediately after step 5, don't wait for summary)
 ```
+
+---
+
+## AI Agent Context Integration
+
+When the user sends their first message in the forked report, the agent needs context about the prior work. The summary completion serves this purpose naturally:
+
+1. **ContextHub** already builds context from report completions via `_get_report_messages()`
+2. The fork summary (turn_index=0) will be the first message the agent sees
+3. Steps referenced by the forked widgets provide schema/data context
+4. The agent can reference existing steps by name ("the Revenue by Region chart shows...")
+
+No special context builder needed — the existing message + widget + step context pipeline handles it.
 
 ---
 
@@ -214,16 +307,17 @@ Possible reasons when `can_fork = false`:
 
 1. **Fork attribution visibility** — Should the original author see "5 people forked this"?
 2. **Cross-org forking** — Strictly same-org only, or allow cross-org if data sources permit?
-3. **Fresh data vs snapshot** — Should forked steps re-execute queries for fresh data, or keep the snapshot?
-4. **Conversation length cap** — For very long conversations, fork last N messages or let user choose?
-5. **Fork of a fork** — Allow it? `forked_from_id` points to immediate parent, not the root.
-6. **Notifications** — Notify the original author when their report is forked?
+3. **Summary quality** — Should we expose a "regenerate summary" action if the user finds it lacking?
+4. **Fork of a fork** — Allow it? `forked_from_id` points to immediate parent, not root. Summary would summarize the forked report (which includes its own summary).
+5. **Notifications** — Notify the original author when their report is forked?
+6. **Step freshness** — Referenced steps show data from when they were originally run. Add a "re-run" button on forked widgets?
 
 ---
 
 ## Future Extensions
 
-- **Fork with modifications** — Let user select which messages/steps to include
+- **Fork with selection** — Let user pick which widgets/steps to include before forking
 - **Merge back** — If the forked user discovers something useful, suggest it back to the original
 - **Fork gallery** — Show all public forks of a popular report
 - **Template reports** — Reports explicitly designed to be forked (starter templates)
+- **Custom summary prompt** — Let user add a note ("I want to focus on APAC region") that gets included in the summary generation
