@@ -6,6 +6,7 @@
 - Enhanced audit trail with more activities
 - Expose OpenAPI swagger docs
 - Improve animation and frontend look and feel when streaming messages
+- Send PDF attachment when publishing a dashboard
 
 ## Version 0.0.341 (March 18, 2026)
 - add opentelemetry

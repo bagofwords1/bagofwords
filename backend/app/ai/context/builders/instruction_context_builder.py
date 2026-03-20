@@ -514,7 +514,7 @@ class InstructionContextBuilder:
         )
         items.extend(dep_items)
 
-        logger.info(
+        logger.debug(
             f"_load_from_build: loaded {len(always_items)} always + "
             f"{len(intelligent_items)} intelligent + "
             f"{len(dep_items)} dependencies (max={max_instructions})"
@@ -612,7 +612,7 @@ class InstructionContextBuilder:
         )
         items.extend(dep_items)
 
-        logger.info(
+        logger.debug(
             f"_build_legacy: loaded {len(always_instructions)} always + "
             f"{len(intelligent_results)} intelligent + "
             f"{len(dep_items)} dependencies (max={max_instructions})"
@@ -742,7 +742,7 @@ class InstructionContextBuilder:
         if not dep_items:
             return []
 
-        logger.info(f"_load_referenced_instructions: loaded {len(dep_items)} dependency instructions (depth={_depth})")
+        logger.debug(f"_load_referenced_instructions: loaded {len(dep_items)} dependency instructions (depth={_depth})")
 
         # Step 3: One level of transitive resolution
         if _depth < 1:
@@ -788,7 +788,7 @@ class InstructionContextBuilder:
                 if stat_inst_id in instruction_ids_set and stat.usage_count:
                     counts[stat_inst_id] = stat.usage_count
             
-            logger.info(f"_batch_load_usage_counts: Found {len(counts)} stats for {len(instruction_ids)} instructions")
+            logger.debug(f"_batch_load_usage_counts: Found {len(counts)} stats for {len(instruction_ids)} instructions")
             return counts
         except Exception as e:
             logger.warning(f"Failed to load usage counts: {e}")
