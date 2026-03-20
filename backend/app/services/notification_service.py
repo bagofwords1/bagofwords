@@ -27,6 +27,7 @@ class NotificationService:
         report_title: str,
         sender_name: str,
         message: Optional[str] = None,
+        report_id: Optional[str] = None,
     ) -> NotifyResponse:
         """Send notifications across multiple channels. Failures in one channel don't block others."""
         dispatched: list[ChannelResult] = []
@@ -38,6 +39,7 @@ class NotificationService:
             "report_title": report_title,
             "sender_name": sender_name,
             "message": message,
+            "report_id": report_id,
         }
 
         for channel in channels:
@@ -86,15 +88,46 @@ class NotificationService:
         subject = self._build_subject(context["notification_type"], context["report_title"])
         html = self._build_html(context)
 
-        message = MessageSchema(
-            subject=subject,
-            recipients=recipients,
-            body=html,
-            subtype="html",
-        )
-
         async def _do_send():
             try:
+                # Generate PDF attachment for dashboard shares (in background)
+                attachments = []
+                report_id = context.get("report_id")
+                if context["notification_type"] == NotificationType.SHARE_DASHBOARD and report_id:
+                    try:
+                        from app.services.report_pdf_service import ReportPdfService
+                        from pathlib import Path
+
+                        pdf_service = ReportPdfService()
+                        pdf_path = await pdf_service.generate_for_report(report_id)
+                        if pdf_path:
+                            pdf_file = Path(pdf_path)
+                            if pdf_file.exists():
+                                attachments.append({
+                                    "file": str(pdf_file),
+                                    "filename": f"{context['report_title'] or 'report'}.pdf",
+                                    "type": "application",
+                                    "subtype": "pdf",
+                                })
+                    except Exception as e:
+                        logger.warning("PDF generation failed for shared dashboard %s: %s", report_id, e)
+
+                if attachments:
+                    message = MessageSchema(
+                        subject=subject,
+                        recipients=recipients,
+                        body=html,
+                        subtype="html",
+                        attachments=attachments,
+                    )
+                else:
+                    message = MessageSchema(
+                        subject=subject,
+                        recipients=recipients,
+                        body=html,
+                        subtype="html",
+                    )
+
                 await fm.send_message(message)
                 logger.info("Notification email sent to %s", recipients)
             except Exception as e:

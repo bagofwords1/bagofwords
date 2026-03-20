@@ -233,6 +233,7 @@ async def notify_report(
         report_title=report.title,
         sender_name=current_user.name or current_user.email,
         message=payload.message,
+        report_id=str(report.id),
     )
 
     # Audit log
