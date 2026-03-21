@@ -223,6 +223,27 @@ class MessageContextBuilder:
                                         pass
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'read_query' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    digest_parts = []
+                                    if rj.get('title'):
+                                        digest_parts.append(f"query: {rj.get('title')}")
+                                    if rj.get('query_id'):
+                                        digest_parts.append(f"query_id: {rj.get('query_id')}")
+                                    if rj.get('visualization_id'):
+                                        digest_parts.append(f"viz_id: {rj.get('visualization_id')}")
+                                    dp = rj.get('data_preview') or {}
+                                    if dp.get('rows') or dp.get('row_count'):
+                                        rc = len(dp.get('rows', [])) if dp.get('rows') else dp.get('row_count', 0)
+                                        cols = dp.get('columns', [])
+                                        col_names = [
+                                            (c.get('field') or c.get('headerName'))
+                                            for c in cols
+                                            if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
+                                        ]
+                                        digest_parts.append(f"{rc} rows × {len(col_names)} cols")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
                                     # Show table names extracted from schemas excerpt; fallback to query/arguments
                                     rj = tool_execution.result_json or {}
@@ -648,6 +669,27 @@ class MessageContextBuilder:
                                         digest_parts.append(f"viz_id: {viz_ids[0]}")
                                 except Exception:
                                     pass
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'read_query' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                digest_parts = []
+                                if rj.get('title'):
+                                    digest_parts.append(f"query: {rj.get('title')}")
+                                if rj.get('query_id'):
+                                    digest_parts.append(f"query_id: {rj.get('query_id')}")
+                                if rj.get('visualization_id'):
+                                    digest_parts.append(f"viz_id: {rj.get('visualization_id')}")
+                                dp = rj.get('data_preview') or {}
+                                if dp.get('rows') or dp.get('row_count'):
+                                    rc = len(dp.get('rows', [])) if dp.get('rows') else dp.get('row_count', 0)
+                                    cols = dp.get('columns', [])
+                                    col_names = [
+                                        (c.get('field') or c.get('headerName'))
+                                        for c in cols
+                                        if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
+                                    ]
+                                    digest_parts.append(f"{rc} rows × {len(col_names)} cols")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
