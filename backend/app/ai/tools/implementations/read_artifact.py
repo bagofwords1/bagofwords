@@ -19,6 +19,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.read_artifact import ReadArtifactInput, ReadArtifactOutput
 from app.models.artifact import Artifact
+from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_OBSERVATION
 
 
 class ReadArtifactTool(Tool):
@@ -187,6 +188,7 @@ class ReadArtifactTool(Tool):
             "code": code,  # Available for 1 iteration; compacted by observation builder on next tool call
             "visualization_ids": visualization_ids,
             "version": artifact.version,
+            "runtime_environment": SANDBOX_RUNTIME_OBSERVATION,
         }
 
         yield ToolEndEvent(
