@@ -135,21 +135,36 @@
 
         async function sendCurrentSelection(context) {
             const range = context.workbook.getSelectedRange();
-            range.load("address");
+            range.load(["address", "values", "rowCount", "columnCount"]);
             const sheet = range.worksheet;
             sheet.load("name");
-            
+
             await context.sync();
-            
-            const sheetData = await getSheetData(context, sheet);
-            
+
+            const cellCount = range.rowCount * range.columnCount;
+            const MAX_CELLS = 1000;
+            let selectionValues = range.values;
+            let truncated = false;
+
+            // Cap at 1k cells: keep as many full rows as fit
+            if (cellCount > MAX_CELLS) {
+                const maxRows = Math.max(1, Math.floor(MAX_CELLS / range.columnCount));
+                selectionValues = selectionValues.slice(0, maxRows);
+                truncated = true;
+            }
+
             // Post message to iframe
             const iframe = document.getElementById('webAppFrame');
             const message = {
                 type: 'cellSelected',
                 address: range.address,
                 sheetName: sheet.name,
-                sheetData: sheetData
+                selectionValues: selectionValues,
+                cellCount: Math.min(cellCount, MAX_CELLS),
+                totalCellCount: cellCount,
+                truncated: truncated,
+                rowCount: range.rowCount,
+                columnCount: range.columnCount
             };
             console.log('Sending message:', message);
             try {
@@ -159,13 +174,6 @@
             } catch (error) {
                 console.error('Error sending message to iframe:', error);
             }
-        }
-
-        async function getSheetData(context, sheet) {
-            const usedRange = sheet.getUsedRange();
-            usedRange.load("values");
-            await context.sync();
-            return usedRange.values;
         }
     </script>
 </body>
