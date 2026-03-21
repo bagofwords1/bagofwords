@@ -885,7 +885,6 @@ Apply the edit now:"""
             "diff_applied": diff_applied,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
-            "code": new_code,
         }
 
         # Add preview screenshot for planner reflection (page mode)

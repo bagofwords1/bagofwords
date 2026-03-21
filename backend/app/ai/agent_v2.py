@@ -755,6 +755,8 @@ class AgentV2:
                     user_images = await self._load_images_as_input() if loop_index == 0 else []
 
                     # Extract images from observation (tool screenshots, etc.)
+                    # After extraction, strip from observation to avoid duplicating
+                    # the large base64 data in the JSON-serialized last_observation text.
                     observation_images: list[ImageInput] = []
                     if observation and isinstance(observation, dict) and observation.get("images"):
                         for img in observation["images"]:
@@ -764,6 +766,8 @@ class AgentV2:
                                     media_type=img.get("media_type", "image/png"),
                                     source_type=img.get("source_type", "base64"),
                                 ))
+                        del observation["images"]
+                        observation["images_provided_as_vision"] = True
 
                     # Combine user images + observation images
                     all_images = user_images + observation_images

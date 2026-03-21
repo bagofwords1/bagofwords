@@ -167,12 +167,12 @@ def test_llm_provider_with_base_url_creates_models(create_openai_provider_with_b
     provider_models = [m for m in models if m["provider_id"] == provider_id]
     
     # Should have created the expected models
-    assert len(provider_models) >= 2  # At least gpt-4.1 and gpt-4.1-mini based on the fixture
-    
+    assert len(provider_models) >= 2  # At least gpt-5.4 and gpt-5.4-mini based on the fixture
+
     # Verify model details
     model_ids = [m["model_id"] for m in provider_models]
-    assert "gpt-4.1" in model_ids
-    assert "gpt-4.1-mini" in model_ids
+    assert "gpt-5.4" in model_ids
+    assert "gpt-5.4-mini" in model_ids
     
     # All models should be enabled by default
     for model in provider_models:
