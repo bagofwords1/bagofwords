@@ -274,6 +274,10 @@ class MessageContextBuilder:
                                         digest_parts.append(f"mode: {rj.get('mode')}")
                                     if rj.get('artifact_id'):
                                         digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                    # Surface visualization_ids (top-level or nested in artifact_preview)
+                                    viz_ids = rj.get('visualization_ids') or (rj.get('artifact_preview') or {}).get('visualization_ids') or []
+                                    if viz_ids:
+                                        digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                     if rj.get('version'):
                                         digest_parts.append(f"v{rj.get('version')}")
                                     if rj.get('diff_applied') is not None:
@@ -697,6 +701,10 @@ class MessageContextBuilder:
                                     digest_parts.append(f"mode: {rj.get('mode')}")
                                 if rj.get('artifact_id'):
                                     digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                # Surface visualization_ids (top-level or nested in artifact_preview)
+                                viz_ids = rj.get('visualization_ids') or (rj.get('artifact_preview') or {}).get('visualization_ids') or []
+                                if viz_ids:
+                                    digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                 if rj.get('version'):
                                     digest_parts.append(f"v{rj.get('version')}")
                                 if rj.get('diff_applied') is not None:

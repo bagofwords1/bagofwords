@@ -88,8 +88,14 @@ class PlannerInput(BaseModel):
     # User-uploaded images for vision-capable models
     images: Optional[List[Any]] = None  # List[ImageInput] - using Any to avoid circular import
 
+    # Active artifact context (most recent artifact in the current report)
+    active_artifact: Optional[Dict[str, Any]] = None
+
     # Identity
     organization_name: Optional[str] = None
     organization_ai_analyst_name: Optional[str] = None
+
+    # Org-wide limits
+    limit_row_count: Optional[int] = None
 
 

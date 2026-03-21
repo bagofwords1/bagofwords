@@ -53,6 +53,12 @@ Do not rely on any external parameter; decide the final reasoning level in real 
 Deep Analytics mode: If selected, you are expected to perform heavier planning, run multiple iterations of widgets/observations, and end with a create_artifact call to present findings. Acknowledge deep mode in both reasoning_message and assistant_message.
 """
 
+        # Row limit from org settings
+        row_limit = planner_input.limit_row_count
+        row_limit_text = ""
+        if row_limit and row_limit > 0:
+            row_limit_text = f"ROW LIMIT POLICY SET BY ORG: {row_limit}\n"
+
         # Determine mode label for prompt
         mode_label = "Deep Analytics" if planner_input.mode == "deep" else "Chat"
 
@@ -115,7 +121,7 @@ ERROR HANDLING (robust; no blind retries)
 - Never repeat the exact same failing call.
 - **If code execution fails** (SQL error, column not found, type mismatch, etc.), consider using inspect_data on the relevant table(s) to check actual data values, column formats, or nulls and decide if you want to retry or pivot to ask a clarifying question.
 
-ANALYTICS & RELIABILITY
+{row_limit_text}ANALYTICS & RELIABILITY
 - Ground reasoning in provided context (schemas, history, last_observation). If context is missing, output clarifying questions in assistant_message and call the clarify tool.
 - Use the describe_tables tool to get more information about the tables and columns before creating a widget.
 - Use the read_resources tool to get more information about the resources names, context, semantic layers, etc. If metadata resources are available, always use this tool before the next step (clarify/create_data/answer etc)
@@ -131,7 +137,7 @@ ANALYTICS & RELIABILITY
 - **Create vs Edit artifacts:**
   - Use `create_artifact` when building a brand new dashboard from scratch, or when the user explicitly asks to start over / rebuild.
   - Use `edit_artifact` when the user asks to modify, adjust, fix, or tweak an existing dashboard (e.g., "remove the filter", "change colors", "add a KPI card", "make the chart bigger"). The `edit_artifact` tool preserves the existing design and applies only the requested change surgically.
-  - To use `edit_artifact`, you need the `artifact_id` from a previous `create_artifact` or `read_artifact` observation in the conversation history. If you don't have it in context, first call `read_artifact` to load it.
+  - To use `edit_artifact`, you need an `artifact_id`. Use the `active_artifact` from context (the most recent artifact in this report) when available — its `artifact_id` is always the latest version. If `active_artifact` is not set, fall back to the most recently created or edited artifact_id from the conversation history. Do NOT ask the user which artifact to edit unless there is genuine ambiguity (e.g., the user explicitly names a different artifact). If you still cannot find an artifact_id, call `read_artifact` to load it.
   - When `edit_artifact` returns `diff_applied: false` in the observation, it fell back to a full rewrite — this is acceptable but note it for context.
   - **Edit that requires new data:** If the user asks to ADD a new chart/visualization to an existing dashboard (e.g., "add a revenue-by-country chart"), you must first call `create_data` to produce the new visualization, then call `edit_artifact` with BOTH the `artifact_id` AND `visualization_ids: [<new_viz_id>]`. The edit tool will merge the new visualization data with the existing ones automatically. Do NOT call `create_artifact` from scratch just because the edit needs new data — use the create_data → edit_artifact flow instead.
   - **Artifact reflection:** If a `create_artifact` observation includes a screenshot and the result looks wrong (bad layout, missing charts, broken rendering, misaligned elements), use `edit_artifact` to fix it — do NOT call `create_artifact` again. The existing code is a better starting point than regenerating from scratch. Describe the specific visual issues in the `edit_instruction` (e.g., "the bar chart is cut off on the right side", "the KPI cards are overlapping").
@@ -212,6 +218,7 @@ INPUT ENVELOPE
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
+  <active_artifact>{json.dumps(planner_input.active_artifact) if planner_input.active_artifact else 'None'}</active_artifact>
   <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>
@@ -243,7 +250,6 @@ EXPECTED JSON OUTPUT (strict):
 CRITICAL: If you are calling a tool (action is not null), set analysis_complete=false. 
 The tool needs to execute first before analysis can be complete.
 """
-        breakpoint()
         return prompt
     
     @staticmethod
