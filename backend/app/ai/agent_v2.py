@@ -157,6 +157,33 @@ class AgentV2:
         # Initialize SuggestInstructions agent for post-analysis suggestions
         self.suggest_instructions = SuggestInstructions(model=self.small_model)
 
+    async def _get_active_artifact(self) -> Optional[dict]:
+        """Get the most recent artifact for the current report."""
+        if not self.report:
+            return None
+        try:
+            from app.models.artifact import Artifact
+            result = await self.db.execute(
+                select(Artifact)
+                .where(
+                    Artifact.report_id == str(self.report.id),
+                    Artifact.status == "completed",
+                )
+                .order_by(Artifact.created_at.desc())
+                .limit(1)
+            )
+            artifact = result.scalar_one_or_none()
+            if artifact:
+                return {
+                    "artifact_id": str(artifact.id),
+                    "title": artifact.title,
+                    "mode": artifact.mode,
+                    "version": artifact.version,
+                }
+        except Exception:
+            pass
+        return None
+
     async def _load_images_as_input(self) -> list[ImageInput]:
         """Load image files as base64-encoded ImageInput objects for vision models."""
         import base64
@@ -656,6 +683,7 @@ class AgentV2:
             instructions = inst_section.render() if inst_section else ""
 
             observation: Optional[dict] = None
+            active_artifact = await self._get_active_artifact()
             # Training mode needs more iterations for thorough exploration
             step_limit = 25 if self.mode == "training" else 20
 
@@ -670,6 +698,11 @@ class AgentV2:
             # Circuit breaker for repeated successful actions (infinite success loop)
             successful_tool_actions = []
             max_repeated_successes = 2
+
+            # Circuit breaker for consecutive calls to the same artifact tool (regardless of arguments)
+            consecutive_artifact_tool_count = 0
+            last_artifact_tool_name = None
+            max_consecutive_artifact_calls = 1
             
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
@@ -756,6 +789,8 @@ class AgentV2:
                         tool_catalog=self.planner.tool_catalog,
                         mode=self.mode,
                         images=all_images if all_images else None,
+                        active_artifact=active_artifact,
+                        limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                     )
                     # Kick off early scoring in background without blocking the loop (isolated DB session)
                     asyncio.create_task(self._run_early_scoring_background(planner_input))
@@ -1235,6 +1270,23 @@ class AgentV2:
                                         "final_answer": f"Task completed successfully. The {tool_name} tool has been executed {max_repeated_successes} times with the same parameters, indicating the goal has been achieved."
                                     })
 
+                            # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
+                            if tool_name in ("create_artifact", "edit_artifact"):
+                                if tool_name == last_artifact_tool_name:
+                                    consecutive_artifact_tool_count += 1
+                                else:
+                                    consecutive_artifact_tool_count = 1
+                                    last_artifact_tool_name = tool_name
+                                if consecutive_artifact_tool_count > max_consecutive_artifact_calls:
+                                    analysis_done = True
+                                    observation.update({
+                                        "analysis_complete": True,
+                                        "final_answer": f"The dashboard has been created successfully."
+                                    })
+                            else:
+                                consecutive_artifact_tool_count = 0
+                                last_artifact_tool_name = None
+
                         if observation and observation.get("analysis_complete"):
                             analysis_done = True
 
@@ -1413,6 +1465,10 @@ class AgentV2:
                         view = self.context_hub.get_view()
                         schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
                         history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+
+                        # Refresh active_artifact after tools that create/edit artifacts
+                        if tool_name in ("create_artifact", "edit_artifact"):
+                            active_artifact = await self._get_active_artifact()
 
                         break
 
@@ -1613,6 +1669,8 @@ class AgentV2:
 
         user_message = (self.head_completion.prompt or {}).get("content", "")
 
+        active_artifact = await self._get_active_artifact()
+
         planner_input = PlannerInput(
             organization_name=self.organization.name,
             organization_ai_analyst_name=self.ai_analyst_name,
@@ -1633,6 +1691,8 @@ class AgentV2:
             external_platform=getattr(self.head_completion, "external_platform", None),
             tool_catalog=self.planner.tool_catalog,
             mode=self.mode,
+            active_artifact=active_artifact,
+            limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
         )
 
         return self.planner.prompt_builder.build_prompt(planner_input)
