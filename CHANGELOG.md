@@ -7,6 +7,8 @@
 - Expose OpenAPI swagger docs
 - Improve animation and frontend look and feel when streaming messages
 - Send PDF attachment when publishing a dashboard
+- Add read_query tool
+- Improve dashboard generation and editing
 
 ## Version 0.0.341 (March 18, 2026)
 - add opentelemetry

@@ -74,7 +74,7 @@ class CreateDashboardTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="create_dashboard",
-            description="Design a stunning dashboard or research report layout from available widgets and context.",
+            description="Design a stunning dashboard or research report layout from available widgets and context. Make sure you have all the required data and visualizations ready before calling this tool.",
             category="action",
             version="2.0.0",
             input_schema=CreateDashboardInput.model_json_schema(),

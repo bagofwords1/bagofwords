@@ -30,6 +30,7 @@ from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
+from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +354,8 @@ class EditArtifactTool(Tool):
             images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
         return f"""You are editing an existing React dashboard. Your job is to apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.
+
+{SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
 EXISTING DASHBOARD CODE

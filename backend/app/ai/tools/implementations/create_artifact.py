@@ -34,6 +34,7 @@ from app.services.thumbnail_service import ThumbnailService
 from app.services.artifact_libs import get_inline_scripts
 from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
+from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
 
 
 class CreateArtifactTool(Tool):
@@ -1364,28 +1365,7 @@ Create a beautiful, varied presentation following these design principles. Each 
 
         return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality dashboard.
 
-═══════════════════════════════════════════════════════════════════════════════
-AVAILABLE LIBRARIES (pre-loaded globally, do NOT import)
-═══════════════════════════════════════════════════════════════════════════════
-
-• **React 18** - `React`, `ReactDOM` available globally
-  - Use hooks: useState, useEffect, useRef, useMemo, useCallback
-  - Create beautiful, reusable components
-
-• **ECharts 5** - `echarts` available globally
-  - Full charting library: bar, line, area, pie, scatter, heatmap, radar, treemap, sunburst, gauge, funnel, sankey, etc.
-  - Rich animations, tooltips, legends, gradients
-  - Responsive with chart.resize()
-
-• **Tailwind CSS** - All utility classes available
-  - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
-  - Dark/light themes, responsive grids, flexbox
-  - Animations: animate-pulse, transition-all, hover effects
-
-• **LoadingSpinner** - `<LoadingSpinner />` available globally
-  - Props: `size` (number, default 24), `className` (string)
-  - Inherits text color via currentColor
-  - Use for loading states instead of building your own
+{SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS - CRITICAL RULES

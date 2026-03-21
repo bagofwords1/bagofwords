@@ -1014,8 +1014,8 @@ const iframeSrcdoc = computed(() => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <script crossorigin src="/libs/react-18.production.min.js">${SC}
-  <script crossorigin src="/libs/react-dom-18.production.min.js">${SC}
+  <script crossorigin src="/libs/react-18.development.js">${SC}
+  <script crossorigin src="/libs/react-dom-18.development.js">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
   <style>
