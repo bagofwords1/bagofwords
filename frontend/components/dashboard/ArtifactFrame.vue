@@ -165,9 +165,27 @@
         class="absolute inset-0"
       />
 
+      <!-- Iframe Render Error State -->
+      <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
+        <Icon name="heroicons:exclamation-triangle" class="w-8 h-8 text-red-400 mb-3" />
+        <h3 class="text-sm font-medium text-gray-700 mb-1">Dashboard failed to render</h3>
+        <p class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 rounded p-2 border">
+          {{ iframeError.length > 200 ? iframeError.slice(0, 200) + '...' : iframeError }}
+        </p>
+        <UButton
+          @click="fixRenderError"
+          size="xs"
+          color="red"
+          variant="soft"
+        >
+          <Icon name="heroicons:wrench-screwdriver" class="w-4 h-4" />
+          Fix Error
+        </UButton>
+      </div>
+
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !iframeError && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
@@ -212,7 +230,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, toRaw } from 'vue';
 import { useMyFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
 import PublishModal from '../PublishModal.vue';
@@ -279,6 +297,9 @@ const isExporting = ref(false);
 
 // Refresh state
 const isRefreshing = ref(false);
+
+// Iframe render error state
+const iframeError = ref<string | null>(null);
 
 // Refresh Dashboard - reruns report queries and refreshes data
 async function refreshDashboard() {
@@ -431,6 +452,18 @@ function generateDashboardPrompt() {
   }));
 }
 
+// Fix render error - prefill prompt with error details
+function fixRenderError() {
+  const errorMsg = iframeError.value || 'Unknown error';
+  const artifactTitle = selectedArtifact.value?.title || 'the dashboard';
+  const artifactId = selectedArtifact.value?.id || selectedArtifactId.value || '';
+  const prompt = `The dashboard "${artifactTitle}" (artifact_id: ${artifactId}) failed to render with this error:\n\`\`\`\n${errorMsg}\n\`\`\`\nPlease fix the artifact code so it renders correctly.`;
+
+  window.dispatchEvent(new CustomEvent('prompt:prefill', {
+    detail: { text: prompt, autoSubmit: false }
+  }));
+}
+
 // State for "Use this version" action
 const isDuplicating = ref(false);
 
@@ -531,6 +564,8 @@ async function fetchSelectedArtifact() {
 
 // Watch for artifact selection changes - refetch data filtered by new artifact
 watch(selectedArtifactId, async (newId, oldId) => {
+  iframeError.value = null;
+  iframeReady.value = false;
   await fetchSelectedArtifact();
   // Only refetch data if this is a user-initiated change (not initial load)
   if (oldId !== undefined) {
@@ -548,8 +583,12 @@ onUnmounted(() => {
 function handleIframeMessage(event: MessageEvent) {
   if (event.data?.type === 'ARTIFACT_READY') {
     console.log('[ArtifactFrame] Iframe ready');
+    iframeError.value = null;
     iframeReady.value = true;
     sendDataToIframe();
+  } else if (event.data?.type === 'ARTIFACT_ERROR') {
+    console.error('[ArtifactFrame] Iframe render error:', event.data.payload?.message);
+    iframeError.value = event.data.payload?.message || 'Unknown render error';
   }
 }
 
@@ -557,15 +596,21 @@ function handleIframeMessage(event: MessageEvent) {
 function sendDataToIframe() {
   if (!iframeRef.value?.contentWindow || !iframeReady.value) return;
 
-  const payload = {
-    report: reportData.value,
-    visualizations: visualizationsData.value
-  };
+  const payload = JSON.parse(JSON.stringify({
+    report: toRaw(reportData.value),
+    visualizations: toRaw(visualizationsData.value)
+  }));
 
-  iframeRef.value.contentWindow.postMessage({
-    type: 'ARTIFACT_DATA',
-    payload
-  }, '*');
+  try {
+    iframeRef.value.contentWindow.postMessage({
+      type: 'ARTIFACT_DATA',
+      payload
+    }, '*');
+  } catch (err: any) {
+    console.error('[ArtifactFrame] Failed to send data to iframe:', err);
+    iframeError.value = err?.message || 'Failed to send data to dashboard iframe';
+    return;
+  }
 
   dataReady.value = true;
   console.log('[ArtifactFrame] Data sent to iframe:', visualizationsData.value.length, 'visualizations');
@@ -969,8 +1014,8 @@ const iframeSrcdoc = computed(() => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <script crossorigin src="/libs/react-18.production.min.js">${SC}
-  <script crossorigin src="/libs/react-dom-18.production.min.js">${SC}
+  <script crossorigin src="/libs/react-18.development.js">${SC}
+  <script crossorigin src="/libs/react-dom-18.development.js">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
   <style>
@@ -1031,9 +1076,60 @@ const iframeSrcdoc = computed(() => {
     setTimeout(window.resizeAllCharts, 500);
     window.addEventListener('resize', window.resizeAllCharts);
     console.log('[Artifact] Data loaded:', window.ARTIFACT_DATA?.visualizations?.length || 0, 'visualizations');
+
+    // Error reporting: send compile/runtime errors to parent
+    window.__artifactErrorSent = false;
+    function reportArtifactError(msg) {
+      if (window.__artifactErrorSent) return;
+      window.__artifactErrorSent = true;
+      window.parent.postMessage({
+        type: 'ARTIFACT_ERROR',
+        payload: { message: msg }
+      }, '*');
+    }
+
+    // Catch uncaught runtime errors
+    window.onerror = function(msg, source, line, col, err) {
+      reportArtifactError((err && err.message) || String(msg));
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      reportArtifactError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+    });
+
+    // Patch ReactDOM.render to wrap with error boundary
+    (function() {
+      class ArtifactErrorBoundary extends React.Component {
+        constructor(props) { super(props); this.state = { hasError: false }; }
+        static getDerivedStateFromError() { return { hasError: true }; }
+        componentDidCatch(error) { reportArtifactError(error.message || String(error)); }
+        render() { return this.state.hasError ? null : this.props.children; }
+      }
+      var origRender = ReactDOM.render;
+      ReactDOM.render = function(element, container) {
+        var wrapped = React.createElement(ArtifactErrorBoundary, null, element);
+        return origRender.call(ReactDOM, wrapped, container);
+      };
+    })();
   ${SC}
 
   ${artifactCode}
+
+  <script>
+    // After Babel processes text/babel scripts, check if render succeeded
+    // Babel standalone transforms on DOMContentLoaded, so we check shortly after
+    window.addEventListener('DOMContentLoaded', function() {
+      setTimeout(function() {
+        if (!window.__artifactErrorSent) {
+          var root = document.getElementById('root');
+          if (root && root.children.length > 0) {
+            window.parent.postMessage({ type: 'ARTIFACT_READY' }, '*');
+          } else if (!window.__artifactErrorSent) {
+            reportArtifactError('Dashboard code did not render any content');
+          }
+        }
+      }, 500);
+    });
+  ${SC}
 </body>
 </html>`;
 });

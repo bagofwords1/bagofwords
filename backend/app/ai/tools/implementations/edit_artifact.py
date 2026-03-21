@@ -6,6 +6,7 @@ code and applies targeted changes based on the user's edit instruction.
 """
 
 import asyncio
+import difflib
 import json
 import logging
 import re
@@ -29,70 +30,252 @@ from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
+from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
 
 logger = logging.getLogger(__name__)
 
+# ─── Diff markers ────────────────────────────────────────────────────────────
+SEARCH_MARKER = "<<<<<<< SEARCH"
+DIVIDER_MARKER = "======="
+REPLACE_MARKER = ">>>>>>> REPLACE"
 
-def apply_search_replace_diff(existing_code: str, diff_text: str) -> Tuple[str, bool, int]:
-    """Apply search/replace diff blocks to existing code.
+DIFF_MARKER_PATTERNS = [
+    re.compile(r'^<{6,}\s*SEARCH\s*$', re.MULTILINE),
+    re.compile(r'^={6,}\s*$', re.MULTILINE),
+    re.compile(r'^>{6,}\s*REPLACE\s*$', re.MULTILINE),
+]
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize text for matching: CRLF→LF, strip trailing whitespace per line,
+    strip stray markdown fences, normalize tabs to spaces."""
+    # CRLF → LF
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Strip stray markdown fences that LLMs sometimes leak into SEARCH blocks
+    text = re.sub(r'^```[\w]*\s*$', '', text, flags=re.MULTILINE)
+    # Tabs → 2 spaces (consistent with typical JSX/React style)
+    text = text.replace("\t", "  ")
+    # Strip trailing whitespace per line
+    text = "\n".join(line.rstrip() for line in text.split("\n"))
+    return text
+
+
+def _find_closest_match(search_text: str, code: str, max_context: int = 200) -> Optional[str]:
+    """Find the closest matching region in code for a failed SEARCH block.
+    Returns a human-readable hint showing what the code actually contains."""
+    search_lines = search_text.strip().split("\n")
+    code_lines = code.split("\n")
+
+    if not search_lines or not code_lines:
+        return None
+
+    # Use SequenceMatcher to find the best matching region
+    best_ratio = 0.0
+    best_start = 0
+    search_len = len(search_lines)
+
+    for i in range(max(1, len(code_lines) - search_len + 1)):
+        candidate = code_lines[i:i + search_len]
+        ratio = difflib.SequenceMatcher(
+            None,
+            "\n".join(search_lines),
+            "\n".join(candidate),
+        ).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_start = i
+
+    if best_ratio < 0.4:
+        return None
+
+    # Show the closest match with line numbers
+    match_end = min(best_start + search_len, len(code_lines))
+    matched_lines = code_lines[best_start:match_end]
+    numbered = [f"  {best_start + j + 1}: {ln}" for j, ln in enumerate(matched_lines[:15])]
+    if len(matched_lines) > 15:
+        numbered.append(f"  ... ({len(matched_lines) - 15} more lines)")
+
+    return (
+        f"Closest match ({best_ratio:.0%} similar) at lines {best_start + 1}-{match_end}:\n"
+        + "\n".join(numbered)
+    )
+
+
+def _validate_diff_structure(diff_text: str) -> Tuple[bool, str]:
+    """Validate that SEARCH/REPLACE markers are properly paired and ordered.
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    lines = diff_text.split("\n")
+    state = "idle"  # idle -> in_search -> in_replace -> idle
+    block_count = 0
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == SEARCH_MARKER:
+            if state != "idle":
+                return False, f"Line {i + 1}: Found SEARCH marker while inside a block (state={state})"
+            state = "in_search"
+        elif stripped == DIVIDER_MARKER and state == "in_search":
+            state = "in_replace"
+        elif stripped == REPLACE_MARKER:
+            if state != "in_replace":
+                return False, f"Line {i + 1}: Found REPLACE marker without matching SEARCH/divider (state={state})"
+            state = "idle"
+            block_count += 1
+
+    if state != "idle":
+        return False, f"Unclosed block at end of output (state={state})"
+
+    return True, ""
+
+
+def _parse_diff_blocks(diff_text: str) -> List[Tuple[str, str]]:
+    """Parse well-formed SEARCH/REPLACE blocks from diff text.
+    Assumes structure has already been validated."""
+    blocks = []
+    lines = diff_text.split("\n")
+    state = "idle"
+    search_lines: List[str] = []
+    replace_lines: List[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == SEARCH_MARKER and state == "idle":
+            state = "in_search"
+            search_lines = []
+            replace_lines = []
+        elif stripped == DIVIDER_MARKER and state == "in_search":
+            state = "in_replace"
+        elif stripped == REPLACE_MARKER and state == "in_replace":
+            blocks.append(("\n".join(search_lines), "\n".join(replace_lines)))
+            state = "idle"
+        elif state == "in_search":
+            search_lines.append(line)
+        elif state == "in_replace":
+            replace_lines.append(line)
+
+    return blocks
+
+
+def _try_match_and_replace(code: str, search: str, replace: str) -> Optional[str]:
+    """Try to find search text in code and replace it. Returns modified code or None.
+
+    Tries in order:
+    1. Exact match
+    2. Normalized match (trailing whitespace, tabs→spaces)
+    """
+    # 1. Exact match
+    if search in code:
+        return code.replace(search, replace, 1)
+
+    # 2. Normalized match
+    norm_code = _normalize_text(code)
+    norm_search = _normalize_text(search)
+
+    if norm_search in norm_code:
+        start_idx = norm_code.index(norm_search)
+        # Map back to original code via line positions
+        norm_lines_before = norm_code[:start_idx].count("\n")
+        orig_lines = code.split("\n")
+        search_line_count = search.split("\n").__len__()
+
+        orig_start = norm_lines_before
+        orig_end = orig_start + search_line_count
+
+        if orig_end <= len(orig_lines):
+            orig_chunk = "\n".join(orig_lines[orig_start:orig_end])
+            return code.replace(orig_chunk, replace, 1)
+
+    return None
+
+
+def apply_search_replace_diff(
+    existing_code: str, diff_text: str
+) -> Tuple[str, bool, int, List[str]]:
+    """Apply search/replace diff blocks to existing code (Aider-style).
+
+    Validates structure, normalizes inputs, and applies all-or-nothing.
+    If ANY block fails to match, the original code is returned unchanged.
 
     Args:
         existing_code: The original code to modify
         diff_text: The LLM output containing SEARCH/REPLACE blocks
 
     Returns:
-        Tuple of (modified_code, all_blocks_applied, num_blocks_found)
+        Tuple of (modified_code, all_blocks_applied, num_blocks_found, failure_details)
     """
-    # Parse SEARCH/REPLACE blocks
-    blocks = re.findall(
-        r'<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE',
-        diff_text,
-        re.DOTALL,
-    )
+    # Normalize inputs
+    diff_text = diff_text.replace("\r\n", "\n").replace("\r", "\n")
 
+    # 1. Structural validation
+    is_valid, error_msg = _validate_diff_structure(diff_text)
+    if not is_valid:
+        logger.warning(f"edit_artifact: Invalid diff structure: {error_msg}")
+        return existing_code, False, 0, [f"Malformed diff structure: {error_msg}"]
+
+    # 2. Parse blocks
+    blocks = _parse_diff_blocks(diff_text)
     if not blocks:
-        return existing_code, False, 0
+        return existing_code, False, 0, []
 
+    # 3. All-or-nothing apply on a copy
     modified = existing_code
-    all_applied = True
+    failure_details: List[str] = []
 
-    for search, replace in blocks:
-        # Try exact match first
-        if search in modified:
-            modified = modified.replace(search, replace, 1)
-            continue
+    for idx, (search, replace) in enumerate(blocks):
+        result = _try_match_and_replace(modified, search, replace)
+        if result is not None:
+            modified = result
+        else:
+            # Block failed — collect diagnostic info
+            search_preview = search[:100].replace("\n", "\\n")
+            detail = f"Block {idx + 1}/{len(blocks)} failed to match. SEARCH ({len(search)} chars): {search_preview}..."
+            closest = _find_closest_match(search, existing_code)
+            if closest:
+                detail += f"\n{closest}"
+            failure_details.append(detail)
+            logger.warning(f"edit_artifact: {detail}")
 
-        # Try normalized match: strip trailing whitespace per line
-        def normalize_lines(text: str) -> str:
-            return "\n".join(line.rstrip() for line in text.split("\n"))
+    if failure_details:
+        # All-or-nothing: discard all changes, return original
+        return existing_code, False, len(blocks), failure_details
 
-        normalized_code = normalize_lines(modified)
-        normalized_search = normalize_lines(search)
+    return modified, True, len(blocks), []
 
-        if normalized_search in normalized_code:
-            # Find the position in normalized code, then apply to original
-            # We need to find the corresponding region in the original code
-            start_idx = normalized_code.index(normalized_search)
 
-            # Count characters in original code up to the same line position
-            norm_lines_before = normalized_code[:start_idx].count("\n")
-            orig_lines = modified.split("\n")
-            search_lines = search.split("\n")
+def sanitize_code_output(code: str, mode: str = "page") -> Tuple[str, List[str]]:
+    """Final safety net: strip diff markers and validate basic structure.
 
-            # Reconstruct the original text at that position
-            orig_start_line = norm_lines_before
-            orig_end_line = orig_start_line + len(search_lines)
+    Returns:
+        Tuple of (sanitized_code, warnings)
+    """
+    warnings: List[str] = []
 
-            if orig_end_line <= len(orig_lines):
-                orig_chunk = "\n".join(orig_lines[orig_start_line:orig_end_line])
-                modified = modified.replace(orig_chunk, replace, 1)
-                continue
+    # Strip any remaining diff markers (should never be in artifact code)
+    for pattern in DIFF_MARKER_PATTERNS:
+        if pattern.search(code):
+            warnings.append("Stripped leftover diff markers from code output.")
+            code = pattern.sub('', code)
 
-        # This block failed to apply
-        all_applied = False
-        logger.warning(f"Search/replace block failed to match. Search text ({len(search)} chars): {search[:100]}...")
+    # Strip stray markdown fences
+    code = re.sub(r'^```[\w]*\s*$', '', code, flags=re.MULTILINE)
 
-    return modified, all_applied, len(blocks)
+    # Clean up excessive blank lines left by stripping
+    code = re.sub(r'\n{4,}', '\n\n\n', code)
+    code = code.strip()
+
+    # Validate basic structure for page mode
+    if mode == "page":
+        if code and '<script' not in code.lower() and len(code) > 100:
+            warnings.append("Page mode code is missing <script> tag — may not render correctly.")
+
+    # Size check: reject suspiciously small code
+    if len(code) < 4000 and not code.strip():
+        warnings.append("Code output is empty after sanitization.")
+
+    return code, warnings
 
 
 class EditArtifactTool(Tool):
@@ -143,12 +326,13 @@ class EditArtifactTool(Tool):
     def _build_edit_prompt(
         self,
         existing_code: str,
-        edit_instruction: str,
+        edit_prompt: str,
         mode: str,
         viz_profiles: List[Dict[str, Any]],
         instructions_context: str = "",
         messages_context: str = "",
         report_title: Optional[str] = None,
+        image_count: int = 0,
     ) -> str:
         """Build the prompt for editing existing artifact code."""
 
@@ -157,14 +341,21 @@ class EditArtifactTool(Tool):
         if mode == "slides":
             return self._build_slides_edit_prompt(
                 existing_code=existing_code,
-                edit_instruction=edit_instruction,
+                edit_prompt=edit_prompt,
                 viz_json=viz_json,
                 instructions_context=instructions_context,
                 messages_context=messages_context,
                 report_title=report_title,
+                image_count=image_count,
             )
 
+        images_context = ""
+        if image_count > 0:
+            images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
+
         return f"""You are editing an existing React dashboard. Your job is to apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.
+
+{SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
 EXISTING DASHBOARD CODE
@@ -178,9 +369,10 @@ EXISTING DASHBOARD CODE
 USER'S EDIT REQUEST
 ═══════════════════════════════════════════════════════════════════════════════
 
-{edit_instruction}
+{edit_prompt}
 
 {f"**Report Title:** {report_title}" if report_title else ""}
+{images_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
 
@@ -216,18 +408,63 @@ Rules:
 - If the user's request requires adding a new visualization or data source, use the visualization data profiles above to access it correctly via data.visualizations[N].
 - If the edit is too large or fundamentally restructures the dashboard (e.g., "completely redesign this"), output the complete new code inside `<script type="text/babel">` and `</script>` tags instead of SEARCH/REPLACE blocks.
 
+═══════════════════════════════════════════════════════════════════════════════
+DATA ACCESS - CRITICAL RULES (applies to ALL edits and full rewrites)
+═══════════════════════════════════════════════════════════════════════════════
+
+Data is available via `window.ARTIFACT_DATA`:
+```javascript
+const data = useArtifactData(); // React hook - returns null while loading
+// data = {{ report: {{id, title, theme}}, visualizations: [...] }}
+```
+
+Each visualization object has this EXACT structure:
+```js
+{{
+  id: "uuid-string",
+  title: "Visualization Title",
+  columns: [
+    {{ "headerName": "AlbumId", "field": "AlbumId" }},
+    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
+    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
+  ],
+  rows: [
+    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
+    // ... more rows
+  ],
+  view: {{ /* chart config hints */ }},
+  dataModel: {{ /* series/axis config */ }}
+}}
+```
+
+**CRITICAL - How to access data:**
+- Use `column.field` to get the key for accessing row data: `row[column.field]`
+- Use `column.headerName` for display labels in table headers
+- Example: `rows.map(row => row[columns[0].field])` to get values for first column
+
+**NEVER HARDCODE DATA or use iframes to embed visualizations.**
+- You MUST use `useArtifactData()` to access ALL data
+- NEVER use `<iframe src="./viz/...">` or any URL-based embedding
+- ALL chart data, KPI values, labels, and metrics MUST come from `data.visualizations[N].rows`
+- The code runs inside a sandboxed iframe and receives data via postMessage — there are no visualization URLs to load
+
 Apply the user's edit now:"""
 
     def _build_slides_edit_prompt(
         self,
         existing_code: str,
-        edit_instruction: str,
+        edit_prompt: str,
         viz_json: str,
         instructions_context: str = "",
         messages_context: str = "",
         report_title: Optional[str] = None,
+        image_count: int = 0,
     ) -> str:
         """Build edit prompt for slides mode (python-pptx code)."""
+
+        images_context = ""
+        if image_count > 0:
+            images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
         return f"""You are editing existing python-pptx presentation code. Apply the user's requested change with surgical precision. Preserve all existing slide structure, styling, and data access unless the user explicitly asked to change it.
 
@@ -243,9 +480,10 @@ EXISTING PYTHON-PPTX CODE
 USER'S EDIT REQUEST
 ═══════════════════════════════════════════════════════════════════════════════
 
-{edit_instruction}
+{edit_prompt}
 
 {f"**Report Title:** {report_title}" if report_title else ""}
+{images_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
 
@@ -453,17 +691,29 @@ Apply the edit now:"""
             logger.warning(f"Failed to extract messages context in edit_artifact: {e}")
             messages_context = ""
 
+        # Load images attached to the head completion for vision-capable models
+        head_completion = runtime_ctx.get("head_completion")
+        head_completion_id = str(head_completion.id) if head_completion else None
+        completion_images = await self._create_tool._load_completion_images(db, head_completion_id)
+
+        # Validate model supports vision if images are present
+        model = runtime_ctx.get("model")
+        if completion_images and not getattr(model, "supports_vision", False):
+            logger.info(f"Model doesn't support vision, skipping {len(completion_images)} completion images")
+            completion_images = []
+
         # Build the edit prompt
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_edit"})
 
         prompt = self._build_edit_prompt(
             existing_code=existing_code,
-            edit_instruction=data.edit_instruction,
+            edit_prompt=data.edit_prompt,
             mode=artifact.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
             messages_context=messages_context,
             report_title=getattr(report, 'title', None) if report else None,
+            image_count=len(completion_images),
         )
 
         # Stream LLM response
@@ -472,6 +722,7 @@ Apply the edit now:"""
 
         async for chunk in llm.inference_stream(
             prompt,
+            images=completion_images if completion_images else None,
             usage_scope="edit_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
         ):
@@ -485,33 +736,54 @@ Apply the edit now:"""
         # Apply the diff
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "applying_edit"})
 
-        new_code, diff_applied, num_blocks = apply_search_replace_diff(existing_code, buffer)
+        new_code, diff_applied, num_blocks, failure_details = apply_search_replace_diff(existing_code, buffer)
 
         if num_blocks == 0:
-            # No diff blocks found — check if LLM output full code as fallback
+            # No diff blocks found — check if LLM output full code as intentional rewrite
             extracted = self._create_tool._extract_code(buffer, mode=artifact.mode)
             if extracted and extracted != buffer.strip():
-                # LLM chose full rewrite
+                # LLM chose full rewrite (no diff markers at all)
                 new_code = extracted
                 diff_applied = False
-                logger.info(f"edit_artifact: No diff blocks found, using full rewrite fallback ({len(new_code)} chars)")
+                logger.info(f"edit_artifact: No diff blocks found, using full rewrite ({len(new_code)} chars)")
             else:
-                # Neither diff nor full code — keep original
+                # Neither diff nor full code — keep original unchanged
                 logger.warning("edit_artifact: No diff blocks and no full code found in LLM output")
                 new_code = existing_code
                 diff_applied = False
                 warnings.append("Could not parse edit from LLM output. The artifact was not modified.")
 
         elif not diff_applied:
-            # Some blocks failed — try full rewrite fallback
-            extracted = self._create_tool._extract_code(buffer, mode=artifact.mode)
-            if extracted and extracted != buffer.strip():
-                new_code = extracted
-                logger.info(f"edit_artifact: Diff partially failed, using full rewrite fallback ({len(new_code)} chars)")
-            else:
-                # Use the partially-applied result
-                logger.warning(f"edit_artifact: {num_blocks} diff blocks found but some failed to apply")
-                warnings.append("Some edit blocks could not be matched exactly. The edit may be partially applied.")
+            # Diff blocks found but some/all failed to match — return original unchanged (Aider-style)
+            # Do NOT attempt _extract_code fallback here — that's what causes marker leakage
+            new_code = existing_code
+            logger.warning(
+                f"edit_artifact: {num_blocks} diff blocks found but failed to apply. "
+                f"Returning original code unchanged. Failures: {failure_details}"
+            )
+            warnings.append(
+                f"Edit failed: {len(failure_details)} of {num_blocks} SEARCH/REPLACE block(s) could not be matched. "
+                "The artifact was NOT modified. Review the failure details and retry with corrected SEARCH text."
+            )
+            for detail in failure_details:
+                warnings.append(detail)
+
+        # Output sanitization: strip any leaked diff markers, validate structure
+        new_code, sanitize_warnings = sanitize_code_output(new_code, mode=artifact.mode)
+        warnings.extend(sanitize_warnings)
+
+        # Size guard: reject suspiciously small output
+        if len(new_code) < 4000 and len(existing_code) >= 4000:
+            logger.warning(
+                f"edit_artifact: Output code ({len(new_code)} chars) is suspiciously small "
+                f"compared to original ({len(existing_code)} chars). Keeping original."
+            )
+            warnings.append(
+                f"Output code was only {len(new_code)} chars vs original {len(existing_code)} chars. "
+                "This looks like a failed edit. The artifact was NOT modified."
+            )
+            new_code = existing_code
+            diff_applied = False
 
         # Update title if provided
         new_title = data.title or artifact.title
@@ -529,7 +801,7 @@ Apply the edit now:"""
             title=new_title,
             mode=artifact.mode,
             content={"code": new_code, "visualization_ids": included_viz_ids},
-            generation_prompt=data.edit_instruction,
+            generation_prompt=data.edit_prompt,
             version=new_version,
             status="completed",
         )
@@ -537,7 +809,8 @@ Apply the edit now:"""
         await db.commit()
         await db.refresh(new_artifact)
 
-        # Generate thumbnail in background (page mode only)
+        # Page mode: take preview screenshot for planner reflection + generate thumbnail
+        screenshot_base64: Optional[str] = None
         if new_artifact.mode == "page":
             artifact_data = {
                 "report": {
@@ -548,6 +821,14 @@ Apply the edit now:"""
                 "visualizations": visualizations,
             }
             thumbnail_html = self._create_tool._build_thumbnail_html(artifact_data, new_code, mode=new_artifact.mode)
+
+            # Take preview screenshot (synchronous, ~3-5s) if model supports vision
+            model = runtime_ctx.get("model")
+            if allow_llm_see_data and model and getattr(model, "supports_vision", False):
+                yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
+                screenshot_base64 = await self._create_tool._take_preview_screenshot(thumbnail_html)
+
+            # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
                 self._create_tool._generate_thumbnail_background(
                     artifact_id=str(new_artifact.id),
@@ -593,6 +874,8 @@ Apply the edit now:"""
             summary_msg += f" — applied {num_blocks} surgical edit(s)"
         else:
             summary_msg += " — fell back to full rewrite"
+        if screenshot_base64:
+            summary_msg += ". Screenshot of the rendered dashboard is attached — review it for visual correctness."
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
@@ -602,8 +885,15 @@ Apply the edit now:"""
             "diff_applied": diff_applied,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
-            "code": new_code,
         }
+
+        # Add preview screenshot for planner reflection (page mode)
+        if screenshot_base64:
+            observation["images"] = [{
+                "data": screenshot_base64,
+                "media_type": "image/png",
+                "source_type": "base64",
+            }]
 
         if warnings:
             observation["warnings"] = warnings

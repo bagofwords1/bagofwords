@@ -103,12 +103,13 @@
 														class="thinking-content"
 													>
 														<template v-if="block.plan_decision?.reasoning || block.reasoning">
-															<template v-if="isBlockFinalized(block)">
-																<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
-															</template>
-															<template v-else>
-																<div class="streaming-text">{{ block.plan_decision?.reasoning || block.reasoning || '' }}</div>
-															</template>
+															<MarkdownRender
+																:content="block.plan_decision?.reasoning || block.reasoning || ''"
+																:final="isBlockFinalized(block)"
+																:typewriter="!isBlockFinalized(block)"
+																:render-code-blocks-as-pre="true"
+																class="markdown-content"
+															/>
 														</template>
 														<template v-else-if="block.status === 'stopped'">
 															<div class="text-gray-400 italic">Generation was stopped before completion.</div>
@@ -121,35 +122,13 @@
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
 							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper">
-								<!-- Finalized: show only MDC -->
-								<template v-if="isBlockFinalized(block)">
-									<MDC :value="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" class="markdown-content" />
-								</template>
-												<!-- Streaming: hybrid layer approach with rolling window -->
-												<template v-else>
-													<div class="hybrid-stream-container">
-														<!-- Layer 1: Plain text streaming (visible, smooth) -->
-														<div class="streaming-layer streaming-layer--active">
-															<div class="streaming-text">
-										<template v-if="getBlockChunks(`${block.id}:content`).length > 0 || getCommittedText(`${block.id}:content`)">
-											<!-- Committed text (no animation, already shown) -->
-											<span class="committed-text">{{ getCommittedText(`${block.id}:content`) }}</span>
-											<!-- Active chunks with fade-in animation -->
-											<span
-												v-for="chunk in getBlockChunks(`${block.id}:content`)"
-												:key="chunk.id"
-												class="chunk-fade"
-											>{{ chunk.text }}</span>
-										</template>
-										<template v-else>{{ block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant }}</template>
-															</div>
-														</div>
-									<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
-									<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
-										<MDC :value="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" class="markdown-content" />
-									</div>
-													</div>
-												</template>
+								<MarkdownRender
+									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
+									:final="isBlockFinalized(block)"
+									:typewriter="!isBlockFinalized(block)"
+									:render-code-blocks-as-pre="true"
+									class="markdown-content"
+								/>
 											</div>
 
 											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
@@ -410,6 +389,7 @@ import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
+import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
@@ -433,6 +413,8 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
+import { MarkdownRender } from 'markstream-vue'
+import 'markstream-vue/index.css'
 
 // Types
 type ChatRole = 'user' | 'system'
@@ -568,19 +550,7 @@ const expandedToolDetails = ref<Set<string>>(new Set())
 // Track blocks where user has manually toggled reasoning (so we don't auto-collapse them)
 const manuallyToggledReasoning = ref<Set<string>>(new Set())
 
-// Debounced content for MDC rendering during streaming (prevents flicker)
-const debouncedBlockContent = ref<Map<string, string>>(new Map())
-// Non-reactive Map for timers - modifying this during render is safe
-const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const CONTENT_DEBOUNCE_MS = 150
-const CONTENT_THRESHOLD = 80 // chars before switching to MDC
 
-// Chunk tracking for fade-in effect during streaming (rolling window)
-const blockChunks = ref<Map<string, { id: number; text: string }[]>>(new Map())
-// Committed text that has been moved out of active chunks (for memory efficiency)
-const committedBlockText = ref<Map<string, string>>(new Map())
-let chunkIdCounter = 0
-const MAX_ACTIVE_CHUNKS = 15 // Keep only last N chunks animated, commit older ones
 
 // Refs for reasoning content elements (used for dynamic ref binding)
 const reasoningRefs = ref<Map<string, HTMLElement | null>>(new Map())
@@ -600,59 +570,7 @@ function scrollReasoningToBottom(blockId: string) {
 	}
 }
 
-function getBlockChunks(blockId: string): { id: number; text: string }[] {
-	return blockChunks.value.get(blockId) || []
-}
 
-function getCommittedText(blockId: string): string {
-	return committedBlockText.value.get(blockId) || ''
-}
-
-function addBlockChunk(blockId: string, text: string) {
-	if (!blockChunks.value.has(blockId)) {
-		blockChunks.value.set(blockId, [])
-	}
-	const chunks = blockChunks.value.get(blockId)!
-	chunks.push({ id: chunkIdCounter++, text })
-	
-	// Rolling window: commit oldest chunks when we exceed the limit
-	while (chunks.length > MAX_ACTIVE_CHUNKS) {
-		const oldest = chunks.shift()
-		if (oldest) {
-			const committed = committedBlockText.value.get(blockId) || ''
-			committedBlockText.value.set(blockId, committed + oldest.text)
-		}
-	}
-}
-
-function clearBlockChunks(blockId: string) {
-	blockChunks.value.delete(blockId)
-	committedBlockText.value.delete(blockId)
-}
-
-function getDebouncedContent(blockId: string, content: string): string {
-	// Update debounced value with delay
-	const existing = debounceTimers.get(blockId)
-	if (existing) clearTimeout(existing)
-	
-	const timer = setTimeout(() => {
-		debouncedBlockContent.value.set(blockId, content)
-	}, CONTENT_DEBOUNCE_MS)
-	debounceTimers.set(blockId, timer)
-	
-	// Return last debounced value or current if none exists
-	return debouncedBlockContent.value.get(blockId) || content
-}
-
-function shouldUseMdcDuringStream(block: CompletionBlock): boolean {
-	const content = block.content || ''
-	// Use MDC for longer content or content with markdown indicators
-	return content.length > CONTENT_THRESHOLD || 
-		content.includes('\n') || 
-		content.includes('```') ||
-		content.includes('**') ||
-		content.includes('- ')
-}
 function isRealCompletion(m: ChatMessage): boolean {
     // During streaming we use a temporary client id like "system-<ts>".
     // Only allow feedback UI when we have a real backend id (UUID) either in
@@ -709,6 +627,8 @@ function getToolComponent(toolName: string) {
 			return CreateArtifactTool
 		case 'read_artifact':
 			return ReadArtifactTool
+		case 'read_query':
+			return ReadQueryTool
 		case 'edit_artifact':
 			return EditArtifactTool
 		case 'answer_question':
@@ -1071,11 +991,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					sysMessage.completion_blocks.splice(insertPos, 0, block)
 				}
-				// Clear streaming chunks when block is finalized so it shows the final content
-				if (block.plan_decision?.analysis_complete || block.status === 'completed') {
-					clearBlockChunks(`${block.id}:content`)
-					clearBlockChunks(`${block.id}:reasoning`)
-				}
 			}
 			break
 
@@ -1107,14 +1022,10 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					const t = String(payload.token || '')
 					if (payload.field === 'content') {
 						block.content = (block.content || '') + t
-						// Track chunk for fade-in animation
-						addBlockChunk(`${payload.block_id}:content`, t)
 					} else if (payload.field === 'reasoning') {
 						block.reasoning = (block.reasoning || '') + t
 						if (!block.plan_decision) block.plan_decision = {}
 						block.plan_decision.reasoning = (block.plan_decision.reasoning || '') + t
-						// Track chunk for fade-in animation
-						addBlockChunk(`${payload.block_id}:reasoning`, t)
 						// Auto-scroll reasoning box
 						nextTick(() => scrollReasoningToBottom(payload.block_id))
 					}
@@ -1123,13 +1034,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'block.delta.text.complete':
-			// Handle text completion finalization
-			if (payload.block_id && payload.field && payload.is_final) {
-				const block = sysMessage.completion_blocks?.find(b => b.id === payload.block_id)
-				if (block) {
-					// Mark field as complete - could be used for UI effects
-				}
-			}
+			// Field finalization marker — no action needed, MarkdownRender handles it via :final
 			break
 
 		case 'block.delta.artifact':
@@ -1494,9 +1399,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				// stop→submit button appear at the same time (don't wait for [DONE])
 				if (['success', 'error', 'stopped'].includes(completionStatus)) {
 					isStreaming.value = false
-					// Clear streaming chunks to free memory (content is preserved in block.content)
-					blockChunks.value.clear()
-					committedBlockText.value.clear()
 				}
 			}
 			// Note: loadReport and refreshContextEstimate are called after [DONE] to avoid blocking
@@ -1849,14 +1751,6 @@ onUnmounted(() => {
 	}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
-	// Clear debounce timers
-	for (const timer of debounceTimers.values()) {
-		clearTimeout(timer)
-	}
-	debounceTimers.clear()
-	// Clear streaming chunks and committed text
-	blockChunks.value.clear()
-	committedBlockText.value.clear()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 })
@@ -2450,80 +2344,7 @@ onMounted(async () => {
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
 }
 
-/* Hybrid streaming container - layers plain text over MDC preview */
-.hybrid-stream-container {
-    position: relative;
-    min-height: 1.625em;
-}
 
-.streaming-layer {
-    transition: opacity 0.3s ease-out;
-}
-
-.streaming-layer--active {
-    position: relative;
-    z-index: 1;
-}
-
-.streaming-layer--mdc-preview {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    opacity: 0;
-    pointer-events: none;
-    z-index: 0;
-}
-
-/* Streaming text container */
-.streaming-text {
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 13px;
-    line-height: 1.625;
-    position: relative;
-}
-
-/* Committed text - already shown, no animation needed */
-.committed-text {
-    display: inline;
-}
-
-/* Each chunk fades in smoothly with blur-to-sharp effect */
-.chunk-fade {
-    display: inline;
-    animation: chunkFadeIn 0.25s ease-out forwards;
-}
-
-@keyframes chunkFadeIn {
-    0% {
-        opacity: 0;
-        filter: blur(3px);
-        transform: translateY(1px);
-    }
-    100% {
-        opacity: 1;
-        filter: blur(0);
-        transform: translateY(0);
-    }
-}
-
-/* Typing cursor at the end */
-.typing-cursor {
-    display: inline-block;
-    width: 2px;
-    height: 1.1em;
-    background: #3b82f6;
-    margin-left: 1px;
-    vertical-align: text-bottom;
-    border-radius: 1px;
-    animation: cursorBlink 0.6s ease-in-out infinite;
-}
-
-@keyframes cursorBlink {
-    0%, 45% { opacity: 1; }
-    50%, 100% { opacity: 0; }
-}
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
 .simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }

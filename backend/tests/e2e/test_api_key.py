@@ -46,7 +46,7 @@ def test_api_key_crud(
     assert listed_key["key_prefix"] == full_key[:12]
     
     # Delete the API key
-    delete_response = delete_api_key(key_id=key_id, user_token=user_token)
+    delete_response = delete_api_key(key_id=key_id, user_token=user_token, org_id=org_id)
     assert delete_response.get("message") == "API key revoked"
     
     # Verify key no longer listed
@@ -137,7 +137,7 @@ def test_deleted_api_key_rejected(
     assert response.status_code == 200
     
     # Delete the key
-    delete_api_key(key_id=key_id, user_token=user_token)
+    delete_api_key(key_id=key_id, user_token=user_token, org_id=org_id)
     
     # Verify it's rejected after deletion
     response = api_key_request(
@@ -178,7 +178,7 @@ def test_multiple_api_keys(
     assert key3["id"] in key_ids
     
     # Delete one, others should remain
-    delete_api_key(key_id=key2["id"], user_token=user_token)
+    delete_api_key(key_id=key2["id"], user_token=user_token, org_id=org_id)
     
     remaining = list_api_keys(user_token=user_token)
     remaining_ids = [k["id"] for k in remaining]

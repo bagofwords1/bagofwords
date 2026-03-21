@@ -1,3 +1,4 @@
+import logging as _logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
@@ -6,6 +7,24 @@ from inspect import signature
 from app.models.membership import Membership, ROLES_PERMISSIONS
 from app.models.instruction import Instruction
 from app.settings.config import settings
+
+_perm_logger = _logging.getLogger(__name__)
+
+
+async def _audit_access_denied(db, user, organization, permission: str, endpoint: str) -> None:
+    """Fire-and-forget audit log for permission denials."""
+    try:
+        from app.ee.audit.service import audit_service
+        await audit_service.log(
+            db=db,
+            organization_id=str(organization.id) if organization else None,
+            action="access.denied",
+            user_id=str(user.id) if user else None,
+            resource_type="permission",
+            details={"permission": permission, "endpoint": endpoint},
+        )
+    except Exception:
+        _perm_logger.debug("_audit_access_denied failed", exc_info=True)
 
 
 def requires_permission(permission, model=None, owner_only=False, allow_public=False):
@@ -60,6 +79,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             membership = result.scalar_one_or_none()
 
             if not membership:
+                await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
             # If model is provided and object_id exists and is not None and is a valid UUID-like string, verify object belongs to organization
@@ -85,6 +105,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                         if allow_public and hasattr(obj, 'status') and obj.status == 'published':
                             pass  # Allow access to published reports
                         elif not is_owner:
+                            await _audit_access_denied(db, user, organization, permission, func.__name__)
                             raise HTTPException(status_code=403, detail="Only the owner can perform this action")
                     else:
                         raise HTTPException(status_code=500, detail="Object does not support ownership checks")
@@ -100,6 +121,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     if not_approved and (is_owner or is_ai_orphan):
                         # allow without role permission
                         return await func(*args, **kwargs)
+                await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="Permission denied")
 
             return await func(*args, **kwargs)
@@ -150,10 +172,12 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
             membership = result.scalar_one_or_none()
 
             if not membership:
+                await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
             # Check role-based permission
             if permission not in ROLES_PERMISSIONS.get(membership.role, set()):
+                await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="Permission denied")
 
             # If data_source_id is provided, check data source specific access
@@ -198,6 +222,7 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
                     has_access = True
                 
                 if not has_access:
+                    await _audit_access_denied(db, user, organization, permission, func.__name__)
                     raise HTTPException(status_code=403, detail="Access denied to this data source")
 
             return await func(*args, **kwargs)

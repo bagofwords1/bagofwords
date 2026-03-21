@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db
@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.core.permissions_decorator import requires_permission
+from app.ee.audit.service import audit_service
 
 from sqlalchemy import select
 
@@ -49,12 +50,26 @@ async def get_my_credentials(
 async def upsert_my_credentials(
     data_source_id: str,
     payload: UserDataSourceCredentialsCreate,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
     ds = await _load_datasource(db, organization, data_source_id)
-    return await svc.upsert_my_credentials(db=db, data_source=ds, user=current_user, payload=payload)
+    result = await svc.upsert_my_credentials(db=db, data_source=ds, user=current_user, payload=payload)
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="credentials.created",
+            user_id=current_user.id,
+            resource_type="data_source",
+            resource_id=data_source_id,
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 
 @router.patch("/data_sources/{data_source_id}/my-credentials", response_model=UserDataSourceCredentialsSchema)
@@ -74,12 +89,25 @@ async def patch_my_credentials(
 @requires_permission('view_data_source', model=DataSource)
 async def delete_my_credentials(
     data_source_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
     ds = await _load_datasource(db, organization, data_source_id)
     await svc.delete_my_credentials(db=db, data_source=ds, user=current_user)
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="credentials.deleted",
+            user_id=current_user.id,
+            resource_type="data_source",
+            resource_id=data_source_id,
+            request=request,
+        )
+    except Exception:
+        pass
     return None
 
 

@@ -51,3 +51,8 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
 4. Expose endpoints in `routes` and mount in `main.py` if new group.
 5. Wire any `ai` or `data_sources` integrations behind services.
 6. Update tests under `backend/tests`.
+
+
+### debugging
+- when working locally, we use `sqlite` db by default, so it is a great resource to debug
+- sqlite3 `backend/db/app.db`

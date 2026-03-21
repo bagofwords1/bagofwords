@@ -31,8 +31,8 @@ def create_azure_provider_and_models(test_client):
                    "credentials": credentials,
                    "models": [
                     {
-                        "model_id": "gpt-4.1",
-                        "name": "GPT-4.1",
+                        "model_id": "gpt-5.4",
+                        "name": "GPT-5.4",
                         "is_custom": False,
                         "is_default": True
                     }
@@ -110,24 +110,18 @@ def create_llm_provider_and_models(test_client):
                    "credentials": credentials,
                    "models": [
                        {
-                           "model_id": "gpt-4.1",
-                           "name": "GPT-4.1",
+                           "model_id": "gpt-5.4",
+                           "name": "GPT-5.4",
                            "is_custom": False
                        },
                        {
-                           "model_id": "gpt-4.1-mini",
-                           "name": "GPT-4.1 Mini",
-                           "is_custom": False
-                       },
-
-                       {
-                           "model_id": "gpt-4o",
-                           "name": "GPT-4o",
+                           "model_id": "gpt-5.4-mini",
+                           "name": "GPT-5.4 Mini",
                            "is_custom": False
                        },
                        {
-                           "model_id": "gpt-4o-mini",
-                           "name": "GPT-4o Mini",
+                           "model_id": "gpt-5.2",
+                           "name": "GPT-5.2",
                            "is_custom": False
                        },
                        {
@@ -172,13 +166,13 @@ def create_openai_provider_with_base_url(test_client):
                 },
                 "models": [
                        {
-                           "model_id": "gpt-4.1",
-                           "name": "GPT-4.1",
+                           "model_id": "gpt-5.4",
+                           "name": "GPT-5.4",
                            "is_custom": False
                        },
                        {
-                           "model_id": "gpt-4.1-mini",
-                           "name": "GPT-4.1 Mini",
+                           "model_id": "gpt-5.4-mini",
+                           "name": "GPT-5.4 Mini",
                            "is_custom": False
                        }
                 ]

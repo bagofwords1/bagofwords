@@ -111,7 +111,8 @@ function getPermissionsForRole(role: string): string[] {
       'manage_connections',
       'view_connections',
       'train_mode',
-      'view_audit_logs'
+      'view_audit_logs',
+      'manage_scim'
     ],
     member: [
       'view_data_source',

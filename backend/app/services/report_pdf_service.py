@@ -45,7 +45,7 @@ class ReportPdfService:
 
                 await page.set_content(html_content, wait_until="networkidle")
 
-                # Wait for React to mount
+                # Wait for React to mount and render content
                 try:
                     await page.wait_for_function("""
                         () => {
@@ -62,8 +62,22 @@ class ReportPdfService:
                 except Exception:
                     pass
 
-                # Wait for chart animations
-                await asyncio.sleep(2)
+                # Wait for charts/tables to render (canvas, svg, table elements)
+                try:
+                    await page.wait_for_function("""
+                        () => {
+                            const root = document.getElementById('root');
+                            if (!root) return false;
+                            const hasContent = root.querySelectorAll('canvas, svg:not([class*="spinner"]):not([class*="loading"]), table, .recharts-wrapper, [class*="chart"], [class*="viz"]').length > 0;
+                            const hasText = root.innerText && root.innerText.trim().length > 20;
+                            return hasContent || hasText;
+                        }
+                    """, timeout=30000)
+                except Exception:
+                    logger.warning("Timed out waiting for chart content to render for artifact %s", artifact_id)
+
+                # Wait for chart animations to settle
+                await asyncio.sleep(3)
 
                 # Generate PDF
                 pdf_bytes = await page.pdf(

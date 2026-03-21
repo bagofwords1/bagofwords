@@ -234,7 +234,18 @@
         </template>
 
         <!-- Bottom Action Buttons (hidden in readonly mode) -->
-        <div v-if="!readonly" class="mt-2 pt-2 border-t border-gray-100 flex items-center">
+        <div v-if="!readonly" class="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <button
+              v-if="isExcel && hasDataForDownload"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-green-600 hover:text-green-700"
+              @click.stop="addToSpreadsheet"
+              title="Add data to Excel spreadsheet"
+            >
+              <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 mr-1" />
+              Add to Spreadsheet
+            </button>
+          </div>
           <div class="flex items-center space-x-2">
             <button
               v-if="!effectiveStep?.created_entity_id"
@@ -278,6 +289,7 @@ import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
+import { useExcel } from '~/composables/useExcel'
 import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 import {
   parseColumnKey,
@@ -305,6 +317,7 @@ const props = defineProps<{
 const emit = defineEmits(['toggleSplitScreen', 'editQuery'])
 
 const { canEditCode } = useOrgSettings()
+const { isExcel } = useExcel()
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(props.initialCollapsed ?? false)
@@ -880,6 +893,26 @@ async function refreshMembership() {
   } catch (e) {
     // noop
   }
+}
+
+function addToSpreadsheet() {
+  const step = effectiveStep.value
+  if (!step?.data?.columns || !step?.data?.rows) return
+  // Build a clean payload with columns (headerName + field) and rows keyed by field
+  const columns = step.data.columns
+  const rows = step.data.rows
+  // Also add lowercase keys to rows for backwards compatibility with cached taskpane
+  const normalizedRows = rows.map((row: any) => {
+    const normalized: Record<string, any> = {}
+    for (const key of Object.keys(row)) {
+      normalized[key] = row[key]
+      const lower = key.toLowerCase().replace(/ /g, '_')
+      if (lower !== key) normalized[lower] = row[key]
+    }
+    return normalized
+  })
+  const payload = { widget: { last_step: { ...step, data: { ...step.data, rows: normalizedRows } } } }
+  window.parent.postMessage({ type: 'applyToExcel', data: JSON.stringify(payload) }, '*')
 }
 
 function onEditClick() {

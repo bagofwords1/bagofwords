@@ -17,6 +17,45 @@ from httpx_oauth.clients.google import GoogleOAuth2
 from app.settings.config import settings
 from app.core.auth import get_jwt_strategy
 
+import logging as _logging
+
+_auth_logger = _logging.getLogger(__name__)
+
+
+async def _audit_auth_event(
+    action: str,
+    request: Request,
+    user_id: str | None = None,
+    details: dict | None = None,
+) -> None:
+    """Fire-and-forget audit log for auth events (login/failure).
+
+    Uses its own session since auth handlers have no injected db session.
+    """
+    try:
+        from app.dependencies import async_session_maker
+        from app.ee.audit.service import audit_service
+
+        ip_address = None
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            ip_address = forwarded.split(",")[0].strip()
+        else:
+            ip_address = request.client.host if request.client else None
+
+        async with async_session_maker() as session:
+            await audit_service.log(
+                db=session,
+                organization_id=None,
+                action=action,
+                user_id=user_id,
+                resource_type="auth",
+                details=details,
+                request=request,
+            )
+    except Exception:
+        _auth_logger.debug("_audit_auth_event failed", exc_info=True)
+
 
 def _cookie_secure() -> bool:
     base_url = (settings.bow_config.base_url or "").lower()
@@ -156,6 +195,11 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
                 body = e.response.json()
             except Exception:
                 body = e.response.text
+            await _audit_auth_event(
+                action="auth.login_failed",
+                request=request,
+                details={"provider": provider, "reason": "token_exchange_failed"},
+            )
             raise HTTPException(status_code=400, detail=f"Token exchange failed: {body}")
 
         access_token = token.get("access_token")
@@ -166,6 +210,11 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
         try:
             account_id, account_email = await client.get_id_email(access_token)
         except Exception as e:
+            await _audit_auth_event(
+                action="auth.login_failed",
+                request=request,
+                details={"provider": provider, "reason": "user_info_fetch_failed"},
+            )
             raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
 
         # Use user manager to link/create
@@ -184,6 +233,13 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
                 msg = urllib.parse.quote(e.detail.get("message") or "You must be invited to create an account.")
                 return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
             raise
+
+        await _audit_auth_event(
+            action="auth.login",
+            request=request,
+            user_id=str(user.id),
+            details={"provider": provider, "email": str(account_email)},
+        )
 
         strategy = get_jwt_strategy()
         jwt_token = await strategy.write_token(user)
@@ -233,6 +289,11 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
                 raise HTTPException(status_code=400, detail=f"Token exchange failed: {detail}")
             token = resp.json()
     except Exception as e:
+        await _audit_auth_event(
+            action="auth.login_failed",
+            request=request,
+            details={"provider": provider, "reason": "token_exchange_failed"},
+        )
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {e}")
 
     access_token = token.get("access_token")
@@ -243,6 +304,11 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
     try:
         account_id, account_email = await client.get_id_email(access_token)
     except Exception as e:
+        await _audit_auth_event(
+            action="auth.login_failed",
+            request=request,
+            details={"provider": provider, "reason": "user_info_fetch_failed"},
+        )
         raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
 
     try:
@@ -260,6 +326,13 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
             msg = urllib.parse.quote(e.detail.get("message") or "You must be invited to create an account.")
             return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
         raise
+
+    await _audit_auth_event(
+        action="auth.login",
+        request=request,
+        user_id=str(user.id),
+        details={"provider": provider, "email": str(account_email)},
+    )
 
     strategy = get_jwt_strategy()
     jwt_token = await strategy.write_token(user)

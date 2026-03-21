@@ -3,6 +3,7 @@ import asyncio
 from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
 from app.core.otel import get_tracer
+from app.ee.audit.tool_audit import log_tool_audit, _truncate_queries
 
 tracer = get_tracer(__name__)
 
@@ -728,6 +729,17 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             if not context_hub or not getattr(context_hub, "schema_builder", None):
                 # Only fail on missing schema_builder if tables were requested and no files available
                 if not has_files:
+                    await log_tool_audit(
+                        runtime_ctx,
+                        action="tool.data_query_failed",
+                        resource_type="report",
+                        resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                        details={
+                            "tool": "create_data",
+                            "error_type": "configuration_error",
+                            "error_message": "Schema builder not available in context",
+                        },
+                    )
                     yield ToolEndEvent(
                         type="tool.end",
                         payload={
@@ -763,6 +775,21 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         
         if total_resolved == 0 and not has_files:
             # No tables resolved AND no files available - fail
+            _requested = [
+                {"data_source_id": str(g.data_source_id), "tables": g.tables}
+                for g in (data.tables_by_source or [])
+            ] if data.tables_by_source else []
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.table_resolution_failed",
+                resource_type="report",
+                resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                details={
+                    "tool": "create_data",
+                    "requested_tables": _requested,
+                    "warnings": resolution_warnings,
+                },
+            )
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -905,6 +932,21 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     yield ToolProgressEvent(type="tool.progress", payload=e["payload"])
                 elif e["type"] == "stdout":
                     yield ToolStdoutEvent(type="tool.stdout", payload=e["payload"])
+                elif e["type"] == "security_violation":
+                    _vtype = e["payload"].get("violation_type", "unknown")
+                    _action = "security.unsafe_code_blocked" if _vtype == "unsafe_python" else "security.unsafe_sql_blocked"
+                    await log_tool_audit(
+                        runtime_ctx,
+                        action=_action,
+                        resource_type="report",
+                        resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                        details={
+                            "tool": "create_data",
+                            "violation_type": _vtype,
+                            "message": e["payload"].get("message", "")[:300],
+                            "code_snippet": e["payload"].get("code_snippet", "")[:300],
+                        },
+                    )
                 elif e["type"] == "done":
                     generated_code = e["payload"].get("code")
                     code_errors = e["payload"].get("errors") or []
@@ -916,6 +958,29 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             codegen_span.set_attribute("codegen.query_count", len(executed_queries))
 
         if generated_code is None or exec_df is None:
+            # Audit: tool execution failure
+            _ds_ids = list({g.get("data_source_id") for g in resolved_tables if g.get("data_source_id")})
+            _tables = [t for g in resolved_tables for t in g.get("tables", [])]
+            _last_err = ""
+            try:
+                _last_err = str(code_errors[-1][1])[:300] if code_errors else ""
+            except Exception:
+                pass
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.data_query_failed",
+                resource_type="report",
+                resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                details={
+                    "tool": "create_data",
+                    "error_type": "execution_failure",
+                    "error_message": _last_err,
+                    "data_source_ids": _ds_ids,
+                    "tables_requested": _tables,
+                    "executed_queries": _truncate_queries(executed_queries),
+                },
+            )
+
             current_step_id = runtime_ctx.get("current_step_id")
             error_observation = {
                 "summary": "Create data failed",
@@ -944,6 +1009,23 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                 },
             )
             return
+
+        # Audit: successful data query
+        _ds_ids = list({g.get("data_source_id") for g in resolved_tables if g.get("data_source_id")})
+        _tables = [t for g in resolved_tables for t in g.get("tables", [])]
+        await log_tool_audit(
+            runtime_ctx,
+            action="tool.data_queried",
+            resource_type="report",
+            resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+            details={
+                "tool": "create_data",
+                "data_source_ids": _ds_ids,
+                "tables_accessed": _tables,
+                "executed_queries": _truncate_queries(executed_queries),
+                "row_count": len(exec_df) if exec_df is not None else 0,
+            },
+        )
 
         # Success path: format data and privacy-aware preview
         formatted = streamer.format_df_for_widget(exec_df)

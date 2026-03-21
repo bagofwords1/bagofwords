@@ -12,7 +12,7 @@
     <!-- Top bar -->
     <div class="flex justify-between items-center p-3">
         <div class="logo md:hidden">
-            <img src="/assets/logo.png" alt="Bag of words" class="h-7" />
+            <img src="/assets/logo-128.png" alt="Bag of words" class="h-7" />
         </div>
         <div class="flex items-center gap-4 ml-auto">
             <div class="hamburger md:hidden">

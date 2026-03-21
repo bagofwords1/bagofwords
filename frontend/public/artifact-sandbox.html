@@ -86,8 +86,10 @@
     (function() {
       'use strict';
 
-      // Store for artifact data received from parent
-      window.ARTIFACT_DATA = null;
+      // Store for artifact data received from parent (preserve if already injected for headless rendering)
+      if (!window.ARTIFACT_DATA) {
+        window.ARTIFACT_DATA = null;
+      }
       window.ARTIFACT_READY = false;
 
       // Listen for data from parent window

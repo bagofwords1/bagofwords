@@ -34,6 +34,7 @@ from app.services.thumbnail_service import ThumbnailService
 from app.services.artifact_libs import get_inline_scripts
 from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
+from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
 
 
 class CreateArtifactTool(Tool):
@@ -98,24 +99,36 @@ class CreateArtifactTool(Tool):
             return None
 
         try:
+            import tempfile, os
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
-                await page.set_content(html_content, wait_until="networkidle")
 
-                # Wait for React to mount and charts to render (short timeout)
+                # Write HTML to a temp file and navigate via file:// URL.
+                # This allows vendored scripts (e.g. Tailwind runtime) that use
+                # document.write() to work correctly — document.write fails on
+                # about:blank pages used by set_content().
+                tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8")
                 try:
-                    await page.wait_for_function(
-                        "window.__ARTIFACT_RENDER_COMPLETE__ === true",
-                        timeout=8000,
-                    )
-                except Exception:
-                    pass  # Take screenshot anyway — partial render is still useful
+                    tmp.write(html_content)
+                    tmp.close()
+                    await page.goto(f"file://{tmp.name}", wait_until="networkidle")
 
-                await asyncio.sleep(0.3)
-                screenshot_bytes = await page.screenshot(type="png", full_page=False)
-                await browser.close()
-                return base64.b64encode(screenshot_bytes).decode("utf-8")
+                    # Wait for React to mount and charts to render (short timeout)
+                    try:
+                        await page.wait_for_function(
+                            "window.__ARTIFACT_RENDER_COMPLETE__ === true",
+                            timeout=8000,
+                        )
+                    except Exception:
+                        pass  # Take screenshot anyway — partial render is still useful
+
+                    await asyncio.sleep(0.3)
+                    screenshot_bytes = await page.screenshot(type="png", full_page=False)
+                    await browser.close()
+                    return base64.b64encode(screenshot_bytes).decode("utf-8")
+                finally:
+                    os.unlink(tmp.name)
         except Exception as e:
             logger.warning(f"Preview screenshot failed: {e}")
             return None
@@ -237,78 +250,92 @@ class CreateArtifactTool(Tool):
 </html>"""
             return slides_template.replace("__SLIDES_SCRIPTS__", slides_scripts).replace("__ARTIFACT_DATA_JSON__", data_json).replace("__LLM_GENERATED_CODE__", code)
 
-        # Page mode: Read the sandbox HTML file for React/Babel
-        try:
-            sandbox_html = self.SANDBOX_HTML_PATH.read_text()
-        except FileNotFoundError:
-            logger.error(f"Sandbox HTML not found at {self.SANDBOX_HTML_PATH}")
-            raise
-
-        # Replace local /libs/... script tags with inline scripts for headless browser
-        # (page.set_content renders at about:blank where relative paths don't resolve)
-        import re
+        # Page mode: Build self-contained HTML mirroring ArtifactFrame.vue's approach.
+        # Uses inline scripts and injects LLM code directly (not inside a <script> tag)
+        # to avoid HTML parser issues with </script> in LLM-generated code.
         page_scripts = get_inline_scripts(mode="page")
-        sandbox_html = re.sub(
-            r'<script[^>]*src="/libs/[^"]*"[^>]*></script>\s*',
-            '',
-            sandbox_html,
-        )
-        sandbox_html = sandbox_html.replace('</head>', f'{page_scripts}\n</head>')
+        SC = '</' + 'script>'  # Avoid parser issues in this Python string too
 
-        # Inject data directly for headless rendering
-        data_script = f"""
-    <script>
-      window.ARTIFACT_DATA = {data_json};
-      window.__ARTIFACT_RENDER_COMPLETE__ = false;
-      var loader = document.getElementById('global-loader');
-      if (loader) loader.classList.add('hidden');
-    </script>
-    """
-        html = sandbox_html.replace("<body>", f"<body>\n{data_script}")
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {page_scripts}
+  <style>
+    html, body, #root {{ height: 100%; margin: 0; padding: 0; }}
+    body {{ font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
 
-        # Replace the LLM_GENERATED_CODE placeholder with actual code
-        html = html.replace("<!-- LLM_GENERATED_CODE -->", code)
+  <script>
+    window.ARTIFACT_DATA = {data_json};
+    window.__ARTIFACT_RENDER_COMPLETE__ = false;
 
-        # Smart render detection: polls DOM until React mounts and spinners disappear
-        render_complete_script = """
-    <script>
-      (function detectRenderComplete() {
-        var startTime = Date.now();
-        var MAX_WAIT = 15000;
+    window.useArtifactData = function() {{
+      return window.ARTIFACT_DATA;
+    }};
 
-        function check() {
-          if (Date.now() - startTime > MAX_WAIT) {
-            window.__ARTIFACT_RENDER_COMPLETE__ = true;
-            return;
-          }
+    window.LoadingSpinner = function(props) {{
+      var size = props && props.size ? props.size : 24;
+      return React.createElement('svg', {{
+        xmlns: 'http://www.w3.org/2000/svg', width: size, height: size, viewBox: '0 0 24 24',
+        className: props && props.className ? props.className : ''
+      }},
+        React.createElement('path', {{ fill: 'currentColor',
+          d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z', opacity: '0.5' }}),
+        React.createElement('path', {{ fill: 'currentColor',
+          d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z' }},
+          React.createElement('animateTransform', {{
+            attributeName: 'transform', dur: '1s', from: '0 12 12',
+            repeatCount: 'indefinite', to: '360 12 12', type: 'rotate' }}))
+      );
+    }};
 
-          var root = document.getElementById('root');
-          if (!root || root.children.length === 0) {
-            setTimeout(check, 200);
-            return;
-          }
+    window.resizeAllCharts = function() {{
+      if (typeof echarts !== 'undefined') {{
+        var charts = document.querySelectorAll('[_echarts_instance_]');
+        charts.forEach(function(el) {{
+          var chart = echarts.getInstanceByDom(el);
+          if (chart) chart.resize();
+        }});
+      }}
+    }};
+    setTimeout(window.resizeAllCharts, 100);
+    setTimeout(window.resizeAllCharts, 500);
+    window.addEventListener('resize', window.resizeAllCharts);
+  {SC}
 
-          var spinners = root.querySelectorAll('svg animateTransform');
-          for (var i = 0; i < spinners.length; i++) {
-            var svg = spinners[i].closest('svg');
-            if (svg && svg.offsetWidth > 0 && svg.offsetHeight > 0) {
-              setTimeout(check, 200);
-              return;
-            }
-          }
+  {code}
 
-          var hasCharts = root.querySelectorAll('canvas').length > 0;
-          setTimeout(function() {
-            window.__ARTIFACT_RENDER_COMPLETE__ = true;
-          }, hasCharts ? 1500 : 300);
-        }
-
-        setTimeout(check, 200);
-      })();
-    </script>
-    """
-        html = html.replace("</body>", f"{render_complete_script}</body>")
-
+  <script>
+    (function detectRenderComplete() {{
+      var startTime = Date.now();
+      var MAX_WAIT = 15000;
+      function check() {{
+        if (Date.now() - startTime > MAX_WAIT) {{
+          window.__ARTIFACT_RENDER_COMPLETE__ = true;
+          return;
+        }}
+        var root = document.getElementById('root');
+        if (!root || root.children.length === 0) {{
+          setTimeout(check, 200);
+          return;
+        }}
+        var hasCharts = root.querySelectorAll('canvas').length > 0 ||
+                        root.querySelectorAll('[_echarts_instance_]').length > 0;
+        setTimeout(function() {{
+          window.resizeAllCharts && window.resizeAllCharts();
+          window.__ARTIFACT_RENDER_COMPLETE__ = true;
+        }}, hasCharts ? 1500 : 300);
+      }}
+      setTimeout(check, 200);
+    }})();
+  {SC}
+</body>
+</html>"""
         return html
 
     async def _fix_code(
@@ -953,7 +980,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "mode": data.mode,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
-            "code": code,  # Include code for iteration context (compacted by observation builder after next artifact)
         }
 
         # Add preview screenshot for planner reflection (page mode)
@@ -1364,28 +1390,7 @@ Create a beautiful, varied presentation following these design principles. Each 
 
         return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality dashboard.
 
-═══════════════════════════════════════════════════════════════════════════════
-AVAILABLE LIBRARIES (pre-loaded globally, do NOT import)
-═══════════════════════════════════════════════════════════════════════════════
-
-• **React 18** - `React`, `ReactDOM` available globally
-  - Use hooks: useState, useEffect, useRef, useMemo, useCallback
-  - Create beautiful, reusable components
-
-• **ECharts 5** - `echarts` available globally
-  - Full charting library: bar, line, area, pie, scatter, heatmap, radar, treemap, sunburst, gauge, funnel, sankey, etc.
-  - Rich animations, tooltips, legends, gradients
-  - Responsive with chart.resize()
-
-• **Tailwind CSS** - All utility classes available
-  - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
-  - Dark/light themes, responsive grids, flexbox
-  - Animations: animate-pulse, transition-all, hover effects
-
-• **LoadingSpinner** - `<LoadingSpinner />` available globally
-  - Props: `size` (number, default 24), `className` (string)
-  - Inherits text color via currentColor
-  - Use for loading states instead of building your own
+{SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS - CRITICAL RULES

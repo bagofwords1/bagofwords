@@ -18,7 +18,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
-    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Action details

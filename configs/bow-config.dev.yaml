@@ -44,6 +44,9 @@ smtp_settings:
   username: "resend"
   password: ${BOW_SMTP_PASSWORD}
 
+swagger:
+  enabled: true
+
 intercom:
   enabled: true
 

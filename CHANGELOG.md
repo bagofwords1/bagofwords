@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.342 (March 22, 2026)
+- Fix context bloat when designing dashboards
+- Add full SCIM support
+- Enhanced audit trail with more activities
+- Expose OpenAPI swagger docs
+- Improve animation and frontend look and feel when streaming messages
+- Send PDF attachment when publishing a dashboard
+- Add read_query tool
+- Improve dashboard generation and editing
+- BOW for Excel initial set up
+- New: GPT-5.4 and GPT-5.4-mini native integration
+
 ## Version 0.0.341 (March 18, 2026)
 - add opentelemetry
 

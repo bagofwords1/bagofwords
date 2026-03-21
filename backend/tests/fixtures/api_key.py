@@ -39,14 +39,17 @@ def list_api_keys(test_client):
 
 @pytest.fixture
 def delete_api_key(test_client):
-    def _delete_api_key(key_id, user_token):
+    def _delete_api_key(key_id, user_token, org_id=None):
+        headers = {"Authorization": f"Bearer {user_token}"}
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
         response = test_client.delete(
             f"/api/api_keys/{key_id}",
-            headers={"Authorization": f"Bearer {user_token}"}
+            headers=headers
         )
         assert response.status_code == 200, response.json()
         return response.json()
-    
+
     return _delete_api_key
 
 
