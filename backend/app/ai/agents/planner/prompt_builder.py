@@ -243,6 +243,7 @@ EXPECTED JSON OUTPUT (strict):
 CRITICAL: If you are calling a tool (action is not null), set analysis_complete=false. 
 The tool needs to execute first before analysis can be complete.
 """
+        breakpoint()
         return prompt
     
     @staticmethod
