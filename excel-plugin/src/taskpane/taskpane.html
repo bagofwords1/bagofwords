@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bag of words - Excel Add-on</title>
+
+    <!-- Office JavaScript API -->
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+
+</head>
+
+<body>
+    <iframe
+      id="webAppFrame"
+      src="https://localhost:3000"
+      style="width: 100%; background-color: #fff; height: 100%; min-height: 100%; height:600px; border: none;"
+    ></iframe>
+
+    <script>
+        Office.onReady((info) => {
+            if (info.host === Office.HostType.Excel) {
+                const iframe = document.getElementById('webAppFrame');
+                
+                function sendExcelInitializedMessage() {
+                    try {
+                        if (iframe && iframe.contentWindow) {
+                            iframe.contentWindow.postMessage({ type: 'excelInitialized' }, '*');
+                        }
+                    } catch (error) {
+                        console.error('Error sending message to iframe:', error);
+                    }
+                }
+
+                iframe.onload = () => {
+                    setTimeout(sendExcelInitializedMessage, 1000);
+                };
+
+                sendExcelInitializedMessage();
+
+                setInterval(sendExcelInitializedMessage, 5000);
+
+                // Listen for messages from the iframe
+                window.addEventListener('message', handleMessage);
+
+                // Add event listener for cell selection
+                Excel.run(async (context) => {
+                    context.workbook.worksheets.onSelectionChanged.add(handleSelectionChange);
+                    await context.sync();
+                    console.log("Selection change event listener added");
+                    
+                    // Immediately get and send the current selection
+                    await sendCurrentSelection(context);
+                });
+            }
+        });
+
+        function handleMessage(event) {
+            if (event.data.type === 'applyToExcel') {
+                try {
+                    const parsedData = typeof event.data.data === 'string'
+                        ? JSON.parse(event.data.data)
+                        : event.data.data;
+                    appendDataToExcel(parsedData);
+                } catch (error) {
+                    console.error('Error handling applyToExcel:', error);
+                }
+            }
+        }
+
+        function appendDataToExcel(data) {
+            Excel.run(async (context) => {
+                const range = context.workbook.getSelectedRange();
+                range.load("address");
+                range.load("rowIndex");
+                range.load("columnIndex");
+                await context.sync();
+
+                let colDefs, rows;
+                if (data.widget && data.widget.last_step && data.widget.last_step.data) {
+                    colDefs = data.widget.last_step.data.columns;
+                    rows = data.widget.last_step.data.rows;
+                } else {
+                    console.error('Unexpected data structure:', data);
+                    return;
+                }
+
+                console.log('[appendDataToExcel] colDefs:', JSON.stringify(colDefs));
+                console.log('[appendDataToExcel] first row:', JSON.stringify(rows[0]));
+                console.log('[appendDataToExcel] first row keys:', rows[0] ? Object.keys(rows[0]) : 'NONE');
+
+                const headers = colDefs.map(col => col.headerName || col.field || '');
+                const values = [headers];
+                for (const row of rows) {
+                    values.push(colDefs.map(col => {
+                        const field = col.field || col.colId || col.headerName;
+                        const value = row[field];
+                        if (value === undefined || value === null) return '';
+                        return typeof value === 'object' ? JSON.stringify(value) : value;
+                    }));
+                }
+
+                console.log('[appendDataToExcel] values[1]:', JSON.stringify(values[1]));
+
+                const sheet = range.worksheet;
+                const startRow = range.rowIndex;
+                const startCol = range.columnIndex;
+
+                const targetRange = sheet.getRangeByIndexes(startRow, startCol, values.length, headers.length);
+                targetRange.values = values;
+
+                const headerRange = sheet.getRangeByIndexes(startRow, startCol, 1, headers.length);
+                headerRange.format.fill.color = "#ADD8E6";
+                headerRange.format.font.bold = true;
+
+                const borders = ["EdgeTop", "EdgeBottom", "EdgeLeft", "EdgeRight", "InsideHorizontal", "InsideVertical"];
+                for (const b of borders) {
+                    targetRange.format.borders.getItem(b).style = 'Continuous';
+                    targetRange.format.borders.getItem(b).weight = 'Thin';
+                }
+                targetRange.getEntireColumn().format.autofitColumns();
+
+                await context.sync();
+                console.log('[appendDataToExcel] Data appended successfully');
+            }).catch(err => console.error('Excel.run error:', err));
+        }
+
+        async function handleSelectionChange(event) {
+            console.log("Selection changed event triggered");
+            await Excel.run(async (context) => {
+                await sendCurrentSelection(context);
+            });
+        }
+
+        async function sendCurrentSelection(context) {
+            const range = context.workbook.getSelectedRange();
+            range.load("address");
+            const sheet = range.worksheet;
+            sheet.load("name");
+            
+            await context.sync();
+            
+            const sheetData = await getSheetData(context, sheet);
+            
+            // Post message to iframe
+            const iframe = document.getElementById('webAppFrame');
+            const message = {
+                type: 'cellSelected',
+                address: range.address,
+                sheetName: sheet.name,
+                sheetData: sheetData
+            };
+            console.log('Sending message:', message);
+            try {
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage(message, '*');
+                }
+            } catch (error) {
+                console.error('Error sending message to iframe:', error);
+            }
+        }
+
+        async function getSheetData(context, sheet) {
+            const usedRange = sheet.getUsedRange();
+            usedRange.load("values");
+            await context.sync();
+            return usedRange.values;
+        }
+    </script>
+</body>
+
+</html>

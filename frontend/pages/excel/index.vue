@@ -3,7 +3,7 @@
         <!-- Top bar -->
         <div class="flex justify-between items-center p-3">
             <div class="logo">
-                <!-- Replace with your actual logo -->
+                <img src="/assets/logo-128.png" class="h-7" alt="Logo" />
             </div>
             <div class="hamburger">
                 <!-- Add hamburger icon (you can replace this with an icon component if you're using one) -->
