@@ -1,13 +1,23 @@
 <template>
     <div class="flex-shrink-0 p-4 pb-8 bg-white">
-        <!-- Instructions button (minimal) -->
-        <div class="mb-2">
+        <!-- Instructions button + Excel selection hint -->
+        <div class="mb-2 flex items-center justify-between">
             <button
                 class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 text-xs flex items-center"
                 @click="openInstructions"
             >
                 <Icon name="heroicons-cube" class="w-4 h-4 mr-1" />
                 Instructions
+            </button>
+            <button
+                v-if="isExcel && excelSelection && !excelSelectionDismissed"
+                class="text-gray-400 hover:text-gray-600 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-50 transition-colors"
+                @click="addExcelSelectionToPrompt"
+                :title="excelSelectionTooltip"
+            >
+                <span class="text-green-500">●</span>
+                <span class="truncate max-w-[160px]">{{ excelSelectionLabel }}</span>
+                <span class="text-gray-300 hover:text-gray-500 ml-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
 
@@ -248,6 +258,7 @@ import Spinner from '@/components/Spinner.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import { useCan } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
+import { useExcel } from '@/composables/useExcel'
 
 const props = defineProps({
     report_id: String,
@@ -281,6 +292,55 @@ const inlineMentions = ref<any[]>([])
 const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
 const isDraggingFiles = ref(false)
 let dragCounter = 0 // Track enter/leave for nested elements
+
+// Excel selection hint
+const { isExcel, excelSelection } = useExcel()
+const excelSelectionDismissed = ref(false)
+
+const excelSelectionLabel = computed(() => {
+    if (!excelSelection.value) return ''
+    const addr = excelSelection.value.address.replace(/^.*!/, '') // strip sheet prefix from address
+    const count = excelSelection.value.totalCellCount
+    return `${addr} (${count} cell${count !== 1 ? 's' : ''})`
+})
+
+const excelSelectionTooltip = computed(() => {
+    if (!excelSelection.value) return ''
+    const s = excelSelection.value
+    let tip = `${s.sheetName} ${s.address} — ${s.totalCellCount} cells`
+    if (s.truncated) tip += ` (truncated to ${s.cellCount})`
+    return tip + '\nClick to add to prompt'
+})
+
+// Re-show hint when selection changes
+watch(excelSelection, () => {
+    excelSelectionDismissed.value = false
+})
+
+function addExcelSelectionToPrompt() {
+    if (!excelSelection.value) return
+    const s = excelSelection.value
+    const rows = s.selectionValues
+    if (!rows || rows.length === 0) return
+
+    // Build a compact markdown table
+    const header = rows[0].map((v: any) => v == null ? '' : String(v))
+    const separator = header.map(() => '---')
+    const dataRows = rows.slice(1).map((row: readonly any[]) =>
+        row.map((v: any) => v == null ? '' : String(v)).join(' | ')
+    )
+    const lines = [
+        `[Excel: ${s.sheetName} ${s.address}]`,
+        header.join(' | '),
+        separator.join(' | '),
+        ...dataRows
+    ]
+    if (s.truncated) lines.push(`... truncated (${s.totalCellCount} total cells)`)
+
+    const snippet = lines.join('\n')
+    text.value = text.value ? text.value + '\n\n' + snippet : snippet
+    excelSelectionDismissed.value = true
+}
 
 // Watch for changes in initialSelectedDataSources (from domain selector)
 // On landing page (no report_id): always sync with domain selector
@@ -575,9 +635,29 @@ const submitTooltip = computed(() => {
     return ''
 })
 
+function formatExcelSelectionPrefix(): string {
+    if (!isExcel.value || !excelSelection.value || excelSelectionDismissed.value) return ''
+    const s = excelSelection.value
+    const vals = s.selectionValues
+    const lines = [`[Excel selection: ${s.sheetName} ${s.address}]`]
+    if (vals && vals.length > 0) {
+        lines.push(...vals.map((row: readonly any[]) =>
+            row.map((v: any) => v == null ? '' : String(v)).join(', ')
+        ))
+    }
+    if (s.truncated) lines.push(`... truncated (${s.totalCellCount} total cells)`)
+    return lines.join('\n')
+}
+
 function submit() {
     if (!canSubmit.value) return
-    
+
+    // Prepend Excel selection data if hint is active
+    const excelPrefix = formatExcelSelectionPrefix()
+    if (excelPrefix) {
+        text.value = excelPrefix + '\n\n' + text.value
+    }
+
     // Organize inline mentions by type
     const mentionsByType = {
         data_sources: inlineMentions.value.filter(m => m.type === 'data_source'),
