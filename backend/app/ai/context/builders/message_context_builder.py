@@ -265,6 +265,21 @@ class MessageContextBuilder:
                                         digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'edit_artifact' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    digest_parts = []
+                                    if rj.get('title'):
+                                        digest_parts.append(f"artifact: {rj.get('title')}")
+                                    if rj.get('mode'):
+                                        digest_parts.append(f"mode: {rj.get('mode')}")
+                                    if rj.get('artifact_id'):
+                                        digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                    if rj.get('version'):
+                                        digest_parts.append(f"v{rj.get('version')}")
+                                    if rj.get('diff_applied') is not None:
+                                        digest_parts.append("diff" if rj.get('diff_applied') else "rewrite")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'read_artifact' and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     digest_parts = []
@@ -671,6 +686,21 @@ class MessageContextBuilder:
                                 viz_ids = rj.get('visualization_ids') or []
                                 if viz_ids:
                                     digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'edit_artifact' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                digest_parts = []
+                                if rj.get('title'):
+                                    digest_parts.append(f"artifact: {rj.get('title')}")
+                                if rj.get('mode'):
+                                    digest_parts.append(f"mode: {rj.get('mode')}")
+                                if rj.get('artifact_id'):
+                                    digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                if rj.get('version'):
+                                    digest_parts.append(f"v{rj.get('version')}")
+                                if rj.get('diff_applied') is not None:
+                                    digest_parts.append("diff" if rj.get('diff_applied') else "rewrite")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'read_artifact' and tool_execution.result_json:
