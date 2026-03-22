@@ -29,6 +29,10 @@ class Report(BaseSchema):
     conversation_share_token = Column(String, nullable=True, unique=True, index=True)
     conversation_share_enabled = Column(Boolean, default=False, nullable=False)
 
+    # Fork lineage
+    forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
+    forked_from = relationship("Report", remote_side="Report.id", lazy="selectin")
+
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
     user = relationship("User", back_populates="reports", lazy="selectin")
 

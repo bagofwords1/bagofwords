@@ -4,10 +4,12 @@ from app.dependencies import get_db, get_async_db
 from app.dependencies import get_current_organization
 from app.ee.audit.service import audit_service
 
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 from app.services.report_service import ReportService
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
+from app.services.fork_service import fork_service
 from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
@@ -18,12 +20,24 @@ from app.schemas.dashboard_layout_version_schema import (
 )
 from app.models.user import User
 
-from app.core.auth import current_user
+from app.core.auth import current_user, current_user_optional
 from app.models.organization import Organization
 from app.core.permissions_decorator import requires_permission
 from app.models.report import Report
 from app.settings.config import settings as app_settings
 from sqlalchemy import select
+
+
+class ForkRequest(BaseModel):
+    title: Optional[str] = None
+
+
+class ForkResponse(BaseModel):
+    id: str
+    title: str
+    forked_from_id: str
+    slug: str
+
 
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
@@ -147,6 +161,38 @@ async def toggle_conversation_share(report_id: str, current_user: User = Depends
     """Toggle conversation sharing for a report. Returns enabled status and share token."""
     return await report_service.toggle_conversation_share(db, report_id, current_user, organization)
 
+@router.post("/reports/{report_id}/fork", response_model=ForkResponse)
+@requires_permission('create_reports')
+async def fork_report(
+    report_id: str,
+    body: ForkRequest,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Fork a published/shared report into the current user's workspace."""
+    new_report = await fork_service.fork_report(
+        db, report_id, current_user, title=body.title,
+    )
+    await audit_service.log(
+        db=db,
+        organization_id=organization.id,
+        action="report.forked",
+        user_id=current_user.id,
+        resource_type="report",
+        resource_id=new_report.id,
+        details={"forked_from_id": report_id, "title": new_report.title},
+        request=request,
+    )
+    return ForkResponse(
+        id=str(new_report.id),
+        title=new_report.title,
+        forked_from_id=report_id,
+        slug=new_report.slug,
+    )
+
+
 @router.post("/reports/{report_id}/notify", response_model=NotifyResponse)
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def notify_report(
@@ -211,19 +257,53 @@ async def notify_report(
     return response
 
 
-@router.get("/r/{report_id}", response_model=ReportSchema)
-async def get_public_report(report_id: str, db: AsyncSession = Depends(get_async_db)):
-    return await report_service.get_public_report(db, report_id)
+@router.get("/r/{report_id}")
+async def get_public_report(
+    report_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    schema = await report_service.get_public_report(db, report_id)
+    result = schema.model_dump()
+    # Check fork eligibility for logged-in users
+    from sqlalchemy.orm import selectinload
+    from app.models.data_source import DataSource
+    report_result = await db.execute(
+        select(Report)
+        .options(selectinload(Report.data_sources).selectinload(DataSource.connections))
+        .where(Report.id == report_id)
+    )
+    report_obj = report_result.unique().scalar_one_or_none()
+    if report_obj:
+        eligibility = await fork_service.check_eligibility(db, report_obj, user)
+        result["fork_eligibility"] = eligibility.to_dict()
+    return result
 
 @router.get("/c/{token}")
 async def get_public_conversation(
     token: str,
     limit: int = 10,
     before: str | None = None,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
 ):
     """Public endpoint to fetch a shared conversation by its token. Supports pagination."""
-    return await report_service.get_public_conversation(db, token, limit=limit, before=before)
+    result = await report_service.get_public_conversation(db, token, limit=limit, before=before)
+    # Attach fork eligibility if user is logged in
+    report_id = result.get("report_id") if isinstance(result, dict) else None
+    if report_id:
+        from sqlalchemy.orm import selectinload
+        from app.models.data_source import DataSource
+        report_result = await db.execute(
+            select(Report)
+            .options(selectinload(Report.data_sources).selectinload(DataSource.connections))
+            .where(Report.id == report_id)
+        )
+        report_obj = report_result.unique().scalar_one_or_none()
+        if report_obj:
+            eligibility = await fork_service.check_eligibility(db, report_obj, user)
+            result["fork_eligibility"] = eligibility.to_dict()
+    return result
 
 
 # --- Public Query/Step Routes (for published reports) ---

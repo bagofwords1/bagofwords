@@ -58,6 +58,10 @@ class ReportSchema(ReportBase):
     thumbnail_url: Optional[str] = None
     # Scheduled rerun notification subscribers
     notification_subscribers: Optional[List[dict]] = None
+    # Fork lineage
+    forked_from_id: Optional[str] = None
+    forked_from_title: Optional[str] = None
+    forked_from_user_name: Optional[str] = None
 
     class Config:
         from_attributes = True

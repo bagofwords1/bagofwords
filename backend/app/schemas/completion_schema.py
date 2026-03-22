@@ -46,6 +46,10 @@ class CompletionSchema(CompletionBase):
     external_platform: Optional[str] = None
     external_message_id: Optional[str] = None
     external_user_id: Optional[str] = None
+    # Fork summary fields
+    is_fork_summary: Optional[str] = None
+    source_report_id: Optional[str] = None
+    fork_asset_refs: Optional[List[dict]] = None
 
     class Config:
         from_attributes = True

@@ -21,7 +21,7 @@
 	>
 		<template #left>
 	<div class="flex flex-col h-screen overflow-y-hidden bg-white relative">
-		<ReportHeader 
+		<ReportHeader
 			v-if="report"
 			:report="report"
 			:isSplitScreen="isSplitScreen"
@@ -30,16 +30,50 @@
 			@stop="abortStream"
 		/>
 
+		<!-- Fork banner -->
+		<ForkBanner
+			v-if="report?.forked_from_id"
+			:forked-from-id="report.forked_from_id"
+			:forked-from-title="report.forked_from_title"
+			:forked-from-user-name="report.forked_from_user_name"
+		/>
+
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
 			<div class="pl-4 pr-2 pb-[3px]" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full mx-auto'">
+
+				<!-- Forked queries panel (shown for forked reports) -->
+				<ForkedQueriesPanel
+					v-if="forkedQueries.length > 0"
+					:queries="forkedQueries"
+					:artifact-ref="forkedArtifactRef"
+				/>
+
+				<!-- Fork summary separator -->
+				<div v-if="report?.forked_from_id && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
+					<div class="flex-1 border-t border-dashed border-gray-200"></div>
+					<span class="text-[10px] text-gray-300 uppercase tracking-wider">Your conversation</span>
+					<div class="flex-1 border-t border-dashed border-gray-200"></div>
+				</div>
+
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
 					<!-- Top loader for older pages -->
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline mr-2" /> Loading older messages…
 					</li>
 					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
+						<!-- Fork summary card (special rendering) -->
+						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
+							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
+								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
+								<span class="font-medium">Summary of original analysis</span>
+							</div>
+							<div class="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
+						</div>
+
+						<!-- Regular message rendering -->
 						<div
+							v-else
 							class="flex rounded-lg p-1"
 							:class="m.role === 'user' ? 'justify-end' : 'justify-start'"
 						>
@@ -425,6 +459,8 @@ import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
+import ForkBanner from '~/components/ForkBanner.vue'
+import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
@@ -547,6 +583,31 @@ const report = ref<any | null>(null)
 const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
+
+// Fork state — extract forked queries and artifact ref from the fork summary completion
+const forkedQueries = computed(() => {
+    const forkSummary = messages.value.find((m: any) => m.is_fork_summary)
+    if (!forkSummary?.fork_asset_refs) return []
+    return (forkSummary.fork_asset_refs as any[])
+        .filter((ref: any) => ref.type === 'query')
+        .map((ref: any) => ({
+            id: ref.id,
+            title: ref.title || 'Untitled Query',
+            description: ref.description || '',
+            toolExecution: null, // could be enriched later with step data
+        }))
+})
+
+const forkedArtifactRef = computed(() => {
+    const forkSummary = messages.value.find((m: any) => m.is_fork_summary)
+    if (!forkSummary?.fork_asset_refs) return null
+    const artifactRef = (forkSummary.fork_asset_refs as any[]).find((ref: any) => ref.type === 'artifact')
+    return artifactRef || null
+})
+
+const nonSeedMessages = computed(() => {
+    return messages.value.filter((m: any) => !m.is_fork_summary)
+})
 
 // Split screen state
 const isSplitScreen = ref(false)
@@ -1569,12 +1630,17 @@ async function loadCompletions() {
 				role: c.role as ChatRole,
 				status: status,
 				prompt: c.prompt,
+				completion: c.completion,
 				completion_blocks: blocks,
 				created_at: c.created_at,
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
-				files: c.files || []
+				files: c.files || [],
+				// Fork summary fields
+				is_fork_summary: c.is_fork_summary,
+				source_report_id: c.source_report_id,
+				fork_asset_refs: c.fork_asset_refs,
 			}
 		})
 		// Update cursors

@@ -47,8 +47,25 @@
                 </div>
             </div>
 
-            <!-- Right: Edit Report + Close (absolute) -->
+            <!-- Right: Fork + Edit Report + Close (absolute) -->
             <div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <!-- Fork button -->
+                <button
+                    v-if="forkEligibility?.can_fork"
+                    @click="handleFork"
+                    :disabled="isForking"
+                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                >
+                    <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
+                    <span>{{ isForking ? 'Forking...' : 'Fork' }}</span>
+                </button>
+                <span
+                    v-else-if="forkEligibility && !forkEligibility.can_fork && forkEligibility.reason !== 'is_owner'"
+                    class="text-[10px] text-gray-300 cursor-default"
+                    :title="forkReasonLabel"
+                >
+                    <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5 inline" />
+                </span>
                 <a
                     v-if="isOwner"
                     :href="`/reports/${report_id}`"
@@ -171,6 +188,39 @@ const showTopBar = ref(true);
 const activeTab = ref<'report' | 'data'>('report');
 const lastRefreshedAt = ref<Date | null>(null);
 
+// Fork state
+const forkEligibility = ref<any>(null);
+const isForking = ref(false);
+
+const forkReasonLabel = computed(() => {
+    const reason = forkEligibility.value?.reason;
+    switch (reason) {
+        case 'not_logged_in': return 'Sign in to fork this report';
+        case 'different_org': return 'You must be in the same organization';
+        case 'user_auth_required': return 'Data source requires user credentials';
+        case 'no_data_source_access': return 'You don\'t have access to the data sources';
+        default: return '';
+    }
+});
+
+async function handleFork() {
+    if (isForking.value) return;
+    isForking.value = true;
+    try {
+        const { data, error: fetchError } = await useMyFetch(`/api/reports/${report_id}/fork`, {
+            method: 'POST',
+            body: {},
+        });
+        if (data.value && !fetchError.value) {
+            navigateTo(`/reports/${(data.value as any).id}`);
+        }
+    } catch (e) {
+        console.error('Failed to fork report:', e);
+    } finally {
+        isForking.value = false;
+    }
+}
+
 // Format time for display
 function formatTime(date: Date | null) {
     if (!date) return '';
@@ -228,6 +278,7 @@ async function loadReport() {
             return;
         }
         report.value = data.value;
+        forkEligibility.value = (data.value as any)?.fork_eligibility || null;
     } catch (e) {
         console.error('Failed to load report:', e);
         navigateTo('/not_found');
