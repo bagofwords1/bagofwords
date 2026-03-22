@@ -106,7 +106,10 @@ The summary is generated server-side during the fork operation using a focused L
 
 ### Input to summary generator
 
-```
+The summary prompt uses the same XML format as `queries_section.py` to reference
+queries and visualizations by ID, so the agent can consistently resolve them later.
+
+```xml
 Report title: "{title}"
 Data sources: {list of data source names}
 
@@ -114,10 +117,30 @@ Conversation ({N} messages):
 {formatted messages from _get_report_messages()}
 
 Created assets:
-- Queries: {list of query titles + descriptions}
-- Steps: {list of step titles, types, SQL/code snippets, descriptions}
-- Artifact: {artifact title, mode (page/slides), content summary}
+
+<query id="{query_id}" title="{query_title}">
+  <description>{query_description}</description>
+  <step id="{step_id}" title="{step_title}" type="{step_type}" status="{step_status}">
+    <code>{step_code (SQL/Python)}</code>
+    <description>{step_description}</description>
+  </step>
+  <visualization id="{viz_id}" title="{viz_title}">
+    <view>{viz_view JSON summary}</view>
+  </visualization>
+</query>
+
+<query id="{query_id_2}" title="...">
+  ...
+</query>
+
+<artifact id="{artifact_id}" title="{artifact_title}" mode="{page|slides}">
+  {artifact content outline}
+</artifact>
 ```
+
+This matches the format from `queries_section.py` (`xml_tag("query", ..., {"id": ..., "title": ...})`)
+and the `viz_id: {id}` references in `message_context_builder.py` tool execution digests. The agent
+will recognize these IDs when the user asks follow-up questions about specific queries or charts.
 
 ### Prompt template
 
@@ -126,11 +149,13 @@ Summarize this data analysis conversation for someone who wants to continue
 the work. Include:
 1. What questions were asked and what data was explored
 2. Key findings and insights discovered
-3. What data assets were created (reference by name)
+3. What data assets were created — reference each by its query/visualization ID
 4. Any open threads or areas not yet explored
 
 Keep it concise (3-8 sentences). Use specific numbers and findings from the
-step results where available. Reference created assets by their titles.
+step results where available. Reference created assets using the format
+`viz_id: <id>` for visualizations and `query: <title> (id=<id>)` for queries,
+so the system can resolve them.
 ```
 
 ### Output
@@ -139,7 +164,8 @@ A structured summary stored as the first completion in the forked report, with:
 - `role = "system"`
 - `is_fork_summary = True`
 - `source_report_id = original.id`
-- Rich content that references the widgets/steps by name
+- `fork_asset_refs` (JSON): list of `{type, id, title}` for all referenced queries, visualizations, and artifacts — enables the frontend to render inline previews
+- Rich content that references the widgets/steps by ID and name
 
 ---
 
@@ -155,9 +181,19 @@ forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True)
 ### Completion model
 
 ```python
-# New field on Completion
+# New fields on Completion
 is_fork_summary = Column(Boolean, default=False)  # marks the fork summary message
 source_report_id = Column(String(36), nullable=True)  # origin report for attribution
+fork_asset_refs = Column(JSON, nullable=True)  # [{type: "query"|"visualization"|"artifact", id: str, title: str}]
+```
+
+### ReportSchema changes
+
+```python
+# Expose fork lineage in ReportSchema
+forked_from_id: Optional[str]  # parent report ID
+forked_from_title: Optional[str]  # resolved via relationship for display
+forked_from_user_name: Optional[str]  # original author name for attribution
 ```
 
 No changes needed on Step, Widget, Query, or Artifact models — we use existing fields and relationships.
@@ -226,13 +262,71 @@ Possible reasons when `can_fork = false`:
 
 ### /reports/[id] (chat editor) — forked report
 
-- Show a header banner: "Forked from [Original Report Title]" with link to original
-- Summary message renders as a special system card:
-  - Distinct visual style (e.g., muted background, fork icon, "Summary of original analysis" label)
-  - Inline references to widgets/steps are clickable (scroll to the widget)
+#### Fork lineage banner
+
+- Persistent banner at the top of the report: **"Forked from [Original Report Title]"**
+  - Links to the original report (`/r/{forked_from_id}`)
+  - Shows original author name
+  - If this is a fork-of-a-fork, show full lineage chain: "Forked from X → originally from Y"
+- The `forked_from_id` is stored on the Report model and exposed in `ReportSchema`
+- Banner is always visible (not dismissible) — serves as attribution
+
+#### Summary message card
+
+- Summary completion renders as a special system card:
+  - Distinct visual style (muted background, fork icon, "Summary of original analysis" label)
   - Not editable or deletable
-- Widgets from the original report appear in the dashboard/canvas area
-- Clear visual separator between the summary context and the user's new conversation
+  - Contains the AI-generated summary text
+
+#### Forked Queries Panel (new component: `ForkedQueriesPanel`)
+
+Below the summary card, render **all inherited queries together** in a grouped panel.
+This is similar to `ToolWidgetPreview` but displays all forked queries as a unified block
+rather than individual inline previews scattered across messages.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  📊 Inherited Queries (3)                     [▼]   │
+│                                                     │
+│  ┌─ Revenue by Region ──────────────────────────┐   │
+│  │  [Chart]  [Data]  [Code]       viz_id: abc   │   │
+│  │  ┌──────────────────────┐                    │   │
+│  │  │   bar chart render   │      query: def    │   │
+│  │  └──────────────────────┘                    │   │
+│  └──────────────────────────────────────────────┘   │
+│                                                     │
+│  ┌─ Quarterly Breakdown ────────────────────────┐   │
+│  │  [Chart]  [Data]  [Code]       viz_id: ghi   │   │
+│  │  ┌──────────────────────┐                    │   │
+│  │  │   table render       │      query: jkl    │   │
+│  │  └──────────────────────┘                    │   │
+│  └──────────────────────────────────────────────┘   │
+│                                                     │
+│  ┌─ Top Customers ──────────────────────────────┐   │
+│  │  [Chart]  [Data]  [Code]       viz_id: mno   │   │
+│  │  ...                                         │   │
+│  └──────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────┘
+```
+
+**Component design:**
+
+- Reuses `ToolWidgetPreview` rendering internals (chart/data/code tabs, `RenderVisual`, `RenderTable`)
+- But wraps them in a **grouped container** with a shared header ("Inherited Queries")
+- Each query card shows:
+  - Query title + description
+  - Tabbed view: Chart | Data | Code (same as `ToolWidgetPreview`)
+  - Query ID and Visualization ID displayed as subtle badges (for agent context continuity)
+- Props: `{ queries: Array<{ query_id, step, visualization, widget_id }>, readonly: true }`
+- Always `readonly=true` — edit/save disabled; user creates new queries via conversation
+- Collapsible as a group and individually per-query
+- If artifact exists, show artifact preview at the end of the panel
+
+#### Conversation area
+
+- Clear visual separator ("Your conversation starts here") below the forked queries panel
+- New messages from the user render normally below the separator
+- New tool executions render inline as standard `ToolWidgetPreview` (not in the forked panel)
 
 ---
 
