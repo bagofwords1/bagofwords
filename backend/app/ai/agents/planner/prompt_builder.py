@@ -1,8 +1,18 @@
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.ai.tools import format_tool_schemas
 from datetime import datetime
+
+# Number of recent past observations to keep in full
+_RECENT_OBS_FULL = 5
+
+# Keys to always preserve when minifying an observation
+_OBS_KEEP_KEYS = {
+    "summary", "step_id", "artifact_id", "visualization_id",
+    "visualization_ids", "query_id", "mode", "title",
+    "analysis_complete", "success",
+}
 
 class PromptBuilder:
     """Builds prompts for the planner with intelligent plan type decision logic."""
@@ -220,7 +230,7 @@ INPUT ENVELOPE
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
   <active_artifact>{json.dumps(planner_input.active_artifact) if planner_input.active_artifact else 'None'}</active_artifact>
-  <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
+  <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>
     CRITICAL ERROR HANDLING:
@@ -266,6 +276,35 @@ The tool needs to execute first before analysis can be complete.
             count += history_summary.lower().count(keyword)
 
         return min(count, 5)  # Cap at 5 for safety
+
+    @staticmethod
+    def _compact_past_observations(past_observations: Optional[list]) -> list:
+        """Compact past observations: keep last N in full, minify older ones.
+
+        Older observations are reduced to tool_name, summary, and referenceable
+        IDs (step_id, artifact_id, visualization_ids, query_id, etc.).
+        The planner can use read_query to retrieve full details if needed.
+        """
+        if not past_observations:
+            return []
+        total = len(past_observations)
+        cutoff = max(total - _RECENT_OBS_FULL, 0)
+        result = []
+        for idx, obs in enumerate(past_observations):
+            if idx < cutoff:
+                # Minify: keep tool_name, execution_number, and selected keys from observation
+                minified = {
+                    "tool_name": obs.get("tool_name"),
+                    "execution_number": obs.get("execution_number"),
+                }
+                inner = obs.get("observation") or {}
+                for key in _OBS_KEEP_KEYS:
+                    if key in inner:
+                        minified[key] = inner[key]
+                result.append(minified)
+            else:
+                result.append(obs)
+        return result
 
     @staticmethod
     def _build_training_prompt(planner_input: PlannerInput) -> str:
@@ -515,7 +554,7 @@ INPUT ENVELOPE
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
-  <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
+  <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
 </context>
 
