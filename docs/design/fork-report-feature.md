@@ -332,6 +332,27 @@ rather than individual inline previews scattered across messages.
 
 ## Backend Flow (Fork Service)
 
+### Data chain context
+
+The artifact rendering pipeline relies on a specific chain:
+
+```
+Artifact.content.visualization_ids → Visualization records → Query records
+                                                          → Step records (via Query.default_step)
+```
+
+`ArtifactFrame` fetches `/api/queries?report_id={reportId}&artifact_id={artifactId}` which:
+1. Loads the Artifact, reads `content.visualization_ids`
+2. Finds Visualization records matching those IDs
+3. Returns the Query records that own those visualizations
+
+**This means:** for the artifact to render in the forked report, the forked report must own
+the Query and Visualization records (they're filtered by `report_id`). Steps can be shared
+across reports since they're accessed via `Query.default_step_id`, but Queries and Visualizations
+must be duplicated.
+
+### Fork execution flow
+
 ```
 1. Validate eligibility
    ├── User is authenticated
@@ -351,36 +372,108 @@ rather than individual inline previews scattered across messages.
 3. Link data sources
    └── Copy report_data_source_association entries
 
-4. Create widgets + link steps
-   ├── For each Widget in original report that has successful steps:
-   │   ├── Create new Widget in new report
-   │   ├── Create new Query in new report (title, description from original)
-   │   └── Link original Step records to new Widget
-   │       (steps are immutable — safe to reference across reports)
+4. Duplicate queries, visualizations, and widgets
+   │
+   │  Build an ID remapping table as we go:
+   │  old_query_id → new_query_id
+   │  old_viz_id → new_viz_id
+   │  old_widget_id → new_widget_id
+   │
+   ├── For each Query in original report:
+   │   ├── Create new Query in forked report
+   │   │   ├── report_id = new_report.id
+   │   │   ├── user_id = current_user.id
+   │   │   ├── organization_id = same
+   │   │   ├── title, description = copied from original
+   │   │   ├── default_step_id = original.default_step_id  ← SHARED, not copied
+   │   │   └── Record mapping: old_query_id → new_query_id
+   │   │
+   │   └── For each Visualization on original Query:
+   │       ├── Create new Visualization in forked report
+   │       │   ├── report_id = new_report.id
+   │       │   ├── query_id = new_query_id (remapped)
+   │       │   ├── title, view, status = copied from original
+   │       │   └── Record mapping: old_viz_id → new_viz_id
+   │       └── (Steps are NOT duplicated — Query.default_step_id
+   │            points to original Step, which is immutable)
+   │
+   ├── For each Widget in original report:
+   │   ├── Create new Widget in forked report
+   │   │   ├── report_id = new_report.id
+   │   │   ├── title, x, y, width, height = copied
+   │   │   └── Record mapping: old_widget_id → new_widget_id
+   │   └── Re-link Steps to new Widget
+   │       └── For each Step pointing to old widget:
+   │           └── Associate with new_widget_id
+   │           NOTE: Steps have widget_id FK — but steps are shared.
+   │           Instead, create a NEW Step record that wraps the original
+   │           (same code, data, status) but with new widget_id.
+   │           OR: use the Query.default_step_id pattern and skip widget-step linking.
+   │           DECISION: Use Query.default_step_id for data access. Widget is for
+   │           dashboard layout only. Steps don't need new widget_id — the frontend
+   │           accesses step data via GET /api/queries/{queryId}/default_step.
+   │
    └── Copy dashboard layout (DashboardLayoutVersion) if exists
+       └── Remap widget IDs in the layout JSON using the mapping table
 
-5. Duplicate latest artifact (if exists)
-   └── Use existing ArtifactService.duplicate() logic
-   └── Reset version to 1 in new report
+5. Duplicate latest artifact with remapped visualization_ids
+   ├── Get latest artifact: ArtifactService.get_latest_by_report(original.id)
+   ├── Create NEW Artifact (not using duplicate() — we need to remap IDs):
+   │   ├── report_id = new_report.id
+   │   ├── user_id = current_user.id
+   │   ├── organization_id = same
+   │   ├── title, mode = copied from original
+   │   ├── version = 1
+   │   ├── content = {
+   │   │     "code": original.content["code"],
+   │   │     "visualization_ids": [viz_id_map[old_id] for old_id in original viz_ids]
+   │   │   }
+   │   │   ↑ CRITICAL: remap old viz IDs to new viz IDs so
+   │   │     GET /api/queries?report_id=NEW&artifact_id=NEW resolves correctly
+   │   └── status = "completed"
+   ├── Copy thumbnail (same logic as ArtifactService.duplicate)
+   └── The artifact's JSX code references visualizations by position/index
+       via useArtifactData() — the code itself doesn't embed viz IDs,
+       so no code rewriting needed, only content.visualization_ids remapping
 
 6. Generate summary (async / background)
    ├── Gather context:
    │   ├── Original report title + description
    │   ├── Completions (via _get_report_messages)
-   │   ├── Query titles + descriptions
+   │   ├── NEW query IDs + titles + descriptions (use remapped IDs!)
    │   ├── Step titles, types, code snippets, descriptions
-   │   └── Artifact title + mode + content outline
+   │   ├── NEW visualization IDs + titles (use remapped IDs!)
+   │   └── NEW artifact ID + title + mode
    ├── Call LLM with summary prompt
    ├── Create Completion:
+   │   ├── report_id = new_report.id
    │   ├── role = "system"
    │   ├── is_fork_summary = True
    │   ├── source_report_id = original.id
    │   ├── turn_index = 0
-   │   └── completion = { summary text }
+   │   ├── completion = { summary text with NEW IDs }
+   │   └── fork_asset_refs = [
+   │         {type: "query", id: new_query_id, title: "..."},
+   │         {type: "visualization", id: new_viz_id, title: "..."},
+   │         {type: "artifact", id: new_artifact_id, title: "..."}
+   │       ]
    └── Broadcast via WebSocket to report subscribers
 
 7. Return new report (immediately after step 5, don't wait for summary)
 ```
+
+### Why queries & visualizations must be duplicated (not just referenced)
+
+The `/api/queries` endpoint filters by `report_id`. `ArtifactFrame` calls
+`/api/queries?report_id={NEW_REPORT_ID}&artifact_id={NEW_ARTIFACT_ID}`.
+If we only referenced original queries, they'd have `report_id = ORIGINAL`
+and wouldn't be returned for the new report.
+
+Similarly, Visualizations have `report_id` and `query_id` foreign keys that
+must point to the new report and new queries.
+
+**Steps are the exception** — they're accessed via `Query.default_step_id`
+(a direct FK, not filtered by report_id), so sharing them across reports works.
 
 ---
 
@@ -390,10 +483,59 @@ When the user sends their first message in the forked report, the agent needs co
 
 1. **ContextHub** already builds context from report completions via `_get_report_messages()`
 2. The fork summary (turn_index=0) will be the first message the agent sees
-3. Steps referenced by the forked widgets provide schema/data context
-4. The agent can reference existing steps by name ("the Revenue by Region chart shows...")
+3. `queries_section.py` builds `<query id="..." title="...">` context from the forked report's queries — which now have **new IDs** matching what's in the summary
+4. The summary references the same new query/viz IDs, so the agent sees consistent references
+5. The agent can reference existing queries by name or ID ("the Revenue by Region chart shows...")
 
-No special context builder needed — the existing message + widget + step context pipeline handles it.
+No special context builder needed — the existing message + widget + query + step context pipeline handles it because we duplicated queries/visualizations with proper report_id ownership.
+
+---
+
+## Implementation Plan
+
+### Phase 1: Schema & Migration
+**Files to modify:**
+- `backend/app/models/report.py` — add `forked_from_id` column
+- `backend/app/models/completion.py` — add `is_fork_summary`, `source_report_id`, `fork_asset_refs` columns
+- `backend/app/schemas/report_schema.py` — add `forked_from_id`, `forked_from_title`, `forked_from_user_name`
+- New alembic migration
+
+### Phase 2: Fork Service (core backend logic)
+**New file:** `backend/app/services/fork_service.py`
+
+```python
+class ForkService:
+    async def check_eligibility(db, report_id, user) -> ForkEligibility
+    async def fork_report(db, report_id, user, title=None) -> Report
+    async def _duplicate_queries_and_visualizations(db, original_report, new_report, user) -> IdMap
+    async def _duplicate_artifact_with_remapped_ids(db, original_report, new_report, user, viz_id_map) -> Artifact
+    async def _duplicate_widgets_and_layout(db, original_report, new_report, widget_id_map)
+    async def _generate_fork_summary(db, original_report, new_report, id_maps) -> Completion
+```
+
+### Phase 3: API Route
+**File to modify:** `backend/app/routes/report.py`
+- `POST /reports/{report_id}/fork` — calls ForkService
+- Modify `/r/{report_id}` and `/c/{token}` responses to include `fork_eligibility`
+
+### Phase 4: Frontend — Fork Button
+**Files to modify:**
+- Public report page (`/r/[id]`) — add Fork button
+- Public conversation page (`/c/[token]`) — add Fork button
+- Wire up `POST /api/reports/{report_id}/fork` call + redirect
+
+### Phase 5: Frontend — Forked Report UI
+**New components:**
+- `components/reports/ForkBanner.vue` — persistent lineage banner
+- `components/reports/ForkedQueriesPanel.vue` — grouped inherited queries panel
+
+**Files to modify:**
+- `pages/reports/[id]/index.vue` — detect forked report, render banner + panel + separator
+- Summary completion rendering (detect `is_fork_summary`, render as special card)
+
+### Phase 6: Frontend — Artifact in Forked Report
+- `ArtifactFrame.vue` already works if queries/visualizations are properly owned by the new report
+- No changes needed — the existing `/api/queries?report_id=NEW&artifact_id=NEW` flow resolves correctly because we remapped visualization_ids in step 5
 
 ---
 
