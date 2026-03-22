@@ -138,6 +138,12 @@ class CompletionV2Schema(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Fork summary fields
+    is_fork_summary: Optional[str] = None
+    source_report_id: Optional[str] = None
+    fork_asset_refs: Optional[List[Dict[str, Any]]] = None
+    completion: Optional[Dict[str, Any]] = None  # raw completion content for fork summary rendering
+
     class Config:
         from_attributes = True
 

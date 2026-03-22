@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.343 (March 22, 2026)
+- Set headers/handling for streaming in HTTP calls from front-end
+- Improve context mgmt budgeting 
+- Fork previous created reports
+
 ## Version 0.0.342 (March 22, 2026)
 - Fix context bloat when designing dashboards
 - Add full SCIM support
