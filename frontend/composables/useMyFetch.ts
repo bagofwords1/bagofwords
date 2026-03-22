@@ -29,10 +29,12 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   }
 
   if (opts.stream) {
+    const { stream: _, headers: rawHeaders, ...fetchOpts } = opts as any
+    const headers = { ...(rawHeaders as Record<string, string>), 'Accept': 'text/event-stream', 'Cache-Control': 'no-cache' }
     return new Promise((resolve, reject) => {
       fetch(`${config.public.baseURL}${request}`, {
-        ...opts,
-        headers: opts.headers,
+        ...fetchOpts,
+        headers,
       }).then(response => {
         if (!response.ok) {
           reject(new Error(`HTTP error! status: ${response.status}`))
