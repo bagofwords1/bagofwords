@@ -52,7 +52,7 @@ jobs:
 
       - name: Trivy scan summary (stdout)
         if: ${{ success() }}
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           scan-type: image
           image-ref: bagofwords/bagofwords:${{ env.version_tag }}
@@ -62,7 +62,7 @@ jobs:
 
       - name: Scan image with Trivy
         if: ${{ success() }}
-        uses: aquasecurity/trivy-action@0.32.0
+        uses: aquasecurity/trivy-action@v0.35.0
 
         with:
           scan-type: image
