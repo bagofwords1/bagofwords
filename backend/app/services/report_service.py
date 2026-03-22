@@ -122,7 +122,7 @@ class ReportService:
             notification_subscribers=getattr(report, "notification_subscribers", None),
         )
         # Enrich fork lineage
-        self._enrich_fork_lineage(report, report_schema)
+        await self._enrich_fork_lineage(db, report, report_schema)
         return report_schema
 
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
@@ -472,7 +472,7 @@ class ReportService:
         
         schema = ReportSchema.from_orm(report)
         # Enrich fork lineage
-        self._enrich_fork_lineage(report, schema)
+        await self._enrich_fork_lineage(db, report, schema)
         # Attach minimal general settings from organization settings
         try:
             from app.models.organization_settings import OrganizationSettings
@@ -844,17 +844,20 @@ class ReportService:
         return {"archived": count}
 
     @staticmethod
-    def _enrich_fork_lineage(report: Report, schema: "ReportSchema"):
+    async def _enrich_fork_lineage(db: AsyncSession, report: Report, schema: "ReportSchema"):
         """Populate fork lineage fields on a ReportSchema from the Report model."""
         forked_from_id = getattr(report, "forked_from_id", None)
         if forked_from_id:
             schema.forked_from_id = forked_from_id
-            parent = getattr(report, "forked_from", None)
+            from app.models.user import User
+            result = await db.execute(
+                select(Report).options(selectinload(Report.user)).where(Report.id == forked_from_id)
+            )
+            parent = result.scalar_one_or_none()
             if parent:
                 schema.forked_from_title = parent.title
-                parent_user = getattr(parent, "user", None)
-                if parent_user:
-                    schema.forked_from_user_name = parent_user.name or parent_user.email
+                if parent.user:
+                    schema.forked_from_user_name = parent.user.name or parent.user.email
 
     async def _set_slug_for_report(self, db: AsyncSession, report: Report):
         title_slug = report.title.replace(" ", "-").lower()

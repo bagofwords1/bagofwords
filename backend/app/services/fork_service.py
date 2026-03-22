@@ -59,11 +59,28 @@ class ForkService:
         if user is None:
             return ForkEligibility(False, "not_logged_in")
 
-        if str(user.organization_id) != str(report.organization_id):
-            return ForkEligibility(False, "different_org")
+        # Check org-level allow_forks setting
+        from app.models.organization_settings import OrganizationSettings
+        settings_result = await db.execute(
+            select(OrganizationSettings).where(
+                OrganizationSettings.organization_id == report.organization_id
+            )
+        )
+        org_settings = settings_result.scalar_one_or_none()
+        if org_settings:
+            allow_forks = org_settings.get_config("allow_forks")
+            if allow_forks is not None:
+                val = allow_forks.value if hasattr(allow_forks, 'value') else allow_forks
+                if not val:
+                    return ForkEligibility(False, "forks_disabled")
 
-        if str(user.id) == str(report.user_id):
-            return ForkEligibility(False, "is_owner")
+        from app.models.membership import Membership
+        membership_result = await db.execute(
+            select(Membership.organization_id).where(Membership.user_id == user.id)
+        )
+        user_org_ids = {str(row[0]) for row in membership_result.all()}
+        if str(report.organization_id) not in user_org_ids:
+            return ForkEligibility(False, "different_org")
 
         # Check all data source connections use system_only auth
         for ds in report.data_sources:
@@ -337,20 +354,23 @@ class ForkService:
         if original.queries:
             summary_parts.append(f"\n{len(original.queries)} queries were inherited:")
             for old_query in original.queries:
+                new_qid = query_id_map.get(str(old_query.id), "")
                 step_info = ""
                 if old_query.default_step:
                     step = old_query.default_step
                     step_info = f" ({step.type})"
                     if step.description:
                         step_info += f" - {step.description[:100]}"
+                viz_ids = [viz_id_map[str(v.id)] for v in old_query.visualizations if str(v.id) in viz_id_map]
+                viz_info = f" | viz: {', '.join(viz_ids)}" if viz_ids else ""
                 summary_parts.append(
-                    f"- {old_query.title or 'Untitled'}{step_info}"
+                    f"- {old_query.title or 'Untitled'}{step_info} [query: {new_qid}{viz_info}]"
                 )
 
         if new_artifact:
             summary_parts.append(
                 f"\nAn artifact ({new_artifact.mode} mode) was also inherited: "
-                f'"{new_artifact.title or "Untitled"}".'
+                f'"{new_artifact.title or "Untitled"}" [artifact: {str(new_artifact.id)}].'
             )
 
         summary_text = "\n".join(summary_parts)

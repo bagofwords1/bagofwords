@@ -567,18 +567,42 @@ const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
 
 // Fork state — extract forked queries and artifact ref from the fork summary completion
-const forkedQueries = computed(() => {
+const forkedQueries = ref<any[]>([])
+
+async function enrichForkedQueries() {
     const forkSummary = messages.value.find((m: any) => m.is_fork_summary)
-    if (!forkSummary?.fork_asset_refs) return []
-    return (forkSummary.fork_asset_refs as any[])
-        .filter((ref: any) => ref.type === 'query')
-        .map((ref: any) => ({
-            id: ref.id,
-            title: ref.title || 'Untitled Query',
-            description: ref.description || '',
-            toolExecution: null, // could be enriched later with step data
-        }))
-})
+    if (!forkSummary?.fork_asset_refs) {
+        forkedQueries.value = []
+        return
+    }
+    const queryRefs = (forkSummary.fork_asset_refs as any[]).filter((r: any) => r.type === 'query')
+    const enriched = await Promise.all(queryRefs.map(async (qRef: any) => {
+        try {
+            const { data } = await useMyFetch(`/api/queries/${qRef.id}/default_step`)
+            const step = (data.value as any)?.step || null
+            const toolExecution = step ? {
+                id: `fork-${qRef.id}`,
+                tool_name: 'query',
+                status: 'success',
+                created_step: step,
+            } : null
+            return {
+                id: qRef.id,
+                title: qRef.title || 'Untitled Query',
+                description: qRef.description || '',
+                toolExecution,
+            }
+        } catch {
+            return {
+                id: qRef.id,
+                title: qRef.title || 'Untitled Query',
+                description: qRef.description || '',
+                toolExecution: null,
+            }
+        }
+    }))
+    forkedQueries.value = enriched
+}
 
 const forkedArtifactRef = computed(() => {
     const forkSummary = messages.value.find((m: any) => m.is_fork_summary)
@@ -1551,6 +1575,7 @@ async function loadCompletions() {
         await nextTick()
         safeScrollToBottom()
 		await promptBoxRef.value?.refreshContextEstimate?.()
+		await enrichForkedQueries()
 	} catch (e) {
 		console.error('Error loading completions:', e)
 	} finally {

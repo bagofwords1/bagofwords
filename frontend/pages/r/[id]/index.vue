@@ -60,7 +60,7 @@
                     <span>{{ isForking ? 'Forking...' : 'Fork' }}</span>
                 </button>
                 <span
-                    v-else-if="forkEligibility && !forkEligibility.can_fork && forkEligibility.reason !== 'is_owner'"
+                    v-else-if="forkEligibility && !forkEligibility.can_fork"
                     class="text-[10px] text-gray-300 cursor-default"
                     :title="forkReasonLabel"
                 >
@@ -199,6 +199,7 @@ const forkReasonLabel = computed(() => {
         case 'different_org': return 'You must be in the same organization';
         case 'user_auth_required': return 'Data source requires user credentials';
         case 'no_data_source_access': return 'You don\'t have access to the data sources';
+        case 'forks_disabled': return 'Forking is disabled for this organization';
         default: return '';
     }
 });
