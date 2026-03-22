@@ -7,7 +7,7 @@ Generates an AI summary of the original conversation as the first message.
 """
 
 import uuid
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, NamedTuple
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -19,11 +19,8 @@ from app.models.completion import Completion
 from app.models.query import Query
 from app.models.visualization import Visualization
 from app.models.widget import Widget
-from app.models.step import Step
 from app.models.artifact import Artifact
 from app.models.data_source import DataSource
-from app.models.connection import Connection
-from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.models.user import User
 from app.services.artifact_service import ArtifactService
 from app.settings.logging_config import get_logger
@@ -40,6 +37,13 @@ class ForkEligibility:
 
     def to_dict(self):
         return {"can_fork": self.can_fork, "reason": self.reason}
+
+
+class DuplicatedAssets(NamedTuple):
+    widget_id_map: Dict[str, str]
+    query_id_map: Dict[str, str]
+    viz_id_map: Dict[str, str]
+    artifact: Optional[Artifact]
 
 
 class ForkService:
@@ -96,7 +100,6 @@ class ForkService:
                 selectinload(Report.queries).selectinload(Query.visualizations),
                 selectinload(Report.queries).selectinload(Query.default_step),
                 selectinload(Report.completions),
-                selectinload(Report.dashboard_layout_versions),
             )
             .where(Report.id == report_id)
         )
@@ -131,8 +134,8 @@ class ForkService:
         await db.flush()
 
         # 3. Link data sources
+        from app.models.report_data_source_association import report_data_source_association
         for ds in original.data_sources:
-            from app.models.report_data_source_association import report_data_source_association
             await db.execute(
                 report_data_source_association.insert().values(
                     report_id=str(new_report.id),
@@ -140,23 +143,13 @@ class ForkService:
                 )
             )
 
-        # 4. Duplicate widgets, queries, visualizations (with ID remapping)
-        widget_id_map, query_id_map, viz_id_map = await self._duplicate_assets(
-            db, original, new_report, user
-        )
+        # 4. Duplicate all assets: widgets, queries, visualizations, artifact
+        assets = await self._duplicate_assets(db, original, new_report, user)
 
-        # 5. Copy dashboard layout with remapped widget IDs
-        await self._duplicate_layouts(db, original, new_report, widget_id_map)
-
-        # 6. Duplicate latest artifact with remapped viz IDs
-        new_artifact = await self._duplicate_artifact(
-            db, original, new_report, user, viz_id_map
-        )
-
-        # 7. Generate fork summary completion
+        # 5. Generate fork summary completion
         await self._create_fork_summary(
             db, original, new_report, user,
-            query_id_map, viz_id_map, new_artifact,
+            assets.query_id_map, assets.viz_id_map, assets.artifact,
         )
 
         await db.commit()
@@ -170,16 +163,17 @@ class ForkService:
         original: Report,
         new_report: Report,
         user: User,
-    ) -> tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
-        """Duplicate widgets, queries, and visualizations with ID remapping.
+    ) -> DuplicatedAssets:
+        """Duplicate widgets, queries, visualizations, and artifact with ID remapping.
 
-        Returns (widget_id_map, query_id_map, viz_id_map).
+        Artifact duplication depends on the viz_id_map produced by query/viz
+        duplication, so it's handled here as the final step.
         """
         widget_id_map: Dict[str, str] = {}
         query_id_map: Dict[str, str] = {}
         viz_id_map: Dict[str, str] = {}
 
-        # First create widgets (queries reference widgets via widget_id)
+        # -- Widgets --
         for old_widget in original.widgets:
             new_widget = Widget(
                 title=old_widget.title,
@@ -195,12 +189,12 @@ class ForkService:
             await db.flush()
             widget_id_map[str(old_widget.id)] = str(new_widget.id)
 
-        # Then create queries and visualizations
+        # -- Queries & Visualizations --
         for old_query in original.queries:
             old_widget_id = str(old_query.widget_id)
             new_widget_id = widget_id_map.get(old_widget_id)
             if not new_widget_id:
-                # Widget not in map — create a new one
+                # Widget not in map — create one for this query
                 new_widget = Widget(
                     title=old_query.title or "",
                     slug=f"fork-{uuid.uuid4().hex[:8]}",
@@ -226,7 +220,6 @@ class ForkService:
             await db.flush()
             query_id_map[str(old_query.id)] = str(new_query.id)
 
-            # Duplicate visualizations for this query
             for old_viz in old_query.visualizations:
                 new_viz = Visualization(
                     title=old_viz.title,
@@ -239,36 +232,12 @@ class ForkService:
                 await db.flush()
                 viz_id_map[str(old_viz.id)] = str(new_viz.id)
 
-        return widget_id_map, query_id_map, viz_id_map
+        # -- Artifact (depends on viz_id_map) --
+        new_artifact = await self._duplicate_artifact(
+            db, original, new_report, user, viz_id_map,
+        )
 
-    async def _duplicate_layouts(
-        self,
-        db: AsyncSession,
-        original: Report,
-        new_report: Report,
-        widget_id_map: Dict[str, str],
-    ):
-        """Copy dashboard layouts with remapped widget IDs."""
-        for layout in original.dashboard_layout_versions:
-            # Remap widget IDs in layout blocks
-            new_blocks = []
-            for block in (layout.blocks or []):
-                new_block = dict(block)
-                old_wid = new_block.get("widget_id")
-                if old_wid and old_wid in widget_id_map:
-                    new_block["widget_id"] = widget_id_map[old_wid]
-                new_blocks.append(new_block)
-
-            new_layout = DashboardLayoutVersion(
-                name=layout.name,
-                version=1,
-                is_active=layout.is_active,
-                theme_name=layout.theme_name,
-                theme_overrides=layout.theme_overrides,
-                blocks=new_blocks,
-                report_id=str(new_report.id),
-            )
-            db.add(new_layout)
+        return DuplicatedAssets(widget_id_map, query_id_map, viz_id_map, new_artifact)
 
     async def _duplicate_artifact(
         self,
@@ -365,11 +334,9 @@ class ForkService:
         summary_parts = []
         summary_parts.append(f'This report was forked from "{original.title}".')
 
-        # Include query summaries
         if original.queries:
             summary_parts.append(f"\n{len(original.queries)} queries were inherited:")
             for old_query in original.queries:
-                new_qid = query_id_map.get(str(old_query.id), "")
                 step_info = ""
                 if old_query.default_step:
                     step = old_query.default_step
@@ -388,7 +355,6 @@ class ForkService:
 
         summary_text = "\n".join(summary_parts)
 
-        # Create the fork summary completion
         completion = Completion(
             prompt={"content": ""},
             completion={"content": summary_text},
