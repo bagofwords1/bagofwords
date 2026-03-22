@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.343 (March 22, 2026)
+- Fixes
+
 ## Version 0.0.342 (March 22, 2026)
 - Fix context bloat when designing dashboards
 - Add full SCIM support
