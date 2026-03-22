@@ -422,3 +422,16 @@ async def current_user(
         detail="Not authenticated",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+async def current_user_optional(
+    request: Request,
+    jwt_user: Optional[User] = Depends(_jwt_current_user),
+    api_key: Optional[str] = Depends(api_key_header),
+    db: AsyncSession = Depends(get_async_db),
+) -> Optional[User]:
+    """Same as current_user but returns None instead of raising 401."""
+    try:
+        return await current_user(request, jwt_user, api_key, db)
+    except HTTPException:
+        return None

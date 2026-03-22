@@ -1087,6 +1087,11 @@ class CompletionService:
                 instruction_suggestions=suggestions_list,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=user_feedback,
+                # Fork summary fields
+                is_fork_summary=getattr(c, 'is_fork_summary', None),
+                source_report_id=getattr(c, 'source_report_id', None),
+                fork_asset_refs=getattr(c, 'fork_asset_refs', None),
+                completion=c.completion if getattr(c, 'is_fork_summary', None) else None,
             )
             v2_completions.append(v2)
 
@@ -1385,6 +1390,10 @@ class CompletionService:
                 instruction_suggestions=suggestions_list,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=None,  # Not available without current_user context
+                # Fork summary fields
+                is_fork_summary=getattr(c, 'is_fork_summary', None),
+                source_report_id=getattr(c, 'source_report_id', None),
+                fork_asset_refs=getattr(c, 'fork_asset_refs', None),
             )
             v2_list.append(v2)
 

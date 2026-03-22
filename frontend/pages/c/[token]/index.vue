@@ -19,9 +19,21 @@
         <template v-else>
             <!-- Minimal header -->
             <header class="flex-none border-b border-gray-100 py-5 px-4 bg-white z-10">
-                <div class="max-w-2xl mx-auto">
-                    <h1 class="text-base font-medium text-gray-900">{{ conversation.title || 'Untitled' }}</h1>
-                    <p class="text-xs text-gray-400 mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
+                <div class="max-w-2xl mx-auto flex items-start justify-between">
+                    <div>
+                        <h1 class="text-base font-medium text-gray-900">{{ conversation.title || 'Untitled' }}</h1>
+                        <p class="text-xs text-gray-400 mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
+                    </div>
+                    <!-- Fork button -->
+                    <button
+                        v-if="forkEligibility?.can_fork"
+                        @click="handleFork"
+                        :disabled="isForking"
+                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50 mt-1"
+                    >
+                        <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
+                        <span>{{ isForking ? 'Forking...' : 'Fork' }}</span>
+                    </button>
                 </div>
             </header>
 
@@ -200,6 +212,30 @@ const nextBefore = ref<string | null>(null)
 const isLoadingMore = ref(false)
 const messagesContainer = ref<HTMLElement | null>(null)
 
+// Fork state
+const forkEligibility = ref<any>(null)
+const isForking = ref(false)
+
+async function handleFork() {
+    if (isForking.value) return
+    const reportId = conversation.value?.report_id
+    if (!reportId) return
+    isForking.value = true
+    try {
+        const { data, error: fetchError } = await useMyFetch(`/api/reports/${reportId}/fork`, {
+            method: 'POST',
+            body: {},
+        })
+        if (data.value && !fetchError.value) {
+            navigateTo(`/reports/${(data.value as any).id}`)
+        }
+    } catch (e) {
+        console.error('Failed to fork report:', e)
+    } finally {
+        isForking.value = false
+    }
+}
+
 // Collapsed reasoning tracking
 const collapsedReasoning = ref<Set<string>>(new Set())
 const expandedToolDetails = ref<Set<string>>(new Set())
@@ -322,6 +358,7 @@ async function loadConversation() {
         conversation.value = data.value
         hasMore.value = (data.value as any).has_more || false
         nextBefore.value = (data.value as any).next_before || null
+        forkEligibility.value = (data.value as any).fork_eligibility || null
         
         // Auto-collapse reasoning for blocks that have content
         for (const completion of conversation.value.completions || []) {

@@ -63,6 +63,11 @@ class Completion(BaseSchema):
     mentions = relationship("Mention", back_populates="completion", lazy='selectin')
     feedbacks = relationship("CompletionFeedback", back_populates="completion", cascade="all, delete-orphan", lazy='select')
     
+    # Fork summary fields
+    is_fork_summary = Column(String, nullable=True, default=None)  # truthy when this is a fork summary
+    source_report_id = Column(String(36), nullable=True, default=None)  # original report this was forked from
+    fork_asset_refs = Column(JSON, nullable=True, default=None)  # [{type, id, title}] for queries/viz/artifacts
+
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID
