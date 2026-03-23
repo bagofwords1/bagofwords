@@ -299,6 +299,7 @@ class EditArtifactTool(Tool):
                 "Edit an existing dashboard or artifact by applying targeted changes to its code. "
                 "Use this instead of create_artifact when modifying an existing artifact's layout, styling, "
                 "filters, charts, or content. Preserves the existing design and only changes what is requested. "
+                "If the edit is adding a new visualization, you MUST ADD it as a parameter to the tool"
                 "Requires artifact_id from a previous create_artifact or read_artifact result. "
                 "Do NOT ask the user for artifact IDs - extract them from the conversation context."
             ),
@@ -588,31 +589,51 @@ Apply the edit now:"""
             )
             return
 
-        # Merge visualization IDs: existing + any new ones from input
+        # Merge visualization IDs: existing + any new ones from input + auto-discovered
         merged_viz_ids = list(existing_viz_ids)
         if data.visualization_ids:
             for vid in data.visualization_ids:
                 if vid not in merged_viz_ids:
                     merged_viz_ids.append(vid)
 
+        # Auto-merge: pick up any report vizs created after the artifact being edited
+        report_id = str(report.id) if report else None
+        if report_id:
+            try:
+                async with async_session_maker() as fresh_db:
+                    new_vizs = await fresh_db.execute(
+                        select(Visualization.id).where(
+                            Visualization.report_id == report_id,
+                            Visualization.created_at > artifact.created_at,
+                        )
+                    )
+                    for (vid,) in new_vizs.all():
+                        vid_str = str(vid)
+                        if vid_str not in merged_viz_ids:
+                            merged_viz_ids.append(vid_str)
+                            logger.info(f"edit_artifact: auto-merged viz {vid_str} (created after artifact)")
+            except Exception as e:
+                logger.warning(f"edit_artifact: auto-merge viz query failed: {e}")
+
         # Fetch all visualizations (batched query, same as create_artifact)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
 
         visualizations: List[Dict[str, Any]] = []
         warnings: List[str] = []
-        report_id = str(report.id) if report else None
 
         try:
             from app.models.step import Step
-            result = await db.execute(
-                select(Visualization)
-                .options(
-                    selectinload(Visualization.query).selectinload(Query.default_step),
-                    selectinload(Visualization.query).selectinload(Query.steps),
+            # Use a fresh session to ensure we see recently committed vizs/steps
+            async with async_session_maker() as fresh_db:
+                result = await fresh_db.execute(
+                    select(Visualization)
+                    .options(
+                        selectinload(Visualization.query).selectinload(Query.default_step),
+                        selectinload(Visualization.query).selectinload(Query.steps),
+                    )
+                    .where(Visualization.id.in_(merged_viz_ids))
                 )
-                .where(Visualization.id.in_(merged_viz_ids))
-            )
-            fetched_vizs = {str(v.id): v for v in result.scalars().all()}
+                fetched_vizs = {str(v.id): v for v in result.scalars().all()}
         except Exception as e:
             logger.exception("Failed to batch-fetch visualizations for edit_artifact")
             fetched_vizs = {}

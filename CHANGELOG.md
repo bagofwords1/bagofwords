@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.344 (March 23, 2026)
+- Fix artifact sandbox: download React development builds in vendor script
+- Remove CDN fallbacks for airgapped deployments — missing vendored libs now fail loudly
+
 ## Version 0.0.343 (March 22, 2026)
 - Set headers/handling for streaming in HTTP calls from front-end
 - Improve context mgmt budgeting 

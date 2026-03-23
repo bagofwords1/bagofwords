@@ -23,8 +23,8 @@ _CANDIDATE_DIRS = [
 # Libraries needed for dashboard (page) mode artifacts
 _PAGE_LIBS = [
     "tailwindcss-3.4.16.js",
-    "react-18.production.min.js",
-    "react-dom-18.production.min.js",
+    "react-18.development.js",
+    "react-dom-18.development.js",
     "babel-standalone.min.js",
     "echarts-5.min.js",
 ]
@@ -58,47 +58,25 @@ def get_inline_scripts(mode: str = "page") -> str:
 
     Returns:
         HTML string with <script>...</script> tags containing the library code.
-        Returns CDN fallback tags if vendored files are not found.
+
+    Raises:
+        FileNotFoundError: If vendored libs directory or individual files are missing.
+            In airgapped deployments there is no CDN to fall back to, so missing
+            vendored files must fail loudly.
     """
     libs_dir = _find_libs_dir()
 
     if libs_dir is None:
-        logger.warning("Vendored JS libs not found, falling back to CDN URLs")
-        return _cdn_fallback_tags(mode)
+        raise FileNotFoundError(
+            "Vendored JS libs directory not found. "
+            "Run scripts/download-vendor-libs.sh during Docker build."
+        )
 
     lib_files = _PAGE_LIBS if mode == "page" else _SLIDES_LIBS
     parts = []
 
     for filename in lib_files:
-        try:
-            content = _read_lib(libs_dir, filename)
-            parts.append(f"<script>{content}</script>")
-        except FileNotFoundError:
-            logger.warning(f"Vendored lib not found: {filename}, using CDN fallback")
-            parts.append(_cdn_fallback_for(filename))
+        content = _read_lib(libs_dir, filename)  # raises FileNotFoundError if missing
+        parts.append(f"<script>{content}</script>")
 
     return "\n".join(parts)
-
-
-def _cdn_fallback_tags(mode: str) -> str:
-    """Return CDN script tags as fallback when vendored files are unavailable."""
-    if mode == "slides":
-        return '<script src="https://cdn.tailwindcss.com"></script>'
-
-    return """<script src="https://cdn.tailwindcss.com"></script>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>"""
-
-
-def _cdn_fallback_for(filename: str) -> str:
-    """Return a single CDN fallback tag for a specific library file."""
-    mapping = {
-        "tailwindcss-3.4.16.js": '<script src="https://cdn.tailwindcss.com"></script>',
-        "react-18.production.min.js": '<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>',
-        "react-dom-18.production.min.js": '<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>',
-        "babel-standalone.min.js": '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>',
-        "echarts-5.min.js": '<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>',
-    }
-    return mapping.get(filename, "")

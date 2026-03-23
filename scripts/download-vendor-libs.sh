@@ -17,9 +17,17 @@ curl -sL "https://cdn.tailwindcss.com/3.4.16" \
 curl -sL "https://unpkg.com/react@18/umd/react.production.min.js" \
   -o "$LIBS_DIR/react-18.production.min.js"
 
+# React 18 development UMD build (used in artifact iframe for readable error messages)
+curl -sL "https://unpkg.com/react@18/umd/react.development.js" \
+  -o "$LIBS_DIR/react-18.development.js"
+
 # ReactDOM 18 production UMD build
 curl -sL "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" \
   -o "$LIBS_DIR/react-dom-18.production.min.js"
+
+# ReactDOM 18 development UMD build
+curl -sL "https://unpkg.com/react-dom@18/umd/react-dom.development.js" \
+  -o "$LIBS_DIR/react-dom-18.development.js"
 
 # Babel Standalone (JSX transpilation in browser)
 curl -sL "https://unpkg.com/@babel/standalone/babel.min.js" \

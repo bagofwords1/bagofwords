@@ -55,11 +55,11 @@ references to any of them:
 The code is rendered into `<div id="root">`.
 
 ═══════════════════════════════════════════════════════════════════════════════
-REACT ERROR CODES — the sandbox uses production React (minified errors)
+REACT ERROR CODES — the sandbox uses development React (readable errors)
 ═══════════════════════════════════════════════════════════════════════════════
 
-If you see "Minified React error #NNN", do NOT guess the cause from the number
-alone. These are the most common codes and their actual meanings:
+Development React provides full error messages. If you still encounter
+"Minified React error #NNN" (e.g. in cached builds), these are the common codes:
 
 • **#130** — Component returned `undefined` from render. Check that all
   components return valid JSX (not `undefined` or missing return).
@@ -95,7 +95,7 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "LoadingSpinner component (props: size, className), "
     "window.ARTIFACT_DATA, window.ARTIFACT_READY. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
-    "Production React is used — minified error codes like #310 mean 'invalid React child' "
+    "Development React is used — error messages are readable. Minified error codes like #310 mean 'invalid React child' "
     "(object rendered instead of string/number), NOT missing imports. "
     "All globals (React, echarts, LoadingSpinner, useArtifactData) are always available at runtime."
 )
