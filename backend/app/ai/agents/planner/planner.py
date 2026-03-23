@@ -186,9 +186,9 @@ class Planner:
         {f"Memories: {memories}" if memories else "No memories added"}
 
         - **Selected widget (if any)**:
-        {f"{widget.id}\\n{widget.title}" if widget else "No widget selected"}
+        {f"{widget.id}" + chr(10) + f"{widget.title}" if widget else "No widget selected"}
 
-        {f"Selected widget data model:\n {step.data_model}" if step else "\n"}
+        {f"Selected widget data model:" + chr(10) + f" {step.data_model}" if step else chr(10)}
 
         {observation_context}
 
