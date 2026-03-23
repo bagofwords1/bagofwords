@@ -105,7 +105,7 @@ def test_get_report_includes_conversation_share_status(
 
 # --- Fork Report Tests ---
 
-def _setup_two_users(create_user, login_user, whoami, add_organization_member):
+def _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client=None):
     """Helper: create two users in the same organization. Returns (user1_token, user2_token, org_id, user2_id)."""
     # User 1 (owner) — auto-gets an org on first registration
     email1 = f"fork_owner_{uuid.uuid4().hex[:6]}@test.com"
@@ -114,15 +114,20 @@ def _setup_two_users(create_user, login_user, whoami, add_organization_member):
     me1 = whoami(token1)
     org_id = me1["organizations"][0]["id"]
 
-    # User 2 (forker)
+    # Invite user2 by email before they register
     email2 = f"fork_user_{uuid.uuid4().hex[:6]}@test.com"
+    invite_resp = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email2, "role": "member"},
+        headers={"Authorization": f"Bearer {token1}", "X-Organization-Id": org_id},
+    )
+    assert invite_resp.status_code == 200, invite_resp.json()
+
+    # User 2 registers with the invited email
     user2 = create_user(email=email2, password="test123")
     token2 = login_user(email=email2, password="test123")
     me2 = whoami(token2)
     user2_id = me2["id"]
-
-    # Add user2 to the same org
-    add_organization_member(org_id, user2_id, role_id="member", token=token1)
 
     return token1, token2, org_id, user2_id
 
@@ -139,7 +144,7 @@ def test_fork_published_report(
     add_organization_member,
 ):
     """Forking a published report creates a new draft report owned by the forking user."""
-    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member)
+    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client)
 
     # Owner creates and publishes a report
     report = create_report(title="Original Analysis", user_token=token1, org_id=org_id)
@@ -168,7 +173,7 @@ def test_fork_with_custom_title(
     add_organization_member,
 ):
     """Forking with a custom title uses that title instead of the default."""
-    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member)
+    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client)
 
     report = create_report(title="Revenue Report", user_token=token1, org_id=org_id)
     publish_report(report_id=report["id"], user_token=token1, org_id=org_id)
@@ -181,7 +186,7 @@ def test_fork_with_custom_title(
 
 
 @pytest.mark.e2e
-def test_fork_own_report_forbidden(
+def test_fork_own_report(
     test_client,
     create_report,
     create_user,
@@ -190,7 +195,7 @@ def test_fork_own_report_forbidden(
     publish_report,
     fork_report,
 ):
-    """Owner cannot fork their own report."""
+    """Owner can fork their own published report."""
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
@@ -198,9 +203,11 @@ def test_fork_own_report_forbidden(
     report = create_report(title="My Report", user_token=token, org_id=org_id)
     publish_report(report_id=report["id"], user_token=token, org_id=org_id)
 
-    resp = fork_report(report["id"], user_token=token, org_id=org_id, expect_status=None)
-    assert resp.status_code == 403
-    assert "is_owner" in resp.json().get("detail", "")
+    resp = fork_report(report["id"], user_token=token, org_id=org_id)
+    fork = resp.json()
+    assert fork["forked_from_id"] == report["id"]
+    assert fork["title"] == "Fork of My Report"
+    assert fork["id"] != report["id"]
 
 
 @pytest.mark.e2e
@@ -214,7 +221,7 @@ def test_fork_unpublished_report_forbidden(
     add_organization_member,
 ):
     """Cannot fork a draft (unpublished) report."""
-    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member)
+    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client)
 
     report = create_report(title="Draft Report", user_token=token1, org_id=org_id)
     # NOT published
@@ -236,7 +243,7 @@ def test_forked_report_has_lineage_fields(
     add_organization_member,
 ):
     """GET /reports/{id} on the forked report includes fork lineage fields."""
-    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member)
+    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client)
 
     report = create_report(title="Source Report", user_token=token1, org_id=org_id)
     publish_report(report_id=report["id"], user_token=token1, org_id=org_id)
@@ -290,7 +297,7 @@ def test_public_report_fork_eligibility_for_logged_in_user(
     add_organization_member,
 ):
     """GET /r/{id} with auth returns can_fork=true for eligible user."""
-    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member)
+    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client)
 
     report = create_report(title="Public Eligible", user_token=token1, org_id=org_id)
     publish_report(report_id=report["id"], user_token=token1, org_id=org_id)
@@ -320,7 +327,7 @@ def test_fork_creates_summary_completion(
     add_organization_member,
 ):
     """Forking creates a fork summary completion as the first message."""
-    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member)
+    token1, token2, org_id, _ = _setup_two_users(create_user, login_user, whoami, add_organization_member, test_client)
 
     report = create_report(title="Analysis Report", user_token=token1, org_id=org_id)
     publish_report(report_id=report["id"], user_token=token1, org_id=org_id)
