@@ -1077,7 +1077,7 @@ class DataSourceService:
             # Resolve client with policy-aware credentials
             client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
             # Test the connection
-            connection_status = client.test_connection()
+            connection_status = await client.atest_connection()
 
             # Normalize success value for robust handling
             try:
@@ -1147,12 +1147,12 @@ class DataSourceService:
             )
 
             # Step 1: Test basic connectivity
-            connection_status = client.test_connection()
+            connection_status = await client.atest_connection()
             if not connection_status.get("success"):
                 return connection_status
 
             # Step 2: Validate schema access by attempting to get tables
-            schema_status = self._validate_schema_access(client)
+            schema_status = await self._avalidate_schema_access(client)
             
             # Combine results
             if not schema_status.get("success"):
@@ -1179,27 +1179,28 @@ class DataSourceService:
                 "schema_access": False,
             }
 
-    def _validate_schema_access(self, client) -> dict:
-        """Validate that we can read schema metadata and find tables.
+    async def _avalidate_schema_access(self, client) -> dict:
+        """Validate that we can read schema metadata and find tables (async, offloads to thread).
         Returns a dict with success status, table count, and optional error message.
         """
         try:
-            # Try get_schemas first (most clients), fall back to get_tables
+            # Try aget_schemas first (most clients), fall back to get_tables
             tables = None
-            if hasattr(client, "get_schemas"):
-                tables = client.get_schemas()
+            if hasattr(client, "aget_schemas"):
+                tables = await client.aget_schemas()
             elif hasattr(client, "get_tables"):
-                tables = client.get_tables()
-            
+                import asyncio
+                tables = await asyncio.to_thread(client.get_tables)
+
             if tables is None:
                 return {
                     "success": False,
                     "message": "Client does not support schema introspection",
                     "table_count": 0,
                 }
-            
+
             table_count = len(tables) if tables else 0
-            
+
             # Note: Empty databases are allowed - schema can be refreshed later when tables are added
             return {
                 "success": True,
@@ -1567,7 +1568,7 @@ class DataSourceService:
 
         client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
         try:
-            schema = client.get_schemas()
+            schema = await client.aget_schemas()
             # Empty list is valid (e.g., empty database) - only None indicates an error
             if schema is None:
                 raise HTTPException(status_code=500, detail="No schema returned from data source")
@@ -2004,7 +2005,7 @@ class DataSourceService:
     async def get_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list."""
         client = await self.construct_client(db=db, data_source=data_source, current_user=user)
-        fresh = client.get_schemas()
+        fresh = await client.aget_schemas()
         if not fresh:
             return []
 

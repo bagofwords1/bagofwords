@@ -65,7 +65,7 @@ class ConnectionService:
 
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
-            validation_result = self.test_connection_params(
+            validation_result = await self.test_connection_params(
                 data_source_type=type,
                 config=config,
                 credentials=credentials,
@@ -226,7 +226,7 @@ class ConnectionService:
             current_config = json.loads(connection.config) if isinstance(connection.config, str) else connection.config
             current_credentials = connection.decrypt_credentials()
             
-            validation_result = self.test_connection_params(
+            validation_result = await self.test_connection_params(
                 data_source_type=connection.type,
                 config=current_config,
                 credentials=current_credentials,
@@ -329,7 +329,7 @@ class ConnectionService:
             "deleted_domains": deleted_domain_names,
         }
 
-    def test_connection_params(
+    async def test_connection_params(
         self,
         data_source_type: str,
         config: dict,
@@ -344,12 +344,12 @@ class ConnectionService:
             )
 
             # Test basic connectivity
-            connection_status = client.test_connection()
+            connection_status = await client.atest_connection()
             if not connection_status.get("success"):
                 return connection_status
 
             # Validate schema access
-            schema_status = self._validate_schema_access(client)
+            schema_status = await self._avalidate_schema_access(client)
             
             if not schema_status.get("success"):
                 return {
@@ -392,7 +392,7 @@ class ConnectionService:
                 config_overrides=config_overrides,
                 credential_overrides=credential_overrides,
             )
-            connection_status = client.test_connection()
+            connection_status = await client.atest_connection()
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
@@ -428,7 +428,7 @@ class ConnectionService:
             logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
             client = await self.construct_client(db, connection, current_user)
             logger.info(f"refresh_schema: Client constructed successfully, calling get_schemas()...")
-            fresh_tables = client.get_schemas()
+            fresh_tables = await client.aget_schemas()
 
             logger.info(f"refresh_schema: Got {len(fresh_tables) if fresh_tables else 0} tables from database")
             if fresh_tables and len(fresh_tables) > 0:
@@ -678,14 +678,15 @@ class ConnectionService:
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load client for {data_source_type}: {str(e)}")
 
-    def _validate_schema_access(self, client) -> dict:
-        """Validate that we can read schema metadata."""
+    async def _avalidate_schema_access(self, client) -> dict:
+        """Validate that we can read schema metadata (async, offloads to thread)."""
         try:
             tables = None
-            if hasattr(client, "get_schemas"):
-                tables = client.get_schemas()
+            if hasattr(client, "aget_schemas"):
+                tables = await client.aget_schemas()
             elif hasattr(client, "get_tables"):
-                tables = client.get_tables()
+                import asyncio
+                tables = await asyncio.to_thread(client.get_tables)
 
             if tables is None:
                 return {

@@ -87,7 +87,7 @@ class UserDataSourceCredentialsService:
                     from app.services.data_source_service import DataSourceService
                     ds_service = DataSourceService()
                     client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
-                    ok = client.test_connection()
+                    ok = await client.atest_connection()
                     success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
                     conn_status = "success" if success else "not_connected"
                     logger.info(f"Connection test for {data_source.name}: {conn_status} (result={ok})")
@@ -135,7 +135,7 @@ class UserDataSourceCredentialsService:
                         from app.services.data_source_service import DataSourceService
                         ds_service = DataSourceService()
                         client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
-                        ok = client.test_connection()
+                        ok = await client.atest_connection()
                         success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
                         conn = "success" if success else "not_connected"
                     except Exception:
@@ -161,7 +161,7 @@ class UserDataSourceCredentialsService:
                 from app.services.data_source_service import DataSourceService
                 ds_service = DataSourceService()
                 client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
-                ok = client.test_connection()
+                ok = await client.atest_connection()
                 success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
                 conn = "success" if success else "not_connected"
             except Exception:
@@ -312,7 +312,7 @@ class UserDataSourceCredentialsService:
             pass
         client = ClientClass(**params)
         try:
-            res = client.test_connection()
+            res = await client.atest_connection()
             success = bool(res.get("success")) if isinstance(res, dict) else bool(res)
             return {"success": success, "message": (res.get("message") if isinstance(res, dict) else None)}
         except Exception as e:

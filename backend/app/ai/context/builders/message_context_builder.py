@@ -314,6 +314,9 @@ class MessageContextBuilder:
                                         digest_parts.append(f"mode: {rj.get('mode')}")
                                     if rj.get('artifact_id'):
                                         digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                    viz_ids = rj.get('visualization_ids') or []
+                                    if viz_ids:
+                                        digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                     if rj.get('version'):
                                         digest_parts.append(f"v{rj.get('version')}")
                                     if digest_parts:
@@ -762,6 +765,9 @@ class MessageContextBuilder:
                                     digest_parts.append(f"mode: {rj.get('mode')}")
                                 if rj.get('artifact_id'):
                                     digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                viz_ids = rj.get('visualization_ids') or []
+                                if viz_ids:
+                                    digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                 if rj.get('version'):
                                     digest_parts.append(f"v{rj.get('version')}")
                                 if digest_parts:

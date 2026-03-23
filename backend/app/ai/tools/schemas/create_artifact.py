@@ -30,4 +30,5 @@ class CreateArtifactOutput(BaseModel):
     code: str = Field(..., description="The generated React/JSX code")
     mode: str = Field(..., description="Artifact mode, eiither 'page' for dashboards/reports or 'slides' for presentation, deck or powerpoint export")
     title: Optional[str] = Field(None, description="Artifact title")
+    visualization_ids: List[str] = Field(default_factory=list, description="All visualization IDs included in this artifact. Use these when making further edits with edit_artifact.")
     version: int = Field(default=1, description="Version number of the artifact")
