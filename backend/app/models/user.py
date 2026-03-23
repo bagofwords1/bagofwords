@@ -33,7 +33,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
     user_connection_credentials = relationship("UserConnectionCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
     api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
-
+    group_memberships = relationship("GroupMembership", back_populates="user", cascade="all, delete-orphan")
 
 
 # from app.models.organization import Organization

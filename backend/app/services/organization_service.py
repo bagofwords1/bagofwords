@@ -62,20 +62,89 @@ class OrganizationService:
         await self.llm_service.set_default_models_from_config(db, organization, current_user)
         await self.test_suite_service.ensure_default_for_org(db, organization.id, current_user)
 
+        # Create RBAC role_assignment for the admin system role
+        await self._assign_system_role(db, organization.id, str(current_user.id), "admin")
+
         return OrganizationSchema.from_orm(organization)
+
+    async def _assign_system_role(self, db: AsyncSession, org_id: str, user_id: str, role_name: str) -> None:
+        """Assign a system role to a user via role_assignments (RBAC path)."""
+        from app.models.role import Role
+        from app.models.role_assignment import RoleAssignment
+
+        try:
+            result = await db.execute(
+                select(Role).where(
+                    Role.name == role_name,
+                    Role.is_system == True,
+                    Role.organization_id.is_(None),
+                    Role.deleted_at.is_(None),
+                )
+            )
+            system_role = result.scalar_one_or_none()
+            if not system_role:
+                return
+            # Check if assignment already exists
+            existing = await db.execute(
+                select(RoleAssignment).where(
+                    RoleAssignment.organization_id == org_id,
+                    RoleAssignment.role_id == system_role.id,
+                    RoleAssignment.principal_type == "user",
+                    RoleAssignment.principal_id == user_id,
+                )
+            )
+            if existing.scalar_one_or_none():
+                return
+            assignment = RoleAssignment(
+                organization_id=org_id,
+                role_id=system_role.id,
+                principal_type="user",
+                principal_id=user_id,
+            )
+            db.add(assignment)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            # Don't break org creation if RBAC tables don't exist yet (pre-migration)
 
     async def get_organization(self, db: AsyncSession, organization_id: str, current_user: User) -> OrganizationSchema:
         result = await db.execute(select(Organization).where(Organization.id == organization_id))
         return result.scalar_one_or_none()
     
     async def get_members(self, db: AsyncSession, organization: Organization, current_user: User) -> List[MembershipSchema]:
+        from app.models.role_assignment import RoleAssignment
+        from app.models.role import Role
+        from app.schemas.organization_schema import RoleSummarySchema
+
         result = await db.execute(
             select(Membership)
             .options(selectinload(Membership.user))
             .where(Membership.organization_id == organization.id)
         )
-        result = result.scalars().all()
-        return [MembershipSchema.from_orm(membership) for membership in result]
+        memberships = result.scalars().all()
+
+        schemas = []
+        for membership in memberships:
+            schema = MembershipSchema.from_orm(membership)
+            # Resolve roles from role_assignments
+            if membership.user_id:
+                ra_result = await db.execute(
+                    select(RoleAssignment)
+                    .options(selectinload(RoleAssignment.role))
+                    .where(
+                        RoleAssignment.organization_id == organization.id,
+                        RoleAssignment.principal_type == "user",
+                        RoleAssignment.principal_id == membership.user_id,
+                        RoleAssignment.deleted_at.is_(None),
+                    )
+                )
+                assignments = ra_result.scalars().all()
+                schema.roles = [
+                    RoleSummarySchema(id=a.role.id, name=a.role.name)
+                    for a in assignments if a.role
+                ]
+            schemas.append(schema)
+        return schemas
     
     async def get_member(self, db: AsyncSession, membership_id: str, organization_id: str, current_user: User) -> MembershipSchema:
         result = await db.execute(
@@ -137,10 +206,16 @@ class OrganizationService:
         # Send invitation email if email client is configured
         if hasattr(settings, 'email_client') and settings.email_client and invitation_email:
             await self._send_invitation_email(membership_with_user, invitation_email)
-            
+
+        # Create RBAC role_assignment if user_id is set
+        if membership_with_user.user_id and membership_data.role:
+            await self._assign_system_role(db, membership_data.organization_id, membership_with_user.user_id, membership_data.role)
+
         return MembershipSchema.from_orm(membership_with_user)
     
     async def get_user_organizations(self, db: AsyncSession, current_user: User) -> List[OrganizationAndRoleSchema]:
+        from app.core.permission_resolver import resolve_permissions
+
         result = await db.execute(
             select(Organization, Membership.role)
             .join(Membership)
@@ -160,45 +235,59 @@ class OrganizationService:
         for org, role in results:
             icon_url = None
             ai_analyst_name = "AI Analyst"  # Default value
-            settings = settings_map.get(org.id)
-            if settings and isinstance(settings.config, dict):
-                general = settings.config.get('general') or {}
+            org_settings = settings_map.get(org.id)
+            if org_settings and isinstance(org_settings.config, dict):
+                general = org_settings.config.get('general') or {}
                 icon_url = general.get('icon_url')
                 ai_analyst_name = general.get('ai_analyst_name') or "AI Analyst"
+
+            # Resolve RBAC permissions
+            resolved = await resolve_permissions(db, str(current_user.id), str(org.id))
+
+            # Build resource_permissions dict for frontend
+            resource_perms = {}
+            for (res_type, res_id), perms in resolved.resource_permissions.items():
+                key = f"{res_type}:{res_id}"
+                resource_perms[key] = sorted(perms)
+
             formatted.append(OrganizationAndRoleSchema(
                 id=org.id,
                 name=org.name,
                 description=org.description,
-                role=role,
+                role=role,  # backward compat
+                roles=resolved.role_names,
+                permissions=sorted(resolved.org_permissions),
+                resource_permissions=resource_perms,
                 icon_url=icon_url,
-                ai_analyst_name=ai_analyst_name
+                ai_analyst_name=ai_analyst_name,
             ))
         return formatted
 
 
     async def remove_member(self, db: AsyncSession, organization_id, membership_id: str, current_user: User, organization: Organization) -> None:
-        # check fi the selected membership is admin, and if it is the only admin
+        from app.core.permission_resolver import assert_full_admin_exists
+
         membership = await self.get_member(db, membership_id, organization_id, current_user)
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
         if membership.user_id:
-            admin_count = await self._active_admin_count(db, organization, current_user)
-            if admin_count == 1 and membership.role == "admin":
-                raise HTTPException(status_code=400, detail="You cannot remove the only admin from the organization")
+            # RBAC lockout prevention: ensure at least one user keeps full_admin_access
+            await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
 
         await db.execute(delete(Membership).where(Membership.id == membership_id))
         await db.commit()
     
     async def update_member(self, db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
+        from app.core.permission_resolver import assert_full_admin_exists
+
         membership = await self.get_member(db, membership_id, organization_id, current_user)
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
-        
-        # validate that the membership is not the only active admin in the organization
-        if membership.user_id:
-            admin_count = await self._active_admin_count(db, organization, current_user)
-            if admin_count == 1 and membership.role == "admin":
-                raise HTTPException(status_code=400, detail="You cannot update the role of the only active admin in the organization")
+
+        # RBAC lockout prevention when changing roles
+        if membership.user_id and membership_data.role and membership_data.role != membership.role:
+            if membership.role == "admin":
+                await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
 
         # currently only updating role
         membership.role = membership_data.role

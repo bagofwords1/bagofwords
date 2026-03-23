@@ -81,6 +81,11 @@ ADMIN_PERMISSIONS = {
     # Enterprise features
     'view_audit_logs',
     'manage_scim',
+    # RBAC management
+    'manage_roles',
+    'manage_groups',
+    'manage_role_assignments',
+    'manage_resource_grants',
 }
 
 # Combine permissions for roles

@@ -17,7 +17,7 @@
         </div>
         <div class="overflow-x-auto">
             <div class="inline-block min-w-full align-middle">
-                <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 rounded-lg">
+                <div class="shadow ring-1 ring-black ring-opacity-5 rounded-lg">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
@@ -50,25 +50,40 @@
                                     </div>
                                     <div v-else class="text-sm text-gray-900">{{ member.email }}</div>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <UDropdown 
-                                        v-model="member.role" 
-                                        :items="[
-                                            [{ label: 'Member', value: 'member', click: () => updateMemberRole(member, 'member') }],
-                                            [{ label: 'Admin', value: 'admin', click: () => updateMemberRole(member, 'admin')}]
-                                        ]"
-                                        :popper="{ placement: 'bottom-start' }"
-                                        v-if="useCan('update_organization_members')"
-                                    >
-                                        <UButton 
-                                            color="white" 
-                                            :label="member.role.charAt(0).toUpperCase() + member.role.slice(1)" 
-                                            trailing-icon="i-heroicons-chevron-down-20-solid" 
-                                        />
-                                    </UDropdown>
-                                    <button v-else class="text-gray-500 cursor-default">
-                                        {{ member.role.charAt(0).toUpperCase() + member.role.slice(1) }}
-                                    </button>
+                                <td class="px-6 py-4">
+                                    <template v-if="member.roles?.length">
+                                        <!-- Multi-role display with selector -->
+                                        <USelectMenu
+                                            v-if="useCan('update_organization_members')"
+                                            :model-value="member.roles.map((r: any) => r.id)"
+                                            :options="availableRoles"
+                                            multiple
+                                            option-attribute="name"
+                                            value-attribute="id"
+                                            size="sm"
+                                            :ui-menu="{ width: 'w-48' }"
+                                            @update:model-value="updateMemberRoles(member, $event)"
+                                        >
+                                            <template #label>
+                                                <div class="flex gap-1 flex-wrap">
+                                                    <UBadge v-for="r in member.roles" :key="r.id" size="xs" color="gray">
+                                                        {{ r.name }}
+                                                    </UBadge>
+                                                </div>
+                                            </template>
+                                        </USelectMenu>
+                                        <div v-else class="flex gap-1 flex-wrap">
+                                            <UBadge v-for="r in member.roles" :key="r.id" size="xs" color="gray">
+                                                {{ r.name }}
+                                            </UBadge>
+                                        </div>
+                                    </template>
+                                    <template v-else>
+                                        <!-- Fallback: old single-role display -->
+                                        <UBadge size="xs" color="gray">
+                                            {{ member.role?.charAt(0).toUpperCase() + member.role?.slice(1) }}
+                                        </UBadge>
+                                    </template>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span v-if="member.user" 
@@ -139,13 +154,23 @@
                 
                 <div class="flex flex-col">
                     <label class="text-sm font-medium text-gray-700 mb-2">Role</label>
-                    <select 
+                    <select
                         v-model="inviteForm.role"
                         required
                         class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                     >
-                        <option value="member">Member</option>
-                        <option value="admin">Admin</option>
+                        <option
+                            v-for="role in availableRoles"
+                            :key="role.id"
+                            :value="role.name"
+                        >
+                            {{ role.name.charAt(0).toUpperCase() + role.name.slice(1) }}
+                        </option>
+                        <!-- Fallback if roles haven't loaded -->
+                        <template v-if="!availableRoles.length">
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                        </template>
                     </select>
                 </div>
 
@@ -177,6 +202,71 @@ const organizationId = props.organization.id
 const members = ref([])
 const searchQuery = ref('')
 const toast = useToast()
+const availableRoles = ref<{ id: string; name: string }[]>([])
+
+async function loadAvailableRoles() {
+    try {
+        const { data } = await useMyFetch(`/organizations/${organizationId}/roles`)
+        if (data.value) {
+            availableRoles.value = (data.value as any[]).map((r) => ({ id: r.id, name: r.name }))
+        }
+    } catch (e) {
+        // Roles endpoint may not be available yet (backward compat)
+    }
+}
+
+async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
+    try {
+        // Get current role IDs
+        const currentRoleIds = (member.roles || []).map((r: any) => r.id)
+
+        // Find added and removed
+        const added = selectedRoleIds.filter((id: string) => !currentRoleIds.includes(id))
+        const removed = currentRoleIds.filter((id: string) => !selectedRoleIds.includes(id))
+
+        // Create new assignments
+        for (const roleId of added) {
+            await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
+                method: 'POST',
+                body: { role_id: roleId, principal_type: 'user', principal_id: member.user_id || member.user?.id },
+            })
+        }
+
+        // Remove old assignments (need to find assignment IDs)
+        if (removed.length) {
+            const { data: assignments } = await useMyFetch(
+                `/organizations/${organizationId}/role-assignments?principal_type=user&principal_id=${member.user_id || member.user?.id}`
+            )
+            if (assignments.value) {
+                for (const assignment of assignments.value as any[]) {
+                    if (removed.includes(assignment.role_id)) {
+                        const resp = await useMyFetch(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
+                            method: 'DELETE',
+                        })
+                        if (resp.error?.value) {
+                            const detail = resp.error.value.data?.detail || 'Failed to remove role'
+                            toast.add({ title: detail, color: 'red' })
+                            // Reload to get correct state
+                            const membersResp = await useMyFetch(`/organizations/${organizationId}/members`)
+                            members.value = membersResp.data.value
+                            return
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update local state
+        member.roles = availableRoles.value
+            .filter((r) => selectedRoleIds.includes(r.id))
+            .map((r) => ({ id: r.id, name: r.name }))
+
+        toast.add({ title: 'Roles updated', color: 'green' })
+    } catch (error: any) {
+        const detail = error?.data?.detail || error?.message || 'Failed to update roles'
+        toast.add({ title: detail, color: 'red' })
+    }
+}
 
 async function updateMemberRole(member: any, role: string) {
     try {
@@ -220,6 +310,7 @@ onMounted(() => {
     nextTick(async () => {
         const response = await useMyFetch(`/organizations/${organizationId}/members`)
         members.value = response.data.value
+        await loadAvailableRoles()
     })
 })
 

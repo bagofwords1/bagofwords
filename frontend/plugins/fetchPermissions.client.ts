@@ -1,10 +1,11 @@
-import { usePermissions, usePermissionsLoaded } from '~/composables/usePermissions'
+import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
 export default defineNuxtPlugin(async (nuxtApp) => {
   const { getSession } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
   const permissions = usePermissions()
   const permissionsLoaded = usePermissionsLoaded()
+  const resourcePermissions = useResourcePermissions()
 
   // Extract the permission loading logic into a reusable function
   const loadPermissions = async () => {
@@ -19,11 +20,20 @@ export default defineNuxtPlugin(async (nuxtApp) => {
       }
 
       if (session.organizations && session.organizations.length > 0) {
-        const userRole = session.organizations.find(
-          (org) => org.id === organization.value.id
-        )?.role
-        const rolePermissions = getPermissionsForRole(userRole)
-        permissions.value = rolePermissions
+        const org = session.organizations.find(
+          (o: any) => o.id === organization.value.id
+        )
+
+        if (org?.permissions?.length) {
+          // New path: server-supplied resolved permissions
+          permissions.value = org.permissions
+          resourcePermissions.value = org.resource_permissions || {}
+        } else {
+          // Fallback: old path for backward compat during migration
+          const rolePermissions = getPermissionsForRole(org?.role)
+          permissions.value = rolePermissions
+          resourcePermissions.value = {}
+        }
         permissionsLoaded.value = true
       } else {
         console.warn('No organizations found in session data.')
@@ -45,7 +55,6 @@ export default defineNuxtPlugin(async (nuxtApp) => {
       // Only reload permissions if we're navigating to a different route
       // and permissions were previously loaded
       if (to.path !== from.path && permissionsLoaded.value) {
-        //console.log('Navigation detected, reloading permissions...')
         permissionsLoaded.value = false // Reset loaded state
         await loadPermissions()
       }
@@ -53,7 +62,7 @@ export default defineNuxtPlugin(async (nuxtApp) => {
   })
 })
 
-// Define the function to get permissions based on role
+// Fallback: define the function to get permissions based on role (backward compat)
 function getPermissionsForRole(role: string): string[] {
   const rolePermissionsMap: Record<string, string[]> = {
     admin: [
@@ -145,7 +154,6 @@ function getPermissionsForRole(role: string): string[] {
       'withdraw_entities',
       'view_builds'
     ],
-    // Add more roles and permissions as needed
   }
 
   return rolePermissionsMap[role] || []

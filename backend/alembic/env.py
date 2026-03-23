@@ -75,6 +75,11 @@ from app.models.api_key import ApiKey
 from app.models.instruction_build import InstructionBuild
 from app.models.oauth_server import OAuthMCPClient, OAuthMCPAuthorizationCode, OAuthMCPAccessToken
 from app.ee.scim.models import ScimToken
+from app.models.role import Role
+from app.models.group import Group
+from app.models.group_membership import GroupMembership
+from app.models.role_assignment import RoleAssignment
+from app.models.resource_grant import ResourceGrant
 
 from app.settings.config import settings
 

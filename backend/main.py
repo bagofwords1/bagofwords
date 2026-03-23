@@ -75,6 +75,7 @@ from app.routes import (
     connection,
     artifact,
     oauth_server,
+    rbac,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -187,6 +188,7 @@ app.include_router(completion.router)
 app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
+app.include_router(rbac.router, prefix="/api")
 app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
