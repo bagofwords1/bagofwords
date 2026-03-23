@@ -403,16 +403,26 @@ async function saveRole() {
         }
 
         if (editingRole.value) {
-            await useMyFetch(`/organizations/${props.organization.id}/roles/${editingRole.value.id}`, {
+            const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles/${editingRole.value.id}`, {
                 method: 'PUT',
                 body,
             })
+            if (error.value) {
+                const detail = error.value.data?.detail || 'Failed to update role'
+                toast.add({ title: detail, color: 'red' })
+                return
+            }
             toast.add({ title: 'Role updated' })
         } else {
-            await useMyFetch(`/organizations/${props.organization.id}/roles`, {
+            const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles`, {
                 method: 'POST',
                 body,
             })
+            if (error.value) {
+                const detail = error.value.data?.detail || 'Failed to create role'
+                toast.add({ title: detail, color: 'red' })
+                return
+            }
             toast.add({ title: 'Role created' })
         }
 
@@ -429,9 +439,14 @@ async function saveRole() {
 async function deleteRole(role: RoleData) {
     if (!confirm(`Delete role "${role.name}"?`)) return
     try {
-        await useMyFetch(`/organizations/${props.organization.id}/roles/${role.id}`, {
+        const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles/${role.id}`, {
             method: 'DELETE',
         })
+        if (error.value) {
+            const detail = error.value.data?.detail || 'Failed to delete role'
+            toast.add({ title: detail, color: 'red' })
+            return
+        }
         toast.add({ title: 'Role deleted' })
         await loadRoles()
     } catch (e: any) {

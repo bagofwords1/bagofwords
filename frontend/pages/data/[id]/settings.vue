@@ -169,8 +169,8 @@
                 <div class="text-sm font-medium text-gray-900 mb-2">Add members</div>
                 <div class="text-xs text-gray-600 mb-3">Select users or groups to grant access to this domain.</div>
 
-                <!-- Principal type toggle -->
-                <div class="flex gap-2 mb-3">
+                <!-- Principal type toggle (only shown with enterprise) -->
+                <div v-if="addTabs.length > 1" class="flex gap-2 mb-3">
                     <button
                         v-for="tab in addTabs"
                         :key="tab.key"
@@ -259,6 +259,7 @@
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'data' })
 import { useCan } from '~/composables/usePermissions'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '@/components/Spinner.vue'
 import type { Ref } from 'vue'
 
@@ -289,7 +290,8 @@ const ready = computed(() => !injectedLoading.value && !!injectedIntegration.val
 const showDelete = ref(false)
 const adding = ref(false)
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
-const isEnterprise = computed(() => useCan('manage_roles'))
+const { hasFeature } = useEnterprise()
+const isEnterprise = computed(() => hasFeature('custom_roles'))
 
 const dsPermOptions = ['query', 'view_schema', 'upload_files', 'manage', 'manage_members']
 
@@ -385,10 +387,10 @@ function groupMemberCount(m: MemberGrant): number {
 function principalDisplayName(m: MemberGrant): string {
     if (m.principal_type === 'group') {
         const group = allGroups.value.find(g => g.id === m.principal_id)
-        return group?.name || 'Group'
+        return group?.name || m.principal_name || 'Unknown group'
     }
     const user = allUsers.value.find(u => u.id === m.principal_id)
-    return user?.display_name || user?.email || 'User'
+    return user?.display_name || user?.email || m.principal_name || 'Unknown user'
 }
 
 function principalEmail(m: MemberGrant): string {
@@ -441,10 +443,15 @@ const selectedUsers = ref<string[]>([])
 const selectedGroups = ref<string[]>([])
 const addPermissions = ref<string[]>(['query', 'view_schema'])
 
-const addTabs = [
-    { key: 'user' as const, label: 'Users' },
-    { key: 'group' as const, label: 'Groups' },
-]
+const addTabs = computed(() => {
+    const tabs: { key: 'user' | 'group'; label: string }[] = [
+        { key: 'user', label: 'Users' },
+    ]
+    if (isEnterprise.value) {
+        tabs.push({ key: 'group', label: 'Groups' })
+    }
+    return tabs
+})
 
 const availableUsers = computed(() => {
     const memberUserIds = new Set(

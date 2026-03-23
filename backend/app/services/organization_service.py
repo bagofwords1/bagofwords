@@ -293,6 +293,10 @@ class OrganizationService:
                 key = f"{res_type}:{res_id}"
                 resource_perms[key] = sorted(perms)
 
+            # Check enterprise license
+            from app.ee.license import has_feature
+            is_enterprise = has_feature("custom_roles")
+
             formatted.append(OrganizationAndRoleSchema(
                 id=org.id,
                 name=org.name,
@@ -301,6 +305,7 @@ class OrganizationService:
                 roles=resolved.role_names,
                 permissions=sorted(resolved.org_permissions),
                 resource_permissions=resource_perms,
+                is_enterprise=is_enterprise,
                 icon_url=icon_url,
                 ai_analyst_name=ai_analyst_name,
             ))

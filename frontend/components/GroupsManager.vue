@@ -466,16 +466,24 @@ async function saveGroup() {
         }
 
         if (editingGroup.value) {
-            await useMyFetch(`/organizations/${organizationId}/groups/${editingGroup.value.id}`, {
+            const { error } = await useMyFetch(`/organizations/${organizationId}/groups/${editingGroup.value.id}`, {
                 method: 'PUT',
                 body,
             })
+            if (error.value) {
+                toast.add({ title: error.value.data?.detail || 'Failed to update group', color: 'red' })
+                return
+            }
             toast.add({ title: 'Group updated', color: 'green' })
         } else {
-            await useMyFetch(`/organizations/${organizationId}/groups`, {
+            const { error } = await useMyFetch(`/organizations/${organizationId}/groups`, {
                 method: 'POST',
                 body,
             })
+            if (error.value) {
+                toast.add({ title: error.value.data?.detail || 'Failed to create group', color: 'red' })
+                return
+            }
             toast.add({ title: 'Group created', color: 'green' })
         }
 
@@ -492,9 +500,13 @@ async function saveGroup() {
 async function deleteGroup(group: GroupData) {
     if (!confirm(`Delete group "${group.name}"?`)) return
     try {
-        await useMyFetch(`/organizations/${organizationId}/groups/${group.id}`, {
+        const { error } = await useMyFetch(`/organizations/${organizationId}/groups/${group.id}`, {
             method: 'DELETE',
         })
+        if (error.value) {
+            toast.add({ title: error.value.data?.detail || 'Failed to delete group', color: 'red' })
+            return
+        }
         toast.add({ title: 'Group deleted', color: 'green' })
         await loadGroups()
     } catch (e: any) {

@@ -46,6 +46,7 @@ class OrganizationAndRoleSchema(OrganizationSchema):
     roles: List[str] = []  # all assigned role names
     permissions: List[str] = []  # resolved org permission union
     resource_permissions: Dict[str, List[str]] = {}  # "data_source:<id>" -> ["query", ...]
+    is_enterprise: bool = False  # whether enterprise license is active
     icon_url: Optional[str] = None
     ai_analyst_name: Optional[str] = None
 

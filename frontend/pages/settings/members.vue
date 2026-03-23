@@ -27,18 +27,24 @@
 
 <script setup lang="ts">
 import { useCan } from '~/composables/usePermissions'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { organization } = useOrganization()
 const activeTab = ref('members')
+const { hasFeature } = useEnterprise()
 
 const tabs = [
     { key: 'members', label: 'Members' },
-    { key: 'roles', label: 'Roles', permission: 'manage_roles' },
-    { key: 'groups', label: 'Groups', permission: 'manage_groups' },
+    { key: 'roles', label: 'Roles', permission: 'manage_roles', feature: 'custom_roles' },
+    { key: 'groups', label: 'Groups', permission: 'manage_groups', feature: 'custom_roles' },
 ]
 
 const visibleTabs = computed(() =>
-    tabs.filter((tab) => !tab.permission || useCan(tab.permission))
+    tabs.filter((tab) => {
+        if (tab.feature && !hasFeature(tab.feature)) return false
+        if (tab.permission && !useCan(tab.permission)) return false
+        return true
+    })
 )
 
 definePageMeta({
