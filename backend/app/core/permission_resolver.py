@@ -62,6 +62,34 @@ async def resolve_permissions(
     4. Find all resource grants for user or their groups → resource_permissions
     5. Fallback to old Membership.role if no role_assignments exist (dual-read)
     """
+    try:
+        return await _resolve_permissions_inner(db, user_id, org_id)
+    except Exception:
+        logger.error(
+            "Permission resolution failed for user=%s org=%s",
+            user_id, org_id, exc_info=True,
+        )
+        # Audit the failure
+        try:
+            from app.ee.audit.service import audit_service
+            await audit_service.log(
+                db=db,
+                organization_id=org_id,
+                action="rbac.resolution_failed",
+                user_id=user_id,
+                resource_type="permission",
+                details={"error": "Permission resolution failed"},
+            )
+        except Exception:
+            logger.debug("Failed to audit permission resolution failure", exc_info=True)
+        # Return empty permissions on failure — caller will deny access
+        return ResolvedPermissions()
+
+
+async def _resolve_permissions_inner(
+    db: AsyncSession, user_id: str, org_id: str
+) -> ResolvedPermissions:
+    """Inner implementation of permission resolution."""
     # 1. Get user's group IDs in this org
     group_stmt = (
         select(GroupMembership.group_id)
@@ -214,23 +242,6 @@ async def assert_full_admin_exists(
         exclude_role_id: Role being edited/deleted (count without it)
     """
     # Find all roles that contain "full_admin_access" in their permissions
-    role_stmt = (
-        select(Role.id)
-        .where(
-            Role.deleted_at.is_(None),
-            or_(
-                Role.organization_id == org_id,
-                Role.organization_id.is_(None),
-            ),
-        )
-    )
-    role_result = await db.execute(role_stmt)
-    admin_role_ids = []
-    for (role_id,) in role_result.all():
-        # Re-query to get permissions (need to check JSON contains)
-        pass
-
-    # More efficient: query roles and filter in Python
     all_roles_stmt = (
         select(Role.id, Role.permissions)
         .where(

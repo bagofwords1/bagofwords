@@ -1,7 +1,7 @@
 <template>
     <NuxtLayout name="default">
-        <div class="flex pl-2 md:pl-4 text-sm">
-            <div class="w-full md:w-3/4 px-4 pl-0 py-4">
+        <div class="flex justify-center pl-2 md:pl-4 text-sm">
+            <div class="w-full max-w-7xl px-4 pl-0 py-4">
                 <div>
                     <h1 class="text-lg font-semibold">
                         Settings

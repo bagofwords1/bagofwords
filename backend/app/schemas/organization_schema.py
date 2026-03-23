@@ -25,6 +25,7 @@ class MembershipUpdate(BaseModel):
 class RoleSummarySchema(BaseModel):
     id: str
     name: str
+    source: str = "direct"  # "direct" or "group:<group_name>"
 
     class Config:
         from_attributes = True

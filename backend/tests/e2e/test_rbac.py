@@ -98,8 +98,13 @@ def test_cannot_delete_system_role(test_client, create_user, login_user, whoami)
 
 
 @pytest.mark.e2e
-def test_create_custom_role_requires_enterprise(test_client, create_user, login_user, whoami):
-    """Creating custom roles requires enterprise license."""
+def test_create_custom_role_enterprise_gate(test_client, create_user, login_user, whoami):
+    """Creating custom roles is gated by enterprise license.
+    If license is active, role creation succeeds (200).
+    If no license, it returns 402.
+    """
+    from app.ee.license import is_enterprise_licensed
+
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
@@ -109,8 +114,14 @@ def test_create_custom_role_requires_enterprise(test_client, create_user, login_
         json={"name": "analyst", "permissions": ["view_reports", "create_reports"]},
         headers=_headers(token, org_id),
     )
-    # Should be 402 without enterprise license
-    assert resp.status_code == 402
+
+    if is_enterprise_licensed():
+        assert resp.status_code == 200
+        # Cleanup: delete the created role
+        role_id = resp.json()["id"]
+        test_client.delete(f"/api/organizations/{org_id}/roles/{role_id}", headers=_headers(token, org_id))
+    else:
+        assert resp.status_code == 402
 
 
 # ── Role Assignments ─────────────────────────────────────────────────────
@@ -343,8 +354,10 @@ def test_resource_grant_crud(test_client, create_user, login_user, whoami):
 # ── Groups (Enterprise) ─────────────────────────────────────────────────
 
 @pytest.mark.e2e
-def test_groups_require_enterprise(test_client, create_user, login_user, whoami):
-    """Group management requires enterprise license."""
+def test_groups_enterprise_gate(test_client, create_user, login_user, whoami):
+    """Group management is gated by enterprise license."""
+    from app.ee.license import is_enterprise_licensed
+
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
@@ -354,7 +367,14 @@ def test_groups_require_enterprise(test_client, create_user, login_user, whoami)
         json={"name": "Engineering"},
         headers=_headers(token, org_id),
     )
-    assert resp.status_code == 402
+
+    if is_enterprise_licensed():
+        assert resp.status_code == 200
+        # Cleanup
+        group_id = resp.json()["id"]
+        test_client.delete(f"/api/organizations/{org_id}/groups/{group_id}", headers=_headers(token, org_id))
+    else:
+        assert resp.status_code == 402
 
 
 # ── Permissions Registry ─────────────────────────────────────────────────

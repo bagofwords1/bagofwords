@@ -1,24 +1,57 @@
 <template>
-    <div>
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-medium">Roles</h3>
-            <UButton
-                v-if="useCan('manage_roles')"
-                icon="i-heroicons-plus"
-                size="sm"
-                @click="openCreateModal"
-            >
-                New Role
-            </UButton>
+    <div class="mt-4">
+        <!-- Header with search and actions -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+            <div class="flex-1 max-w-md w-full">
+                <div class="relative">
+                    <input
+                        v-model="searchQuery"
+                        type="text"
+                        placeholder="Search roles..."
+                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <UIcon
+                        name="i-heroicons-magnifying-glass"
+                        class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                    />
+                </div>
+            </div>
+            <div class="flex items-center justify-end gap-2 w-full md:w-auto">
+                <UButton
+                    v-if="useCan('manage_roles')"
+                    color="blue"
+                    variant="solid"
+                    size="xs"
+                    icon="i-heroicons-plus"
+                    @click="openCreateModal"
+                >
+                    New Role
+                </UButton>
+            </div>
         </div>
 
         <!-- Role cards -->
-        <div class="space-y-3">
+        <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
+            <!-- Loading state -->
+            <div v-if="isLoading" class="px-6 py-12 text-center">
+                <div class="flex items-center justify-center text-gray-500">
+                    <Spinner class="w-4 h-4 mr-2" />
+                    <span class="text-sm">Loading...</span>
+                </div>
+            </div>
+            <!-- Empty state -->
+            <div v-else-if="filteredRoles.length === 0" class="px-6 py-12 text-center">
+                <div class="flex flex-col items-center">
+                    <Icon name="heroicons:shield-check" class="mx-auto h-12 w-12 text-gray-400" />
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No roles found</h3>
+                    <p class="mt-1 text-sm text-gray-500">Create a role to manage permissions.</p>
+                </div>
+            </div>
             <div
-                v-for="role in roles"
+                v-else
+                v-for="role in filteredRoles"
                 :key="role.id"
-                class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 flex items-center justify-between"
+                class="p-4 flex items-center justify-between hover:bg-gray-50"
             >
                 <div>
                     <div class="flex items-center gap-2">
@@ -164,7 +197,7 @@
                 <!-- Actions -->
                 <div class="flex justify-end gap-2 mt-6">
                     <UButton variant="ghost" @click="showModal = false">Cancel</UButton>
-                    <UButton @click="saveRole" :loading="saving">
+                    <UButton color="blue" @click="saveRole" :loading="saving">
                         {{ editingRole ? 'Save' : 'Create' }}
                     </UButton>
                 </div>
@@ -174,6 +207,7 @@
 </template>
 
 <script setup lang="ts">
+import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 
 interface RoleData {
@@ -200,6 +234,8 @@ const toast = useToast()
 
 // State
 const roles = ref<RoleData[]>([])
+const isLoading = ref(true)
+const searchQuery = ref('')
 const showModal = ref(false)
 const editingRole = ref<RoleData | null>(null)
 const saving = ref(false)
@@ -314,11 +350,25 @@ function formatPermission(perm: string) {
     return perm.replace(/_/g, ' ')
 }
 
+const filteredRoles = computed(() => {
+    const query = searchQuery.value.toLowerCase()
+    if (!query) return roles.value
+    return roles.value.filter(r =>
+        r.name.toLowerCase().includes(query) ||
+        (r.description || '').toLowerCase().includes(query)
+    )
+})
+
 // CRUD
 async function loadRoles() {
-    const { data } = await useMyFetch(`/organizations/${props.organization.id}/roles`)
-    if (data.value) {
-        roles.value = data.value as RoleData[]
+    isLoading.value = true
+    try {
+        const { data } = await useMyFetch(`/organizations/${props.organization.id}/roles`)
+        if (data.value) {
+            roles.value = data.value as RoleData[]
+        }
+    } finally {
+        isLoading.value = false
     }
 }
 

@@ -2488,11 +2488,13 @@ class DataSourceService:
         return metadata_indexing_job
 
     async def add_data_source_member(self, db: AsyncSession, data_source_id: str, member: DataSourceMembershipCreate, organization: Organization, current_user: User):
-        """Add a user to data source membership"""
+        """Add a user to data source membership.
+        Writes to both DataSourceMembership (legacy) and ResourceGrant (RBAC).
+        """
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization)
-        
-        # Check if membership already exists
+
+        # Check if membership already exists (legacy table)
         existing = await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id,
@@ -2502,8 +2504,8 @@ class DataSourceService:
         )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="User is already a member")
-        
-        # Create membership
+
+        # Create legacy membership
         membership = DataSourceMembership(
             data_source_id=data_source_id,
             principal_type=member.principal_type,
@@ -2511,16 +2513,44 @@ class DataSourceService:
             config=member.config
         )
         db.add(membership)
+
+        # Also create resource_grant (RBAC path)
+        try:
+            from app.models.resource_grant import ResourceGrant
+            existing_grant = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == data_source_id,
+                    ResourceGrant.principal_type == member.principal_type,
+                    ResourceGrant.principal_id == member.principal_id,
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            if not existing_grant.scalar_one_or_none():
+                grant = ResourceGrant(
+                    organization_id=str(organization.id),
+                    resource_type="data_source",
+                    resource_id=data_source_id,
+                    principal_type=member.principal_type,
+                    principal_id=member.principal_id,
+                    permissions=["query", "view_schema"],
+                )
+                db.add(grant)
+        except Exception:
+            pass  # Don't break if resource_grants table doesn't exist yet
+
         await db.commit()
         await db.refresh(membership)
         return DataSourceMembershipSchema.from_orm(membership)
 
     async def remove_data_source_member(self, db: AsyncSession, data_source_id: str, user_id: str, organization: Organization, current_user: User):
-        """Remove a user from data source membership"""
+        """Remove a user from data source membership.
+        Deletes from both DataSourceMembership (legacy) and ResourceGrant (RBAC).
+        """
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization)
-        
-        # Find and delete membership
+
+        # Find and delete legacy membership
         result = await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id,
@@ -2531,17 +2561,68 @@ class DataSourceService:
         membership = result.scalar_one_or_none()
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
-        
+
         await db.delete(membership)
+
+        # Also delete resource_grant (RBAC path)
+        try:
+            from app.models.resource_grant import ResourceGrant
+            grant_result = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == data_source_id,
+                    ResourceGrant.principal_type == PRINCIPAL_TYPE_USER,
+                    ResourceGrant.principal_id == user_id,
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            grant = grant_result.scalar_one_or_none()
+            if grant:
+                await db.delete(grant)
+        except Exception:
+            pass  # Don't break if resource_grants table doesn't exist yet
+
         await db.commit()
         return {"message": "Member removed successfully"}
 
     async def get_data_source_members(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        """Get all members of a data source"""
+        """Get all members of a data source.
+        Reads from resource_grants (RBAC) with fallback to DataSourceMembership (legacy).
+        """
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization, current_user)
-        
-        # Get data_source_memberships
+
+        # Try RBAC path first (resource_grants)
+        try:
+            from app.models.resource_grant import ResourceGrant
+            result = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == data_source_id,
+                    ResourceGrant.organization_id == str(organization.id),
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            grants = result.scalars().all()
+            if grants:
+                # Map resource_grants to DataSourceMembershipSchema for backward compat
+                return [
+                    DataSourceMembershipSchema(
+                        id=g.id,
+                        data_source_id=data_source_id,
+                        principal_type=g.principal_type,
+                        principal_id=g.principal_id,
+                        permissions=g.permissions if isinstance(g.permissions, list) else [],
+                        config=None,
+                        created_at=g.created_at,
+                        updated_at=g.updated_at,
+                    )
+                    for g in grants
+                ]
+        except Exception:
+            pass  # Fall through to legacy path
+
+        # Fallback: legacy DataSourceMembership
         result = await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id

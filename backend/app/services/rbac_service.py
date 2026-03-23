@@ -282,8 +282,23 @@ class RBACService:
         )
         db.add(assignment)
         await db.commit()
-        await db.refresh(assignment)
-        return RoleAssignmentSchema.model_validate(assignment)
+
+        # Re-fetch with eagerly loaded role to avoid lazy-load issues
+        result = await db.execute(
+            select(RoleAssignment)
+            .options(selectinload(RoleAssignment.role))
+            .where(RoleAssignment.id == assignment.id)
+        )
+        assignment = result.scalar_one()
+        role = assignment.role
+        return RoleAssignmentSchema(
+            id=assignment.id,
+            organization_id=assignment.organization_id,
+            role_id=assignment.role_id,
+            principal_type=assignment.principal_type,
+            principal_id=assignment.principal_id,
+            role=RoleSchema.model_validate(role) if role else None,
+        )
 
     async def delete_role_assignment(self, db: AsyncSession, org_id: str, assignment_id: str) -> None:
         result = await db.execute(

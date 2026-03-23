@@ -114,6 +114,8 @@ class OrganizationService:
     async def get_members(self, db: AsyncSession, organization: Organization, current_user: User) -> List[MembershipSchema]:
         from app.models.role_assignment import RoleAssignment
         from app.models.role import Role
+        from app.models.group_membership import GroupMembership
+        from app.models.group import Group
         from app.schemas.organization_schema import RoleSummarySchema
 
         result = await db.execute(
@@ -126,8 +128,8 @@ class OrganizationService:
         schemas = []
         for membership in memberships:
             schema = MembershipSchema.from_orm(membership)
-            # Resolve roles from role_assignments
             if membership.user_id:
+                # Direct role assignments
                 ra_result = await db.execute(
                     select(RoleAssignment)
                     .options(selectinload(RoleAssignment.role))
@@ -139,10 +141,51 @@ class OrganizationService:
                     )
                 )
                 assignments = ra_result.scalars().all()
-                schema.roles = [
-                    RoleSummarySchema(id=a.role.id, name=a.role.name)
+                roles = [
+                    RoleSummarySchema(id=a.role.id, name=a.role.name, source="direct")
                     for a in assignments if a.role
                 ]
+
+                # Group-inherited role assignments
+                gm_result = await db.execute(
+                    select(GroupMembership.group_id, Group.name)
+                    .join(Group, Group.id == GroupMembership.group_id)
+                    .where(
+                        GroupMembership.user_id == membership.user_id,
+                        Group.organization_id == organization.id,
+                        GroupMembership.deleted_at.is_(None),
+                        Group.deleted_at.is_(None),
+                    )
+                )
+                user_groups = gm_result.all()  # [(group_id, group_name), ...]
+
+                if user_groups:
+                    group_ids = [g[0] for g in user_groups]
+                    group_names = {g[0]: g[1] for g in user_groups}
+                    direct_role_ids = {r.id for r in roles}
+
+                    group_ra_result = await db.execute(
+                        select(RoleAssignment)
+                        .options(selectinload(RoleAssignment.role))
+                        .where(
+                            RoleAssignment.organization_id == organization.id,
+                            RoleAssignment.principal_type == "group",
+                            RoleAssignment.principal_id.in_(group_ids),
+                            RoleAssignment.deleted_at.is_(None),
+                        )
+                    )
+                    group_assignments = group_ra_result.scalars().all()
+                    for a in group_assignments:
+                        if a.role and a.role.id not in direct_role_ids:
+                            group_name = group_names.get(a.principal_id, "unknown")
+                            roles.append(RoleSummarySchema(
+                                id=a.role.id,
+                                name=a.role.name,
+                                source=f"group:{group_name}",
+                            ))
+                            direct_role_ids.add(a.role.id)
+
+                schema.roles = roles
             schemas.append(schema)
         return schemas
     
