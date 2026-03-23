@@ -297,6 +297,7 @@ class EditArtifactTool(Tool):
             name="edit_artifact",
             description=(
                 "Edit an existing dashboard or artifact by applying targeted changes to its code. "
+                "Prioritize using read_artifact before editing an artifact"
                 "Use this instead of create_artifact when modifying an existing artifact's layout, styling, "
                 "filters, charts, or content. Preserves the existing design and only changes what is requested. "
                 "If the edit is adding a new visualization, you MUST ADD it as a parameter to the tool"

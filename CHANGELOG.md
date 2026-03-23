@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.345 (March 24, 2026)
+- Make test_connection and other data client utils async calls
+
 ## Version 0.0.344 (March 23, 2026)
 - Fix artifact sandbox: download React development builds in vendor script
 - Remove CDN fallbacks for airgapped deployments — missing vendored libs now fail loudly

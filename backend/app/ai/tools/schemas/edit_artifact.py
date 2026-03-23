@@ -13,7 +13,7 @@ class EditArtifactInput(BaseModel):
 
     artifact_id: str = Field(..., description="ID of the existing artifact to edit. Find this in previous create_artifact or read_artifact results as 'artifact_id: <uuid>' in the conversation.")
     edit_prompt: str = Field(..., description="Natural language description of the change to make. Be specific about what to change and how. E.g., 'Remove the filter bar', 'Make the revenue chart blue', 'Add a KPI card for total users'. Also use this to fix visual issues from a previous create_artifact (e.g., 'the bar chart is cut off on the right side', 'KPI cards are overlapping'). If adding new visualizations, describe where they should go in the layout.")
-    visualization_ids: Optional[List[str]] = Field(default=None, description="Optional list of NEW visualization IDs to add to the artifact (from create_data results). Existing visualization IDs are kept automatically. Provide this when the edit adds a new chart or data source that wasn't in the original artifact.")
+    visualization_ids: Optional[List[str]] = Field(default=None, description="List of NEW visualization IDs to include in the artifact. IMPORTANT: If you called create_data before this edit, you MUST pass the resulting visualization_id(s) here. Without them, the new visualizations will not appear in the dashboard. Existing visualization IDs from the original artifact are kept automatically — only pass new ones.")
     title: Optional[str] = Field(default=None, description="Updated title for the artifact. If not provided, the existing title is kept.")
 
 
@@ -32,5 +32,6 @@ class EditArtifactOutput(BaseModel):
     code: str = Field(..., description="The updated code after applying the edit")
     mode: str = Field(..., description="Artifact mode: 'page' or 'slides'")
     title: Optional[str] = Field(None, description="Artifact title")
+    visualization_ids: List[str] = Field(default_factory=list, description="All visualization IDs included in this artifact after the edit. Use these when making further edits.")
     version: int = Field(..., description="Bumped version number of the artifact")
     diff_applied: bool = Field(..., description="True if the edit was applied as a surgical search/replace diff. False if the tool fell back to a full code rewrite.")
