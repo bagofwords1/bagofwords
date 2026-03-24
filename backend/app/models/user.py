@@ -16,6 +16,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     name = Column(String, index=True, nullable=False)
     last_login = Column(DateTime, nullable=True)
     scim_external_id = Column(String(255), nullable=True, index=True)  # IdP external identifier for SCIM provisioning
+    ldap_dn = Column(String(512), nullable=True, index=True)  # LDAP distinguished name
 
     reports = relationship("Report", back_populates="user")
     completions = relationship("Completion", back_populates="user")

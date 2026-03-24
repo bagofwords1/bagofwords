@@ -24,6 +24,7 @@ TIER_FEATURES = {
         "step_retention_config",
         "scim",
         "custom_roles",
+        "ldap",
     ],
 }
 

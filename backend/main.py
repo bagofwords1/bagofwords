@@ -79,7 +79,7 @@ from app.routes import (
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
-from app.ee.license import get_license_info
+from app.ee.license import get_license_info, has_feature
 
 # Initialize logging
 loggers = setup_logging()
@@ -330,6 +330,24 @@ async def startup_event():
         logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
     except Exception as e:
         logger.error(f"Failed to schedule purge job: {e}")
+
+    # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
+    if settings.bow_config.ldap.enabled and has_feature("ldap"):
+        try:
+            from app.ee.ldap.jobs import ldap_sync_all_organizations
+            scheduler.add_job(
+                ldap_sync_all_organizations,
+                trigger="interval",
+                minutes=settings.bow_config.ldap.sync_interval_minutes,
+                id="ldap_group_sync",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            logger.info(f"Scheduled job: ldap_group_sync every {settings.bow_config.ldap.sync_interval_minutes}m")
+        except Exception as e:
+            logger.error(f"Failed to schedule LDAP sync job: {e}")
 
     scheduler.start()
 
