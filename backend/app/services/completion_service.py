@@ -2,6 +2,7 @@ import asyncio
 from fastapi.responses import StreamingResponse
 import json
 import logging
+import time
 from datetime import datetime
 from types import SimpleNamespace
 from uuid import uuid4
@@ -135,6 +136,9 @@ async def _get_instruction_suggestions_for_completion(
 import re
 
 tracer = get_tracer(__name__)
+
+
+logger = logging.getLogger(__name__)
 
 
 class CompletionService:
@@ -1552,11 +1556,21 @@ class CompletionService:
         build_id: str = None,
     ):
         try:
+            t0 = time.monotonic()
+            rid = str(report_id)[:8]
+
+            def _log(label):
+                elapsed = (time.monotonic() - t0) * 1000
+                logger.info(f"[stream:{rid}] {label} +{elapsed:.0f}ms")
+
+            _log("stream_start")
+
             # Validate report exists (same as regular create_completion)
             result = await db.execute(select(Report).filter(Report.id == report_id))
             report = result.scalar_one_or_none()
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
+            _log("report_fetched")
 
             # Validate widget if provided
             if completion_data.prompt.widget_id:
@@ -1577,6 +1591,7 @@ class CompletionService:
                 step = None
 
             span.add_event("validation_done")
+            _log("validation_done")
 
             # Get default model
             if completion_data.prompt and completion_data.prompt.model_id:
@@ -1589,11 +1604,13 @@ class CompletionService:
                     status_code=400,
                     detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
+            _log("model_resolved")
 
             small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
             # Fallback: if no small model configured, use the main model
             if not small_model:
                 small_model = model
+            _log("small_model_resolved")
 
             span.set_attribute("llm.model_id", model.model_id)
 
@@ -1646,6 +1663,7 @@ class CompletionService:
                     status_code=500,
                     detail=f"Failed to save completions: {str(e)}"
                 )
+            _log("db_commit_flush")
 
             span.set_attribute("completion.head_id", str(completion.id))
             span.set_attribute("completion.system_id", str(system_completion.id))
@@ -1653,12 +1671,14 @@ class CompletionService:
 
             # Mark image files with this completion_id (so they show attached to this message)
             await self._mark_images_with_completion(db, report.id, str(completion.id))
+            _log("images_marked")
 
             # Store mentions associated with the user completion (best-effort, non-blocking)
             try:
                 await self.mention_service.create_completion_mentions(db, completion)
             except Exception as e:
-                logging.error(f"Failed to create mentions for completion {completion.id}: {e}")
+                logger.error(f"Failed to create mentions for completion {completion.id}: {e}")
+            _log("mentions_created")
 
             # Audit log
             try:
@@ -1673,15 +1693,24 @@ class CompletionService:
                 )
             except Exception:
                 pass
+            _log("audit_logged")
 
             org_settings = await organization.get_settings(db)
+            _log("org_settings_fetched")
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
+            _log("build_id_resolved")
 
             # Create event queue for streaming
             event_queue = CompletionEventQueue()
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
+                at0 = time.monotonic()
+
+                def _alog(label):
+                    elapsed = (time.monotonic() - at0) * 1000
+                    logger.info(f"[stream:{rid}:agent] {label} +{elapsed:.0f}ms")
+
                 with tracer.start_as_current_span("completion.stream_agent_execution") as agent_span:
                     agent_span.set_attribute("report.id", str(report.id))
                     agent_span.set_attribute("completion.system_id", str(system_completion.id))
@@ -1689,15 +1718,18 @@ class CompletionService:
                     async_session = create_async_session_factory()
                     async with async_session() as session:
                         try:
+                            _alog("session_opened")
+
                             # Re-fetch all database-dependent objects using the new session
                             report_obj = await session.get(Report, report.id)
                             completion_obj = await session.get(Completion, completion.id)
                             system_completion_obj = await session.get(Completion, system_completion.id)
                             widget_obj = await session.get(Widget, widget.id) if widget else None
                             step_obj = await session.get(Step, step.id) if step else None
+                            _alog("objects_refetched")
 
                             if not all([report_obj, completion_obj, system_completion_obj]):
-                                logging.error("Failed to fetch necessary objects for streaming agent.")
+                                logger.error("Failed to fetch necessary objects for streaming agent.")
                                 error_event = SSEEvent(
                                     event="completion.error",
                                     completion_id=str(system_completion.id),
@@ -1712,10 +1744,12 @@ class CompletionService:
                                     ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
                                     clients.update(ds_clients)
                                 clients_span.set_attribute("data_sources.count", len(report_obj.data_sources))
+                            _alog(f"clients_constructed count={len(report_obj.data_sources)}")
 
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             # (AgentV2.__init__ is synchronous, so lazy-loading files there would fail)
                             _ = report_obj.files
+                            _alog("files_preloaded")
 
                             # Create agent with event queue
                             agent = AgentV2(
@@ -1735,6 +1769,7 @@ class CompletionService:
                                 clients=clients,
                                 build_id=resolved_build_id,
                             )
+                            _alog("agent_initialized")
 
                             # Emit telemetry: stream started
                             try:
@@ -1754,9 +1789,11 @@ class CompletionService:
 
                             # Run agent execution
                             agent_span.add_event("agent_execution_started")
+                            _alog("agent_execution_start")
                             with tracer.start_as_current_span("completion.agent_execution"):
                                 await agent.main_execution()
                             agent_span.add_event("agent_execution_finished")
+                            _alog("agent_execution_done")
 
                             # Send completion finished event
                             finished_event = SSEEvent(
@@ -1765,6 +1802,7 @@ class CompletionService:
                                 data={"status": "success"}
                             )
                             await event_queue.put(finished_event)
+                            _alog("queue_finished")
 
                             # Emit telemetry: stream completed
                             try:
@@ -1783,7 +1821,8 @@ class CompletionService:
                         except Exception as e:
                             agent_span.set_status(StatusCode.ERROR, str(e))
                             agent_span.record_exception(e)
-                            logging.error(f"Agent streaming execution failed: {e}")
+                            _alog(f"agent_execution_error error={type(e).__name__}: {e}")
+                            logger.error(f"Agent streaming execution failed: {e}")
                             # Send error event
                             error_event = SSEEvent(
                                 event="completion.error",
@@ -1826,6 +1865,7 @@ class CompletionService:
 
             # Start agent execution in background
             asyncio.create_task(run_agent_with_streaming())
+            _log("task_spawned")
 
             # Stream events
             async def completion_stream_generator():
@@ -1873,11 +1913,11 @@ class CompletionService:
 
         except HTTPException as he:
             # Log the error and re-raise HTTP exceptions
-            logging.error(f"HTTP Exception in create_completion_stream: {str(he)}")
+            logger.error(f"HTTP Exception in create_completion_stream: {str(he)}")
             raise he
         except Exception as e:
             # Log and convert unexpected errors to HTTP exceptions
-            logging.error(f"Unexpected error in create_completion_stream: {str(e)}")
+            logger.error(f"Unexpected error in create_completion_stream: {str(e)}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Unexpected error: {str(e)}"
