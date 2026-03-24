@@ -125,24 +125,25 @@ class BedrockClient(LLMClient):
 
         def _sync_stream():
             """Run the blocking boto3 stream in a worker thread."""
-            response = self.client.converse_stream(
-                modelId=model_id,
-                messages=[{"role": "user", "content": self._build_content(prompt, images)}],
-            )
-            for event in response["stream"]:
-                if "contentBlockDelta" in event:
-                    delta = event["contentBlockDelta"].get("delta", {})
-                    text = delta.get("text")
-                    if text:
-                        loop.call_soon_threadsafe(queue.put_nowait, text)
+            try:
+                response = self.client.converse_stream(
+                    modelId=model_id,
+                    messages=[{"role": "user", "content": self._build_content(prompt, images)}],
+                )
+                for event in response["stream"]:
+                    if "contentBlockDelta" in event:
+                        delta = event["contentBlockDelta"].get("delta", {})
+                        text = delta.get("text")
+                        if text:
+                            loop.call_soon_threadsafe(queue.put_nowait, text)
 
-                if "metadata" in event:
-                    usage = event["metadata"].get("usage", {})
-                    usage_holder["inputTokens"] = usage.get("inputTokens", usage_holder["inputTokens"])
-                    usage_holder["outputTokens"] = usage.get("outputTokens", usage_holder["outputTokens"])
-
-            # Signal end of stream
-            loop.call_soon_threadsafe(queue.put_nowait, None)
+                    if "metadata" in event:
+                        usage = event["metadata"].get("usage", {})
+                        usage_holder["inputTokens"] = usage.get("inputTokens", usage_holder["inputTokens"])
+                        usage_holder["outputTokens"] = usage.get("outputTokens", usage_holder["outputTokens"])
+            finally:
+                # Always signal end of stream so the async generator unblocks
+                loop.call_soon_threadsafe(queue.put_nowait, None)
 
         future = loop.run_in_executor(_STREAM_EXECUTOR, _sync_stream)
 
