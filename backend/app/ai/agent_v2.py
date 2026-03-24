@@ -185,12 +185,34 @@ class AgentV2:
         return None
 
     async def _load_images_as_input(self) -> list[ImageInput]:
-        """Load image files as base64-encoded ImageInput objects for vision models."""
+        """Load image files as base64-encoded ImageInput objects for vision models.
+
+        Only loads images that haven't been consumed by a previous completion
+        (i.e. where completion_id is NULL in report_file_association).
+        """
         import base64
         import aiofiles
+        from app.models.report_file_association import report_file_association
+
+        # Filter to only unconsumed images (completion_id is NULL)
+        unconsumed_files = self.image_files
+        if self.image_files and self.db and self.report:
+            try:
+                image_file_ids = [str(f.id) for f in self.image_files]
+                result = await self.db.execute(
+                    select(report_file_association.c.file_id).where(
+                        report_file_association.c.report_id == str(self.report.id),
+                        report_file_association.c.file_id.in_(image_file_ids),
+                        report_file_association.c.completion_id == None,
+                    )
+                )
+                unconsumed_ids = {row[0] for row in result.fetchall()}
+                unconsumed_files = [f for f in self.image_files if str(f.id) in unconsumed_ids]
+            except Exception as e:
+                logger.warning(f"Failed to filter consumed images, loading all: {e}")
 
         images: list[ImageInput] = []
-        for f in self.image_files:
+        for f in unconsumed_files:
             try:
                 file_path = getattr(f, 'path', None)
                 if not file_path:
