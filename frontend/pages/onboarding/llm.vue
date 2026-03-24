@@ -43,12 +43,27 @@
                   <div>
                     <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
                     <div class="flex gap-2 mt-2">
-                      <span class="px-3 py-1.5 text-sm rounded-lg border border-blue-500 bg-blue-50 text-blue-700">
+                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'iam'; clearTestResult()"
+                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
                         IAM (from environment)
-                      </span>
+                      </button>
+                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'access_keys'; clearTestResult()"
+                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                        Access Keys
+                      </button>
                     </div>
-                    <p class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
+                    <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                   </div>
+                  <template v-if="selectedProvider.credentials.auth_mode === 'access_keys'">
+                    <div>
+                      <label class="text-sm font-medium text-gray-700 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
+                      <input v-model="selectedProvider.credentials.aws_access_key_id" type="text" placeholder="Keep blank to use stored key" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    </div>
+                    <div>
+                      <label class="text-sm font-medium text-gray-700 mb-2">AWS Secret Access Key <span class="text-red-500">*</span></label>
+                      <input v-model="selectedProvider.credentials.aws_secret_access_key" type="password" placeholder="Keep blank to use stored key" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    </div>
+                  </template>
                 </template>
 
                 <div v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
@@ -119,12 +134,27 @@
                     <div class="mt-3">
                       <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
                       <div class="flex gap-2 mt-2">
-                        <span class="px-3 py-1.5 text-sm rounded-lg border border-blue-500 bg-blue-50 text-blue-700">
+                        <button type="button" @click="providerForm.credentials.auth_mode = 'iam'; clearTestResult()"
+                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
                           IAM (from environment)
-                        </span>
+                        </button>
+                        <button type="button" @click="providerForm.credentials.auth_mode = 'access_keys'; clearTestResult()"
+                          :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'access_keys' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50']">
+                          Access Keys
+                        </button>
                       </div>
-                      <p class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
+                      <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam'" class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                     </div>
+                    <template v-if="providerForm.credentials.auth_mode === 'access_keys'">
+                      <div>
+                        <label class="text-sm font-medium text-gray-700 mb-2">AWS Access Key ID <span class="text-red-500">*</span></label>
+                        <input v-model="providerForm.credentials.aws_access_key_id" type="text" placeholder="AKIA..." class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                      </div>
+                      <div>
+                        <label class="text-sm font-medium text-gray-700 mb-2">AWS Secret Access Key <span class="text-red-500">*</span></label>
+                        <input v-model="providerForm.credentials.aws_secret_access_key" type="password" placeholder="Enter secret access key" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                      </div>
+                    </template>
                   </template>
                   <div v-if="providerForm.provider_type === 'custom'" class="flex items-center gap-2 mt-3">
                     <UCheckbox v-model="providerForm.credentials.verify_ssl" @change="clearTestResult()" />
@@ -361,6 +391,7 @@ const canTestConnection = computed(() => {
     const creds = providerForm.value.credentials
     if (!creds?.region) return false
     if (creds.auth_mode === 'api_key') return !!creds.api_key
+    if (creds.auth_mode === 'access_keys') return !!creds.aws_access_key_id && !!creds.aws_secret_access_key
     return true
   }
   return !!providerForm.value.provider_type && !!providerForm.value.credentials && typeof providerForm.value.credentials.api_key !== 'undefined'
@@ -416,7 +447,10 @@ watch(selectedProvider, (newValue) => {
       const cfg = (newValue as any)?.additional_config || {}
       if (cfg.region) (newValue.credentials as any).region = cfg.region;
       (newValue.credentials as any).auth_mode = cfg.auth_mode || 'iam'
-      if (cfg.auth_mode !== 'api_key') {
+      if (cfg.auth_mode === 'access_keys') {
+        (newValue.credentials as any).aws_access_key_id = null;
+        (newValue.credentials as any).aws_secret_access_key = null;
+      } else if (cfg.auth_mode !== 'api_key') {
         (newValue.credentials as any).api_key = null
       }
     }

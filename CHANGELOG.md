@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.346 (March 24, 2026)
+- Fix bug that images are sent in future completions
+- Allow support for secret/access key in Bedrock LLM service
+
 ## Version 0.0.345 (March 24, 2026)
 - Make test_connection and other data client utils async calls
 

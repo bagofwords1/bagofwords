@@ -109,10 +109,12 @@ class CustomConfig(BaseModel):
     temperature: Optional[float] = 0.7
 
 class BedrockCredentials(BaseModel):
-    """Credentials for AWS Bedrock. Supports API key auth or IAM auth (from environment)."""
+    """Credentials for AWS Bedrock. Supports API key auth, access key auth, or IAM auth (from environment)."""
     region: str = Field(..., description="AWS region (e.g. us-east-1, eu-west-1)")
-    auth_mode: str = Field("iam", description="Authentication mode: 'api_key' or 'iam'")
+    auth_mode: str = Field("iam", description="Authentication mode: 'api_key', 'access_keys', or 'iam'")
     api_key: Optional[str] = Field(None, description="Bedrock API key (only for api_key auth mode)")
+    aws_access_key_id: Optional[str] = Field(None, description="AWS access key ID (only for access_keys auth mode)")
+    aws_secret_access_key: Optional[str] = Field(None, description="AWS secret access key (only for access_keys auth mode)")
 
 class BedrockConfig(BaseModel):
     max_tokens: Optional[int] = 4096
