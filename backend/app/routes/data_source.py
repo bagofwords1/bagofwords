@@ -18,7 +18,7 @@ from app.schemas.datasource_table_schema import (
     DeltaUpdateTablesRequest,
     DeltaUpdateTablesResponse,
 )
-from app.core.permissions_decorator import requires_permission, requires_data_source_access
+from app.core.permissions_decorator import requires_permission, requires_data_source_access, check_resource_permissions
 from app.models.data_source import DataSource
 
 router = APIRouter(tags=["data_sources"])
@@ -80,6 +80,17 @@ async def create_data_source(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    # Check resource-level permission on connection(s) being linked
+    connection_ids = []
+    if data_source.connection_ids:
+        connection_ids = data_source.connection_ids
+    elif data_source.connection_id:
+        connection_ids = [data_source.connection_id]
+    if connection_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "connection", connection_ids, "create_data_source",
+        )
     return await data_source_service.create_data_source(db, organization, current_user, data_source)
 
 @router.delete("/data_sources/{data_source_id}")

@@ -301,6 +301,7 @@ interface MemberGrant {
     grant_id: string
     principal_type: string  // "user" | "group"
     principal_id: string
+    principal_name?: string
     permissions: string[]
 }
 
@@ -333,6 +334,7 @@ async function loadMembers() {
         grant_id: m.id,
         principal_type: m.principal_type || 'user',
         principal_id: m.principal_id,
+        principal_name: m.principal_name || undefined,
         permissions: m.permissions || ['query', 'view_schema'],
     }))
 }

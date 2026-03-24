@@ -2605,13 +2605,36 @@ class DataSourceService:
             )
             grants = result.scalars().all()
             if grants:
-                # Map resource_grants to DataSourceMembershipSchema for backward compat
+                # Resolve principal names
+                user_ids = [g.principal_id for g in grants if g.principal_type == "user"]
+                group_ids = [g.principal_id for g in grants if g.principal_type == "group"]
+
+                user_names = {}
+                if user_ids:
+                    from app.models.user import User
+                    user_result = await db.execute(select(User.id, User.name, User.email).where(User.id.in_(user_ids)))
+                    for uid, name, email in user_result.all():
+                        user_names[uid] = name or email or uid
+
+                group_names = {}
+                if group_ids:
+                    from app.models.group import Group
+                    group_result = await db.execute(select(Group.id, Group.name).where(Group.id.in_(group_ids)))
+                    for gid, name in group_result.all():
+                        group_names[gid] = name
+
+                def _resolve_name(g):
+                    if g.principal_type == "group":
+                        return group_names.get(g.principal_id)
+                    return user_names.get(g.principal_id)
+
                 return [
                     DataSourceMembershipSchema(
                         id=g.id,
                         data_source_id=data_source_id,
                         principal_type=g.principal_type,
                         principal_id=g.principal_id,
+                        principal_name=_resolve_name(g),
                         permissions=g.permissions if isinstance(g.permissions, list) else [],
                         config=None,
                         created_at=g.created_at,

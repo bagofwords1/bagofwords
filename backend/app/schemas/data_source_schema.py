@@ -37,6 +37,7 @@ class DataSourceMembershipSchema(BaseModel):
     data_source_id: str
     principal_type: str  # "user" or "group"
     principal_id: str
+    principal_name: Optional[str] = None  # resolved display name
     permissions: Optional[List[str]] = None  # RBAC resource permissions
     config: Optional[Dict[str, Any]] = None  # For future row-level access
     created_at: UTCDatetime

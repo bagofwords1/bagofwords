@@ -6,7 +6,7 @@ from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, check_resource_permissions
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import (
     InstructionCreate,
@@ -45,6 +45,11 @@ async def create_private_instruction(
     organization: Organization = Depends(get_current_organization)
 ):
     """Create a new private instruction (auto-published) - Private Published: published, null, published"""
+    if instruction.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", instruction.data_source_ids, "create_instructions",
+        )
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=False)
 
 @router.post("/instructions/global", response_model=InstructionSchema)
@@ -56,6 +61,11 @@ async def create_global_instruction(
     organization: Organization = Depends(get_current_organization)
 ):
     """Create a new global instruction (admin only) - Global Draft/Published: null, approved, draft/published"""
+    if instruction.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", instruction.data_source_ids, "create_instructions",
+        )
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
 
 # LIST INSTRUCTIONS

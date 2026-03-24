@@ -124,14 +124,21 @@ RESOURCE_PERMISSIONS = {
     "data_source": [
         "query",
         "view_schema",
-        "upload_files",
         "manage",
         "manage_members",
+        "create_instructions",
+        "create_evals",
+        "create_entities",
     ],
     "connection": [
         "use",
         "manage",
         "manage_credentials",
+        "create_data_source",
+    ],
+    "report": [
+        "view_artifacts",
+        "view_conversation",
     ],
 }
 

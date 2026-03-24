@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, check_resource_permissions
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
@@ -102,6 +102,11 @@ async def delete_suite(suite_id: str, db: AsyncSession = Depends(get_async_db), 
 @router.post("/suites/{suite_id}/cases", response_model=TestCaseSchema)
 @requires_permission('manage_tests')
 async def create_case(suite_id: str, payload: TestCaseCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    if payload.data_source_ids_json:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids_json, "create_evals",
+        )
     case = await case_service.create_case(db, str(organization.id), current_user, suite_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json)
     return case
 
@@ -138,6 +143,11 @@ async def get_case(case_id: str, db: AsyncSession = Depends(get_async_db), organ
 @router.patch("/cases/{case_id}", response_model=TestCaseSchema)
 @requires_permission('manage_tests')
 async def update_case(case_id: str, payload: TestCaseUpdate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    if payload.data_source_ids_json:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids_json, "create_evals",
+        )
     return await case_service.update_case(db, str(organization.id), current_user, case_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json)
 
 

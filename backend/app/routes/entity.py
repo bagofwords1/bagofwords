@@ -6,7 +6,7 @@ from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, check_resource_permissions
 
 from app.models.entity import Entity
 from app.schemas.entity_schema import (
@@ -33,6 +33,11 @@ async def create_private_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     """Create a new private entity (auto-published) - Private Published: published, null, published"""
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
     entity = await service.create_entity(db, payload, current_user, organization, force_global=False)
     return EntitySchema.model_validate(entity)
 
@@ -46,6 +51,11 @@ async def create_global_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     """Create a new global entity (admin only) - Global Draft/Published: null, approved, draft/published"""
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
     entity = await service.create_entity(db, payload, current_user, organization, force_global=True)
     return EntitySchema.model_validate(entity)
 

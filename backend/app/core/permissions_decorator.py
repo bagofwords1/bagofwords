@@ -141,9 +141,9 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
     5. If membership_required=True, requires explicit membership for non-public data sources
     
     Usage:
-    @requires_data_source_access("view_data_sources", allow_public=True)  # Can view public or member data sources
-    @requires_data_source_access("edit_data_sources", membership_required=True)  # Must be member to edit
-    @requires_data_source_access("delete_data_sources")  # Admin permission required
+    @requires_data_source_access("view_data_source", allow_public=True)  # Can view public or member data sources
+    @requires_data_source_access("update_data_source", membership_required=True)  # Must be member to edit
+    @requires_data_source_access("delete_data_source")  # Admin permission required
     """
     def decorator(func):
         @wraps(func)
@@ -237,7 +237,8 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
 
 # Resource-level permission types categorized by access level
 _WRITE_RESOURCE_PERMISSIONS = {
-    "manage", "manage_members", "manage_credentials", "upload_files",
+    "manage", "manage_members", "manage_credentials",
+    "create_instructions", "create_evals", "create_entities", "create_data_source",
 }
 
 
@@ -257,6 +258,7 @@ def requires_resource_permission(resource_type: str, permission: str):
     _param_map = {
         "data_source": "data_source_id",
         "connection": "connection_id",
+        "report": "report_id",
     }
 
     def decorator(func):
@@ -351,3 +353,57 @@ def requires_resource_permission(resource_type: str, permission: str):
             return await func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+async def check_resource_permissions(
+    db: AsyncSession,
+    user_id: str,
+    org_id: str,
+    resource_type: str,
+    resource_ids: list[str],
+    permission: str,
+) -> None:
+    """
+    Imperative resource-permission check for cases where resource IDs come
+    from the request body rather than route params.
+
+    Raises HTTPException 403 if the user lacks the given permission on ANY
+    of the listed resources.
+
+    License-aware:
+    - Enterprise (custom_roles): checks granular resource_grant permissions
+    - Non-enterprise: binary membership check; write ops require admin org role
+    """
+    if not resource_ids:
+        return
+
+    resolved = await resolve_permissions(db, user_id, org_id)
+
+    # full_admin_access bypasses everything
+    if FULL_ADMIN in resolved.org_permissions:
+        return
+
+    from app.ee.license import has_feature
+    enterprise = has_feature("custom_roles")
+
+    for rid in resource_ids:
+        if enterprise:
+            if not resolved.has_resource_permission(resource_type, str(rid), permission):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied to {resource_type} {rid} for '{permission}'",
+                )
+        else:
+            # Non-enterprise: binary membership check
+            if not resolved.has_resource_membership(resource_type, str(rid)):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied to {resource_type} {rid}",
+                )
+            # Write ops require admin org role on non-enterprise
+            if permission in _WRITE_RESOURCE_PERMISSIONS:
+                if not resolved.has_org_permission("update_data_source"):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Admin access required for this operation",
+                    )
