@@ -24,8 +24,9 @@ class BedrockClient(LLMClient):
     """
     AWS Bedrock client using the native Converse API (boto3).
 
-    Auth: IAM only — uses the standard AWS credential chain
-    (IRSA, env vars, instance role, etc.)
+    Auth modes:
+      - iam: uses the standard AWS credential chain (IRSA, env vars, instance role, etc.)
+      - access_keys: uses explicit AWS access key ID and secret access key
 
     Supports application inference profiles — pass the profile ARN as model_id.
     """
@@ -36,14 +37,38 @@ class BedrockClient(LLMClient):
     # Current workaround would be os.environ["AWS_BEARER_TOKEN_BEDROCK"] = api_key
     # but that's process-global and unsafe for multi-tenant setups.
 
-    def __init__(self, region: str, auth_mode: str = "iam", api_key: Optional[str] = None):
+    _SUPPORTED_AUTH_MODES = {"iam", "access_keys"}
+
+    def __init__(
+        self,
+        region: str,
+        auth_mode: str = "iam",
+        api_key: Optional[str] = None,
+        aws_access_key_id: Optional[str] = None,
+        aws_secret_access_key: Optional[str] = None,
+    ):
         super().__init__()
-        if auth_mode != "iam":
+        if auth_mode not in self._SUPPORTED_AUTH_MODES:
             raise ValueError(
-                f"Unsupported auth_mode '{auth_mode}'. Only 'iam' is currently supported."
+                f"Unsupported auth_mode '{auth_mode}'. "
+                f"Supported modes: {', '.join(sorted(self._SUPPORTED_AUTH_MODES))}."
             )
 
-        self.client = boto3.client("bedrock-runtime", region_name=region)
+        if auth_mode == "access_keys":
+            if not aws_access_key_id or not aws_secret_access_key:
+                raise ValueError(
+                    "Bedrock auth_mode 'access_keys' requires both "
+                    "aws_access_key_id and aws_secret_access_key."
+                )
+            session = boto3.Session(
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key,
+                region_name=region,
+            )
+            self.client = session.client("bedrock-runtime")
+        else:
+            self.client = boto3.client("bedrock-runtime", region_name=region)
+
         self._region = region
         self._auth_mode = auth_mode
 

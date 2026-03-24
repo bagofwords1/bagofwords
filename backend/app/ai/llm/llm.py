@@ -84,11 +84,20 @@ class LLM:
             auth_mode = additional_config.get("auth_mode", "iam")
             if auth_mode == "api_key" and not self.api_key:
                 raise ValueError("Bedrock provider with auth_mode 'api_key' requires provider credentials")
-            self.client = BedrockClient(
-                region=region,
-                auth_mode=auth_mode,
-                api_key=self.api_key if auth_mode == "api_key" else None,
-            )
+
+            bedrock_kwargs: dict = {"region": region, "auth_mode": auth_mode}
+            if auth_mode == "api_key":
+                bedrock_kwargs["api_key"] = self.api_key
+            elif auth_mode == "access_keys":
+                try:
+                    access_key, secret_key = self.model.provider.decrypt_credentials()
+                except Exception:
+                    raise ValueError("Bedrock provider with auth_mode 'access_keys' requires stored AWS credentials")
+                if not access_key or not secret_key:
+                    raise ValueError("Bedrock provider with auth_mode 'access_keys' requires both access key and secret key")
+                bedrock_kwargs["aws_access_key_id"] = access_key
+                bedrock_kwargs["aws_secret_access_key"] = secret_key
+            self.client = BedrockClient(**bedrock_kwargs)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 
