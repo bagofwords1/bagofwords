@@ -24,10 +24,15 @@ router = APIRouter(tags=["rbac"])
 @router.get("/permissions/registry")
 async def get_permissions_registry():
     """Returns all available permission categories and resource permission options."""
-    from app.core.permissions_registry import PERMISSION_CATEGORIES, RESOURCE_PERMISSIONS
+    from app.core.permissions_registry import (
+        PERMISSION_CATEGORIES, RESOURCE_PERMISSIONS,
+        MERGED_CATEGORIES, RESOURCE_SCOPED_GROUPS,
+    )
     return {
         "categories": PERMISSION_CATEGORIES,
         "resource_permissions": RESOURCE_PERMISSIONS,
+        "merged_categories": MERGED_CATEGORIES,
+        "resource_scoped_groups": RESOURCE_SCOPED_GROUPS,
     }
 
 

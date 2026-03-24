@@ -32,14 +32,12 @@
 
         <!-- Role cards -->
         <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
-            <!-- Loading state -->
             <div v-if="isLoading" class="px-6 py-12 text-center">
                 <div class="flex items-center justify-center text-gray-500">
                     <Spinner class="w-4 h-4 mr-2" />
                     <span class="text-sm">Loading...</span>
                 </div>
             </div>
-            <!-- Empty state -->
             <div v-else-if="filteredRoles.length === 0" class="px-6 py-12 text-center">
                 <div class="flex flex-col items-center">
                     <Icon name="heroicons:shield-check" class="mx-auto h-12 w-12 text-gray-400" />
@@ -90,90 +88,117 @@
         </div>
 
         <!-- Create/Edit Modal -->
-        <UModal v-model="showModal" :ui="{ width: 'sm:max-w-2xl' }">
+        <UModal v-model="showModal" :ui="{ width: 'sm:max-w-xl' }">
             <div class="p-6">
                 <h3 class="text-lg font-medium mb-4">
                     {{ editingRole ? 'Edit Role' : 'Create Role' }}
                 </h3>
 
-                <!-- Name -->
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">Name</label>
-                    <UInput v-model="form.name" placeholder="e.g. Analyst" />
-                </div>
-
-                <!-- Description -->
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">Description</label>
-                    <UInput v-model="form.description" placeholder="Optional description" />
+                <!-- Name + Description -->
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                        <UInput v-model="form.name" placeholder="e.g. Analyst" size="sm" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Description</label>
+                        <UInput v-model="form.description" placeholder="Optional" size="sm" />
+                    </div>
                 </div>
 
                 <!-- Full Admin Toggle -->
-                <div class="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <span class="font-medium text-sm">Full Admin Access</span>
-                            <p class="text-xs text-gray-500">
-                                Bypasses all permission checks. At least one user must have this.
-                            </p>
-                        </div>
-                        <UToggle v-model="isFullAdmin" />
+                <div class="mb-5 px-3 py-2.5 bg-gray-50 rounded-lg flex items-center justify-between">
+                    <div>
+                        <span class="text-sm font-medium">Full Admin Access</span>
+                        <p class="text-xs text-gray-500">Bypasses all checks</p>
                     </div>
+                    <UToggle v-model="isFullAdmin" />
                 </div>
 
-                <!-- Org Permissions (disabled when full admin) -->
-                <div class="mb-4" :class="{ 'opacity-50 pointer-events-none': isFullAdmin }">
-                    <label class="block text-sm font-medium mb-2">
-                        {{ isFullAdmin ? 'Org Permissions (all granted automatically)' : 'Org Permissions' }}
-                    </label>
-                    <div class="max-h-64 overflow-y-auto border rounded-lg p-3 space-y-3">
-                        <div
-                            v-for="(perms, category) in permissionCategories"
-                            :key="category"
-                        >
-                            <p class="text-xs font-semibold text-gray-500 uppercase mb-1">
-                                {{ category }}
-                            </p>
-                            <div class="grid grid-cols-2 gap-1">
-                                <label
-                                    v-for="perm in perms"
-                                    :key="perm"
-                                    class="flex items-center gap-1.5 text-sm cursor-pointer"
+                <!-- Permission cards (disabled when full admin) -->
+                <div :class="{ 'opacity-40 pointer-events-none': isFullAdmin }" class="space-y-3">
+
+                    <!-- Org-wide card -->
+                    <div class="border rounded-lg overflow-hidden">
+                        <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500" />
+                                <span class="text-sm font-medium">All resources</span>
+                            </div>
+                            <span class="text-xs text-gray-400">Org-wide permissions</span>
+                        </div>
+                        <div class="p-3 space-y-2.5">
+                            <div
+                                v-for="(catNames, groupLabel) in mergedCategories"
+                                :key="groupLabel"
+                                class="flex items-center justify-between"
+                            >
+                                <span class="text-sm text-gray-700">{{ groupLabel }}</span>
+                                <div class="flex items-center gap-1">
+                                    <button
+                                        v-for="tier in ['Read', 'Full'] as const"
+                                        :key="tier"
+                                        class="px-2.5 py-0.5 text-xs rounded-full border transition-colors"
+                                        :class="getMergedTier(catNames) === tier.toLowerCase()
+                                            ? (tier === 'Read'
+                                                ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
+                                                : 'bg-green-50 border-green-300 text-green-700 font-medium')
+                                            : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-500'"
+                                        @click="setMergedTier(catNames, tier.toLowerCase() as 'read' | 'full')"
+                                    >{{ tier }}</button>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Expand to see all individual permissions -->
+                        <div class="border-t">
+                            <button
+                                class="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 text-left flex items-center gap-1"
+                                @click="showOrgDetails = !showOrgDetails"
+                            >
+                                <UIcon
+                                    :name="showOrgDetails ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
+                                    class="w-3 h-3"
+                                />
+                                {{ showOrgDetails ? 'Hide details' : 'Customize individual permissions' }}
+                            </button>
+                            <div v-if="showOrgDetails" class="px-3 pb-3 space-y-2">
+                                <div
+                                    v-for="(perms, category) in allCategories"
+                                    :key="category"
                                 >
-                                    <UCheckbox
-                                        :model-value="form.permissions.includes(perm)"
-                                        @update:model-value="togglePermission(perm, $event)"
-                                    />
-                                    {{ formatPermission(perm) }}
-                                </label>
+                                    <p class="text-xs font-semibold text-gray-400 uppercase mb-0.5">{{ category }}</p>
+                                    <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                        <label
+                                            v-for="perm in perms"
+                                            :key="perm"
+                                            class="flex items-center gap-1.5 text-xs cursor-pointer py-0.5"
+                                        >
+                                            <UCheckbox
+                                                :model-value="form.permissions.includes(perm)"
+                                                @update:model-value="togglePermission(perm, $event)"
+                                                size="xs"
+                                            />
+                                            <span class="text-gray-600">{{ formatPermission(perm) }}</span>
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Resource Permissions -->
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-2">Resource Permissions</label>
+                    <!-- Per-resource cards -->
                     <div
-                        v-if="form.resourceGrants.length"
-                        class="space-y-2 mb-2"
+                        v-for="(grant, idx) in form.resourceGrants"
+                        :key="`grant-${idx}`"
+                        class="border rounded-lg overflow-hidden"
                     >
-                        <div
-                            v-for="(grant, idx) in form.resourceGrants"
-                            :key="idx"
-                            class="flex items-center gap-2 border rounded p-2"
-                        >
-                            <UBadge size="xs" :color="grant.resource_type === 'data_source' ? 'blue' : 'green'">
-                                {{ grant.resource_type === 'data_source' ? 'DS' : 'Conn' }}
-                            </UBadge>
-                            <span class="text-sm flex-1">{{ grant.resource_name }}</span>
-                            <USelectMenu
-                                v-model="grant.permissions"
-                                :options="getResourcePermOptions(grant.resource_type)"
-                                multiple
-                                size="xs"
-                                class="w-48"
-                            />
+                        <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <UBadge size="xs" :color="grant.resource_type === 'data_source' ? 'blue' : 'green'">
+                                    {{ grant.resource_type === 'data_source' ? 'DS' : 'Conn' }}
+                                </UBadge>
+                                <span class="text-sm font-medium">{{ grant.resource_name }}</span>
+                            </div>
                             <UButton
                                 variant="ghost"
                                 size="xs"
@@ -182,15 +207,60 @@
                                 @click="form.resourceGrants.splice(idx, 1)"
                             />
                         </div>
+                        <div class="p-3">
+                            <template v-if="isCheckboxResource(grant.resource_type)">
+                                <!-- Checkbox mode for resources with no read/write distinction (connections) -->
+                                <div class="flex flex-wrap gap-3">
+                                    <label
+                                        v-for="(groupPerms, groupLabel) in getResourceGroups(grant.resource_type)"
+                                        :key="groupLabel"
+                                        class="flex items-center gap-1.5 text-sm cursor-pointer"
+                                    >
+                                        <UCheckbox
+                                            :model-value="grant.permissions.includes(groupPerms[0])"
+                                            @update:model-value="toggleResourcePerm(grant, groupPerms[0], $event)"
+                                            size="xs"
+                                        />
+                                        <span class="text-gray-700">{{ formatPermission(groupLabel as string) }}</span>
+                                    </label>
+                                </div>
+                            </template>
+                            <template v-else>
+                                <!-- Read/Full tier mode for data sources -->
+                                <div
+                                    v-for="(groupPerms, groupLabel) in getResourceGroups(grant.resource_type)"
+                                    :key="groupLabel"
+                                    class="flex items-center justify-between py-1"
+                                >
+                                    <span class="text-sm text-gray-700">{{ groupLabel }}</span>
+                                    <div class="flex items-center gap-1">
+                                        <button
+                                            v-for="tier in ['Read', 'Full'] as const"
+                                            :key="tier"
+                                            class="px-2.5 py-0.5 text-xs rounded-full border transition-colors"
+                                            :class="getResourceGroupTier(grant, groupPerms) === tier.toLowerCase()
+                                                ? (tier === 'Read'
+                                                    ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
+                                                    : 'bg-green-50 border-green-300 text-green-700 font-medium')
+                                                : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-500'"
+                                            @click="setResourceGroupTier(grant, groupPerms, tier.toLowerCase() as 'read' | 'full')"
+                                        >{{ tier }}</button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
                     </div>
+
+                    <!-- Add resource -->
                     <USelectMenu
                         v-model="selectedResource"
                         :options="availableResources"
                         option-attribute="label"
                         value-attribute="value"
                         searchable
-                        placeholder="+ Add resource..."
+                        placeholder="+ Add data source or connection..."
                         @update:model-value="addResource"
+                        size="sm"
                     />
                 </div>
 
@@ -240,6 +310,7 @@ const showModal = ref(false)
 const editingRole = ref<RoleData | null>(null)
 const saving = ref(false)
 const selectedResource = ref(null)
+const showOrgDetails = ref(false)
 
 const form = reactive({
     name: '',
@@ -261,30 +332,130 @@ const isFullAdmin = computed({
     },
 })
 
-// Permission categories for the checkbox grid
-const permissionCategories: Record<string, string[]> = {
-    Reports: ['view_reports', 'create_reports', 'update_reports', 'delete_reports', 'publish_reports', 'rerun_report_steps'],
-    'Data Sources': ['view_data_source', 'create_data_source', 'update_data_source', 'delete_data_source', 'manage_data_source_memberships'],
-    Connections: ['manage_connections', 'view_connections'],
-    Widgets: ['view_widgets', 'create_widgets', 'update_widgets', 'delete_widgets', 'export_widgets', 'create_text_widgets', 'update_text_widgets', 'delete_text_widgets', 'view_text_widgets'],
-    Files: ['view_files', 'upload_files', 'delete_files'],
-    Members: ['view_organization_members', 'add_organization_members', 'update_organization_members', 'remove_organization_members', 'manage_roles', 'manage_groups', 'manage_role_assignments', 'manage_resource_grants'],
-    Instructions: ['view_instructions', 'create_instructions', 'update_instructions', 'delete_instructions', 'create_private_instructions', 'update_private_instructions', 'delete_private_instructions', 'view_global_instructions', 'view_private_instructions', 'view_hidden_instructions', 'suggest_instructions'],
-    Entities: ['view_entities', 'create_entities', 'update_entities', 'delete_entities', 'refresh_entities', 'approve_entities', 'reject_entities', 'suggest_entities', 'withdraw_entities'],
-    Builds: ['view_builds', 'create_builds'],
-    Settings: ['view_settings', 'modify_settings', 'manage_organization_settings', 'view_organization_settings', 'manage_organization_external_platforms', 'manage_llm_settings', 'view_llm_settings', 'view_organizations', 'view_organization_overview', 'manage_tests', 'train_mode'],
-    Enterprise: ['view_audit_logs', 'manage_scim'],
-    Feedback: ['create_completion_feedback', 'view_all_completion_feedbacks'],
+// ── Registry data from backend ───────────────────────────────────────────
+
+const allCategories = ref<Record<string, string[]>>({})
+const mergedCategories = ref<Record<string, string[]>>({})
+const resourceScopedGroups = ref<Record<string, Record<string, string[]>>>({})
+
+async function loadPermissionsRegistry() {
+    try {
+        const { data } = await useMyFetch('/permissions/registry')
+        if (data.value) {
+            const registry = data.value as {
+                categories: Record<string, string[]>
+                resource_permissions: Record<string, string[]>
+                merged_categories: Record<string, string[]>
+                resource_scoped_groups: Record<string, Record<string, string[]>>
+            }
+            allCategories.value = registry.categories
+            mergedCategories.value = registry.merged_categories
+            resourceScopedGroups.value = registry.resource_scoped_groups
+        }
+    } catch (e) {
+        console.error('Failed to load permissions registry', e)
+    }
 }
 
-const dsPermOptions = ['query', 'view_schema', 'upload_files', 'manage', 'manage_members']
-const connPermOptions = ['use', 'manage', 'manage_credentials']
+// ── Merged category tier logic (org-wide card) ───────────────────────────
 
-function getResourcePermOptions(type: string) {
-    return type === 'data_source' ? dsPermOptions : connPermOptions
+function getMergedPerms(catNames: string[]): string[] {
+    const perms: string[] = []
+    for (const cat of catNames) {
+        if (allCategories.value[cat]) {
+            perms.push(...allCategories.value[cat])
+        }
+    }
+    return perms
 }
 
-// Available resources for the autocomplete
+function getMergedTier(catNames: string[]): 'none' | 'read' | 'full' | 'custom' {
+    const perms = getMergedPerms(catNames)
+    if (perms.length === 0) return 'none'
+    const selected = perms.filter((p) => form.permissions.includes(p))
+    if (selected.length === 0) return 'none'
+    if (selected.length === perms.length) return 'full'
+    const viewPerms = perms.filter((p) => p.startsWith('view_'))
+    if (viewPerms.length > 0 && viewPerms.every((p) => form.permissions.includes(p)) && selected.length === viewPerms.length) {
+        return 'read'
+    }
+    return 'custom'
+}
+
+function setMergedTier(catNames: string[], tier: 'read' | 'full') {
+    const perms = getMergedPerms(catNames)
+    const currentTier = getMergedTier(catNames)
+
+    // If clicking the active tier, toggle it off
+    if (currentTier === tier) {
+        form.permissions = form.permissions.filter((p) => !perms.includes(p))
+        return
+    }
+
+    // Remove all perms in these categories first
+    form.permissions = form.permissions.filter((p) => !perms.includes(p))
+
+    if (tier === 'read') {
+        const viewPerms = perms.filter((p) => p.startsWith('view_'))
+        form.permissions.push(...viewPerms)
+    } else {
+        form.permissions.push(...perms)
+    }
+}
+
+// ── Resource-scoped permission groups ────────────────────────────────────
+
+function getResourceGroups(resourceType: string): Record<string, string[]> {
+    return resourceScopedGroups.value[resourceType] || {}
+}
+
+function getResourceGroupTier(grant: ResourceGrantForm, groupPerms: string[]): 'none' | 'read' | 'full' | 'custom' {
+    const selected = groupPerms.filter((p) => grant.permissions.includes(p))
+    if (selected.length === 0) return 'none'
+    if (selected.length === groupPerms.length) return 'full'
+    const viewPerms = groupPerms.filter((p) => p.startsWith('view_') || p === 'query' || p === 'view_schema')
+    if (viewPerms.length > 0 && viewPerms.every((p) => grant.permissions.includes(p)) && selected.length === viewPerms.length) {
+        return 'read'
+    }
+    return 'custom'
+}
+
+function setResourceGroupTier(grant: ResourceGrantForm, groupPerms: string[], tier: 'read' | 'full') {
+    const currentTier = getResourceGroupTier(grant, groupPerms)
+
+    // If clicking the active tier, toggle it off
+    if (currentTier === tier) {
+        grant.permissions = grant.permissions.filter((p) => !groupPerms.includes(p))
+        return
+    }
+
+    // Remove group perms first
+    grant.permissions = grant.permissions.filter((p) => !groupPerms.includes(p))
+
+    if (tier === 'read') {
+        const viewPerms = groupPerms.filter((p) => p.startsWith('view_') || p === 'query' || p === 'view_schema')
+        grant.permissions.push(...viewPerms)
+    } else {
+        grant.permissions.push(...groupPerms)
+    }
+}
+
+function isCheckboxResource(resourceType: string): boolean {
+    const groups = resourceScopedGroups.value[resourceType] || {}
+    // Checkbox mode when every group has exactly one permission (no read/write split)
+    return Object.values(groups).every((perms) => perms.length === 1)
+}
+
+function toggleResourcePerm(grant: ResourceGrantForm, perm: string, checked: boolean) {
+    if (checked) {
+        if (!grant.permissions.includes(perm)) grant.permissions.push(perm)
+    } else {
+        grant.permissions = grant.permissions.filter((p) => p !== perm)
+    }
+}
+
+// ── Available resources for the picker ───────────────────────────────────
+
 const availableResources = ref<{ label: string; value: string; type: string; id: string }[]>([])
 
 async function loadResources() {
@@ -324,7 +495,6 @@ function addResource(selected: any) {
     if (!selected) return
     const resource = availableResources.value.find((r) => r.value === selected)
     if (!resource) return
-    // Don't add duplicates
     if (form.resourceGrants.some((g) => g.resource_type === resource.type && g.resource_id === resource.id)) {
         selectedResource.value = null
         return
@@ -333,10 +503,12 @@ function addResource(selected: any) {
         resource_type: resource.type,
         resource_id: resource.id,
         resource_name: resource.label.replace(/^(Data Source|Connection): /, ''),
-        permissions: resource.type === 'data_source' ? ['query', 'view_schema'] : ['use'],
+        permissions: [],
     })
     selectedResource.value = null
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────
 
 function togglePermission(perm: string, checked: boolean) {
     if (checked) {
@@ -359,7 +531,8 @@ const filteredRoles = computed(() => {
     )
 })
 
-// CRUD
+// ── CRUD ─────────────────────────────────────────────────────────────────
+
 async function loadRoles() {
     isLoading.value = true
     try {
@@ -378,6 +551,7 @@ function openCreateModal() {
     form.description = ''
     form.permissions = []
     form.resourceGrants = []
+    showOrgDetails.value = false
     showModal.value = true
     loadResources()
 }
@@ -388,9 +562,9 @@ function openEditModal(role: RoleData) {
     form.description = role.description || ''
     form.permissions = [...(role.permissions || [])]
     form.resourceGrants = []
+    showOrgDetails.value = false
     showModal.value = true
     loadResources()
-    // Load resource grants for this role (TODO: need backend filter by role context)
 }
 
 async function saveRole() {
@@ -457,6 +631,7 @@ async function deleteRole(role: RoleData) {
 
 // Load on mount
 onMounted(() => {
+    loadPermissionsRegistry()
     loadRoles()
 })
 </script>

@@ -28,7 +28,7 @@ async def _audit_access_denied(db, user, organization, permission: str, endpoint
         _perm_logger.debug("_audit_access_denied failed", exc_info=True)
 
 
-def requires_permission(permission, model=None, owner_only=False, allow_public=False):
+def requires_permission(permission, model=None, owner_only=False, allow_public=False, resource_scoped=False):
     """
     Enhanced decorator that checks:
     1. User has sufficient role-based permission
@@ -36,11 +36,13 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
     3. If model is provided, checks if object belongs to organization
     4. If owner_only=True, checks if user is the owner of the object
     5. If allow_public=True, allows access to published reports even for non-owners
-    
+    6. If resource_scoped=True, skips denial when user lacks org-level permission —
+       the route body must call check_resource_permissions() to enforce per-resource access
+
     Usage:
     @requires_permission("delete_reports", model=Report, owner_only=True)  # Only owner can delete
     @requires_permission("view_reports", model=Report, owner_only=True, allow_public=True)  # Owner or public
-    @requires_permission("create:project")  # For general permission checks
+    @requires_permission("create_instructions", resource_scoped=True)  # Defers to check_resource_permissions in route
     """
     def decorator(func):
         @wraps(func)
@@ -123,6 +125,9 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     if not_approved and (is_owner or is_ai_orphan):
                         # allow without role permission
                         return await func(*args, **kwargs)
+                # resource_scoped: defer to check_resource_permissions() in the route body
+                if resource_scoped:
+                    return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="Permission denied")
 
@@ -237,8 +242,9 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
 
 # Resource-level permission types categorized by access level
 _WRITE_RESOURCE_PERMISSIONS = {
-    "manage", "manage_members", "manage_credentials",
-    "create_instructions", "create_evals", "create_entities", "create_data_source",
+    "manage", "manage_members", "manage_data_sources",
+    "create_instructions", "create_entities",
+    "run_evals", "run_steps",
 }
 
 
@@ -367,6 +373,10 @@ async def check_resource_permissions(
     Imperative resource-permission check for cases where resource IDs come
     from the request body rather than route params.
 
+    Two-tier OR logic:
+    - If user has the org-level permission → allowed on ALL resources (wildcard)
+    - Otherwise, checks per-resource grants for each resource ID
+
     Raises HTTPException 403 if the user lacks the given permission on ANY
     of the listed resources.
 
@@ -381,6 +391,10 @@ async def check_resource_permissions(
 
     # full_admin_access bypasses everything
     if FULL_ADMIN in resolved.org_permissions:
+        return
+
+    # Org-level permission grants blanket access to all resources
+    if resolved.has_org_permission(permission):
         return
 
     from app.ee.license import has_feature

@@ -25,7 +25,7 @@ service = EntityService()
 
 
 @router.post("", response_model=EntitySchema)
-@requires_permission('create_entities')
+@requires_permission('create_entities', resource_scoped=True)
 async def create_private_entity(
     payload: EntityCreate,
     db: AsyncSession = Depends(get_async_db),
@@ -43,7 +43,7 @@ async def create_private_entity(
 
 
 @router.post("/global", response_model=EntitySchema)
-@requires_permission('create_entities')
+@requires_permission('create_entities', resource_scoped=True)
 async def create_global_entity(
     payload: EntityCreate,
     db: AsyncSession = Depends(get_async_db),
@@ -111,7 +111,7 @@ async def get_entity(
 
 
 @router.put("/{entity_id}", response_model=EntitySchema)
-@requires_permission('update_entities', model=Entity)
+@requires_permission('update_entities', model=Entity, resource_scoped=True)
 async def update_entity(
     entity_id: str,
     payload: EntityUpdate,
@@ -120,6 +120,11 @@ async def update_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     """Update an entity (permission-based: owner can edit private, admin can edit all)"""
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
     entity = await service.update_entity(db, entity_id, payload, organization, current_user)
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
@@ -149,9 +154,14 @@ async def create_entity_from_step(
     organization: Organization = Depends(get_current_organization),
 ):
     """
-    Create entity from step. Accessible to both admins (create_entities) and 
+    Create entity from step. Accessible to both admins (create_entities) and
     regular users (suggest_entities). Permission checking happens at service level.
     """
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
     try:
         entity = await service.create_entity_from_step(
             db,

@@ -89,7 +89,7 @@ async def create_data_source(
     if connection_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "connection", connection_ids, "create_data_source",
+            "connection", connection_ids, "manage_data_sources",
         )
     return await data_source_service.create_data_source(db, organization, current_user, data_source)
 

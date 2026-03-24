@@ -35,16 +35,8 @@ PERMISSION_CATEGORIES = {
         "manage_connections",
         "view_connections",
     ],
-    "Widgets": [
-        "view_widgets",
-        "create_widgets",
-        "update_widgets",
-        "delete_widgets",
-        "export_widgets",
-        "create_text_widgets",
-        "update_text_widgets",
-        "view_text_widgets",
-        "delete_text_widgets",
+    "Queries": [
+        "export_query",
     ],
     "Files": [
         "view_files",
@@ -66,11 +58,7 @@ PERMISSION_CATEGORIES = {
         "create_instructions",
         "update_instructions",
         "delete_instructions",
-        "create_private_instructions",
-        "update_private_instructions",
-        "delete_private_instructions",
         "view_global_instructions",
-        "view_private_instructions",
         "view_hidden_instructions",
         "suggest_instructions",
     ],
@@ -84,6 +72,11 @@ PERMISSION_CATEGORIES = {
         "reject_entities",
         "suggest_entities",
         "withdraw_entities",
+    ],
+    "Evals": [
+        "manage_evals",
+        "run_evals",
+        "view_evals",
     ],
     "Builds": [
         "view_builds",
@@ -99,7 +92,6 @@ PERMISSION_CATEGORIES = {
         "manage_organization_external_platforms",
         "manage_llm_settings",
         "view_llm_settings",
-        "manage_tests",
         "train_mode",
     ],
     "Feedback": [
@@ -125,23 +117,59 @@ RESOURCE_PERMISSIONS = {
     "data_source": [
         "query",
         "view_schema",
+        "view_entities",
+        "create_entities",
+        "view_instructions",
+        "create_instructions",
+        "view_evals",
+        "run_evals",
         "manage",
         "manage_members",
-        "create_instructions",
-        "create_evals",
-        "create_entities",
     ],
     "connection": [
-        "use",
+        "manage_data_sources",
         "manage",
-        "manage_credentials",
-        "create_data_source",
     ],
     "report": [
         "view_artifacts",
         "view_conversation",
+        "run_steps",
     ],
 }
+
+# ── Merged categories for the role editor UI ─────────────────────────────
+# Groups related categories into fewer rows for a cleaner modal.
+# Each merged group maps to the individual categories it contains.
+
+MERGED_CATEGORIES = {
+    "Reports & Queries": ["Reports", "Queries"],
+    "Data & Connections": ["Data Sources", "Connections"],
+    "Instructions & Entities": ["Instructions", "Entities"],
+    "Evals": ["Evals"],
+    "Members & Access": ["Members & RBAC"],
+    "Settings & Admin": ["Settings", "Feedback", "Enterprise", "Builds", "Files"],
+}
+
+# Resource-scoped permission groups — shown per-resource in the role editor.
+# Maps a resource type to labelled permission groups for the UI.
+
+RESOURCE_SCOPED_GROUPS = {
+    "data_source": {
+        "Query": ["query", "view_schema"],
+        "Instructions": ["view_instructions", "create_instructions"],
+        "Entities": ["view_entities", "create_entities"],
+        "Evals": ["view_evals", "run_evals"],
+        "Management": ["manage", "manage_members"],
+    },
+    "connection": {
+        "manage_data_sources": ["manage_data_sources"],
+        "manage": ["manage"],
+    },
+    "report": {
+        "Access": ["view_artifacts", "view_conversation", "run_steps"],
+    },
+}
+
 
 # ── Default Role Permission Sets ─────────────────────────────────────────
 # These define what the system-seeded admin and member roles contain.
@@ -149,16 +177,14 @@ RESOURCE_PERMISSIONS = {
 DEFAULT_MEMBER_PERMISSIONS = [
     "view_data_source", "view_reports", "create_reports", "update_reports",
     "delete_reports", "publish_reports", "rerun_report_steps", "view_files",
-    "upload_files", "delete_files", "export_widgets", "create_text_widgets",
-    "update_text_widgets", "view_text_widgets", "delete_text_widgets",
-    "create_widgets", "update_widgets", "delete_widgets", "view_widgets",
+    "upload_files", "delete_files", "export_query",
     "view_organizations", "view_llm_settings", "view_organization_members",
     "manage_organization_external_platforms", "view_instructions",
-    "create_private_instructions", "update_private_instructions",
-    "delete_private_instructions", "view_global_instructions",
-    "view_private_instructions", "suggest_instructions",
+    "view_global_instructions",
+    "suggest_instructions",
     "create_completion_feedback", "view_entities", "refresh_entities",
-    "suggest_entities", "withdraw_entities", "view_builds",
+    "suggest_entities", "withdraw_entities", "view_evals", "run_evals",
+    "view_builds",
 ]
 
 # Admin uses full_admin_access wildcard — no need to list individual permissions

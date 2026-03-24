@@ -42,7 +42,7 @@ async def delete_widget(widget_uuid: str, current_user: User = Depends(current_u
     return await widget_service.delete_widget(db, widget_uuid, current_user, organization)
 
 @router.get("/reports/{report_id}/widgets/{widget_id}/export")
-@requires_permission('export_widgets', model=Report)
+@requires_permission('export_query', model=Report)
 async def export_widget(
     widget_id: str,
     request: Request,

@@ -37,7 +37,7 @@ instruction_label_service = InstructionLabelService()
 
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
-@requires_permission('create_private_instructions') 
+@requires_permission('create_private_instructions', resource_scoped=True)
 async def create_private_instruction(
     instruction: InstructionCreate,
     current_user: User = Depends(current_user),
@@ -53,7 +53,7 @@ async def create_private_instruction(
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=False)
 
 @router.post("/instructions/global", response_model=InstructionSchema)
-@requires_permission('create_instructions') 
+@requires_permission('create_instructions', resource_scoped=True)
 async def create_global_instruction(
     instruction: InstructionCreate,
     current_user: User = Depends(current_user),
@@ -323,7 +323,7 @@ async def get_instruction(
     return instruction
 
 @router.put("/instructions/{instruction_id}", response_model=InstructionSchema)
-@requires_permission('update_instructions', model=Instruction)
+@requires_permission('update_instructions', model=Instruction, resource_scoped=True)
 async def update_instruction(
     instruction_id: str,
     instruction: InstructionUpdate,
@@ -332,6 +332,11 @@ async def update_instruction(
     organization: Organization = Depends(get_current_organization)
 ):
     """Update an instruction (only if private and user owns it)"""
+    if instruction.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", instruction.data_source_ids, "create_instructions",
+        )
     updated_instruction = await instruction_service.update_instruction(
         db, instruction_id, instruction, organization, current_user
     )
