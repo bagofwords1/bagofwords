@@ -52,8 +52,12 @@ class LDAPGroupSyncService:
         # Build DN→email map for member resolution
         dn_to_email: Dict[str, str] = {u["dn"]: u["email"] for u in ldap_users}
 
-        # Build email→user_id map for org members
-        email_to_user_id = await self._get_org_user_map(db, organization_id)
+        # Build email→user_id map for ALL app users (not just org members)
+        # so we can auto-create Membership when a user appears in an LDAP group
+        email_to_user_id = await self._get_all_user_map(db)
+
+        # Track which users are in at least one LDAP group (for removal logic)
+        users_in_any_ldap_group: Set[str] = set()
 
         # Get existing LDAP-synced groups for this org
         existing_groups = await self._get_ldap_groups(db, organization_id)
@@ -70,6 +74,10 @@ class LDAPGroupSyncService:
             target_user_ids = self._resolve_members(
                 ldap_group["members"], dn_to_email, email_to_user_id, result
             )
+            users_in_any_ldap_group.update(target_user_ids)
+
+            # Ensure all target users have an org Membership
+            await self._ensure_org_memberships(db, organization_id, target_user_ids)
 
             if group_dn in existing_by_dn:
                 # Update existing group
@@ -98,6 +106,11 @@ class LDAPGroupSyncService:
             if dn not in seen_dns:
                 group.deleted_at = datetime.utcnow()
                 result.groups_removed += 1
+
+        # Deactivate org membership for users removed from ALL LDAP groups
+        await self._cleanup_org_memberships(
+            db, organization_id, users_in_any_ldap_group
+        )
 
         await db.commit()
         logger.info(
@@ -223,16 +236,113 @@ class LDAPGroupSyncService:
         rows = (await db.execute(stmt)).scalars().all()
         return set(rows)
 
-    async def _get_org_user_map(self, db: AsyncSession, organization_id: str) -> Dict[str, str]:
-        """Build email→user_id map for all users in the org."""
-        stmt = (
-            select(User.email, User.id)
-            .join(Membership, Membership.user_id == User.id)
-            .where(Membership.organization_id == organization_id)
-            .where(Membership.deleted_at.is_(None))
-        )
+    async def _get_all_user_map(self, db: AsyncSession) -> Dict[str, str]:
+        """Build email→user_id map for ALL app users (regardless of org)."""
+        stmt = select(User.email, User.id)
         rows = (await db.execute(stmt)).all()
         return {email.lower(): uid for email, uid in rows}
+
+    async def _ensure_org_memberships(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user_ids: Set[str],
+    ) -> None:
+        """Create Membership rows for users who are in LDAP groups but not yet in the org."""
+        if not user_ids:
+            return
+
+        # Find which users already have a membership
+        stmt = (
+            select(Membership.user_id)
+            .where(Membership.organization_id == organization_id)
+            .where(Membership.user_id.in_(user_ids))
+            .where(Membership.deleted_at.is_(None))
+        )
+        existing_ids = set((await db.execute(stmt)).scalars().all())
+
+        for user_id in user_ids - existing_ids:
+            db.add(Membership(
+                user_id=user_id,
+                organization_id=organization_id,
+                role="member",
+            ))
+            logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")
+
+    async def _cleanup_org_memberships(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        users_still_in_ldap: Set[str],
+    ) -> None:
+        """
+        Soft-delete org Membership for users who were LDAP-provisioned
+        but are no longer in any LDAP group.
+
+        Only removes memberships for users who are STILL in at least one
+        LDAP-synced GroupMembership — i.e., users who were added by LDAP
+        but have since been removed from all LDAP groups.
+        """
+        # Find all users who are in LDAP-synced groups for this org
+        stmt = (
+            select(GroupMembership.user_id)
+            .join(Group, Group.id == GroupMembership.group_id)
+            .where(Group.organization_id == organization_id)
+            .where(Group.external_provider == PROVIDER_NAME)
+            .where(Group.deleted_at.is_(None))
+        )
+        users_in_app_ldap_groups = set((await db.execute(stmt)).scalars().all())
+
+        # Users who are in app LDAP groups but NOT in any LDAP group anymore
+        # (they were just removed from all groups by _sync_memberships above,
+        # but we need to check what's left after the sync)
+        # Actually, after _sync_memberships ran, the GroupMembership rows are
+        # already updated. So we find users with Membership who are NOT in
+        # users_still_in_ldap and whose Membership was likely LDAP-created.
+        # To be safe, only remove memberships where the user has NO remaining
+        # GroupMemberships in any LDAP group for this org.
+
+        # Re-query after sync to see who still has LDAP group memberships
+        stmt = (
+            select(GroupMembership.user_id.distinct())
+            .join(Group, Group.id == GroupMembership.group_id)
+            .where(Group.organization_id == organization_id)
+            .where(Group.external_provider == PROVIDER_NAME)
+            .where(Group.deleted_at.is_(None))
+        )
+        users_with_ldap_groups = set((await db.execute(stmt)).scalars().all())
+
+        # Find memberships that should be removed:
+        # users NOT in any LDAP group who also don't have a manually-created membership
+        # We only remove memberships for users who WERE in LDAP groups before
+        # (i.e., they exist in app LDAP groups table but no longer have any)
+        # For safety, we check: user has org membership AND zero LDAP group memberships
+        stmt = (
+            select(Membership)
+            .where(Membership.organization_id == organization_id)
+            .where(Membership.deleted_at.is_(None))
+            .where(Membership.role == "member")  # Never remove admins
+            .where(Membership.user_id.notin_(users_with_ldap_groups))
+            .where(Membership.user_id.notin_(users_still_in_ldap))
+        )
+        # Only delete if user was originally LDAP-provisioned (no invite token, no email-based invite)
+        orphan_memberships = (await db.execute(stmt)).scalars().all()
+        for membership in orphan_memberships:
+            # Extra safety: only remove if user has no non-LDAP groups in this org
+            non_ldap_stmt = (
+                select(GroupMembership.id)
+                .join(Group, Group.id == GroupMembership.group_id)
+                .where(Group.organization_id == organization_id)
+                .where(Group.external_provider != PROVIDER_NAME)
+                .where(GroupMembership.user_id == membership.user_id)
+            )
+            has_manual_groups = (await db.execute(non_ldap_stmt)).scalar_one_or_none()
+            if not has_manual_groups:
+                membership.deleted_at = datetime.utcnow()
+                logger.info(
+                    f"LDAP sync: deactivated org membership for user {membership.user_id} "
+                    f"in org {organization_id} (removed from all LDAP groups)"
+                )
 
     async def _get_ldap_groups(self, db: AsyncSession, organization_id: str) -> List[Group]:
         stmt = (

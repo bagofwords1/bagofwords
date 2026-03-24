@@ -37,11 +37,11 @@ oidc_providers:
  # extra_authorize_params: { prompt: login }
  # extra_token_params: {}
 
-ldap:
-  enabled: true
-  url: ldaps://ad.company.com:636
-  bind_dn: cn=service-account,ou=Services,dc=company,dc=com
-  bind_password: ${BOW_LDAP_BIND_PASSWORD}
+# ldap:
+#  enabled: true
+#  url: ldaps://ad.company.com:636
+#  bind_dn: cn=service-account,ou=Services,dc=company,dc=com
+#  bind_password: ${BOW_LDAP_BIND_PASSWORD}
 
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
