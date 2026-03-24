@@ -581,7 +581,7 @@ class LLMService:
                 else:
                     auth_mode = raw_auth_mode
 
-                allowed_auth_modes = {"iam", "api_key"}
+                allowed_auth_modes = {"iam", "api_key", "access_keys"}
                 if auth_mode not in allowed_auth_modes:
                     raise HTTPException(
                         status_code=400,
@@ -590,6 +590,12 @@ class LLMService:
                     )
 
                 existing_additional_config = { **existing_additional_config, "auth_mode": auth_mode }
+
+            # Map AWS access keys to api_key/api_secret for encrypted storage
+            if credentials.get("aws_access_key_id"):
+                api_key = credentials["aws_access_key_id"]
+            if credentials.get("aws_secret_access_key"):
+                api_secret = credentials["aws_secret_access_key"]
         provider.additional_config = existing_additional_config if existing_additional_config else None
 
         # Only (re-)encrypt credentials when a new key/secret is provided
