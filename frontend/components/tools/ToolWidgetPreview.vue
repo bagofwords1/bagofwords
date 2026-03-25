@@ -16,19 +16,27 @@
             Edit
           </button>
         </div>
-        <div class="flex items-center gap-2">
-          <div v-if="rowCount" class="text-[11px] text-gray-400">
+        <div class="flex items-center gap-3">
+          <div v-if="rowCount" class="text-[11px] text-gray-400 leading-none">
             {{ activeFilterCount > 0 ? `${filteredRowCount}/` : '' }}{{ rowCount }} rows
           </div>
 
-          <button 
-            v-if="hasDataForDownload"
-            @click.stop="downloadCSV"
-            class="text-gray-400 hover:text-gray-600 transition-colors"
-            title="Download CSV"
-          >
-            <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
-          </button>
+          <UTooltip v-if="hasChartForDownload" text="Download as PNG">
+            <button
+              @click.stop="downloadChartPNG"
+              class="text-gray-400 hover:text-gray-600 transition-colors flex items-center"
+            >
+              <Icon name="heroicons:photo" class="w-3.5 h-3.5" />
+            </button>
+          </UTooltip>
+          <UTooltip v-if="hasDataForDownload" text="Download as CSV">
+            <button
+              @click.stop="downloadCSV"
+              class="text-gray-400 hover:text-gray-600 transition-colors flex items-center"
+            >
+              <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
+            </button>
+          </UTooltip>
         </div>
       </div>
     </div>
@@ -97,7 +105,7 @@
           <div class="tab-content">
             <!-- Chart Content -->
             <Transition name="fade" mode="out-in">
-              <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)">
+              <div ref="chartContainerRef" v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)">
                 <div v-if="resolvedCompEl" :class="chartHeightClass" :style="chartHeightStyle">
                   <component
                     :is="resolvedCompEl"
@@ -321,6 +329,7 @@ const { isExcel } = useExcel()
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(props.initialCollapsed ?? false)
+const chartContainerRef = ref<HTMLElement | null>(null)
 const layoutBlocks = ref<any[]>([])
 const route = useRoute()
 const reportId = computed(() => String(route.params.id || ''))
@@ -688,6 +697,27 @@ watch([showVisual, hasData, hasCode], () => {
 
 function toggleCollapsed() {
   isCollapsed.value = !isCollapsed.value
+}
+
+// Chart PNG download
+const hasChartForDownload = computed(() => {
+  return showVisual.value && hasDataForDownload.value
+})
+
+function downloadChartPNG() {
+  const container = chartContainerRef.value
+  if (!container) return
+  const canvas = container.querySelector('canvas')
+  if (!canvas) return
+
+  const dataURL = canvas.toDataURL('image/png', 1.0)
+  const link = document.createElement('a')
+  link.href = dataURL
+  link.download = `${widgetTitle.value || 'chart'}.png`
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 // CSV download functionality
