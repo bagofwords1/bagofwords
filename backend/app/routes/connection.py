@@ -16,6 +16,7 @@ from app.models.connection_table import ConnectionTable
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
 from app.core.permissions_decorator import requires_permission
+from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 from app.schemas.connection_schema import (
     ConnectionCreate,
     ConnectionUpdate,
@@ -34,15 +35,30 @@ connection_service = ConnectionService()
 # ==================== Routes ====================
 
 @router.get("", response_model=List[ConnectionSchema])
-@requires_permission('update_data_source')  # Admin-only
+@requires_permission('view_connections')
 async def list_connections(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """List all connections for the organization."""
+    """List connections the user has access to.
+
+    Admins (manage_connections or full_admin_access) see all connections.
+    Other users only see connections they have resource grants on.
+    """
     connections = await connection_service.get_connections(db, organization)
-    
+
+    # Filter by user access unless admin
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    is_admin = FULL_ADMIN in resolved.org_permissions or resolved.has_org_permission("manage_connections")
+
+    if not is_admin:
+        granted_conn_ids = {
+            rid for (rtype, rid) in resolved.resource_permissions
+            if rtype == "connection"
+        }
+        connections = [c for c in connections if str(c.id) in granted_conn_ids]
+
     result = []
     for conn in connections:
         # Count tables from ConnectionTable (all available tables in the database)

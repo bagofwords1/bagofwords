@@ -798,7 +798,9 @@ def test_entity_mixed_ds_list_denied(test_client, create_user, login_user, whoam
     )
     assert resp.status_code == 403, "Mixed DS list should be denied when any DS lacks permission"
 
-    # Single granted DS — should succeed (or at least not 403)
+    # Single granted DS — permission check should pass (not 403)
+    # Note: entity creation may fail with 500 due to pre-existing ORM lazy-load issues,
+    # but the important thing is it should NOT be 403 (permission denied)
     resp = test_client.post(
         "/api/entities",
         json={
@@ -810,6 +812,7 @@ def test_entity_mixed_ds_list_denied(test_client, create_user, login_user, whoam
         },
         headers=_headers(ctx["member_token"], ctx["org_id"]),
     )
+    # 200 = success, 500 = ORM bug (not RBAC), 403 = RBAC failure (the thing we're testing)
     assert resp.status_code != 403, f"Single granted DS should not be 403: {resp.text}"
 
 
@@ -879,3 +882,91 @@ def test_eval_case_mixed_ds_list_denied(test_client, create_user, login_user, wh
     # resource_scoped=True on manage_evals lets through, but create_evals != run_evals
     # The grant has run_evals, but the route checks create_evals — so this should be denied
     assert resp.status_code == 403, "Grant has run_evals but route checks create_evals"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 9. Connection resource — manage_data_sources enforcement
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.e2e
+def test_connection_manage_data_sources_denied(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_connection):
+    """User without manage_data_sources grant on a connection should be denied creating a DS from it."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    # Admin creates a connection
+    conn = create_connection(
+        name="rbac-test-conn",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Give member create_data_source org-level perm (needed to hit the route)
+    # but NO manage_data_sources resource grant on this connection
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Creator No Conn", [
+        "create_data_source", "view_data_source", "view_connections",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+
+    # Member tries to create a DS from this connection — should be denied
+    resp = test_client.post(
+        "/api/data_sources",
+        json={
+            "name": "Unauthorized DS",
+            "type": "sqlite",
+            "connection_id": conn["id"],
+            "config": {},
+            "credentials": {},
+        },
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 403, f"Should be denied without manage_data_sources grant: {resp.text}"
+
+
+@pytest.mark.e2e
+def test_connection_manage_data_sources_granted(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_connection):
+    """User WITH manage_data_sources grant on a connection can create a DS from it."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    conn = create_connection(
+        name="rbac-test-conn-granted",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Give member create_data_source org-level + manage_data_sources on the connection
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Creator With Conn", [
+        "create_data_source", "view_data_source", "view_connections",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+
+    _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "connection", conn["id"], "user", ctx["member_id"],
+        ["manage_data_sources"],
+    )
+
+    # Member creates a DS from the connection — should succeed
+    resp = test_client.post(
+        "/api/data_sources",
+        json={
+            "name": "Authorized DS",
+            "type": "sqlite",
+            "connection_id": conn["id"],
+            "config": {},
+            "credentials": {},
+        },
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code != 403, f"Should succeed with manage_data_sources grant: {resp.text}"

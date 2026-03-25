@@ -200,8 +200,14 @@ class EntityService:
         )
         db.add(entity)
         if payload.data_source_ids:
-            result = await db.execute(select(DataSource).where(DataSource.id.in_(payload.data_source_ids)))
-            entity.data_sources = list(result.scalars().all())
+            from sqlalchemy import insert
+            await db.flush()  # Ensure entity has an ID
+            rows = [
+                {"entity_id": str(entity.id), "data_source_id": str(ds_id)}
+                for ds_id in payload.data_source_ids
+            ]
+            if rows:
+                await db.execute(insert(entity_data_source_association), rows)
         await db.flush()
         await db.commit()
         await db.refresh(entity)

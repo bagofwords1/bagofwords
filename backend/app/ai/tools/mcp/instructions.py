@@ -166,10 +166,8 @@ class CreateInstructionMCPTool(MCPTool):
         permissions = await get_user_permissions(db, user, organization)
         
         # Check create permission - both admins and non-admins can create
-        # Non-admins need 'suggest_instructions' or 'create_private_instructions'
         can_create = (
-            'create_instructions' in permissions or 
-            'create_private_instructions' in permissions or
+            'create_instructions' in permissions or
             'suggest_instructions' in permissions
         )
         

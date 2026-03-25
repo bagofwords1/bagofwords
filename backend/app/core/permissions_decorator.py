@@ -240,13 +240,6 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
     return decorator
 
 
-# Resource-level permission types categorized by access level
-_WRITE_RESOURCE_PERMISSIONS = {
-    "manage", "manage_members", "manage_data_sources",
-    "create_instructions", "create_entities",
-    "run_evals", "run_steps",
-}
-
 
 def requires_resource_permission(resource_type: str, permission: str):
     """
@@ -408,16 +401,17 @@ async def check_resource_permissions(
                     detail=f"Access denied to {resource_type} {rid} for '{permission}'",
                 )
         else:
-            # Non-enterprise: binary membership check
+            # Non-enterprise: check resource membership + specific permission if grant exists
             if not resolved.has_resource_membership(resource_type, str(rid)):
                 raise HTTPException(
                     status_code=403,
                     detail=f"Access denied to {resource_type} {rid}",
                 )
-            # Write ops require admin org role on non-enterprise
-            if permission in _WRITE_RESOURCE_PERMISSIONS:
-                if not resolved.has_org_permission("update_data_source"):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Admin access required for this operation",
-                    )
+            # If the grant exists but doesn't include the required permission, deny
+            key = (resource_type, str(rid))
+            granted = resolved.resource_permissions.get(key, set())
+            if granted and permission not in granted:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied to {resource_type} {rid} for '{permission}'",
+                )

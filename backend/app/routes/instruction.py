@@ -37,7 +37,7 @@ instruction_label_service = InstructionLabelService()
 
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
-@requires_permission('create_private_instructions', resource_scoped=True)
+@requires_permission('create_instructions', resource_scoped=True)
 async def create_private_instruction(
     instruction: InstructionCreate,
     current_user: User = Depends(current_user),
@@ -183,7 +183,7 @@ async def bulk_delete_instructions(
 
 # ENHANCE INSTRUCTION (kept - not part of suggestion workflow)
 @router.post("/instructions/enhance", response_model=str)
-@requires_permission('create_private_instructions')
+@requires_permission('create_instructions', resource_scoped=True)
 async def enhance_instruction(
     instruction_data: InstructionCreate,
     current_user: User = Depends(current_user),

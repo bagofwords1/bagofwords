@@ -38,7 +38,7 @@ async def create_private_entity(
             db, str(current_user.id), str(organization.id),
             "data_source", payload.data_source_ids, "create_entities",
         )
-    entity = await service.create_entity(db, payload, current_user, organization, force_global=False)
+    entity = await service.create_entity(db, payload, current_user, organization)
     return EntitySchema.model_validate(entity)
 
 
@@ -56,7 +56,7 @@ async def create_global_entity(
             db, str(current_user.id), str(organization.id),
             "data_source", payload.data_source_ids, "create_entities",
         )
-    entity = await service.create_entity(db, payload, current_user, organization, force_global=True)
+    entity = await service.create_entity(db, payload, current_user, organization)
     return EntitySchema.model_validate(entity)
 
 
