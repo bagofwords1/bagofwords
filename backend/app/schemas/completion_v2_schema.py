@@ -11,11 +11,19 @@ from .completion_feedback_schema import CompletionFeedbackSchema
 from .file_schema import FileSchema
 
 
+class ToolExecutionDataSourceSchema(BaseModel):
+    """Lightweight data source info for display in tool execution UI."""
+    id: str
+    name: Optional[str] = None
+    type: Optional[str] = None  # connection type e.g. 'postgres', 'bigquery'
+
+
 class ToolExecutionUISchema(ToolExecutionSchema):
     """UI-focused tool execution with embedded created artifacts when available."""
     created_widget: Optional[WidgetSchema] = None
     created_step: Optional[StepSchema] = None
     created_visualizations: Optional[list[VisualizationSchema]] = None
+    data_sources: Optional[list[ToolExecutionDataSourceSchema]] = None
 
 
 class ArtifactChangeSchema(BaseModel):

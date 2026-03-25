@@ -321,6 +321,20 @@ class MessageContextBuilder:
                                         digest_parts.append(f"v{rj.get('version')}")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'inspect_data' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    digest_parts = []
+                                    obs = rj.get('observation') or rj
+                                    summary = obs.get('summary') or rj.get('summary')
+                                    if summary:
+                                        digest_parts.append(summary)
+                                    if obs.get('success') is False or rj.get('success') is False:
+                                        digest_parts.append("FAILED")
+                                    dur = obs.get('execution_duration_ms') or rj.get('execution_duration_ms')
+                                    if dur:
+                                        digest_parts.append(f"{dur}ms")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.created_widget_id:
                                     # Get widget details for other tools
                                     widget_result = await self.db.execute(
@@ -331,7 +345,7 @@ class MessageContextBuilder:
                                         tool_info += f" - Widget: '{widget.title}'"
                                     else:
                                         tool_info += f" - Widget #{tool_execution.created_widget_id}"
-                                
+
                                 elif tool_execution.created_step_id:
                                     # Get step details for other tools
                                     step_result = await self.db.execute(
@@ -770,6 +784,20 @@ class MessageContextBuilder:
                                     digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                 if rj.get('version'):
                                     digest_parts.append(f"v{rj.get('version')}")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'inspect_data' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                digest_parts = []
+                                obs = rj.get('observation') or rj
+                                summary = obs.get('summary') or rj.get('summary')
+                                if summary:
+                                    digest_parts.append(summary)
+                                if obs.get('success') is False or rj.get('success') is False:
+                                    digest_parts.append("FAILED")
+                                dur = obs.get('execution_duration_ms') or rj.get('execution_duration_ms')
+                                if dur:
+                                    digest_parts.append(f"{dur}ms")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'error' and tool_execution.error_message:
