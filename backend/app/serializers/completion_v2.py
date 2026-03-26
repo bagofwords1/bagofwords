@@ -15,6 +15,7 @@ from app.schemas.tool_execution_schema import ToolExecutionSchema
 from app.schemas.completion_v2_schema import (
     CompletionBlockV2Schema,
     ToolExecutionUISchema,
+    ToolExecutionDataSourceSchema,
 )
 from app.schemas.widget_schema import WidgetSchema
 from app.schemas.step_schema import StepSchema
@@ -47,6 +48,72 @@ def _trim_none(d: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _extract_data_source_ids(tool_execution: ToolExecution) -> List[str]:
+    """Extract unique data_source_ids from a tool execution's arguments or results."""
+    ds_ids: List[str] = []
+
+    # Check arguments_json first
+    args = getattr(tool_execution, "arguments_json", None) or {}
+
+    # tables_by_source: [{data_source_id: ..., tables: [...]}, ...]
+    tables_by_source = args.get("tables_by_source")
+    if isinstance(tables_by_source, list):
+        for group in tables_by_source:
+            if isinstance(group, dict) and group.get("data_source_id"):
+                ds_ids.append(str(group["data_source_id"]))
+
+    # Some tools use data_source_ids directly in arguments
+    direct_ids = args.get("data_source_ids")
+    if isinstance(direct_ids, list):
+        for did in direct_ids:
+            if did:
+                ds_ids.append(str(did))
+
+    # Fallback: check result_json for data_source_ids (e.g. create_instruction)
+    if not ds_ids:
+        result = getattr(tool_execution, "result_json", None) or {}
+        result_ds_ids = result.get("data_source_ids")
+        if isinstance(result_ds_ids, list):
+            for did in result_ds_ids:
+                if did:
+                    ds_ids.append(str(did))
+
+    return list(dict.fromkeys(ds_ids))  # unique, preserving order
+
+
+async def _resolve_data_sources(
+    db: AsyncSession, ds_ids: List[str]
+) -> List[ToolExecutionDataSourceSchema]:
+    """Look up DataSource name + first Connection type for a list of DS IDs."""
+    if not ds_ids:
+        return []
+
+    from app.models.data_source import DataSource
+    from app.models.connection import Connection
+    from app.models.domain_connection import domain_connection
+
+    rows = await db.execute(
+        select(
+            DataSource.id,
+            DataSource.name,
+            Connection.type,
+        )
+        .join(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+        .join(Connection, Connection.id == domain_connection.c.connection_id)
+        .where(DataSource.id.in_(ds_ids))
+    )
+    # Take first connection type per DS
+    seen: Dict[str, ToolExecutionDataSourceSchema] = {}
+    for row in rows:
+        ds_id = str(row[0])
+        if ds_id not in seen:
+            seen[ds_id] = ToolExecutionDataSourceSchema(
+                id=ds_id, name=row[1], type=row[2]
+            )
+    # Return in original order
+    return [seen[did] for did in ds_ids if did in seen]
+
+
 def serialize_block_v2_sync(
     block: CompletionBlock,
     plan_decision: Optional[PlanDecision] = None,
@@ -55,6 +122,7 @@ def serialize_block_v2_sync(
     widget_last_step: Optional[Step] = None,
     created_step: Optional[Step] = None,
     created_visualizations: Optional[List[Visualization]] = None,
+    data_sources: Optional[List[ToolExecutionDataSourceSchema]] = None,
 ) -> CompletionBlockV2Schema:
     """Serialize a CompletionBlock to the v2 UI schema using pre-loaded data.
     
@@ -113,6 +181,7 @@ def serialize_block_v2_sync(
             created_widget=created_widget_schema,
             created_step=created_step_schema,
             created_visualizations=created_visualizations_schemas or None,
+            data_sources=data_sources or None,
         )
 
     # seq primarily comes from decision.seq if available
@@ -186,6 +255,13 @@ async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> Comple
         except Exception:
             pass
 
+    # Resolve data sources referenced by tool arguments
+    resolved_data_sources: Optional[List[ToolExecutionDataSourceSchema]] = None
+    if tool_execution:
+        ds_ids = _extract_data_source_ids(tool_execution)
+        if ds_ids:
+            resolved_data_sources = await _resolve_data_sources(db, ds_ids)
+
     return serialize_block_v2_sync(
         block=block,
         plan_decision=plan_decision,
@@ -194,4 +270,5 @@ async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> Comple
         widget_last_step=widget_last_step,
         created_step=created_step,
         created_visualizations=created_visualizations or None,
+        data_sources=resolved_data_sources,
     )

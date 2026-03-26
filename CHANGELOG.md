@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.347 (March 25, 2026)
+- Improve context compaction to include inspect_data and set a budget of 200k (overriden by known models if exist)
+- Add agent indicator/icon to agent trace
+- Add download as png button for charts
+- Add more filters to reports page and advanced search
+
 ## Version 0.0.346 (March 24, 2026)
 - Fix bug that images are sent in future completions
 - Allow support for secret/access key in Bedrock LLM service

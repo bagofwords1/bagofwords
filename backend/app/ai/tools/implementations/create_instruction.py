@@ -316,14 +316,17 @@ class CreateInstructionTool(Tool):
                 f"load_mode={load_mode}, tables=[{tables_str}])"
             )
 
+            output_dict = CreateInstructionOutput(
+                success=True,
+                instruction_id=str(instruction.id),
+                message=f"Instruction created successfully: {title}",
+            ).model_dump()
+            output_dict["data_source_ids"] = [str(d) for d in data_source_ids] if data_source_ids else []
+
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
-                    "output": CreateInstructionOutput(
-                        success=True,
-                        instruction_id=str(instruction.id),
-                        message=f"Instruction created successfully: {title}",
-                    ).model_dump(),
+                    "output": output_dict,
                     "observation": {
                         "summary": f"Created instruction: {title} (confidence={data.confidence}, load_mode={load_mode}, tables={ref_count})",
                         "artifacts": [

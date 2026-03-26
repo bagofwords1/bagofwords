@@ -19,7 +19,7 @@ from app.models.report_file_association import report_file_association
 from fastapi import HTTPException
 
 import uuid
-from sqlalchemy import select, or_, func
+from sqlalchemy import select, or_, func, cast, String as SAString
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
@@ -662,6 +662,9 @@ class ReportService:
         search: str | None = None,
         scheduled: bool | None = None,
         status: str | None = None,
+        data_source_id: str | None = None,
+        mode: str | None = None,
+        has_artifacts: str | None = None,
     ):
         with tracer.start_as_current_span("get_reports") as span:
 
@@ -674,8 +677,13 @@ class ReportService:
             base_conditions = [
                 Report.organization_id == organization.id,
                 Report.status != 'archived',
-                Report.report_type == 'regular',
             ]
+
+            base_conditions.append(Report.report_type == 'regular')
+
+            # Optional filter by mode (chat/deep/training)
+            if mode and mode in ('chat', 'deep', 'training'):
+                base_conditions.append(Report.mode == mode)
 
             if filter == "my":
                 # Show only reports owned by current user
@@ -689,9 +697,22 @@ class ReportService:
                     or_(Report.status == 'published', Report.user_id == current_user.id)
                 )
 
-            # Optional search on report title
+            # Optional search on report title and completion content
             if search:
-                base_conditions.append(Report.title.ilike(f"%{search}%"))
+                from app.models.completion import Completion
+                base_conditions.append(
+                    or_(
+                        Report.title.ilike(f"%{search}%"),
+                        Report.id.in_(
+                            select(Completion.report_id).where(
+                                or_(
+                                    cast(Completion.prompt, SAString).ilike(f"%{search}%"),
+                                    cast(Completion.completion, SAString).ilike(f"%{search}%"),
+                                )
+                            )
+                        )
+                    )
+                )
 
             # Optional filter by scheduled status
             if scheduled is True:
@@ -702,6 +723,32 @@ class ReportService:
             # Optional filter by report status (draft/published)
             if status in ('draft', 'published'):
                 base_conditions.append(Report.status == status)
+
+            # Optional filter by data source
+            if data_source_id:
+                base_conditions.append(
+                    Report.id.in_(
+                        select(report_data_source_association.c.report_id).where(
+                            report_data_source_association.c.data_source_id == data_source_id
+                        )
+                    )
+                )
+
+            # Optional filter by artifact presence
+            if has_artifacts == 'yes':
+                from app.models.artifact import Artifact
+                base_conditions.append(
+                    Report.id.in_(
+                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                    )
+                )
+            elif has_artifacts == 'no':
+                from app.models.artifact import Artifact
+                base_conditions.append(
+                    ~Report.id.in_(
+                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                    )
+                )
 
             # Base query for filtering
             base_query = select(Report).where(*base_conditions)

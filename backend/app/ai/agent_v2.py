@@ -818,6 +818,12 @@ class AgentV2:
                         active_artifact=active_artifact,
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                     )
+                    # Trim context if it exceeds the model's token budget
+                    from app.ai.context.context_hub import trim_context_to_budget
+                    trim_context_to_budget(
+                        planner_input,
+                        model_context_window=getattr(self.model, "context_window_tokens", None),
+                    )
                     # Kick off early scoring in background without blocking the loop (isolated DB session)
                     asyncio.create_task(self._run_early_scoring_background(planner_input))
                 except ValidationError as ve:
@@ -1719,6 +1725,12 @@ class AgentV2:
             mode=self.mode,
             active_artifact=active_artifact,
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
+        )
+
+        from app.ai.context.context_hub import trim_context_to_budget
+        trim_context_to_budget(
+            planner_input,
+            model_context_window=getattr(self.model, "context_window_tokens", None),
         )
 
         return self.planner.prompt_builder.build_prompt(planner_input)

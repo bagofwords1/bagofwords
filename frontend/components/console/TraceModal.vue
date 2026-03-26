@@ -67,7 +67,14 @@
                                 selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
                             ]" @click="selectLeftItem(item)">
                                     <div class="flex items-center justify-between">
-                                        <div class="font-medium text-gray-900 truncate">{{ item.title }}</div>
+                                        <div class="font-medium text-gray-900 truncate flex items-center gap-1">
+                                            <span class="truncate">{{ item.title }}</span>
+                                            <span v-if="item.data_sources?.length" class="flex items-center gap-0.5 flex-shrink-0 ml-1">
+                                                <UTooltip v-for="ds in item.data_sources" :key="ds.id" :text="ds.name || ds.type || 'Data source'">
+                                                    <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
+                                                </UTooltip>
+                                            </span>
+                                        </div>
                                         <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
                                     </div>
                                     <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
@@ -99,6 +106,12 @@
                                 <div class="flex items-center mb-2">
                                     <UIcon :name="getSelectedItemIcon()" class="w-4 h-4 mr-2 text-gray-600" />
                                     <h4 class="text-sm font-medium text-gray-900">{{ getSelectedItemTitle() }}</h4>
+                                    <span v-if="selectedItemDataSources.length" class="flex items-center gap-1.5 ml-2">
+                                        <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-[11px] text-gray-600">
+                                            <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
+                                            <span>{{ ds.name || ds.type }}</span>
+                                        </span>
+                                    </span>
                                 </div>
                                 <div class="text-xs text-gray-500">
                                     {{ formatDate(selectedItem.created_at) }}
@@ -257,6 +270,7 @@ import GenericTool from '../tools/GenericTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 import CreateDataTool from '../tools/CreateDataTool.vue'
 import InspectDataTool from '../tools/InspectDataTool.vue'
+import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
 
@@ -369,6 +383,15 @@ const selectedItem = ref<any>(null)
 const selectedItemType = ref<'block'>('block')
 const blocks = computed(() => traceData.value?.completion_blocks || [])
 
+const selectedItemDataSources = computed(() => {
+    const item = selectedItem.value
+    if (!item) return []
+    // From tool_execution.data_sources on the selected block
+    if (item.tool_execution?.data_sources) return item.tool_execution.data_sources
+    if (item.data_sources) return item.data_sources
+    return []
+})
+
 const isOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
@@ -386,11 +409,12 @@ const leftItems = computed(() => {
         const te = (b as any).tool_execution
         const action = te?.tool_action ? te.tool_action : undefined
         const tool_call_name = action ? `${te.tool_name}.${action}` : te?.tool_name
+        const data_sources = te?.data_sources || (b as any).tool_execution?.data_sources || []
         if (tool_call_name) {
-            items.push({ id: b.id, kind: 'decision', title: `Decision: ${tool_call_name}`, subtitle: undefined, ref: b })
+            items.push({ id: b.id, kind: 'decision', title: `Decision: ${tool_call_name}`, subtitle: undefined, ref: b, data_sources })
         } else {
             // Non-tool decision, show title
-            items.push({ id: b.id, kind: 'decision', title: b.title || 'Decision', subtitle: undefined, ref: b })
+            items.push({ id: b.id, kind: 'decision', title: b.title || 'Decision', subtitle: undefined, ref: b, data_sources })
         }
     }
     // 2b) Latest feedback (if exists)
