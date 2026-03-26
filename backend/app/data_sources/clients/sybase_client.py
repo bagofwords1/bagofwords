@@ -2,10 +2,13 @@ from app.data_sources.clients.base import DataSourceClient
 
 import pyodbc
 import pandas as pd
+import fcntl
 from contextlib import contextmanager
 from typing import Generator, List
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
+
+FREETDS_CONF = "/etc/freetds/freetds.conf"
 
 
 class SybaseClient(DataSourceClient):
@@ -15,16 +18,30 @@ class SybaseClient(DataSourceClient):
         self.database = database
         self.user = user
         self.password = password
+        self._freetds_section = f"{self.host}_{self.port}_{self.database}"
+        self._ensure_freetds_entry()
+
+    def _ensure_freetds_entry(self):
+        """Register a freetds.conf entry so FreeTDS can select the correct SQL Anywhere database."""
+        with open(FREETDS_CONF, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            content = f.read()
+            if f"[{self._freetds_section}]" not in content:
+                f.write(
+                    f"\n[{self._freetds_section}]\n"
+                    f"host = {self.host}\n"
+                    f"port = {self.port}\n"
+                    f"tds version = 5.0\n"
+                    f"ASA database = {self.database}\n"
+                )
+            fcntl.flock(f, fcntl.LOCK_UN)
 
     def _connection_string(self):
         return (
             f"DRIVER={{FreeTDS}};"
-            f"SERVER={self.host};"
-            f"PORT={self.port};"
-            f"DATABASE={self.database};"
+            f"SERVERNAME={self._freetds_section};"
             f"UID={self.user};"
             f"PWD={self.password};"
-            f"TDS_Version=5.0;"
         )
 
     @contextmanager

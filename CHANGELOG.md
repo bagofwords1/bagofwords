@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.348 (March 26, 2026)
+- Improve Sybase integration and SQL Anywhere to use tds config
+
 ## Version 0.0.347 (March 25, 2026)
 - Improve context compaction to include inspect_data and set a budget of 200k (overriden by known models if exist)
 - Add agent indicator/icon to agent trace
