@@ -628,27 +628,35 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # Check if we need to retest the connection (cache expired or never tested)
-        conn = data_source.connections[0] if data_source.connections else None
-        needs_retest = True
-        if conn and conn.last_connection_checked_at:
-            # Handle timezone-naive datetimes from database
-            last_checked = conn.last_connection_checked_at
-            if last_checked.tzinfo is None:
-                last_checked = last_checked.replace(tzinfo=timezone.utc)
-            age = (datetime.now(timezone.utc) - last_checked).total_seconds()
-            needs_retest = age > self.CONNECTION_TEST_TTL_SECONDS
+        # Check if any connection needs retesting (cache expired or never tested)
+        from app.services.connection_service import ConnectionService
+        conn_service = ConnectionService()
+        stale_connections = []
+        for conn in (data_source.connections or []):
+            needs_retest = True
+            if conn.last_connection_checked_at:
+                last_checked = conn.last_connection_checked_at
+                if last_checked.tzinfo is None:
+                    last_checked = last_checked.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - last_checked).total_seconds()
+                needs_retest = age > self.CONNECTION_TEST_TTL_SECONDS
+            if needs_retest:
+                stale_connections.append(conn)
 
-        # Only test connection if cache is stale
-        if needs_retest:
+        # Retest stale connections
+        if stale_connections:
             try:
-                await self.test_data_source_connection(
-                    db=db,
-                    data_source_id=str(data_source.id),
-                    organization=organization,
-                    current_user=current_user or User(),
-                )
-                # After commit in test, relationships may be expired; reload with eager options
+                for conn in stale_connections:
+                    try:
+                        await conn_service.test_connection(
+                            db=db,
+                            connection_id=str(conn.id),
+                            organization=organization,
+                            current_user=current_user or User(),
+                        )
+                    except Exception:
+                        pass
+                # After commits in tests, relationships may be expired; reload with eager options
                 try:
                     stmt = (
                         select(DataSource)
@@ -1057,14 +1065,15 @@ class DataSourceService:
     async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         from datetime import datetime, timezone
         from sqlalchemy.orm import selectinload
-        
+        from app.services.connection_service import ConnectionService
+
         try:
             # Find the data source with connections eager-loaded
             result = await db.execute(
                 select(DataSource)
                 .options(selectinload(DataSource.connections))
                 .filter(
-                    DataSource.id == data_source_id, 
+                    DataSource.id == data_source_id,
                     DataSource.organization_id == organization.id
                 )
             )
@@ -1072,60 +1081,45 @@ class DataSourceService:
             if not data_source:
                 raise ValueError(f"Data source not found: {data_source_id}")
 
-            # Get the matching client from DATA_SOURCE_DETAILS
-            # Import and instantiate the client class
-            # Resolve client with policy-aware credentials
-            client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
-            # Test the connection
-            connection_status = await client.atest_connection()
+            if not data_source.connections:
+                return {"success": False, "message": "Data source has no connections"}
 
-            # Normalize success value for robust handling
-            try:
-                success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
-            except Exception:
-                success = False
-
-            # Cache the connection test result on the Connection model
-            conn = data_source.connections[0] if data_source.connections else None
-            if conn:
-                conn.last_connection_status = "success" if success else "not_connected"
-                conn.last_connection_checked_at = datetime.utcnow()
+            # Test all connections using ConnectionService (which caches results)
+            conn_service = ConnectionService()
+            all_success = True
+            last_status = None
+            for conn in data_source.connections:
+                try:
+                    last_status = await conn_service.test_connection(
+                        db=db,
+                        connection_id=str(conn.id),
+                        organization=organization,
+                        current_user=current_user,
+                    )
+                    success = bool(last_status.get("success")) if isinstance(last_status, dict) else bool(last_status)
+                    if not success:
+                        all_success = False
+                except Exception as e:
+                    all_success = False
+                    last_status = {"success": False, "message": str(e)}
 
             # Reflect connectivity on org-wide flag only for system creds
             if getattr(data_source, "auth_policy", "system_only") == "system_only":
-                if not success:
+                if not all_success:
                     data_source.is_active = False
-                else:
-                    if data_source.is_active == False:
-                        data_source.is_active = True
-            
-            await db.commit()
-            if conn:
-                await db.refresh(conn)
+                elif data_source.is_active == False:
+                    data_source.is_active = True
+                await db.commit()
+
             await db.refresh(data_source)
+            connection_status = last_status or {"success": all_success}
 
         except Exception as e:
-            # For system creds, mark DS inactive; for user creds, don't flip org state
-            try:
-                if 'data_source' in locals():
-                    # Cache the failure
-                    conn = data_source.connections[0] if data_source.connections else None
-                    if conn:
-                        conn.last_connection_status = "not_connected"
-                        conn.last_connection_checked_at = datetime.utcnow()
-                    
-                    if getattr(data_source, "auth_policy", "system_only") == "system_only":
-                        data_source.is_active = False
-                    await db.commit()
-            except Exception:
-                pass
-
-            # Return the error message instead of True
             connection_status = {
                 "success": False,
                 "message": str(e)
             }
-        
+
         return connection_status
     
     async def test_new_data_source_connection(self, db: AsyncSession, data: DataSourceCreate, organization: Organization, current_user: User):

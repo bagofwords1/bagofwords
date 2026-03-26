@@ -396,22 +396,28 @@ class ConnectionService:
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
+            # Cache the test result
+            connection.last_connection_status = "success" if success else "not_connected"
+            connection.last_connection_checked_at = datetime.utcnow()
+
             # Update is_active for system_only connections
             if connection.auth_policy == "system_only":
                 if not success and connection.is_active:
                     connection.is_active = False
-                    await db.commit()
                 elif success and not connection.is_active:
                     connection.is_active = True
-                    await db.commit()
 
+            await db.commit()
             return connection_status
 
         except Exception as e:
+            connection.last_connection_status = "not_connected"
+            connection.last_connection_checked_at = datetime.utcnow()
+
             if connection.auth_policy == "system_only":
                 connection.is_active = False
-                await db.commit()
 
+            await db.commit()
             return {
                 "success": False,
                 "message": str(e)
