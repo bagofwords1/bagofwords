@@ -147,7 +147,7 @@ RUN mkdir -p /app/certs && \
 
 # Create directories that the application needs to write to
 RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding /app/backend/logs && \
-    chown -R app:app /app
+    chown app:app /app
 
 WORKDIR /app
 
