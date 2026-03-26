@@ -8,6 +8,8 @@ class TablesBySource(BaseModel):
     """Per-source table filters to focus schema loading.
 
     - data_source_id: scope to a specific data source (UUID). If omitted/null, applies across all sources.
+    - connection_id: scope to a specific connection (UUID). Useful when a data source has multiple
+      connections with similar or identically-named tables. If omitted/null, matches across all connections.
     - tables: list of table names. Names are always treated as literal (escaped).
       Matching is case-insensitive and names match with or without a schema/dataset prefix (. or / separator).
       Examples: "film", "public.inventory", "Regional Sales Sample (2)/Opportunities".
@@ -16,6 +18,10 @@ class TablesBySource(BaseModel):
     data_source_id: Optional[str] = Field(
         default=None,
         description="UUID of the data source to scope these tables. If null, applies to all sources.",
+    )
+    connection_id: Optional[str] = Field(
+        default=None,
+        description="UUID of a specific connection to scope these tables. Use when a data source has multiple connections with similar table names. If null, matches across all connections.",
     )
     tables: List[str] = Field(
         ..., description="Table names (literal, case-insensitive). Schema or dataset prefix (. or /) is optional."
@@ -35,8 +41,9 @@ class CreateWidgetInput(BaseModel):
     tables_by_source: Optional[List[TablesBySource]] = Field(
         default=None,
         description=(
-            "Compact per-source table targeting: [{data_source_id, tables:[...]}, ...]. "
-            "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null."
+            "Compact per-source table targeting: [{data_source_id, connection_id, tables:[...]}, ...]. "
+            "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null. "
+            "Use connection_id to disambiguate when multiple connections have similar table names."
         ),
     )
     schema_limit: int = Field(

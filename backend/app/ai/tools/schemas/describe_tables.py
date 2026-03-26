@@ -14,6 +14,9 @@ class DescribeTablesInput(BaseModel):
     data_source_ids: Optional[List[str]] = Field(
         default=None, description="Optional list of data source IDs (UUIDs) to scope search"
     )
+    connection_ids: Optional[List[str]] = Field(
+        default=None, description="Optional list of connection IDs (UUIDs) to scope search. Useful when a data source has multiple connections with similar table names."
+    )
     limit: int = Field(10, ge=1, le=100, description="Max tables to sample per data source in excerpt")
 
 

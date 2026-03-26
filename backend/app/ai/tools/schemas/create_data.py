@@ -19,8 +19,9 @@ class CreateDataInput(BaseModel):
     tables_by_source: Optional[List[TablesBySource]] = Field(
         default=None,
         description=(
-            "Compact per-source table targeting: [{data_source_id, tables:[...]}, ...]. "
-            "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null."
+            "Compact per-source table targeting: [{data_source_id, connection_id, tables:[...]}, ...]. "
+            "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null. "
+            "Use connection_id to disambiguate when multiple connections have similar table names. "
             "For file analysis only, keep this empty."
         ),
     )

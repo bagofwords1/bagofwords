@@ -37,6 +37,7 @@ class SchemaContextBuilder:
         top_k: Optional[int] = None,
         *,
         data_source_ids: Optional[List[str]] = None,
+        connection_ids: Optional[List[str]] = None,
         table_names: Optional[List[str]] = None,
         name_patterns: Optional[List[str]] = None,
         active_only: bool = True,
@@ -48,6 +49,7 @@ class SchemaContextBuilder:
             with_stats: Include usage statistics for tables.
             top_k: Limit number of tables returned.
             data_source_ids: Filter to specific data sources.
+            connection_ids: Filter to specific connections (useful for multi-connection data sources).
             table_names: Filter to specific table names (exact match).
             name_patterns: Filter tables by regex patterns.
             active_only: If True (default), only return active tables. If False, include inactive.
@@ -56,6 +58,7 @@ class SchemaContextBuilder:
         ds_sections: List[TablesSchemaContext.DataSource] = []
 
         ds_filter = set(str(x) for x in (data_source_ids or [])) if data_source_ids else None
+        conn_filter = set(str(x) for x in (connection_ids or [])) if connection_ids else None
         for ds in self.data_sources:
             if ds_filter and str(ds.id) not in ds_filter:
                 continue
@@ -187,6 +190,10 @@ class SchemaContextBuilder:
                         "connection_name": conn_name,
                         "connection_type": conn_type,
                     })
+
+            # Filter by connection_ids if provided
+            if conn_filter:
+                normalized = [item for item in normalized if item.get("connection_id") and str(item["connection_id"]) in conn_filter]
 
             # Batch-query instruction reference counts for all tables in this data source
             instruction_ref_counts: Dict[str, int] = {}

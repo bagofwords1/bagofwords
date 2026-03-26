@@ -8,7 +8,7 @@ class InspectDataInput(BaseModel):
     )
     tables_by_source: Optional[List[Dict[str, Any]]] = Field(
         default=None,
-        description="Optional list of tables to resolve and load for inspection. If checking uploaded files, this can be omitted."
+        description="Optional list of tables to resolve and load for inspection. Each item: {data_source_id, connection_id (optional), tables: [...]}. Use connection_id to disambiguate when multiple connections have similar table names. If checking uploaded files, this can be omitted."
     )
 
 class InspectDataOutput(BaseModel):

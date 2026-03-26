@@ -120,6 +120,7 @@ PLAN TYPE DECISION FRAMEWORK
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
 - If the user attached a screenshot or an image -- describe it in reasoning - don't use inspect_data for images
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
+- MULTI-CONNECTION: When a data source has multiple connections (shown as nested <connection> tags in the schema), tables with the same name may exist across connections. In tables_by_source, specify `connection_id` to target the correct connection. Connection IDs are available in the schema XML `<connection id="...">` attributes.
 
 ERROR HANDLING (robust; no blind retries)
 - If ANY tool error occurred, start reasoning_message with: 

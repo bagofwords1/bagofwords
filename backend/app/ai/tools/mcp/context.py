@@ -151,9 +151,13 @@ async def build_rich_context(
     tables_by_source: List[Dict[str, Any]] = []
     
     if explicit_tables:
-        # Use explicitly provided tables
+        # Use explicitly provided tables (preserve connection_id for multi-connection filtering)
         tables_by_source = [
-            {"data_source_id": t.data_source_id, "tables": t.tables}
+            {
+                "data_source_id": t.data_source_id,
+                "connection_id": getattr(t, "connection_id", None),
+                "tables": t.tables,
+            }
             for t in explicit_tables
         ]
     else:
@@ -496,20 +500,26 @@ async def _build_schemas_excerpt(
         # Build patterns to match the resolved table names
         all_resolved_names = []
         ds_ids = []
-        
+        conn_ids = []
+
         for group in tables_by_source:
             if group.get("data_source_id"):
                 ds_ids.append(group["data_source_id"])
+            conn_id = group.get("connection_id")
+            if conn_id:
+                conn_ids.append(conn_id)
             all_resolved_names.extend(group.get("tables", []))
-        
+
         ds_scope = list(set(ds_ids)) if ds_ids else None
+        conn_scope = list(set(conn_ids)) if conn_ids else None
         name_patterns = [
             f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names
         ] if all_resolved_names else None
-        
+
         ctx = await context_hub.schema_builder.build(
             with_stats=True,
             data_source_ids=ds_scope,
+            connection_ids=conn_scope,
             name_patterns=name_patterns,
         )
         

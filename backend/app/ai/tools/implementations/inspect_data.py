@@ -121,17 +121,22 @@ Don't use on images
                 import re
                 all_resolved_names = []
                 ds_ids = []
+                conn_ids = []
                 for group in resolved_tables:
                     if group.get("data_source_id"):
                         ds_ids.append(group["data_source_id"])
+                    if group.get("connection_id"):
+                        conn_ids.append(group["connection_id"])
                     all_resolved_names.extend(group.get("tables", []))
 
                 ds_scope = list(set(ds_ids)) if ds_ids else None
+                conn_scope = list(set(conn_ids)) if conn_ids else None
                 name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
 
                 ctx = await context_hub.schema_builder.build(
                     with_stats=True,
                     data_source_ids=ds_scope,
+                    connection_ids=conn_scope,
                     name_patterns=name_patterns,
                 )
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)

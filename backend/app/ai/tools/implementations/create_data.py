@@ -573,6 +573,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
 
             for group in tables_by_source:
                 ds_id = str(group.data_source_id) if getattr(group, "data_source_id", None) else None
+                conn_id = str(group.connection_id) if getattr(group, "connection_id", None) else None
                 input_tables = getattr(group, "tables", []) or []
 
                 if not input_tables:
@@ -596,6 +597,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     ctx = await schema_builder.build(
                         with_stats=False,
                         data_source_ids=[ds_id] if ds_id else None,
+                        connection_ids=[conn_id] if conn_id else None,
                         name_patterns=name_patterns,
                     )
 

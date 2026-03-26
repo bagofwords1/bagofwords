@@ -99,6 +99,7 @@ class DescribeTablesTool(Tool):
                 ctx = await builder.build(
                     with_stats=True,
                     data_source_ids=data.data_source_ids,
+                    connection_ids=data.connection_ids,
                     name_patterns=name_patterns or None,
                 )
                 # Compute counts before render limits
