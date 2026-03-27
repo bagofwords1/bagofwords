@@ -263,7 +263,10 @@
                 <button type="button" class="flex items-center justify-between text-left flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1 text-gray-500" />
-                    <DataSourceIcon v-if="availableConnections.length > 1" :type="table.connection_type" class="h-3.5 mr-1.5 flex-shrink-0" />
+                    <template v-if="availableConnections.length > 1">
+                      <DataSourceIcon :type="table.connection_type" class="h-3.5 mr-1 flex-shrink-0" />
+                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 mr-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
+                    </template>
                     <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
                     <span v-if="!isTableActive(table.name) && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
                     <span v-if="isTableDirty(table.name)" class="ml-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
