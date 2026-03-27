@@ -10,12 +10,13 @@
                             </h1>
                             <div v-if="!isLoading && integration && !fetchError" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
                                 <template v-if="integration.connections && integration.connections.length > 0">
-                                    <template v-for="conn in integration.connections" :key="conn.id">
+                                    <template v-for="conn in integration.connections.slice(0, 4)" :key="conn.id">
                                         <span :class="['w-2 h-2 rounded-full', getConnectionStatus(conn) === 'success' ? 'bg-green-500' : 'bg-red-500']"></span>
                                         <UTooltip :text="conn.name">
                                             <DataSourceIcon :type="conn.type" class="h-4" />
                                         </UTooltip>
                                     </template>
+                                    <span v-if="integration.connections.length > 4" class="text-xs text-gray-400">+{{ integration.connections.length - 4 }}</span>
                                 </template>
                                 <template v-else>
                                     <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>

@@ -221,6 +221,10 @@ class MentionService:
                                 'name': getattr(col, 'name', str(col)),
                                 'dtype': getattr(col, 'dtype', None)
                             })
+                    # Resolve connection name: prefer table-level, fall back to first ds connection
+                    conn_name = getattr(table, 'connection_name', None)
+                    if not conn_name and hasattr(ds, 'connections') and ds.connections:
+                        conn_name = getattr(ds.connections[0], 'name', None)
                     tables.append({
                         'id': str(table.id),
                         'type': 'datasource_table',
@@ -232,7 +236,7 @@ class MentionService:
                         'data_source_type': ds.type,  # ds is DataSourceListItemSchema which has type directly
                         # Connection info (for multi-connection support)
                         'connection_id': getattr(table, 'connection_id', None),
-                        'connection_name': getattr(table, 'connection_name', None),
+                        'connection_name': conn_name,
                         'connection_type': getattr(table, 'connection_type', None) or ds.type,
                     })
             except HTTPException:

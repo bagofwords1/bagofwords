@@ -22,7 +22,7 @@ class SybaseClient(DataSourceClient):
         self.user = user
         self.password = password
         self._freetds_section = f"{self.host}_{self.port}_{self.database}"
-        self._ensure_freetds_entry()
+        self._freetds_ready = False
 
     def _ensure_freetds_entry(self):
         """Register a freetds.conf entry so FreeTDS can select the correct SQL Anywhere database."""
@@ -54,6 +54,9 @@ class SybaseClient(DataSourceClient):
     @contextmanager
     def connect(self) -> Generator[pyodbc.Connection, None, None]:
         """Yield a raw pyodbc connection to a Sybase SQL Anywhere database."""
+        if not self._freetds_ready:
+            self._ensure_freetds_entry()
+            self._freetds_ready = True
         conn = None
         try:
             conn = pyodbc.connect(self._connection_string())

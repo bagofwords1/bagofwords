@@ -569,13 +569,8 @@ watch(() => props.agentId, async (newId, oldId) => {
     queriesError.value = null
     agentDetails.value = null
 
-    // Fetch all data in parallel
-    await Promise.all([
-      fetchAgentDetails(newId),
-      fetchTablesForAgent(newId),
-      fetchInstructionsForAgent(newId),
-      fetchQueriesForAgent(newId)
-    ])
+    // Only fetch overview on hover; other tabs load on demand
+    await fetchAgentDetails(newId)
   }
 }, { immediate: true })
 

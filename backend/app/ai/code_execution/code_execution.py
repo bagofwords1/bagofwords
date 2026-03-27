@@ -1,3 +1,4 @@
+import asyncio
 import io
 import sys
 import ast
@@ -329,6 +330,13 @@ class StreamingCodeExecutor:
             output_log = stdout_capture.getvalue()
         return df, output_log, executed_queries
 
+    async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str, List[str]]:
+        """Run execute_code in a thread so it doesn't block the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.execute_code(code=code, ds_clients=ds_clients, excel_files=excel_files)
+        )
+
     def get_df_info(self, df: pd.DataFrame) -> Dict:
         """Extract comprehensive information from a DataFrame."""
         def convert_to_native(obj):
@@ -558,7 +566,7 @@ class StreamingCodeExecutor:
                 # Cancellation before executing user code
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
-                exec_df, execution_log, executed_queries = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                exec_df, execution_log, executed_queries = await self.execute_code_async(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
                 executed_successfully = True
                 break
             except Exception as e:
@@ -676,7 +684,7 @@ class StreamingCodeExecutor:
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
-                exec_df, execution_log, executed_queries = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                exec_df, execution_log, executed_queries = await self.execute_code_async(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
                 executed_successfully = True
                 break
             except CodeSecurityError as e:

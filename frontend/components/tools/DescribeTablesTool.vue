@@ -25,7 +25,8 @@
               :aria-expanded="isExpanded(idx)"
             >
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 mr-1" />
-              <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 mr-2" />
+              <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 mr-1" />
+              <span v-if="item.connection_name" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 mr-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
               <div class="font-medium text-gray-700 truncate">
                 {{ item.full_name || item.name || 'table' }}
               </div>

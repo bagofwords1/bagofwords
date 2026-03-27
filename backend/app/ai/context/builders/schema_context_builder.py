@@ -37,6 +37,7 @@ class SchemaContextBuilder:
         top_k: Optional[int] = None,
         *,
         data_source_ids: Optional[List[str]] = None,
+        connection_ids: Optional[List[str]] = None,
         table_names: Optional[List[str]] = None,
         name_patterns: Optional[List[str]] = None,
         active_only: bool = True,
@@ -48,6 +49,7 @@ class SchemaContextBuilder:
             with_stats: Include usage statistics for tables.
             top_k: Limit number of tables returned.
             data_source_ids: Filter to specific data sources.
+            connection_ids: Filter to specific connections (UUID strings).
             table_names: Filter to specific table names (exact match).
             name_patterns: Filter tables by regex patterns.
             active_only: If True (default), only return active tables. If False, include inactive.
@@ -72,7 +74,7 @@ class SchemaContextBuilder:
                     stats_map[(s.table_fqn or '').lower()] = s
 
             # Canonical (org-level) source - load with connection relationships
-            ds_tables_result = await self.db.execute(
+            ds_tables_query = (
                 select(DataSourceTable)
                 .options(
                     selectinload(DataSourceTable.connection_table)
@@ -80,6 +82,13 @@ class SchemaContextBuilder:
                 )
                 .where(DataSourceTable.datasource_id == str(ds.id))
             )
+            # Apply connection filter if provided
+            if connection_ids:
+                conn_id_set = set(str(x) for x in connection_ids)
+                ds_tables_query = ds_tables_query.join(
+                    ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id
+                ).where(ConnectionTable.connection_id.in_(conn_id_set))
+            ds_tables_result = await self.db.execute(ds_tables_query)
             ds_tables = ds_tables_result.scalars().all()
             canonical_by_name: Dict[str, DataSourceTable] = {getattr(t, 'name', ''): t for t in ds_tables}
 
