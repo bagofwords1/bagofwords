@@ -117,6 +117,7 @@ PLAN TYPE DECISION FRAMEWORK
 - After inspect_data, move to create_data to generate the actual tracked insight.
 - If schemas are empty/insufficient, output your clarifying questions in assistant_message and call the clarify tool to pause for user response.
 - If the user's request is ambiguous, output your questions in assistant_message and call the clarify tool.
+- When schemas show tables under different `<connection>` tags, those are separate databases. Queries CANNOT join across connections. Plan accordingly: either scope to one connection, or instruct the coder (via interpreted_prompt) to query each connection separately and merge in Python.
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
 - If the user attached a screenshot or an image -- describe it in reasoning - don't use inspect_data for images
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
