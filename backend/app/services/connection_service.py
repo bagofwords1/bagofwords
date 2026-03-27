@@ -645,13 +645,47 @@ class ConnectionService:
             )
         )
         row = result.scalars().first()
-        
+
         if not row:
+            # Owner/admin fallback: allow owner or admin to use system creds
+            is_owner = False
+            has_update_perm = False
+            try:
+                # Check ownership via any linked data source
+                for ds in (connection.data_sources or []):
+                    if str(getattr(ds, "owner_user_id", "")) == str(current_user.id):
+                        is_owner = True
+                        break
+            except Exception:
+                pass
+
+            if not is_owner:
+                try:
+                    from app.models.membership import Membership, ROLES_PERMISSIONS
+                    mem_res = await db.execute(
+                        select(Membership).where(
+                            Membership.user_id == current_user.id,
+                            Membership.organization_id == connection.organization_id,
+                        )
+                    )
+                    membership = mem_res.scalar_one_or_none()
+                    has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                except Exception:
+                    pass
+
+            if is_owner or has_update_perm:
+                if connection.credentials:
+                    try:
+                        return connection.decrypt_credentials() or {}
+                    except Exception:
+                        pass
+                return {}
+
             raise HTTPException(
                 status_code=403,
                 detail="User credentials required for this connection"
             )
-            
+
         return row.decrypt_credentials()
 
     def _resolve_client_by_type(
