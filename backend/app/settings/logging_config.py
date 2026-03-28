@@ -1,9 +1,11 @@
-import os
 import json
 import logging
+import os
 import sys
 from logging.handlers import RotatingFileHandler
+
 from app.settings.config import settings
+
 
 # Create a custom JSON formatter for production
 class JsonFormatter(logging.Formatter):
@@ -13,21 +15,24 @@ class JsonFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
+            "filename": record.filename,
+            "lineno": record.lineno,
+            "funcName": record.funcName,
         }
-        
+
         # Add exception info if present
         if record.exc_info:
             log_record["exception"] = self.formatException(record.exc_info)
-        
+
         # Add extra fields from record
         for key, value in record.__dict__.items():
-            if key not in ["args", "asctime", "created", "exc_info", "exc_text", 
-                          "filename", "funcName", "id", "levelname", "levelno", 
-                          "lineno", "module", "msecs", "message", "msg", 
-                          "name", "pathname", "process", "processName", 
-                          "relativeCreated", "stack_info", "thread", "threadName"]:
+            if key not in ["args", "asctime", "created", "exc_info", "exc_text",
+                           "filename", "funcName", "id", "levelname", "levelno",
+                           "lineno", "module", "msecs", "message", "msg",
+                           "name", "pathname", "process", "processName",
+                           "relativeCreated", "stack_info", "thread", "threadName"]:
                 log_record[key] = value
-        
+
         return json.dumps(log_record)
 
 def setup_logging():

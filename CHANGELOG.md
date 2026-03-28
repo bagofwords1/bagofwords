@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.349 (March 28, 2026)
+- Performance improvements
+- additional logging
+
 ## Version 0.0.348 (March 26, 2026)
 - Improve Sybase integration and SQL Anywhere to use tds config
 

@@ -2,9 +2,12 @@
 ContextHub - Main orchestrator for all agent context.
 """
 import json
+import logging
 import time
 from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
+
+_hub_logger = logging.getLogger(__name__)
 
 from .context_specs import (
     ContextMetadata, ContextSnapshot, ContextBuildSpec,
@@ -516,9 +519,9 @@ class ContextHub:
     # --------------------------------------------------------------
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
-        
+
         Runs all builders in parallel for faster startup.
-        
+
         Parameters
         ----------
         query : str | None, optional
@@ -526,19 +529,24 @@ class ContextHub:
             search to find relevant instructions beyond just 'always' load mode.
         """
         import asyncio
+        _t0 = time.monotonic()
+
+        async def _timed(name, coro):
+            t = time.monotonic()
+            result = await coro
+            _hub_logger.info(f"[context_hub:prime_static] {name} done +{(time.monotonic()-t)*1000:.0f}ms")
+            return result
+
         # Run all static builders in parallel
-        schemas_task = asyncio.create_task(self.schema_builder.build())
-        # Pass query and build_id to enable intelligent instruction search from specific build
-        instructions_task = asyncio.create_task(self.instruction_builder.build(query, build_id=self.build_id))
-        resources_task = asyncio.create_task(self.resource_builder.build())
-        files_task = asyncio.create_task(self.files_builder.build())
-        
-        # Wait for all to complete
         schemas, instructions, resources, files = await asyncio.gather(
-            schemas_task, instructions_task, resources_task, files_task,
-            return_exceptions=True
+            _timed("schemas", self.schema_builder.build()),
+            _timed("instructions", self.instruction_builder.build(query, build_id=self.build_id)),
+            _timed("resources", self.resource_builder.build()),
+            _timed("files", self.files_builder.build()),
+            return_exceptions=True,
         )
-        
+        _hub_logger.info(f"[context_hub:prime_static] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
+
         # Store results (handle exceptions gracefully)
         self._static_cache["schemas"] = schemas if not isinstance(schemas, Exception) else None
         self._static_cache["instructions"] = instructions if not isinstance(instructions, Exception) else None
@@ -548,11 +556,18 @@ class ContextHub:
 
     async def refresh_warm(self) -> None:
         """Rebuild warm sections each loop (messages, queries, observations, entities).
-        
+
         Runs builders in parallel where possible for faster refresh.
         """
         import asyncio
-        
+        _t0 = time.monotonic()
+
+        async def _timed(name, coro):
+            t = time.monotonic()
+            result = await coro
+            _hub_logger.info(f"[context_hub:refresh_warm] {name} done +{(time.monotonic()-t)*1000:.0f}ms")
+            return result
+
         # Get org settings first (needed for queries and entities)
         allow_llm_see_data = True
         try:
@@ -561,7 +576,7 @@ class ContextHub:
             allow_llm_see_data = bool(cfg.value) if cfg is not None else True
         except Exception:
             allow_llm_see_data = True
-        
+
         # Extract user text for entity keyword matching
         user_text = ""
         try:
@@ -571,23 +586,21 @@ class ContextHub:
                 user_text = str(self.prompt_content or "")
         except Exception:
             user_text = ""
-        
+
         # Run all warm builders in parallel
-        messages_task = asyncio.create_task(self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))
-        queries_task = asyncio.create_task(self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))
-        mentions_task = asyncio.create_task(self.mention_builder.build())
-        entities_task = asyncio.create_task(self.entity_builder.build_for_turn(
-            top_k=5,
-            require_source_assoc=True,
-            user_text=user_text,
-            allow_llm_see_data=allow_llm_see_data,
-        ))
-        
-        # Wait for all to complete
         messages, queries, mentions, entities = await asyncio.gather(
-            messages_task, queries_task, mentions_task, entities_task,
-            return_exceptions=True
+            _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])),
+            _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data)),
+            _timed("mentions", self.mention_builder.build()),
+            _timed("entities", self.entity_builder.build_for_turn(
+                top_k=5,
+                require_source_assoc=True,
+                user_text=user_text,
+                allow_llm_see_data=allow_llm_see_data,
+            )),
+            return_exceptions=True,
         )
+        _hub_logger.info(f"[context_hub:refresh_warm] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
         
         # Build observations synchronously (it's fast, no DB calls)
         observations = self.observation_builder.build()

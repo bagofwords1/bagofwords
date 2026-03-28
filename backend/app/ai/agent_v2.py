@@ -613,6 +613,12 @@ class AgentV2:
 
     async def main_execution(self):
         try:
+            import time as _time
+            _t0 = _time.monotonic()
+            _rid = str(self.report.id)[:8] if self.report else "?"
+            def _mlog(label):
+                logger.info(f"[agent:{_rid}] {label} +{(_time.monotonic()-_t0)*1000:.0f}ms")
+
             # Start agent execution tracking
             self.current_execution = await self.project_manager.start_agent_execution(
                 self.db,
@@ -622,6 +628,7 @@ class AgentV2:
                 report_id=str(self.report.id) if self.report else None,
                 build_id=self.build_id,
             )
+            _mlog("execution_tracking_started")
 
             # Telemetry in background (non-blocking)
             asyncio.create_task(self._capture_telemetry_background(
@@ -635,13 +642,14 @@ class AgentV2:
 
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
-            
+
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
             await asyncio.gather(
                 self.context_hub.prime_static(query=prompt_text),
                 self.context_hub.refresh_warm(),
             )
+            _mlog("context_primed")
             view = self.context_hub.get_view()
             # Token metadata update in background (non-blocking)
             asyncio.create_task(self._update_context_token_metadata_background(view))
@@ -665,14 +673,16 @@ class AgentV2:
                 schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT) if schemas_ctx else ""
             except Exception:
                 schemas_excerpt = schemas_ctx.render() if schemas_ctx else ""
-            
+            _mlog(f"schemas_rendered len={len(schemas_excerpt)}")
+
             # Use cached resources from prime_static() - no duplicate build
             resources_ctx = view.static.resources
             try:
                 resources_combined = resources_ctx.render_combined(top_k_per_repo=self.top_k_metadata_resources, index_limit=INDEX_LIMIT) if resources_ctx else ""
             except Exception:
                 resources_combined = resources_ctx.render() if resources_ctx else ""
-            
+            _mlog(f"resources_rendered len={len(resources_combined)}")
+
             # History summary based on observation context only
             history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -730,6 +740,7 @@ class AgentV2:
             completion_finished_emitted = False
             
             # Early scoring will be launched as a background task using an isolated session
+            _mlog("loop_starting")
 
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
