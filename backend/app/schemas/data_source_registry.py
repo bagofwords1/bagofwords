@@ -226,8 +226,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "token": AuthVariant(title="Token-Based Auth", schema=NetSuiteCredentials, scopes=["system"])  # typically system
         }),
         client_path=None,
-        status="inactive",
-        version="0.0.0",
+        status="active",
+        version="1.0.0",
     ),
     "mysql": DataSourceRegistryEntry(
         type="mysql",

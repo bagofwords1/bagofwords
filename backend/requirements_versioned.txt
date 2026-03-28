@@ -139,6 +139,7 @@ referencing==0.35.1
 regex==2024.9.11
 requests==2.32.4
 requests-file==2.1.0
+requests-oauthlib==2.0.0
 requests-toolbelt==1.0.0
 rpds-py==0.22.3
 rsa==4.9
