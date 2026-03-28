@@ -88,6 +88,9 @@ class PlannerInput(BaseModel):
     # User-uploaded images for vision-capable models
     images: Optional[List[Any]] = None  # List[ImageInput] - using Any to avoid circular import
 
+    # MCP/API tools context (compact index of available external tools)
+    tools_context: Optional[str] = None
+
     # Active artifact context (most recent artifact in the current report)
     active_artifact: Optional[Dict[str, Any]] = None
 
@@ -97,5 +100,8 @@ class PlannerInput(BaseModel):
 
     # Org-wide limits
     limit_row_count: Optional[int] = None
+
+    # Feature flags
+    mcp_tools_enabled: bool = False
 
 

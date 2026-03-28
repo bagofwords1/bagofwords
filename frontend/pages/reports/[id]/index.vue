@@ -430,6 +430,7 @@ import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
+import MCPTool from '~/components/tools/MCPTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -722,6 +723,10 @@ function getToolComponent(toolName: string) {
 			return ReadResourcesTool
 		case 'inspect_data':
 			return InspectDataTool
+		case 'search_mcps':
+		case 'execute_mcp':
+		case 'materialize':
+			return MCPTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':

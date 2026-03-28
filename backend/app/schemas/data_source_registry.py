@@ -79,6 +79,15 @@ from app.schemas.data_sources.configs import (
     SalesforceCredentials,
     MongoDBCredentials,
     PostHogCredentials,
+    # MCP
+    MCPConfig,
+    MCPNoAuthCredentials,
+    MCPBearerCredentials,
+    # Custom API
+    CustomAPIConfig,
+    CustomAPINoAuthCredentials,
+    CustomAPIBearerCredentials,
+    CustomAPIKeyCredentials,
 )
 
 from app.settings.config import settings
@@ -520,6 +529,62 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.sisense_client.SisenseClient",
         requires_license="enterprise",
+    ),
+    "mcp": DataSourceRegistryEntry(
+        type="mcp",
+        title="MCP Server",
+        description="Connect to a Model Context Protocol server to access external tools for discovery, knowledge, and data ingestion.",
+        config_schema=MCPConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth",
+                    schema=MCPNoAuthCredentials,
+                    scopes=["system"],
+                ),
+                "bearer": AuthVariant(
+                    title="Bearer Token",
+                    schema=MCPBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=CustomAPIKeyCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.mcp_client.McpClient",
+        version="beta",
+    ),
+    "custom_api": DataSourceRegistryEntry(
+        type="custom_api",
+        title="Custom API",
+        description="Connect to any REST API by defining endpoint schemas. Endpoints are exposed as callable tools.",
+        config_schema=CustomAPIConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth",
+                    schema=CustomAPINoAuthCredentials,
+                    scopes=["system"],
+                ),
+                "bearer": AuthVariant(
+                    title="Bearer Token",
+                    schema=CustomAPIBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=CustomAPIKeyCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.custom_api_client.Custom_apiClient",
+        version="beta",
     ),
 }
 

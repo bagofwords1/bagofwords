@@ -134,6 +134,14 @@ from tests.fixtures.connection import (
     refresh_connection_schema,
     get_connection_tables,
 )
+from tests.fixtures.connection_tool import (
+    create_mcp_connection,
+    create_custom_api_connection,
+    refresh_connection_tools,
+    get_connection_tools,
+    update_connection_tool,
+    batch_update_connection_tools,
+)
 from tests.fixtures.git_repository import (
     create_git_repository,
     get_git_repository,

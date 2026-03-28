@@ -704,6 +704,81 @@ class SisenseConfig(BaseModel):
     )
 
 
+# MCP Server
+class MCPConfig(BaseModel):
+    server_url: str = Field(
+        ...,
+        title="Server URL",
+        description="URL of the MCP server (e.g., http://localhost:3000/mcp)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    transport: str = Field(
+        "sse",
+        title="Transport",
+        description="MCP transport protocol",
+        json_schema_extra={"ui:type": "select", "options": ["sse", "streamable_http"]}
+    )
+
+
+class MCPNoAuthCredentials(BaseModel):
+    class Config:
+        extra = "allow"
+
+
+class MCPBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Bearer token for authenticating with the MCP server",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+# Custom API
+class CustomAPIConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description="Base URL for the API (e.g., https://api.example.com/v1)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    endpoints: list = Field(
+        default=[],
+        title="Endpoints",
+        description="List of API endpoint definitions",
+        json_schema_extra={"ui:type": "json"}
+    )
+
+
+class CustomAPINoAuthCredentials(BaseModel):
+    class Config:
+        extra = "allow"
+
+
+class CustomAPIBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Bearer token for API authentication",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class CustomAPIKeyCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="API key for authentication",
+        json_schema_extra={"ui:type": "password"}
+    )
+    api_key_header: str = Field(
+        "X-API-Key",
+        title="API Key Header",
+        description="Header name for the API key",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -774,4 +849,13 @@ __all__ = [
     # Sisense
     "SisenseCredentials",
     "SisenseConfig",
+    # MCP
+    "MCPConfig",
+    "MCPNoAuthCredentials",
+    "MCPBearerCredentials",
+    # Custom API
+    "CustomAPIConfig",
+    "CustomAPINoAuthCredentials",
+    "CustomAPIBearerCredentials",
+    "CustomAPIKeyCredentials",
 ]

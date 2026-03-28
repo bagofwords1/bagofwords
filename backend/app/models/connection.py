@@ -64,6 +64,21 @@ class Connection(BaseSchema):
         cascade="all, delete-orphan"
     )
 
+    # MCP/API tool discovery
+    connection_tools = relationship(
+        "ConnectionTool",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
+
+    # User-level tool overlays
+    user_tools = relationship(
+        "UserConnectionTool",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+    )
+
     def get_client(self):
         """Instantiate and return the appropriate database client."""
         try:

@@ -18,6 +18,8 @@ from fastapi import HTTPException
 
 from app.models.connection import Connection
 from app.models.connection_table import ConnectionTable
+from app.models.connection_tool import ConnectionTool
+from app.models.user_connection_tool import UserConnectionTool
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
@@ -114,9 +116,12 @@ class ConnectionService:
                 detail=f"A connection named '{name}' already exists in this organization."
             )
 
-        # Discover and save tables for system_only connections
+        # Discover and save tables/tools for system_only connections
         if auth_policy == "system_only":
-            await self.refresh_schema(db=db, connection=connection)
+            if type in self._TOOL_PROVIDER_TYPES:
+                await self.refresh_tools(db=db, connection=connection)
+            else:
+                await self.refresh_schema(db=db, connection=connection)
 
         # Audit log
         try:
@@ -348,9 +353,29 @@ class ConnectionService:
             if not connection_status.get("success"):
                 return connection_status
 
+            # For tool providers (MCP/API), list tools instead of schema access
+            if data_source_type in self._TOOL_PROVIDER_TYPES:
+                try:
+                    tools = await client.alist_tools()
+                    tool_count = len(tools) if tools else 0
+                    return {
+                        "success": True,
+                        "message": f"Connected successfully. Found {tool_count} tool(s).",
+                        "connectivity": True,
+                        "schema_access": True,
+                        "table_count": tool_count,
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "message": f"Connected but failed to list tools: {e}",
+                        "connectivity": True,
+                        "schema_access": False,
+                    }
+
             # Validate schema access
             schema_status = await self._avalidate_schema_access(client)
-            
+
             if not schema_status.get("success"):
                 return {
                     "success": False,
@@ -754,4 +779,179 @@ class ConnectionService:
                 "message": f"Connected but cannot read schema: {str(e)}",
                 "table_count": 0,
             }
+
+    # ── MCP / Custom API tool management ──────────────────────────────
+
+    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+
+    async def refresh_tools(
+        self,
+        db: AsyncSession,
+        connection: Connection,
+        current_user: User = None,
+    ) -> List[ConnectionTool]:
+        """
+        Refresh tools for an MCP or Custom API connection.
+        Parallel to refresh_schema() but for tool discovery.
+        """
+        if connection.type not in self._TOOL_PROVIDER_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Connection type '{connection.type}' does not support tool discovery",
+            )
+
+        try:
+            logger.info(f"refresh_tools: Starting for connection {connection.id} (type={connection.type})")
+            client = await self.construct_client(db, connection, current_user)
+            fresh_tools = await client.alist_tools()
+
+            logger.info(f"refresh_tools: Got {len(fresh_tools) if fresh_tools else 0} tools from provider")
+
+            if not fresh_tools:
+                logger.warning(f"refresh_tools: No tools returned from provider")
+                fresh_tools = []
+
+            # Build incoming dict keyed by name
+            incoming = {}
+            for t in fresh_tools:
+                name = t.get("name") if isinstance(t, dict) else getattr(t, "name", None)
+                if not name:
+                    continue
+                incoming[name] = {
+                    "description": t.get("description", ""),
+                    "input_schema": t.get("input_schema"),
+                    "output_schema": t.get("output_schema"),
+                }
+
+            # Get existing tools
+            connection_id_str = str(connection.id)
+            existing_q = await db.execute(
+                select(ConnectionTool)
+                .filter(ConnectionTool.connection_id == connection_id_str)
+            )
+            existing_tools = {t.name: t for t in existing_q.scalars().all()}
+            logger.info(f"refresh_tools: Found {len(existing_tools)} existing ConnectionTool records")
+
+            # Upsert tools
+            created_count = 0
+            updated_count = 0
+            for name, payload in incoming.items():
+                if name in existing_tools:
+                    tool = existing_tools[name]
+                    tool.description = payload["description"]
+                    tool.input_schema = payload["input_schema"]
+                    tool.output_schema = payload["output_schema"]
+                    updated_count += 1
+                else:
+                    tool = ConnectionTool(
+                        name=name,
+                        connection_id=connection_id_str,
+                        description=payload["description"],
+                        input_schema=payload["input_schema"],
+                        output_schema=payload["output_schema"],
+                        is_enabled=True,
+                        policy="allow",
+                    )
+                    db.add(tool)
+                    created_count += 1
+
+            # Delete stale tools
+            deleted_count = 0
+            for existing_name, existing_tool in existing_tools.items():
+                if existing_name not in incoming:
+                    await db.delete(existing_tool)
+                    deleted_count += 1
+            if deleted_count > 0:
+                logger.info(f"refresh_tools: Deleted {deleted_count} ConnectionTool records for tools no longer available")
+
+            connection.last_synced_at = datetime.utcnow()
+            await db.commit()
+            logger.info(f"refresh_tools: Created {created_count}, updated {updated_count}, deleted {deleted_count}")
+
+            # Return all tools
+            result = await db.execute(
+                select(ConnectionTool)
+                .filter(ConnectionTool.connection_id == connection_id_str)
+            )
+            final_tools = result.scalars().all()
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(connection.organization_id),
+                    action="connection.tools_refreshed",
+                    user_id=str(current_user.id) if current_user else None,
+                    resource_type="connection",
+                    resource_id=str(connection.id),
+                    details={
+                        "tool_count": len(final_tools),
+                        "created": created_count,
+                        "updated": updated_count,
+                        "deleted": deleted_count,
+                    },
+                )
+            except Exception:
+                pass
+
+            return final_tools
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error refreshing tools for connection {connection.id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to refresh tools: {e}")
+
+    async def get_connection_tools(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+    ) -> List[ConnectionTool]:
+        """Get all tools for a connection."""
+        result = await db.execute(
+            select(ConnectionTool)
+            .filter(ConnectionTool.connection_id == connection_id)
+            .order_by(ConnectionTool.name)
+        )
+        return result.scalars().all()
+
+    async def update_connection_tool(
+        self,
+        db: AsyncSession,
+        tool_id: str,
+        is_enabled: bool = None,
+        policy: str = None,
+    ) -> ConnectionTool:
+        """Update a single tool's enabled state or policy."""
+        result = await db.execute(
+            select(ConnectionTool).filter(ConnectionTool.id == tool_id)
+        )
+        tool = result.scalar_one_or_none()
+        if not tool:
+            raise HTTPException(status_code=404, detail="Tool not found")
+
+        if is_enabled is not None:
+            tool.is_enabled = is_enabled
+        if policy is not None:
+            tool.policy = policy
+
+        await db.commit()
+        await db.refresh(tool)
+        return tool
+
+    async def batch_update_tools(
+        self,
+        db: AsyncSession,
+        tool_ids: List[str],
+        is_enabled: bool,
+    ) -> List[ConnectionTool]:
+        """Batch enable/disable tools."""
+        result = await db.execute(
+            select(ConnectionTool).filter(ConnectionTool.id.in_(tool_ids))
+        )
+        tools = result.scalars().all()
+        for tool in tools:
+            tool.is_enabled = is_enabled
+        await db.commit()
+        return tools
 
