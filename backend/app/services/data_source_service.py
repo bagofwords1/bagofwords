@@ -617,7 +617,6 @@ class DataSourceService:
                 selectinload(DataSource.git_repository),
                 selectinload(DataSource.data_source_memberships),
                 selectinload(DataSource.connections),
-                selectinload(DataSource.tables),
             )
             .filter(DataSource.id == data_source_id)
             .filter(DataSource.organization_id == organization.id)
@@ -664,7 +663,6 @@ class DataSourceService:
                             selectinload(DataSource.git_repository),
                             selectinload(DataSource.data_source_memberships),
                             selectinload(DataSource.connections),
-                            selectinload(DataSource.tables),
                         )
                         .where(DataSource.id == data_source.id)
                     )
