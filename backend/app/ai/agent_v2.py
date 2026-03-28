@@ -1565,8 +1565,8 @@ class AgentV2:
             except Exception as e:
                 # Don't fail the entire execution if title generation fails
                 import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to start title generation: {e}")
+                _fallback_logger = logging.getLogger(__name__)
+                _fallback_logger.warning(f"Failed to start title generation: {e}")
             
             # Late scoring (non-blocking): capture context string and observation snapshot, then run in isolated session
             try:
