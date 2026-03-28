@@ -145,15 +145,20 @@ class BigQueryConfig(BaseModel):
 
 # NetSuite - all auth related fields should be in credentials
 class NetSuiteCredentials(BaseModel):
+    account_id: str = Field(..., title="Account ID", description="", json_schema_extra={"ui:type": "string"})
     consumer_key: str = Field(..., title="Consumer Key", description="", json_schema_extra={"ui:type": "string"})
     consumer_secret: str = Field(..., title="Consumer Secret", description="", json_schema_extra={"ui:type": "password"})
     token_id: str = Field(..., title="Token ID", description="", json_schema_extra={"ui:type": "string"})
     token_secret: str = Field(..., title="Token Secret", description="", json_schema_extra={"ui:type": "password"})
-    account_id: str = Field(..., title="Account ID", description="", json_schema_extra={"ui:type": "string"})
 
 
 class NetSuiteConfig(BaseModel):
-    pass
+    table_filter: Optional[str] = Field(
+        None,
+        title="Table Filter",
+        description="Optional comma-separated list of table names to include in schema discovery. If empty, discovers all tables.",
+        json_schema_extra={"ui:type": "textarea"}
+    )
 
 
 # Clickhouse
