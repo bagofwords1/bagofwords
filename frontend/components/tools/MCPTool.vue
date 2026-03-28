@@ -87,7 +87,7 @@ const duration = computed(() => {
 const runningLabel = computed(() => {
   if (toolName.value === 'search_mcps') return 'Searching MCP tools…'
   if (toolName.value === 'execute_mcp') return `Calling ${args.value.tool_name || 'MCP tool'}…`
-  if (toolName.value === 'materialize') return 'Materializing data…'
+  if (toolName.value === 'write_csv') return 'Writing CSV…'
   return 'Running MCP tool…'
 })
 
@@ -102,9 +102,9 @@ const doneLabel = computed(() => {
     if (resultJson.value.success === false) return `${name} (failed)`
     return `${name}`
   }
-  if (toolName.value === 'materialize') {
+  if (toolName.value === 'write_csv') {
     const rows = resultJson.value.row_count
-    return rows ? `Materialized ${rows} rows` : 'Materialized'
+    return rows ? `Wrote ${rows} rows to CSV` : 'CSV written'
   }
   return 'MCP tool'
 })
@@ -119,7 +119,7 @@ const preview = computed(() => {
   if (rj.preview) {
     return typeof rj.preview === 'string' ? rj.preview : JSON.stringify(rj.preview, null, 2)
   }
-  // materialize: show execution log
+  // write_csv: show execution log
   if (rj.execution_log) return rj.execution_log
   // fallback
   if (rj.details) return rj.details

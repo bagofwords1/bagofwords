@@ -5,14 +5,14 @@ from app.data_sources.clients.tool_provider_base import ToolProviderClient
 logger = logging.getLogger(__name__)
 
 
-class Custom_apiClient(ToolProviderClient):
+class CustomApiClient(ToolProviderClient):
     """
     Client for connecting to custom REST API endpoints.
     Endpoints are defined declaratively in the connection config
     and exposed as callable tools.
 
-    Class name uses underscore to match the dynamic import convention
-    in Connection.get_client() which builds: f"{title}Client" from type "custom_api".
+    Class name follows the dynamic import convention in Connection.get_client()
+    which title-cases each word: "custom_api" → "CustomApi" → "CustomApiClient".
     """
 
     def __init__(

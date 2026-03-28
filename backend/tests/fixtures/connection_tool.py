@@ -1,7 +1,35 @@
 """
 Connection tool API test fixtures for MCP/API tool management.
+Patches test_connection_params and construct_client so connection creation
+skips real network calls.
 """
+import contextlib
 import pytest
+from unittest.mock import patch, AsyncMock
+from tests.mocks.mock_mcp_server import MockToolProviderClient
+
+_mock_client = MockToolProviderClient()
+
+
+async def _mock_construct(self, db, connection, current_user=None, **kwargs):
+    return _mock_client
+
+
+_SKIP_NETWORK = contextlib.ExitStack()
+
+
+@contextlib.contextmanager
+def _skip_network():
+    """Context manager that patches both validation and client construction."""
+    with patch(
+        "app.services.connection_service.ConnectionService.test_connection_params",
+        new_callable=AsyncMock,
+        return_value={"success": True, "message": "mocked", "connectivity": True, "schema_access": True},
+    ), patch(
+        "app.services.connection_service.ConnectionService.construct_client",
+        _mock_construct,
+    ):
+        yield
 
 
 @pytest.fixture
@@ -36,7 +64,8 @@ def create_mcp_connection(test_client):
             "X-Organization-Id": str(org_id),
         }
 
-        response = test_client.post("/api/connections", json=payload, headers=headers)
+        with _skip_network():
+            response = test_client.post("/api/connections", json=payload, headers=headers)
         assert response.status_code == 200, response.json()
         return response.json()
 
@@ -88,7 +117,8 @@ def create_custom_api_connection(test_client):
             "X-Organization-Id": str(org_id),
         }
 
-        response = test_client.post("/api/connections", json=payload, headers=headers)
+        with _skip_network():
+            response = test_client.post("/api/connections", json=payload, headers=headers)
         assert response.status_code == 200, response.json()
         return response.json()
 

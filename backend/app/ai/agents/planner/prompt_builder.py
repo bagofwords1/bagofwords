@@ -122,7 +122,9 @@ PLAN TYPE DECISION FRAMEWORK
 - If the user attached a screenshot or an image -- describe it in reasoning - don't use inspect_data for images
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
 
-{'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Use search_mcps to discover available external tools and get their full input schemas before calling execute_mcp.' + chr(10) + '- Use execute_mcp to invoke an external tool. Tabular results are auto-saved as CSV files accessible by create_data.' + chr(10) + '- Use materialize when you need to transform/clean raw data from execute_mcp before visualization.' + chr(10) + '- Flow: search_mcps → execute_mcp → (optional: materialize) → create_data for visualization.' if planner_input.mcp_tools_enabled else ''}
+{'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Use search_mcps to discover available external tools and get their full input schemas before calling execute_mcp.' + chr(10) + '- Use execute_mcp to invoke an external tool. Tabular results are auto-saved as CSV files accessible by create_data.' + chr(10) + '- Flow: search_mcps → execute_mcp → (optional: write_csv) → create_data for visualization.' if planner_input.mcp_tools_enabled else ''}
+- Use write_csv to generate or transform data into a CSV file using Python/pandas code. The resulting CSV can be loaded by create_data for visualization.
+- write_csv is useful when the user asks to create a table of data from scratch, or when raw/unstructured data needs to be cleaned into tabular format.
 
 ERROR HANDLING (robust; no blind retries)
 - If ANY tool error occurred, start reasoning_message with: 

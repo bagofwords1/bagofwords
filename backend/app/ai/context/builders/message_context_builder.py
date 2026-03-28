@@ -373,7 +373,7 @@ class MessageContextBuilder:
                                         digest_parts.append(f"{rc} rows")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
-                                elif tool_execution.tool_name == 'materialize' and tool_execution.result_json:
+                                elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     obs = rj.get('observation') or rj
                                     digest_parts = []
@@ -391,7 +391,12 @@ class MessageContextBuilder:
                                         digest_parts.append(f"{rc} rows")
                                     cols = obs.get('columns') or rj.get('columns') or []
                                     if cols:
-                                        digest_parts.append(f"{len(cols)} cols")
+                                        digest_parts.append(f"columns: {cols}")
+                                    # Include a data sample from execution log
+                                    exec_log = rj.get('execution_log') or ''
+                                    if exec_log:
+                                        sample_lines = exec_log.strip().split('\n')[:8]
+                                        digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                     if obs.get('success') is False:
                                         digest_parts.append("FAILED")
                                     if digest_parts:
@@ -899,7 +904,7 @@ class MessageContextBuilder:
                                     digest_parts.append(f"{rc} rows")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
-                            elif tool_execution.tool_name == 'materialize' and tool_execution.result_json:
+                            elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
                                 obs = rj.get('observation') or rj
                                 digest_parts = []
@@ -917,7 +922,12 @@ class MessageContextBuilder:
                                     digest_parts.append(f"{rc} rows")
                                 cols = obs.get('columns') or rj.get('columns') or []
                                 if cols:
-                                    digest_parts.append(f"{len(cols)} cols")
+                                    digest_parts.append(f"columns: {cols}")
+                                # Include a data sample from execution log
+                                exec_log = rj.get('execution_log') or ''
+                                if exec_log:
+                                    sample_lines = exec_log.strip().split('\n')[:8]
+                                    digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                 if obs.get('success') is False:
                                     digest_parts.append("FAILED")
                                 if digest_parts:

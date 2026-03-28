@@ -17,7 +17,7 @@ from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
 from .edit_artifact import EditArtifactInput, EditArtifactOutput
 from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
-from .materialize import MaterializeInput, MaterializeOutput
+from .write_csv import WriteCsvInput, WriteCsvOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -64,8 +64,8 @@ __all__ = [
     "SearchMCPsOutput",
     "ExecuteMCPInput",
     "ExecuteMCPOutput",
-    "MaterializeInput",
-    "MaterializeOutput",
+    "WriteCsvInput",
+    "WriteCsvOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",

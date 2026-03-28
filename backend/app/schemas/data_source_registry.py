@@ -583,7 +583,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 ),
             },
         ),
-        client_path="app.data_sources.clients.custom_api_client.Custom_apiClient",
+        client_path="app.data_sources.clients.custom_api_client.CustomApiClient",
         version="beta",
     ),
 }

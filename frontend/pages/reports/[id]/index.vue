@@ -725,7 +725,7 @@ function getToolComponent(toolName: string) {
 			return InspectDataTool
 		case 'search_mcps':
 		case 'execute_mcp':
-		case 'materialize':
+		case 'write_csv':
 			return MCPTool
 		case 'suggest_instructions':
 			return InstructionSuggestions

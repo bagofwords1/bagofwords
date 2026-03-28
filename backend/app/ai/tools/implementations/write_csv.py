@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
-from app.ai.tools.schemas.materialize import MaterializeInput, MaterializeOutput
+from app.ai.tools.schemas.write_csv import WriteCsvInput, WriteCsvOutput
 from app.ai.tools.schemas import (
     ToolEvent,
     ToolStartEvent,
@@ -21,9 +21,9 @@ from app.dependencies import async_session_maker
 logger = logging.getLogger(__name__)
 
 
-class MaterializeTool(Tool):
+class WriteCsvTool(Tool):
     """
-    Transform raw data via Coder-generated Python code and save as CSV.
+    Generate or transform data via Coder-generated Python code and save as CSV.
     Follows the same pattern as InspectDataTool but persists the output
     as a File record instead of returning logs.
     """
@@ -31,16 +31,17 @@ class MaterializeTool(Tool):
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="materialize",
+            name="write_csv",
             description="""
             Purpose:
-Transform raw data (from execute_mcp or other sources) using custom Python/pandas code,
+Generate or transform tabular data using custom Python/pandas code,
 then save the result as a CSV file that can be loaded by create_data for visualization.
 
 Use when:
+    - The user asks to create/generate a table of data (e.g. "create a table of X, Y, Z")
     - You received raw/unstructured data from execute_mcp and need to clean/reshape it
-    - You need to parse logs, filter records, extract fields, or convert formats
-    - The raw data needs preprocessing before it can be visualized
+    - You need to parse, filter, extract, merge, or convert data into a tabular format
+    - You need to produce a dataset that doesn't exist in any connected data source
 
 Do not use when:
     - Data is already in a clean tabular format (execute_mcp auto-materializes tabular data)
@@ -48,39 +49,26 @@ Do not use when:
             """,
             category="action",
             version="1.0.0",
-            input_schema=MaterializeInput.model_json_schema(),
-            output_schema=MaterializeOutput.model_json_schema(),
-            tags=["mcp", "tools", "transform", "csv", "materialize"],
+            input_schema=WriteCsvInput.model_json_schema(),
+            output_schema=WriteCsvOutput.model_json_schema(),
+            tags=["transform", "csv", "write_csv", "generate", "table"],
             timeout_seconds=120,
         )
 
     @property
     def input_model(self) -> Type[BaseModel]:
-        return MaterializeInput
+        return WriteCsvInput
 
     @property
     def output_model(self) -> Type[BaseModel]:
-        return MaterializeOutput
+        return WriteCsvOutput
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
-        data = MaterializeInput(**tool_input)
+        data = WriteCsvInput(**tool_input)
         organization_settings = runtime_ctx.get("settings")
 
-        # Feature gate check
-        if organization_settings:
-            enable_mcp = organization_settings.get_config("enable_mcp_tools")
-            if enable_mcp and not enable_mcp.value:
-                yield ToolEndEvent(
-                    type="tool.end",
-                    payload={
-                        "output": {"success": False, "error_message": "MCP tools are disabled."},
-                        "observation": {"summary": "materialize blocked: enable_mcp_tools is disabled", "success": False},
-                    },
-                )
-                return
-
-        yield ToolStartEvent(type="tool.start", payload={"title": "Materializing data"})
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_materialize"})
+        yield ToolStartEvent(type="tool.start", payload={"title": "Writing CSV"})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_write_csv"})
 
         context_hub = runtime_ctx.get("context_hub")
 
@@ -121,11 +109,12 @@ Do not use when:
             except Exception:
                 schemas_excerpt = ""
 
-        # Generate a unique output filename to avoid concurrent execution collisions
-        output_filename = f"__materialize_output_{uuid.uuid4().hex}.csv"
+        # Generate output directly in uploads/files
+        import os
+        output_filename = os.path.join("uploads", "files", f"__write_csv_output_{uuid.uuid4().hex}.csv")
 
         # Augment the prompt to instruct the coder to save output as CSV
-        materialize_prompt = (
+        csv_prompt = (
             f"{data.user_prompt}\n\n"
             "IMPORTANT: The final result must be a pandas DataFrame stored in a variable called `df`. "
             "Print a preview of the first 5 rows with print(df.head()). "
@@ -135,8 +124,8 @@ Do not use when:
 
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
-            user_prompt=materialize_prompt,
-            interpreted_prompt=materialize_prompt,
+            user_prompt=csv_prompt,
+            interpreted_prompt=csv_prompt,
             schemas_excerpt=schemas_excerpt,
             tables_by_source=resolved_tables if resolved_tables else None,
         )
@@ -210,7 +199,7 @@ Do not use when:
                         "execution_log": output_log[:3000],
                     },
                     "observation": {
-                        "summary": f"Materialization failed: {execution_error}",
+                        "summary": f"write_csv failed: {execution_error}",
                         "code": generated_code,
                         "success": False,
                     },
@@ -219,7 +208,6 @@ Do not use when:
             return
 
         # 5. Find the output CSV and create a File record
-        import os
         csv_path = output_filename
         if not os.path.exists(csv_path):
             yield ToolEndEvent(
@@ -245,16 +233,16 @@ Do not use when:
         import pandas as pd
         from uuid import uuid4
         from app.models.file import File
-        from app.services.file_preview import generate_csv_preview
+        from app.services.file_preview import _preview_csv
 
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
         organization = runtime_ctx.get("organization")
-        user = runtime_ctx.get("current_user")
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
 
-        # Move CSV to uploads
-        unique_name = f"{uuid4()}_materialize_output.csv"
-        dest_path = f"uploads/files/{unique_name}"
+        # Rename to final name
+        unique_name = f"{uuid4()}_write_csv_output.csv"
+        dest_path = os.path.join("uploads", "files", unique_name)
         os.rename(csv_path, dest_path)
 
         # Read for metadata
@@ -269,12 +257,12 @@ Do not use when:
         # Generate preview
         preview = None
         try:
-            preview = generate_csv_preview(dest_path)
+            preview = _preview_csv(dest_path, "write_csv_output.csv")
         except Exception:
             pass
 
         file = File(
-            filename="materialize_output.csv",
+            filename="write_csv_output.csv",
             path=dest_path,
             content_type="text/csv",
             preview=preview,
@@ -282,6 +270,7 @@ Do not use when:
             organization_id=str(organization.id) if organization else None,
         )
         db.add(file)
+        await db.flush()
 
         # Link to report
         if report:
@@ -299,11 +288,11 @@ Do not use when:
         # Audit
         await log_tool_audit(
             runtime_ctx,
-            action="tool.data_materialized",
+            action="tool.csv_written",
             resource_type="report",
             resource_id=str(report.id) if report else None,
             details={
-                "tool": "materialize",
+                "tool": "write_csv",
                 "file_id": str(file.id),
                 "row_count": total_rows,
             },
@@ -322,7 +311,7 @@ Do not use when:
                     "execution_log": output_log[:3000],
                 },
                 "observation": {
-                    "summary": f"Materialized data to CSV: {total_rows} rows, {len(df.columns)} columns",
+                    "summary": f"Wrote CSV: {total_rows} rows, {len(df.columns)} columns",
                     "file_id": str(file.id),
                     "row_count": total_rows,
                     "columns": list(df.columns),
