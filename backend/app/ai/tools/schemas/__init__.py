@@ -15,6 +15,9 @@ from .create_artifact import CreateArtifactInput, CreateArtifactOutput
 from .read_artifact import ReadArtifactInput, ReadArtifactOutput
 from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
 from .edit_artifact import EditArtifactInput, EditArtifactOutput
+from .search_mcps import SearchMCPsInput, SearchMCPsOutput
+from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
+from .materialize import MaterializeInput, MaterializeOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -57,6 +60,12 @@ __all__ = [
     "ReadQueryResult",
     "EditArtifactInput",
     "EditArtifactOutput",
+    "SearchMCPsInput",
+    "SearchMCPsOutput",
+    "ExecuteMCPInput",
+    "ExecuteMCPOutput",
+    "MaterializeInput",
+    "MaterializeOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",
