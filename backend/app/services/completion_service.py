@@ -1904,7 +1904,9 @@ class CompletionService:
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",  # Disable nginx buffering
+                    "Transfer-Encoding": "chunked",
+                    "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
+                    "X-Content-Type-Options": "nosniff",
                     "Access-Control-Allow-Origin": "*",
                     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
                     "Access-Control-Allow-Headers": "Content-Type, Authorization",

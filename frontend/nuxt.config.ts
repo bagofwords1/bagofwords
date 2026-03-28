@@ -131,7 +131,10 @@ export default defineNuxtConfig({
             target: 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
-            rewrite: (path) => path
+            rewrite: (path) => path,
+            headers: {
+                'Connection': 'keep-alive'
+            }
         }
     }
 },

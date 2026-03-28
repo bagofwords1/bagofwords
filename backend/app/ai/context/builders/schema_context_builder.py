@@ -82,6 +82,9 @@ class SchemaContextBuilder:
                 )
                 .where(DataSourceTable.datasource_id == str(ds.id))
             )
+            # Push active filter into SQL to avoid loading thousands of inactive rows
+            if active_only:
+                ds_tables_query = ds_tables_query.where(DataSourceTable.is_active == True)
             # Apply connection filter if provided
             if connection_ids:
                 conn_id_set = set(str(x) for x in connection_ids)

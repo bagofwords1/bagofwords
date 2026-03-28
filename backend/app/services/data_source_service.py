@@ -1310,6 +1310,7 @@ class DataSourceService:
             raise HTTPException(status_code=400, detail="Data source has no associated connections")
 
         clients: Dict[str, Any] = {}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
 
         for conn in data_source.connections:
             key = f"{data_source.name}:{conn.name}"
@@ -1329,10 +1330,7 @@ class DataSourceService:
             )
 
             params = {**(config or {}), **(creds or {})}
-
-            # Strip meta keys
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
-            params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys}
+            params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
             # Narrow to constructor signature
             try:
@@ -1344,11 +1342,9 @@ class DataSourceService:
             clients[key] = ClientClass(**allowed)
 
         # Backward compatibility: add legacy key aliases for single-connection domains
-        # This supports old code patterns like ds_clients.get("domain_name") or ds_clients["domain_name"]
         if len(data_source.connections) == 1:
             first_key = next(iter(clients.keys()))
             first_client = clients[first_key]
-            # Add domain name as alias
             clients[data_source.name] = first_client
 
         return clients

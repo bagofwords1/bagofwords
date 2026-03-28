@@ -82,9 +82,10 @@
 
                                 <!-- Metadata -->
                                 <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
-                                    <UTooltip v-for="conn in (ds.connections || [])" :key="conn.id" :text="conn.name">
+                                    <UTooltip v-for="conn in (ds.connections || []).slice(0, 3)" :key="conn.id" :text="conn.name">
                                         <DataSourceIcon class="h-3.5" :type="conn.type" />
                                     </UTooltip>
+                                    <span v-if="(ds.connections || []).length > 3" class="text-gray-400">+{{ (ds.connections || []).length - 3 }}</span>
                                     <span>{{ getTableCount(ds) }} tables</span>
                                 </div>
 

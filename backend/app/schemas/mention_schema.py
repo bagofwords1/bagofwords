@@ -39,7 +39,12 @@ class TableMention(BaseModel):
     # Computed/joined fields (need to join DataSource)
     data_source_name: str  # Join from DataSource.name
     data_source_type: str  # Join from DataSource.type
-    
+
+    # Connection info (for multi-connection support)
+    connection_id: Optional[str] = None
+    connection_name: Optional[str] = None
+    connection_type: Optional[str] = None
+
     class Config:
         from_attributes = True
 
