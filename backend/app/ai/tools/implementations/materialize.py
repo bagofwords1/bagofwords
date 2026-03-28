@@ -1,5 +1,7 @@
+import csv
 import time
 import logging
+import uuid
 from typing import AsyncIterator, Dict, Any, Type, List
 from pydantic import BaseModel
 
@@ -119,12 +121,15 @@ Do not use when:
             except Exception:
                 schemas_excerpt = ""
 
+        # Generate a unique output filename to avoid concurrent execution collisions
+        output_filename = f"__materialize_output_{uuid.uuid4().hex}.csv"
+
         # Augment the prompt to instruct the coder to save output as CSV
         materialize_prompt = (
             f"{data.user_prompt}\n\n"
             "IMPORTANT: The final result must be a pandas DataFrame stored in a variable called `df`. "
             "Print a preview of the first 5 rows with print(df.head()). "
-            "Then save to CSV: df.to_csv('__materialize_output.csv', index=False). "
+            f"Then save to CSV: df.to_csv('{output_filename}', index=False). "
             "Print the shape: print(f'Shape: {df.shape}')"
         )
 
@@ -215,7 +220,7 @@ Do not use when:
 
         # 5. Find the output CSV and create a File record
         import os
-        csv_path = "__materialize_output.csv"
+        csv_path = output_filename
         if not os.path.exists(csv_path):
             yield ToolEndEvent(
                 type="tool.end",
@@ -255,7 +260,11 @@ Do not use when:
         # Read for metadata
         df = pd.read_csv(dest_path, nrows=5)
         row_count_str = output_log  # Try to extract from logs
-        total_rows = len(pd.read_csv(dest_path))
+        # Count rows efficiently without loading the full file into memory
+        with open(dest_path, "r", encoding="utf-8", errors="replace") as f:
+            row_iter = csv.reader(f)
+            next(row_iter, None)  # skip header
+            total_rows = max(0, sum(1 for _ in row_iter))
 
         # Generate preview
         preview = None
