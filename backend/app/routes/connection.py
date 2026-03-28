@@ -25,6 +25,11 @@ from app.schemas.connection_schema import (
     ConnectionTestOverride,
     ConnectionTestResult,
 )
+from app.schemas.connection_tool_schema import (
+    ConnectionToolSchema,
+    ConnectionToolUpdate,
+    BatchToolUpdate,
+)
 
 
 router = APIRouter(prefix="/connections", tags=["connections"])
@@ -198,6 +203,23 @@ async def delete_connection(
     )
 
 
+@router.post("/test-params")
+@requires_permission('update_data_source')
+async def test_connection_params(
+    data: ConnectionCreate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Test connection parameters before saving. Works for all types including MCP/API."""
+    result = await connection_service.test_connection_params(
+        data_source_type=data.type,
+        config=data.config,
+        credentials=data.credentials,
+    )
+    return result
+
+
 @router.post("/{connection_id}/test", response_model=ConnectionTestResult)
 @requires_permission('update_data_source')  # Admin-only
 async def test_connection(
@@ -263,4 +285,113 @@ async def get_connection_tables(
             column_count=len(table.columns) if table.columns else 0,
         ))
     return result
+
+
+# ==================== Tool Management Routes (MCP / Custom API) ====================
+
+@router.post("/{connection_id}/refresh-tools", response_model=List[ConnectionToolSchema])
+@requires_permission('update_data_source')
+async def refresh_connection_tools(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Refresh/discover tools for an MCP or Custom API connection."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    tools = await connection_service.refresh_tools(db, connection, current_user)
+    return [
+        ConnectionToolSchema(
+            id=str(t.id),
+            name=t.name,
+            description=t.description,
+            is_enabled=t.is_enabled,
+            policy=t.policy,
+            connection_id=str(t.connection_id),
+            input_schema=t.input_schema,
+            output_schema=t.output_schema,
+        )
+        for t in tools
+    ]
+
+
+@router.get("/{connection_id}/tools", response_model=List[ConnectionToolSchema])
+@requires_permission('update_data_source')
+async def get_connection_tools_list(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Get all tools for a connection."""
+    # Verify connection belongs to org
+    await connection_service.get_connection(db, connection_id, organization)
+    tools = await connection_service.get_connection_tools(db, connection_id)
+    return [
+        ConnectionToolSchema(
+            id=str(t.id),
+            name=t.name,
+            description=t.description,
+            is_enabled=t.is_enabled,
+            policy=t.policy,
+            connection_id=str(t.connection_id),
+            input_schema=t.input_schema,
+            output_schema=t.output_schema,
+        )
+        for t in tools
+    ]
+
+
+@router.put("/{connection_id}/tools/batch", response_model=List[ConnectionToolSchema])
+@requires_permission('update_data_source')
+async def batch_update_connection_tools(
+    connection_id: str,
+    data: BatchToolUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Batch enable/disable tools."""
+    await connection_service.get_connection(db, connection_id, organization)
+    tools = await connection_service.batch_update_tools(db, data.tool_ids, data.is_enabled)
+    return [
+        ConnectionToolSchema(
+            id=str(t.id),
+            name=t.name,
+            description=t.description,
+            is_enabled=t.is_enabled,
+            policy=t.policy,
+            connection_id=str(t.connection_id),
+            input_schema=t.input_schema,
+            output_schema=t.output_schema,
+        )
+        for t in tools
+    ]
+
+
+@router.put("/{connection_id}/tools/{tool_id}", response_model=ConnectionToolSchema)
+@requires_permission('update_data_source')
+async def update_tool(
+    connection_id: str,
+    tool_id: str,
+    data: ConnectionToolUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Enable/disable a tool or update its policy."""
+    await connection_service.get_connection(db, connection_id, organization)
+    tool = await connection_service.update_connection_tool(
+        db, tool_id, is_enabled=data.is_enabled, policy=data.policy
+    )
+    return ConnectionToolSchema(
+        id=str(tool.id),
+        name=tool.name,
+        description=tool.description,
+        is_enabled=tool.is_enabled,
+        policy=tool.policy,
+        connection_id=str(tool.connection_id),
+        input_schema=tool.input_schema,
+        output_schema=tool.output_schema,
+    )
 

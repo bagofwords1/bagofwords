@@ -39,7 +39,7 @@ const iconPath = computed(() => {
     const t = normalizeType(props.type);
 
     // Prefer tool/resource icons when available (stored under /icons)
-    const toolIconTypes = new Set(['dbt', 'lookml', 'markdown', 'resource', 'tableau', 'dataform']);
+    const toolIconTypes = new Set(['dbt', 'lookml', 'markdown', 'resource', 'tableau', 'dataform', 'mcp', 'custom_api']);
     if (toolIconTypes.has(t)) {
         return `/icons/${t}.png`;
     }

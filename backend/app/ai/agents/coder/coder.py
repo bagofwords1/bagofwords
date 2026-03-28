@@ -154,7 +154,7 @@ class Coder:
         data_source_descriptions = []
         for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 
@@ -602,7 +602,7 @@ class Coder:
         data_source_descriptions = []
         for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 
@@ -833,7 +833,7 @@ class Coder:
         data_source_descriptions = []
         for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 

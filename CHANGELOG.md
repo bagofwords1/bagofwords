@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.350 (March 29, 2026)
+- Add ability to integrate custom MCPs
+- Add NetSuite native integration
+
 ## Version 0.0.349 (March 28, 2026)
 - Performance improvements
 - additional logging

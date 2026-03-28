@@ -103,13 +103,20 @@ const route = useRoute()
 
 const id = computed(() => String(route.params.id || ''))
 
-const tabs = [
+const { isMcpToolsEnabled } = useOrgSettings()
+
+const allTabs = [
     { name: '', label: 'Overview', icon: 'i-heroicons-home' },
     { name: 'tables', label: 'Tables', icon: 'i-heroicons-table-cells' },
+    { name: 'tools', label: 'Tools', icon: 'i-heroicons-wrench-screwdriver' },
     { name: 'context', label: 'Context', icon: 'i-heroicons-light-bulb' },
     { name: 'connection', label: 'Connection', icon: 'i-heroicons-link' },
     { name: 'settings', label: 'Settings', icon: 'i-heroicons-cog-6-tooth' }
 ]
+
+const tabs = computed(() =>
+    allTabs.filter(tab => tab.name !== 'tools' || isMcpToolsEnabled.value)
+)
 
 function tabTo(tabName: string) {
     if (!id.value) return '/data'
