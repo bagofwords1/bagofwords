@@ -565,10 +565,32 @@ Ontology: `{self.ontology}`
 ### Important Rules
 
 1. ALWAYS use backticks around schema and table names: `` `schema`.`TableName` ``
-2. Table names are case-sensitive
+2. Table names are case-sensitive — use the exact name from the schema
 3. ALWAYS include a LIMIT clause to avoid returning too many rows
-4. Standard SQL (GROUP BY, ORDER BY, HAVING, WHERE) works as expected
-5. Each table in the schema specifies which schema prefix to use — check the table metadata"""]
+4. Use the schema prefix shown in each table's metadata — never mix schemas in one query
+5. Standard SQL (GROUP BY, ORDER BY, HAVING, WHERE) works as expected"""]
+
+        # --- Query priority ---
+        if has_views and concept_schema:
+            sections.append("""
+### Query Strategy
+
+When answering a question, follow this priority:
+1. **Check views first** — if a `vtimbr` view already covers the needed columns, use it. Views are pre-optimized flat projections.
+2. **Use relationships over JOINs** — when data spans multiple concepts, prefer traversing relationships (bracket syntax) over explicit JOINs. Use explicit JOINs only when no relationship path exists or when combining concepts with views.
+3. **Use the most specific concept** — pick the narrowest concept that fits. Do not query a broad parent concept and filter.""")
+
+        # --- Measures section (moved up) ---
+        if concept_schema or has_views:
+            sections.append("""
+### Measures
+
+Measures are pre-defined aggregations (shown in schema with `role=measure`).
+**ALWAYS prefer measures over manually aggregating raw columns.** If a measure exists for what you need (e.g. `measure.total_sales`), use it — do not compute SUM/AVG/COUNT from base columns yourself.
+
+```python
+df = timbr_client.execute_query("SELECT category, SUM(`measure.total_sales`) AS total_sales FROM `schema`.`TableName` GROUP BY category ORDER BY total_sales DESC LIMIT 100")
+```""")
 
         # --- Concept schema section ---
         if concept_schema:
@@ -585,8 +607,7 @@ df = timbr_client.execute_query("SELECT column1, column2 FROM `{concept_schema}`
                 sections.append("""
 ### Traversing Relationships (dtimbr only)
 
-Relationships are listed as foreign keys in the schema. Use bracket syntax
-to access related concept properties without explicit JOINs:
+Relationships are listed as foreign keys in the schema. Use bracket syntax to access related concept properties. Prefer this over explicit JOINs when a relationship path exists:
 
 ```python
 # Single-hop
@@ -601,23 +622,10 @@ df = timbr_client.execute_query("SELECT name, `has_orders[Order].includes_produc
             sections.append(f"""
 ### Querying Views (schema: `vtimbr`)
 
-Views are pre-built flat projections with columns and measures. Query them
-with the `vtimbr` schema prefix:
+Views are pre-built flat projections — prefer these when they cover your query needs.
 
 ```python
 df = timbr_client.execute_query("SELECT column1, column2 FROM `vtimbr`.`ViewName` WHERE condition LIMIT 100")
-```""")
-
-        # --- Measures section ---
-        if concept_schema or has_views:
-            sections.append("""
-### Using Measures
-
-Measures are pre-defined aggregations (shown in schema with role=measure).
-Reference them using their ``measure.`` prefixed name with standard SQL aggregates:
-
-```python
-df = timbr_client.execute_query("SELECT category, SUM(`measure.total_sales`) AS total_sales FROM `schema`.`TableName` GROUP BY category ORDER BY total_sales DESC LIMIT 100")
 ```""")
 
         return "\n".join(sections)

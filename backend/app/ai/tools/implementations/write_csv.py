@@ -234,6 +234,8 @@ Do not use when:
         from uuid import uuid4
         from app.models.file import File
         from app.services.file_preview import _preview_csv
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+        from app.ai.tools.implementations.create_data import build_view_from_data_model, _infer_palette_theme
 
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
@@ -245,14 +247,19 @@ Do not use when:
         dest_path = os.path.join("uploads", "files", unique_name)
         os.rename(csv_path, dest_path)
 
-        # Read for metadata
-        df = pd.read_csv(dest_path, nrows=5)
-        row_count_str = output_log  # Try to extract from logs
-        # Count rows efficiently without loading the full file into memory
-        with open(dest_path, "r", encoding="utf-8", errors="replace") as f:
-            row_iter = csv.reader(f)
-            next(row_iter, None)  # skip header
-            total_rows = max(0, sum(1 for _ in row_iter))
+        # Read full CSV for widget data
+        full_df = pd.read_csv(dest_path)
+        total_rows = len(full_df)
+
+        # Format data for visualization (same structure as create_data)
+        streamer = StreamingCodeExecutor(
+            organization_settings=organization_settings,
+            logger=None,
+            context_hub=runtime_ctx.get("context_hub"),
+        )
+        formatted = streamer.format_df_for_widget(full_df)
+        info = formatted.get("info", {})
+        data_preview = full_df.head(5).to_string() if not full_df.empty else ""
 
         # Generate preview
         preview = None
@@ -285,6 +292,24 @@ Do not use when:
 
         await db.flush()
 
+        # Build data_model and view for visualization
+        query_title = data.title or "Generated CSV"
+        final_dm = {"type": "table", "series": []}
+        palette_theme = _infer_palette_theme(runtime_ctx) or "default"
+        available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]
+        view_schema = build_view_from_data_model(final_dm, title=query_title, palette_theme=palette_theme, available_columns=available_columns)
+        view_payload = view_schema.model_dump(exclude_none=True) if view_schema else {"version": "v2", "view": {"type": "table"}}
+
+        # Emit data_model_type_determined so orchestrator creates Query/Step/Visualization
+        yield ToolProgressEvent(
+            type="tool.progress",
+            payload={
+                "stage": "data_model_type_determined",
+                "data_model_type": "table",
+                "query_title": query_title,
+            },
+        )
+
         # Audit
         await log_tool_audit(
             runtime_ctx,
@@ -298,6 +323,24 @@ Do not use when:
             },
         )
 
+        current_step_id = runtime_ctx.get("current_step_id")
+
+        observation = {
+            "summary": f"Wrote CSV: {total_rows} rows, {len(full_df.columns)} columns",
+            "file_id": str(file.id),
+            "row_count": total_rows,
+            "columns": list(full_df.columns),
+            "data_preview": data_preview,
+            "stats": info,
+            "data_model": final_dm,
+            "view": view_payload,
+            "success": True,
+            "analysis_complete": False,
+            "final_answer": None,
+        }
+        if current_step_id:
+            observation["step_id"] = current_step_id
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -305,17 +348,14 @@ Do not use when:
                     "success": True,
                     "file_id": str(file.id),
                     "file_name": file.filename,
-                    "row_count": total_rows,
-                    "columns": list(df.columns),
                     "code": generated_code,
+                    "data": formatted,
+                    "data_preview": data_preview,
+                    "stats": info,
+                    "data_model": final_dm,
+                    "view": view_payload,
                     "execution_log": output_log[:3000],
                 },
-                "observation": {
-                    "summary": f"Wrote CSV: {total_rows} rows, {len(df.columns)} columns",
-                    "file_id": str(file.id),
-                    "row_count": total_rows,
-                    "columns": list(df.columns),
-                    "success": True,
-                },
+                "observation": observation,
             },
         )

@@ -1884,7 +1884,7 @@ class AgentV2:
         stage = payload.get("stage")
         
         try:
-            if tool_name in ["create_widget", "create_data", "describe_entity"]:
+            if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                 if stage == "data_model_type_determined":
                     # Create Query, Step and Visualization early when we know the type
                     data_model_type = payload.get("data_model_type")
@@ -2174,7 +2174,7 @@ class AgentV2:
             return  # Don't process failed tool executions
             
         try:
-            if tool_name in ["create_widget", "create_data", "describe_entity"]:
+            if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return

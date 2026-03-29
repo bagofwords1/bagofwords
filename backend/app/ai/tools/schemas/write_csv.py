@@ -7,6 +7,10 @@ class WriteCsvInput(BaseModel):
         ...,
         description="Description of what data to generate or how to transform raw data. E.g. 'Create a table with columns A, B, C' or 'Parse logs, extract timestamp, level, message. Filter ERROR only.'"
     )
+    title: Optional[str] = Field(
+        default=None,
+        description="Title for the generated data visualization. If not provided, a default title will be used."
+    )
     tables_by_source: Optional[List[Dict[str, Any]]] = Field(
         default=None,
         description="Optional list of tables to resolve for context (same format as inspect_data)."
