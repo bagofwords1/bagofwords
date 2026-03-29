@@ -82,7 +82,7 @@
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<!-- User message bubble -->
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left ">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left " dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
 												<MDC :value="m.prompt.content" class="markdown-content" />
 											</div>
@@ -155,7 +155,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -200,13 +200,7 @@
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
-											<!-- 4. Final answer fallback - only show if NOT already rendered in section 2 above -->
-											<!-- Section 2 shows: block.content OR plan_decision.final_answer OR plan_decision.assistant -->
-											<!-- So section 4 is rarely needed (fallback for edge cases) -->
-											<div v-if="block.plan_decision?.analysis_complete && block.plan_decision?.final_answer && !block.content && !block.plan_decision?.assistant" class="mt-2 markdown-wrapper">
-												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
-											</div>
-										</div>
+																	</div>
 
 										<!-- Thinking dots when system is working but no visible progress - moved to end -->
 										<div v-if="shouldShowWorkingDots(m)" class="mt-2">

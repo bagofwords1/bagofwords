@@ -95,7 +95,7 @@ class PlanningTextStreamer:
                 if pos < len(delta):
                     await asyncio.sleep(self.split_delay_ms / 1000.0)
 
-    async def update(self, reasoning: Optional[str], content: Optional[str]):
+    async def update(self, reasoning: Optional[str], content: Optional[str], reset_on_source_change: bool = False):
         if not self.block_id:
             return
 
@@ -110,12 +110,34 @@ class PlanningTextStreamer:
                 await self._emit_field_delta("reasoning", rdelta)
                 self.prev_reasoning = reasoning
 
-        # Emit content delta immediately
+        # Emit content delta immediately.
+        # If reset_on_source_change=True and the new content is not an extension of what
+        # was previously streamed (i.e. the source field switched, e.g. assistant_message
+        # → final_answer), emit a full replacement snapshot and reset prev_content so
+        # subsequent deltas are computed correctly against the new base.
         if content != self.prev_content:
-            cdelta = self._delta(self.prev_content, content)
-            if cdelta:
-                await self._emit_field_delta("content", cdelta)
+            is_extension = content.startswith(self.prev_content)
+            if reset_on_source_change and self.prev_content and not is_extension:
+                # Source switched mid-stream: replace accumulated content entirely.
+                seq = await self.seq_fn()
+                await self.emit(SSEEvent(
+                    event="block.delta.text",
+                    completion_id=self.completion_id,
+                    agent_execution_id=self.agent_execution_id,
+                    seq=seq,
+                    data={
+                        "block_id": self.block_id,
+                        "field": "content",
+                        "text": content,
+                        "replace": True,
+                    }
+                ))
                 self.prev_content = content
+            else:
+                cdelta = self._delta(self.prev_content, content)
+                if cdelta:
+                    await self._emit_field_delta("content", cdelta)
+                    self.prev_content = content
 
         # Periodic full snapshot for robustness
         if (now - self.last_snapshot) >= self.snapshot_every_ms:
