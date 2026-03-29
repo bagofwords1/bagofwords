@@ -386,6 +386,10 @@ class MessageContextBuilder:
                                     fid = rj.get('file_id') or obs.get('file_id')
                                     if fid:
                                         digest_parts.append(f"file_id: {fid}")
+                                    # Surface visualization IDs
+                                    viz_ids = rj.get('created_visualization_ids') or []
+                                    if viz_ids:
+                                        digest_parts.append(f"visualization_ids: {viz_ids}")
                                     rc = obs.get('row_count') or rj.get('row_count')
                                     if rc:
                                         digest_parts.append(f"{rc} rows")
@@ -917,6 +921,10 @@ class MessageContextBuilder:
                                 fid = rj.get('file_id') or obs.get('file_id')
                                 if fid:
                                     digest_parts.append(f"file_id: {fid}")
+                                # Surface visualization IDs
+                                viz_ids = rj.get('created_visualization_ids') or []
+                                if viz_ids:
+                                    digest_parts.append(f"visualization_ids: {viz_ids}")
                                 rc = obs.get('row_count') or rj.get('row_count')
                                 if rc:
                                     digest_parts.append(f"{rc} rows")
