@@ -670,6 +670,55 @@ class TimbrConfig(BaseModel):
     )
 
 
+# Timbr A2A (Agent-to-Agent)
+class TimbrA2ATokenCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="Timbr API key for authentication",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class TimbrA2AConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Timbr server URL (e.g., https://mytimbr.example.com)",
+        json_schema_extra={"ui:type": "string"},
+    )
+    ontology: str = Field(
+        ...,
+        title="Ontology",
+        description="Name of the Timbr knowledge graph / ontology to connect to",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify SSL certificate when connecting",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    results_limit: int = Field(
+        500,
+        title="Results Limit",
+        description="Maximum number of rows returned per query",
+        json_schema_extra={"ui:type": "number"},
+    )
+    graph_depth: int = Field(
+        1,
+        title="Graph Depth",
+        description="Depth of ontology graph traversal",
+        json_schema_extra={"ui:type": "number"},
+    )
+    retries: int = Field(
+        3,
+        title="Retries",
+        description="Number of retries on query failure",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Sisense
 class SisenseCredentials(BaseModel):
     username: str = Field(

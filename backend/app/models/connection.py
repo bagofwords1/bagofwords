@@ -86,7 +86,7 @@ class Connection(BaseSchema):
             # Capitalize the first letter of each word without changing the rest
             title = "".join(word[:1].upper() + word[1:] for word in self.type.split("_"))
             class_name = f"{title}Client"
-            
+
             module = import_module(module_name)
             ClientClass = getattr(module, class_name)
             

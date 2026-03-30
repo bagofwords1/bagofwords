@@ -143,7 +143,7 @@ class AgentV2:
         # Tool runner with enhanced policies
         self.tool_runner = ToolRunner(
             retry=RetryPolicy(max_attempts=2, backoff_ms=500, backoff_multiplier=2.0, jitter_ms=200),
-            timeout=TimeoutPolicy(start_timeout_s=5, idle_timeout_s=30, hard_timeout_s=120),
+            timeout=TimeoutPolicy(start_timeout_s=10, idle_timeout_s=180, hard_timeout_s=300),
         )
         
         # Initialize Reporter for title generation

@@ -54,6 +54,8 @@ from app.schemas.data_sources.configs import (
     # Timbr
     TimbrConfig,
     TimbrTokenCredentials,
+    TimbrA2AConfig,
+    TimbrA2ATokenCredentials,
     # Sisense
     SisenseConfig,
     SisenseCredentials,
@@ -510,6 +512,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.timbr_client.TimbrClient",
+        requires_license="enterprise",
+    ),
+    "timbr_a2a": DataSourceRegistryEntry(
+        type="timbr_a2a",
+        title="Timbr A2A",
+        description="Agent-to-Agent semantic layer. Send natural-language prompts and get structured results.",
+        config_schema=TimbrA2AConfig,
+        credentials_auth=AuthOptions(
+            default="api_key",
+            by_auth={
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=TimbrA2ATokenCredentials,
+                    scopes=["system", "user"],
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.timbr_a2a_client.TimbrA2aClient",
         requires_license="enterprise",
     ),
     "sisense": DataSourceRegistryEntry(

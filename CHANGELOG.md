@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.352 (March 30, 2026)
+- feat: new a2a integration for timbr
+- increase timeout in agent harness
+
 ## Version 0.0.351 (March 29, 2026)
 - WAL mode for SQLite deployments and timeout settings for PostgreSQL
 - Performance improvement for the main completion flow
