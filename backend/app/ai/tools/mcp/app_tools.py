@@ -68,6 +68,7 @@ class GetVisualizationMCPTool(MCPTool):
                 selectinload(Visualization.query).selectinload(Query.steps),
             )
             .where(Visualization.id == visualization_id)
+            .execution_options(populate_existing=True)
         )
         viz = result.scalar_one_or_none()
 
@@ -159,6 +160,7 @@ class GetArtifactDataMCPTool(MCPTool):
                 selectinload(Query.visualizations),
             )
             .where(Query.report_id == str(artifact.report_id))
+            .execution_options(populate_existing=True)
         )
         queries = queries_result.scalars().all()
 

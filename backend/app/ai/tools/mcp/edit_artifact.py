@@ -144,6 +144,7 @@ class EditArtifactMCPTool(MCPTool):
                     selectinload(Visualization.query).selectinload(Query.steps),
                 )
                 .where(Visualization.id.in_(merged_viz_ids))
+                .execution_options(populate_existing=True)
             )
             fetched_vizs = {str(v.id): v for v in viz_result.scalars().all()}
         except Exception as e:
