@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.352 (March 30, 2026)
+## Version 0.0.353 (March 30, 2026)
 - feat: new a2a integration for timbr
 - increase timeout in agent harness
 
