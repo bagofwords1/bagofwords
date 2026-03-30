@@ -209,6 +209,11 @@
                                                 v-else
                                                 :tool-execution="selectedItem.tool_execution"
                                             />
+                                            <!-- Error message fallback when result_json is empty -->
+                                            <div v-if="selectedItem.tool_execution.status === 'error' && selectedItem.tool_execution.error_message && !selectedItem.tool_execution.result_json"
+                                                 class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+                                                {{ selectedItem.tool_execution.error_message }}
+                                            </div>
                                         </div>
 
                                         <!-- Sub-timings: per-query breakdown -->
@@ -358,6 +363,7 @@ interface ToolExecutionUI {
     tool_name: string
     tool_action?: string
     result_json?: any
+    error_message?: string | null
     duration_ms?: number
     status?: string
     sub_timings_json?: {

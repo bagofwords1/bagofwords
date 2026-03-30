@@ -597,6 +597,9 @@ Fix these errors while keeping the same design and functionality. Output the cor
         from app.models.step import Step
         report_id = str(report.id) if report else None
         try:
+            # populate_existing=True forces SQLAlchemy to refresh objects from DB
+            # rather than returning stale identity-map copies (e.g. query.steps or
+            # query.default_step may have been loaded before the step was created/updated)
             result = await db.execute(
                 select(Visualization)
                 .options(
@@ -604,6 +607,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     selectinload(Visualization.query).selectinload(Query.steps),
                 )
                 .where(Visualization.id.in_(data.visualization_ids))
+                .execution_options(populate_existing=True)
             )
             fetched_vizs = {str(v.id): v for v in result.scalars().all()}
         except Exception as e:
@@ -633,6 +637,15 @@ Fix these errors while keeping the same design and functionality. Output the cor
             # Check if the associated step is successful
             step_status = step.status if step else None
             if step_status != "success":
+                _has_query = viz.query is not None
+                _has_default = viz.query.default_step is not None if _has_query else False
+                _steps_len = len(viz.query.steps) if _has_query and viz.query.steps else 0
+                _default_step_id = getattr(viz.query, 'default_step_id', None) if _has_query else None
+                logger.warning(
+                    f"Visualization {viz_id} skipped: step_status='{step_status}', "
+                    f"has_query={_has_query}, default_step_id={_default_step_id}, "
+                    f"has_default_step={_has_default}, steps_count={_steps_len}"
+                )
                 warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
                 continue
 

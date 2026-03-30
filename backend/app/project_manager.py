@@ -343,6 +343,9 @@ class ProjectManager:
                     _update(type(query)).where(type(query).id == str(query.id)).values(default_step_id=str(step_id))
                 )
                 await db.commit()
+                # Refresh so the in-memory object reflects the DB state
+                # (prevents stale default_step_id when other tools query this object)
+                await db.refresh(query)
         except Exception:
             pass
 

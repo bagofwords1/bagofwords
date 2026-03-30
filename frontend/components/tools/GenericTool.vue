@@ -104,6 +104,12 @@
           <span v-else>{{ status }}</span>
         </div>
 
+        <!-- Error message fallback (when result_json is empty but error_message exists) -->
+        <div v-if="status === 'error' && toolExecution.error_message && !hasOutput"
+             class="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+          {{ toolExecution.error_message }}
+        </div>
+
         <!-- Output - Full Display -->
         <div v-if="hasOutput">
           <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Output</div>
@@ -177,6 +183,7 @@ interface Props {
     tool_action?: string
     arguments_json?: any
     result_json?: any
+    error_message?: string | null
     status: string
     status_reason?: string
     result_summary?: string
