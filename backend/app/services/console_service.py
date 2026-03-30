@@ -1557,7 +1557,7 @@ class ConsoleService:
                 tn = b.tool_execution.tool_name
                 ta = b.tool_execution.tool_action
                 tool_name = f"{tn}.{ta}" if ta else tn
-                if tool_ms:
+                if tool_ms is not None:
                     total_tool_ms += tool_ms
 
             llm_ms: float | None = None
@@ -1577,7 +1577,7 @@ class ConsoleService:
         return TimingBreakdownSchema(
             setup_ms=setup_ms,
             total_duration_ms=ae.total_duration_ms,
-            total_tool_ms=round(total_tool_ms, 1) if total_tool_ms else None,
+            total_tool_ms=round(total_tool_ms, 1) if total_tool_ms is not None else None,
             total_llm_ms=ae.thinking_ms,
             iterations=iterations,
         )

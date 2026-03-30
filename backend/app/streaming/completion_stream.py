@@ -45,4 +45,16 @@ class CompletionEventQueue:
 
     def finish(self):
         """Signal that no more events will be added."""
-        self.queue.put_nowait(_SENTINEL)
+        try:
+            self.queue.put_nowait(_SENTINEL)
+        except asyncio.QueueFull:
+            # Queue is full — drain one item to make room for the sentinel
+            # so get_events() can break out of its loop.
+            try:
+                self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                self.queue.put_nowait(_SENTINEL)
+            except asyncio.QueueFull:
+                _logger.error("[sse_queue] Unable to enqueue sentinel after drain; stream may hang")
