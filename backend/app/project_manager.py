@@ -12,6 +12,7 @@ from app.models.step import Step
 from app.models.plan import Plan
 from app.models.report import Report
 from sqlalchemy import select, delete
+import asyncio
 import logging
 from app.services.table_usage_service import TableUsageService
 from app.schemas.table_usage_schema import TableUsageEventCreate
@@ -33,6 +34,16 @@ from app.services.query_service import QueryService
 from app.schemas.visualization_schema import VisualizationCreate
 from app.schemas.view_schema import ViewSchema
 
+_DB_COMMIT_TIMEOUT_S = 35.0
+
+
+class DBCommitTimeoutError(Exception):
+    """Raised when a db.commit() or db.refresh() exceeds the allowed timeout."""
+    def __init__(self, label: str = ""):
+        super().__init__(f"DB operation timed out: {label}")
+        self.label = label
+
+
 class ProjectManager:
 
     def __init__(self) -> None:
@@ -40,6 +51,40 @@ class ProjectManager:
         self.table_usage_service = TableUsageService()
         self.visualization_service = VisualizationService()
         self.query_service = QueryService()
+
+    async def _commit_with_timeout(self, db, label: str = "commit") -> None:
+        _max_lock_retries = 3
+        for _attempt in range(_max_lock_retries + 1):
+            try:
+                await asyncio.wait_for(db.commit(), timeout=_DB_COMMIT_TIMEOUT_S)
+                return
+            except asyncio.TimeoutError:
+                self.logger.error(
+                    f"DB commit timed out after {_DB_COMMIT_TIMEOUT_S}s in [{label}]; rolling back"
+                )
+                try:
+                    await asyncio.wait_for(db.rollback(), timeout=2.0)
+                except Exception:
+                    pass
+                raise DBCommitTimeoutError(label)
+            except Exception as e:
+                if "database is locked" in str(e).lower() and _attempt < _max_lock_retries:
+                    _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                    self.logger.warning(
+                        f"SQLite locked in [{label}] (attempt {_attempt + 1}/{_max_lock_retries}), retrying in {_backoff}s"
+                    )
+                    await asyncio.sleep(_backoff)
+                    continue
+                raise
+
+    async def _refresh_with_timeout(self, db, obj, label: str = "refresh") -> None:
+        try:
+            await asyncio.wait_for(db.refresh(obj), timeout=_DB_COMMIT_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            self.logger.error(
+                f"DB refresh timed out after {_DB_COMMIT_TIMEOUT_S}s in [{label}]"
+            )
+            raise DBCommitTimeoutError(label)
 
     async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str | None = None):
         try:
@@ -809,8 +854,8 @@ class ProjectManager:
             existing.metrics_json = metrics_json
             existing.context_snapshot_id = context_snapshot_id
             db.add(existing)
-            await db.commit()
-            await db.refresh(existing)
+            await self._commit_with_timeout(db, "save_plan_decision.update")
+            await self._refresh_with_timeout(db, existing, "save_plan_decision.update")
             return existing
 
         decision = PlanDecision(
@@ -828,13 +873,18 @@ class ProjectManager:
             context_snapshot_id=context_snapshot_id,
         )
         db.add(decision)
-        await db.commit()
-        await db.refresh(decision)
+        await self._commit_with_timeout(db, "save_plan_decision.insert")
+        await self._refresh_with_timeout(db, decision, "save_plan_decision.insert")
         return decision
 
-    async def start_tool_execution(self, db, agent_execution, plan_decision_id, tool_name, 
+    async def start_tool_execution(self, db, agent_execution, plan_decision_id, tool_name,
                                   tool_action, arguments_json, attempt_number=1, max_retries=0):
-        """Start tracking a tool execution."""
+        """Create an in-memory ToolExecution stub.
+
+        Write-on-complete: nothing is persisted to DB here.
+        Call finish_tool_execution() when the tool completes — that does a single INSERT
+        with the full record (start time, end time, result, status all at once).
+        """
         tool_exec = ToolExecution(
             agent_execution_id=agent_execution.id,
             plan_decision_id=plan_decision_id,
@@ -846,14 +896,13 @@ class ProjectManager:
             attempt_number=attempt_number,
             max_retries=max_retries,
         )
-        db.add(tool_exec)
-        await db.commit()
-        await db.refresh(tool_exec)
+        # Not added to db — finish_tool_execution will do the single INSERT.
         return tool_exec
 
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
                                    result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,
-                                   error_message=None, token_usage_json=None, context_snapshot_id=None):
+                                   error_message=None, token_usage_json=None, context_snapshot_id=None,
+                                   sub_timings_json=None):
         """Finish tracking a tool execution."""
         tool_execution.status = status
         tool_execution.success = success
@@ -883,9 +932,10 @@ class ProjectManager:
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
         tool_execution.context_snapshot_id = context_snapshot_id
+        tool_execution.sub_timings_json = sub_timings_json
         db.add(tool_execution)
-        await db.commit()
-        await db.refresh(tool_execution)
+        await self._commit_with_timeout(db, "finish_tool_execution")
+        await self._refresh_with_timeout(db, tool_execution, "finish_tool_execution")
         return tool_execution
 
     # Pydantic-friendly helpers
@@ -910,6 +960,32 @@ class ProjectManager:
             context_snapshot_id=context_snapshot_id,
         )
 
+    async def save_plan_decision_with_retry(
+        self, db, agent_execution, seq, loop_index,
+        plan_type=None, analysis_complete=False, reasoning=None, assistant=None,
+        final_answer=None, action_name=None, action_args_json=None,
+        metrics_json=None, context_snapshot_id=None,
+        _retry_delay_s: float = 0.25,
+    ):
+        """Call save_plan_decision with one retry on timeout or connection errors."""
+        from sqlalchemy.exc import OperationalError, DisconnectionError
+        _retryable = (DBCommitTimeoutError, OperationalError, DisconnectionError)
+        kwargs = dict(
+            agent_execution=agent_execution, seq=seq, loop_index=loop_index,
+            plan_type=plan_type, analysis_complete=analysis_complete,
+            reasoning=reasoning, assistant=assistant, final_answer=final_answer,
+            action_name=action_name, action_args_json=action_args_json,
+            metrics_json=metrics_json, context_snapshot_id=context_snapshot_id,
+        )
+        try:
+            return await self.save_plan_decision(db, **kwargs)
+        except _retryable as exc:
+            self.logger.warning(
+                f"save_plan_decision failed ({exc!r}), retrying once after {_retry_delay_s}s"
+            )
+            await asyncio.sleep(_retry_delay_s)
+            return await self.save_plan_decision(db, **kwargs)
+
     async def start_tool_execution_from_models(self, db, agent_execution, plan_decision_id: str | None,
                                               tool_name: str, tool_action: str | None, tool_input_model,
                                               attempt_number: int = 1, max_retries: int = 0):
@@ -933,7 +1009,8 @@ class ProjectManager:
                                                created_visualization_ids: list[str] | None = None,
                                                error_message: str | None = None,
                                                context_snapshot_id: str | None = None,
-                                               success: bool = True):
+                                               success: bool = True,
+                                               sub_timings_json: dict | None = None):
         # Handle result_model appropriately
         if result_model and hasattr(result_model, 'model_dump'):
             # Pydantic model - convert to dict
@@ -968,6 +1045,7 @@ class ProjectManager:
             created_visualization_ids=created_visualization_ids,
             error_message=error_message,
             context_snapshot_id=context_snapshot_id,
+            sub_timings_json=sub_timings_json,
         )
 
     async def save_context_snapshot(self, db, agent_execution, kind, context_view_json, 
@@ -1072,8 +1150,12 @@ class ProjectManager:
     # Completion Blocks (Timeline Projection)
     # ==============================
 
-    async def upsert_block_for_decision(self, db, completion, agent_execution, plan_decision: PlanDecision):
-        """Create or update a render-ready block for a plan decision."""
+    async def upsert_block_for_decision(self, db, completion, agent_execution, plan_decision: PlanDecision, preferred_id: str | None = None):
+        """Create or update a render-ready block for a plan decision.
+
+        preferred_id: if no existing block is found, create with this ID so the
+        frontend's pre-emitted placeholder block.upsert stays consistent.
+        """
         # Determine ordering and presentation
         block_index = int((plan_decision.seq or 0) * 10)
         title = f"Planning ({plan_decision.plan_type or 'unknown'})"
@@ -1109,11 +1191,11 @@ class ProjectManager:
             if plan_decision.analysis_complete and not existing.completed_at:
                 existing.completed_at = datetime.datetime.utcnow()
             db.add(existing)
-            await db.commit()
-            await db.refresh(existing)
+            await self._commit_with_timeout(db, "upsert_block_for_decision.update")
+            await self._refresh_with_timeout(db, existing, "upsert_block_for_decision.update")
             return existing
 
-        block = CompletionBlock(
+        block_kwargs = dict(
             completion_id=str(completion.id),
             agent_execution_id=str(agent_execution.id),
             source_type='decision',
@@ -1129,9 +1211,12 @@ class ProjectManager:
             started_at=plan_decision.created_at,
             completed_at=plan_decision.updated_at if plan_decision.analysis_complete else None,
         )
+        if preferred_id:
+            block_kwargs['id'] = preferred_id
+        block = CompletionBlock(**block_kwargs)
         db.add(block)
-        await db.commit()
-        await db.refresh(block)
+        await self._commit_with_timeout(db, "upsert_block_for_decision.insert")
+        await self._refresh_with_timeout(db, block, "upsert_block_for_decision.insert")
         return block
 
     async def upsert_block_for_tool(self, db, completion, agent_execution, tool_execution: ToolExecution):
@@ -1161,10 +1246,12 @@ class ProjectManager:
         else:
             existing.status = 'in_progress'
         existing.completed_at = tool_execution.completed_at
-        
+        if existing.started_at and existing.completed_at:
+            existing.duration_ms = (existing.completed_at - existing.started_at).total_seconds() * 1000.0
+
         db.add(existing)
-        await db.commit()
-        await db.refresh(existing)
+        await self._commit_with_timeout(db, "upsert_block_for_tool")
+        await self._refresh_with_timeout(db, existing, "upsert_block_for_tool")
         return existing
 
     async def rebuild_completion_from_blocks(self, db, completion, agent_execution):
@@ -1191,8 +1278,8 @@ class ProjectManager:
             'reasoning': ' | '.join(reasoning_parts[-3:]) if reasoning_parts else base.get('reasoning') if isinstance(base, dict) else None,
         }
         db.add(completion)
-        await db.commit()
-        await db.refresh(completion)
+        await self._commit_with_timeout(db, "rebuild_completion_from_blocks")
+        await self._refresh_with_timeout(db, completion, "rebuild_completion_from_blocks")
         return completion
 
     async def mark_error_on_latest_block(self, db, agent_execution, error_message: str | None = None):

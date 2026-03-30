@@ -176,8 +176,8 @@ COMMUNICATION
   - "high": multi-sentence deliberate reasoning; use when planning is required.
   - Always base your reasoning on the provided context (schemas, history, last_observation). If feedback metrics (in tables, code, etc) are available, acknowledge them and use them to guide your reasoning.
 - assistant_message: plain English and user facing
-  - If not final, provide a brief description of the action you will execute now. 
-  - If final, summarize findings and conclusions while citing the table/data created. Do not repeat the widgets' data, and it should not be long.
+  - If not final (analysis_complete=false): provide a brief description of the action you will execute now. Set final_answer=null.
+  - If final (analysis_complete=true): set assistant_message=null. Use only final_answer for the user-facing response.
 - First turn (no last_observation): only use "high" if non-trivial planning is needed; otherwise choose "medium" or "low".
 - For trivial/greeting flows or when using answer_question with direct context answers, prefer "low" reasoning.
 - Avoid responding with visualization id/artifact id or other identifiers in assistant_message.
@@ -255,17 +255,18 @@ EXPECTED JSON OUTPUT (strict):
   "analysis_complete": boolean,  // true ONLY if NO tool call is needed and you have a final answer
   "plan_type": "research" | "action" | null,
   "reasoning_message": string | null,
-  "assistant_message": string | null,
+  "assistant_message": string | null,  // Set only when analysis_complete=false. Must be null when analysis_complete=true.
   "action": {{  // Set this if you need to call a tool. If action is set, analysis_complete should be false.
     "type": "tool_call",
     "name": string,
     "arguments": object
   }} | null,
-  "final_answer": string | null  // Only set if analysis_complete is true
+  "final_answer": string | null  // Set only when analysis_complete=true. Must be null when analysis_complete=false.
 }}
 
-CRITICAL: If you are calling a tool (action is not null), set analysis_complete=false. 
+CRITICAL: If you are calling a tool (action is not null), set analysis_complete=false.
 The tool needs to execute first before analysis can be complete.
+CRITICAL: assistant_message and final_answer are mutually exclusive. Never set both in the same response.
 """
         return prompt
     

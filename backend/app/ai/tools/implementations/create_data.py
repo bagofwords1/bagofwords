@@ -918,6 +918,9 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         exec_df = None
         output_log = ""
         executed_queries = []
+        query_timings = []
+        codegen_ms = None
+        execution_ms = None
 
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
@@ -953,6 +956,9 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     output_log = e["payload"].get("execution_log") or ""
                     exec_df = e["payload"].get("df")
                     executed_queries = e["payload"].get("executed_queries") or []
+                    query_timings = e["payload"].get("query_timings") or []
+                    codegen_ms = e["payload"].get("codegen_ms")
+                    execution_ms = e["payload"].get("execution_ms")
             codegen_span.set_attribute("codegen.success", generated_code is not None and exec_df is not None)
             codegen_span.set_attribute("codegen.error_count", len(code_errors))
             codegen_span.set_attribute("codegen.query_count", len(executed_queries))
@@ -1133,6 +1139,9 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     "data_model": final_dm,
                     "view": view_payload,
                     "executed_queries": executed_queries,
+                    "query_timings": query_timings,
+                    "codegen_ms": codegen_ms,
+                    "execution_ms": execution_ms,
                 },
                 "observation": observation,
             },

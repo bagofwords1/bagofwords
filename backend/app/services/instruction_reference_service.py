@@ -87,9 +87,7 @@ class InstructionReferenceService:
             db.add(model)
             created.append(model)
 
-        await db.flush()  # Flush changes to get IDs, but don't commit yet
-        for m in created:
-            await db.refresh(m)
+        await db.flush()
         return [InstructionReferenceSchema.from_orm(m) for m in created]
 
     async def _validate_reference(
