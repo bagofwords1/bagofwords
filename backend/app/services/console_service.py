@@ -1546,6 +1546,8 @@ class ConsoleService:
                 setup_ms = round(delta * 1000.0, 1)
 
         total_tool_ms = 0.0
+        total_codegen_llm_ms = 0.0
+        total_db_ms = 0.0
         iterations: List[IterationTimingSchema] = []
         for b in blocks:
             tool_ms: float | None = None
@@ -1559,6 +1561,21 @@ class ConsoleService:
                 tool_name = f"{tn}.{ta}" if ta else tn
                 if tool_ms is not None:
                     total_tool_ms += tool_ms
+                # Accumulate codegen LLM time and execution time from sub_timings
+                if isinstance(sub_timings, dict):
+                    cg = sub_timings.get("codegen_ms")
+                    if cg is not None:
+                        total_codegen_llm_ms += cg
+                    ex = sub_timings.get("execution_ms")
+                    if ex is not None:
+                        total_db_ms += ex
+                    elif tool_ms is not None:
+                        # No execution_ms reported — infer execution time as
+                        # total tool duration minus any LLM time inside the tool
+                        total_db_ms += tool_ms - (cg or 0)
+                elif tool_ms is not None:
+                    # No sub_timings at all — entire tool duration is execution
+                    total_db_ms += tool_ms
 
             llm_ms: float | None = None
             if b.plan_decision and b.plan_decision.metrics_json:
@@ -1574,11 +1591,16 @@ class ConsoleService:
                 sub_timings=sub_timings,
             ))
 
+        # total_llm_ms = planner thinking + codegen LLM inside tools
+        planner_llm_ms = ae.thinking_ms or 0.0
+        combined_llm_ms = planner_llm_ms + total_codegen_llm_ms
+
         return TimingBreakdownSchema(
             setup_ms=setup_ms,
             total_duration_ms=ae.total_duration_ms,
-            total_tool_ms=round(total_tool_ms, 1) if total_tool_ms is not None else None,
-            total_llm_ms=ae.thinking_ms,
+            total_tool_ms=round(total_tool_ms, 1) if total_tool_ms else None,
+            total_llm_ms=round(combined_llm_ms, 1) if combined_llm_ms else None,
+            total_db_ms=round(total_db_ms, 1) if total_db_ms else None,
             iterations=iterations,
         )
 

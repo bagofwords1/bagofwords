@@ -22,14 +22,6 @@
                                 <UIcon name="i-heroicons-clock" class="w-3 h-3" />
                                 Total {{ formatDuration(traceData.timing_breakdown.total_duration_ms) }}
                             </span>
-                            <span v-if="traceData.timing_breakdown.total_llm_ms != null"
-                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 text-xs text-purple-700">
-                                LLM {{ formatDuration(traceData.timing_breakdown.total_llm_ms) }}
-                            </span>
-                            <span v-if="traceData.timing_breakdown.total_tool_ms != null"
-                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-50 text-xs text-orange-700">
-                                DB {{ formatDuration(traceData.timing_breakdown.total_tool_ms) }}
-                            </span>
                         </template>
                     </div>
                     <!-- Header AI scoring (pastel badges) -->
@@ -437,6 +429,7 @@ interface TimingBreakdown {
     total_duration_ms?: number | null
     total_tool_ms?: number | null
     total_llm_ms?: number | null
+    total_db_ms?: number | null
     iterations: IterationTiming[]
 }
 

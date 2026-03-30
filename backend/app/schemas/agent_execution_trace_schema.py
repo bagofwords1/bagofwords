@@ -21,6 +21,7 @@ class TimingBreakdownSchema(BaseModel):
     total_duration_ms: Optional[float] = None
     total_tool_ms: Optional[float] = None
     total_llm_ms: Optional[float] = None
+    total_db_ms: Optional[float] = None
     iterations: List[IterationTimingSchema] = []
 
 
