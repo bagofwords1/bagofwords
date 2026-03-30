@@ -34,7 +34,7 @@ from app.services.query_service import QueryService
 from app.schemas.visualization_schema import VisualizationCreate
 from app.schemas.view_schema import ViewSchema
 
-_DB_COMMIT_TIMEOUT_S = 5.0
+_DB_COMMIT_TIMEOUT_S = 35.0
 
 
 class DBCommitTimeoutError(Exception):
@@ -53,17 +53,29 @@ class ProjectManager:
         self.query_service = QueryService()
 
     async def _commit_with_timeout(self, db, label: str = "commit") -> None:
-        try:
-            await asyncio.wait_for(db.commit(), timeout=_DB_COMMIT_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            self.logger.error(
-                f"DB commit timed out after {_DB_COMMIT_TIMEOUT_S}s in [{label}]; rolling back"
-            )
+        _max_lock_retries = 3
+        for _attempt in range(_max_lock_retries + 1):
             try:
-                await asyncio.wait_for(db.rollback(), timeout=2.0)
-            except Exception:
-                pass
-            raise DBCommitTimeoutError(label)
+                await asyncio.wait_for(db.commit(), timeout=_DB_COMMIT_TIMEOUT_S)
+                return
+            except asyncio.TimeoutError:
+                self.logger.error(
+                    f"DB commit timed out after {_DB_COMMIT_TIMEOUT_S}s in [{label}]; rolling back"
+                )
+                try:
+                    await asyncio.wait_for(db.rollback(), timeout=2.0)
+                except Exception:
+                    pass
+                raise DBCommitTimeoutError(label)
+            except Exception as e:
+                if "database is locked" in str(e).lower() and _attempt < _max_lock_retries:
+                    _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                    self.logger.warning(
+                        f"SQLite locked in [{label}] (attempt {_attempt + 1}/{_max_lock_retries}), retrying in {_backoff}s"
+                    )
+                    await asyncio.sleep(_backoff)
+                    continue
+                raise
 
     async def _refresh_with_timeout(self, db, obj, label: str = "refresh") -> None:
         try:
@@ -889,7 +901,8 @@ class ProjectManager:
 
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
                                    result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,
-                                   error_message=None, token_usage_json=None, context_snapshot_id=None):
+                                   error_message=None, token_usage_json=None, context_snapshot_id=None,
+                                   sub_timings_json=None):
         """Finish tracking a tool execution."""
         tool_execution.status = status
         tool_execution.success = success
@@ -919,6 +932,7 @@ class ProjectManager:
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
         tool_execution.context_snapshot_id = context_snapshot_id
+        tool_execution.sub_timings_json = sub_timings_json
         db.add(tool_execution)
         await self._commit_with_timeout(db, "finish_tool_execution")
         await self._refresh_with_timeout(db, tool_execution, "finish_tool_execution")
@@ -995,7 +1009,8 @@ class ProjectManager:
                                                created_visualization_ids: list[str] | None = None,
                                                error_message: str | None = None,
                                                context_snapshot_id: str | None = None,
-                                               success: bool = True):
+                                               success: bool = True,
+                                               sub_timings_json: dict | None = None):
         # Handle result_model appropriately
         if result_model and hasattr(result_model, 'model_dump'):
             # Pydantic model - convert to dict
@@ -1030,6 +1045,7 @@ class ProjectManager:
             created_visualization_ids=created_visualization_ids,
             error_message=error_message,
             context_snapshot_id=context_snapshot_id,
+            sub_timings_json=sub_timings_json,
         )
 
     async def save_context_snapshot(self, db, agent_execution, kind, context_view_json, 
@@ -1230,7 +1246,9 @@ class ProjectManager:
         else:
             existing.status = 'in_progress'
         existing.completed_at = tool_execution.completed_at
-        
+        if existing.started_at and existing.completed_at:
+            existing.duration_ms = (existing.completed_at - existing.started_at).total_seconds() * 1000.0
+
         db.add(existing)
         await db.commit()
         await db.refresh(existing)

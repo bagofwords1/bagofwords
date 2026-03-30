@@ -19,6 +19,7 @@ class ToolExecutionSchema(BaseModel):
     attempt_number: int
     max_retries: int
     token_usage_json: Optional[Dict[str, Any]]
+    sub_timings_json: Optional[Dict[str, Any]]
     result_summary: Optional[str]
     result_json: Optional[Dict[str, Any]]
     artifact_refs_json: Optional[Dict[str, Any]]

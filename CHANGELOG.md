@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.351 (March 29, 2026)
+- WAL mode for SQLite deployments and timeout settings for PostgreSQL
+- Performance improvement for the main completion flow
+- Add timing metrics across code gen / execution for agent execution traces 
+
 ## Version 0.0.350 (March 29, 2026)
 - Add ability to integrate custom MCPs
 - Add NetSuite native integration

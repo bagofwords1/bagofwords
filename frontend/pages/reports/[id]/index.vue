@@ -2379,10 +2379,10 @@ onMounted(async () => {
 	h2 { @apply text-xl; }
 	h3 { @apply text-lg; }
 
-	ul, ol { @apply pl-6 mb-4; }
+	ul, ol { @apply ps-6 mb-4; direction: inherit; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
-	li { @apply mb-1.5; }
+	li { @apply mb-1.5; direction: inherit; }
 
 	/* Code blocks (fenced with ```) */
 	pre {

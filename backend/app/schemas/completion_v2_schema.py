@@ -101,6 +101,7 @@ class CompletionBlockV2Schema(BaseModel):
     # Timing
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
+    duration_ms: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 

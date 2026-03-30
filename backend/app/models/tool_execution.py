@@ -26,6 +26,7 @@ class ToolExecution(BaseSchema):
     max_retries = Column(Integer, nullable=False, default=0)
 
     token_usage_json = Column(JSON, nullable=True)
+    sub_timings_json = Column(JSON, nullable=True)
 
     result_summary = Column(String, nullable=True)
     result_json = Column(JSON, nullable=True)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint, event, select
+from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, DateTime, Float, UniqueConstraint, event, select
 from sqlalchemy.orm import relationship, selectinload
 from .base import BaseSchema
 import asyncio
@@ -44,6 +44,7 @@ class CompletionBlock(BaseSchema):
     # Timing
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Float, nullable=True)
 
 
 

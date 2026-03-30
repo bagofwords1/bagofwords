@@ -257,45 +257,71 @@ class AgentV2:
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
-        try:
-            SessionLocal = create_async_session_factory()
-            async with SessionLocal() as session:
-                try:
-                    # Use a new Judge instance (stateless) and score from the same planner input
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                        judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                        instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
-                    else:
-                        instructions_score = 3
-                        context_score = 3
-                    # Re-fetch completion to avoid using objects from another session
-                    completion = await session.get(Completion, str(self.head_completion.id))
-                    if completion is not None:
-                        await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
-                except Exception as e:
-                    logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
+        import asyncio as _asyncio
+        from sqlalchemy.exc import OperationalError as _SAOperationalError
+        _max_attempts = 4
+        for _attempt in range(_max_attempts):
+            try:
+                SessionLocal = create_async_session_factory()
+                async with SessionLocal() as session:
+                    try:
+                        # Use a new Judge instance (stateless) and score from the same planner input
+                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                            instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+                        else:
+                            instructions_score = 3
+                            context_score = 3
+                        # Re-fetch completion to avoid using objects from another session
+                        completion = await session.get(Completion, str(self.head_completion.id))
+                        if completion is not None:
+                            await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
+                        return  # success
+                    except (_SAOperationalError, Exception) as e:
+                        _is_locked = "database is locked" in str(e).lower()
+                        if _is_locked and _attempt < _max_attempts - 1:
+                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                            logger.warning(f"SQLite locked in early scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
+                            await _asyncio.sleep(_backoff)
+                            continue
+                        logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
+                        return
+            except Exception as e:
+                logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
+                return
 
     async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
         """Run response scoring in a fresh DB session to avoid concurrency conflicts."""
-        try:
-            SessionLocal = create_async_session_factory()
-            async with SessionLocal() as session:
-                try:
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                        judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                        original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
-                        response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
-                    else:
-                        response_score = 3
-                    completion = await session.get(Completion, str(self.head_completion.id))
-                    if completion is not None:
-                        await self.project_manager.update_completion_response_score(session, completion, response_score)
-                except Exception as e:
-                    logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
+        import asyncio as _asyncio
+        from sqlalchemy.exc import OperationalError as _SAOperationalError
+        _max_attempts = 4
+        for _attempt in range(_max_attempts):
+            try:
+                SessionLocal = create_async_session_factory()
+                async with SessionLocal() as session:
+                    try:
+                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                            original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
+                            response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+                        else:
+                            response_score = 3
+                        completion = await session.get(Completion, str(self.head_completion.id))
+                        if completion is not None:
+                            await self.project_manager.update_completion_response_score(session, completion, response_score)
+                        return  # success
+                    except (_SAOperationalError, Exception) as e:
+                        _is_locked = "database is locked" in str(e).lower()
+                        if _is_locked and _attempt < _max_attempts - 1:
+                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                            logger.warning(f"SQLite locked in late scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
+                            await _asyncio.sleep(_backoff)
+                            continue
+                        logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
+                        return
+            except Exception as e:
+                logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
+                return
 
     async def _stream_suggestions_inline(self, prev_tool_name: Optional[str], conditions: list):
         """Stream instruction suggestions inline before the SSE stream closes.
@@ -1097,23 +1123,33 @@ class AgentV2:
                             _snap_loop = loop_index
 
                             async def _bg_rebuild():
-                                try:
-                                    from app.settings.database import create_async_session_factory as _csf
-                                    SessionLocal = _csf()
-                                    async with SessionLocal() as bg_db:
-                                        from app.models.agent_execution import AgentExecution as _AE
-                                        from app.models.completion import Completion as _Comp
-                                        bg_execution = await bg_db.get(_AE, _snap_exec_id)
-                                        bg_completion = await bg_db.get(_Comp, _snap_comp_id)
-                                        if bg_execution and bg_completion:
-                                            await self.project_manager.rebuild_completion_from_blocks(
-                                                bg_db, bg_completion, bg_execution
-                                            )
-                                except Exception as _rb_exc:
-                                    logger.warning(
-                                        f"[agent] Background rebuild_completion failed "
-                                        f"(loop={_snap_loop}): {_rb_exc!r}"
-                                    )
+                                import asyncio as _aio
+                                _max_attempts = 4
+                                for _attempt in range(_max_attempts):
+                                    try:
+                                        from app.settings.database import create_async_session_factory as _csf
+                                        SessionLocal = _csf()
+                                        async with SessionLocal() as bg_db:
+                                            from app.models.agent_execution import AgentExecution as _AE
+                                            from app.models.completion import Completion as _Comp
+                                            bg_execution = await bg_db.get(_AE, _snap_exec_id)
+                                            bg_completion = await bg_db.get(_Comp, _snap_comp_id)
+                                            if bg_execution and bg_completion:
+                                                await self.project_manager.rebuild_completion_from_blocks(
+                                                    bg_db, bg_completion, bg_execution
+                                                )
+                                        return
+                                    except Exception as _rb_exc:
+                                        if "database is locked" in str(_rb_exc).lower() and _attempt < _max_attempts - 1:
+                                            _backoff = 2 ** _attempt
+                                            logger.warning(f"[agent] SQLite locked in _bg_rebuild (attempt {_attempt + 1}), retrying in {_backoff}s")
+                                            await _aio.sleep(_backoff)
+                                            continue
+                                        logger.warning(
+                                            f"[agent] Background rebuild_completion failed "
+                                            f"(loop={_snap_loop}): {_rb_exc!r}"
+                                        )
+                                        return
 
                             asyncio.create_task(_bg_rebuild())
                         else:
@@ -1346,13 +1382,15 @@ class AgentV2:
                         if runtime_ctx.get("training_build_id") and not self.training_build_id:
                             self.training_build_id = runtime_ctx["training_build_id"]
 
-                        # Extract observation and output from tool result
+                        # Extract observation, output, and sub_timings from tool result
                         if isinstance(tool_result, dict) and "observation" in tool_result:
                             observation = tool_result["observation"]
                             tool_output = tool_result.get("output")
+                            tool_sub_timings = tool_result.get("sub_timings")
                         else:
                             observation = tool_result
                             tool_output = None
+                            tool_sub_timings = None
 
                         # Handle tool outputs and manage widget/step state
                         await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
@@ -1485,6 +1523,7 @@ class AgentV2:
                             error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
                             context_snapshot_id=None,
                             success=bool(observation and not observation.get("error")),
+                            sub_timings_json=tool_sub_timings,
                         )
 
                         # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
@@ -1554,18 +1593,28 @@ class AgentV2:
                         _rb_tool_comp_id = str(self.system_completion.id)
                         _rb_tool_exec_id = str(self.current_execution.id)
                         async def _bg_rebuild_tool():
-                            try:
-                                from app.settings.database import create_async_session_factory as _csf
-                                from app.models.agent_execution import AgentExecution as _AE
-                                from app.models.completion import Completion as _Comp
-                                SessionLocal = _csf()
-                                async with SessionLocal() as bg_db:
-                                    bg_exec = await bg_db.get(_AE, _rb_tool_exec_id)
-                                    bg_comp = await bg_db.get(_Comp, _rb_tool_comp_id)
-                                    if bg_exec and bg_comp:
-                                        await self.project_manager.rebuild_completion_from_blocks(bg_db, bg_comp, bg_exec)
-                            except Exception as _e:
-                                logger.warning(f"[agent] Background rebuild (tool) failed: {_e!r}")
+                            import asyncio as _aio
+                            _max_attempts = 4
+                            for _attempt in range(_max_attempts):
+                                try:
+                                    from app.settings.database import create_async_session_factory as _csf
+                                    from app.models.agent_execution import AgentExecution as _AE
+                                    from app.models.completion import Completion as _Comp
+                                    SessionLocal = _csf()
+                                    async with SessionLocal() as bg_db:
+                                        bg_exec = await bg_db.get(_AE, _rb_tool_exec_id)
+                                        bg_comp = await bg_db.get(_Comp, _rb_tool_comp_id)
+                                        if bg_exec and bg_comp:
+                                            await self.project_manager.rebuild_completion_from_blocks(bg_db, bg_comp, bg_exec)
+                                    return
+                                except Exception as _e:
+                                    if "database is locked" in str(_e).lower() and _attempt < _max_attempts - 1:
+                                        _backoff = 2 ** _attempt
+                                        logger.warning(f"[agent] SQLite locked in _bg_rebuild_tool (attempt {_attempt + 1}), retrying in {_backoff}s")
+                                        await _aio.sleep(_backoff)
+                                        continue
+                                    logger.warning(f"[agent] Background rebuild (tool) failed: {_e!r}")
+                                    return
                         asyncio.create_task(_bg_rebuild_tool())
 
                         # Emit tool.finished with result

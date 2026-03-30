@@ -204,6 +204,7 @@ def serialize_block_v2_sync(
         artifact_changes=None,
         started_at=block.started_at,
         completed_at=block.completed_at,
+        duration_ms=getattr(block, 'duration_ms', None),
         created_at=block.created_at,
         updated_at=block.updated_at,
     )
