@@ -373,7 +373,7 @@ class StreamingCodeExecutor:
         """Run execute_code in a thread so it doesn't block the event loop."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, lambda: self.execute_code(code=code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=captured_timings)
+            _CODE_EXEC_POOL, lambda: self.execute_code(code=code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=captured_timings)
         )
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:

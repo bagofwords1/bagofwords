@@ -1250,8 +1250,8 @@ class ProjectManager:
             existing.duration_ms = (existing.completed_at - existing.started_at).total_seconds() * 1000.0
 
         db.add(existing)
-        await db.commit()
-        await db.refresh(existing)
+        await self._commit_with_timeout(db, "upsert_block_for_tool")
+        await self._refresh_with_timeout(db, existing, "upsert_block_for_tool")
         return existing
 
     async def rebuild_completion_from_blocks(self, db, completion, agent_execution):
