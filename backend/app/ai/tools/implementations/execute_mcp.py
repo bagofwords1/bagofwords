@@ -98,6 +98,7 @@ Do not use when:
             return
 
         # Validate connection belongs to org and tool is enabled
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "resolving_connection"})
         from sqlalchemy import select
         from app.models.connection import Connection
         from app.models.connection_tool import ConnectionTool

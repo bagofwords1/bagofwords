@@ -12,7 +12,7 @@ class RetryPolicy:
 
 @dataclass
 class TimeoutPolicy:
-    start_timeout_s: int = 5
-    idle_timeout_s: int = 30
-    hard_timeout_s: int = 90
+    start_timeout_s: int = 10
+    idle_timeout_s: int = 180
+    hard_timeout_s: int = 300
 

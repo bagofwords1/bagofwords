@@ -90,15 +90,28 @@
                                     <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
                                     <div v-if="getItemDurationMs(item) !== null" class="mt-1.5 flex items-center gap-2 justify-end flex-wrap text-[10px]">
                                         <!-- codegen / execution split when available -->
-                                        <template v-if="item.ref?.tool_execution?.sub_timings_json as any">
-                                            <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms != null" class="text-purple-500">
+                                        <template v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms != null">
+                                            <span class="text-purple-500">
                                                 LLM {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms ?? 0) }}
                                             </span>
                                             <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms != null" class="text-orange-500">
-                                                DB {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms ?? 0) }}
+                                                Exec {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms ?? 0) }}
                                             </span>
                                             <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.retry_count" class="text-red-500">
                                                 ×{{ ((item.ref?.tool_execution?.sub_timings_json as any)?.retry_count ?? 0) + 1 }}
+                                            </span>
+                                        </template>
+                                        <!-- Dynamic stage badges for tools without codegen_ms -->
+                                        <template v-else-if="(item.ref?.tool_execution?.sub_timings_json as any)?.stages?.length">
+                                            <span v-for="s in getTopStages(item.ref?.tool_execution?.sub_timings_json)" :key="s.stage"
+                                                  :class="s.ms > 5000 ? 'text-red-500' : s.ms > 1000 ? 'text-orange-500' : 'text-purple-500'">
+                                                {{ humanizeStage(s.stage) }} {{ formatDuration(s.ms) }}
+                                            </span>
+                                        </template>
+                                        <!-- Planner LLM badge -->
+                                        <template v-else-if="item.ref?.plan_decision?.metrics_json?.total_duration_ms != null">
+                                            <span class="text-purple-500">
+                                                LLM {{ formatDuration(item.ref.plan_decision.metrics_json.total_duration_ms) }}
                                             </span>
                                         </template>
                                         <!-- total -->
@@ -218,7 +231,7 @@
                                                         LLM codegen <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.codegen_ms) }}</span>
                                                     </span>
                                                     <span v-if="selectedItemSubTimings.execution_ms != null">
-                                                        Execution <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.execution_ms) }}</span>
+                                                        Data query execution <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.execution_ms) }}</span>
                                                     </span>
                                                     <span v-if="selectedItemSubTimings.retry_count">
                                                         Retries <span class="font-medium text-red-600">{{ selectedItemSubTimings.retry_count }}</span>
@@ -251,6 +264,27 @@
                                                             </tr>
                                                         </tbody>
                                                     </table>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Stages waterfall -->
+                                        <div v-if="filteredStages.length" class="mt-4">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Stages</div>
+                                            <div class="space-y-1">
+                                                <div v-for="s in filteredStages" :key="s.stage"
+                                                     class="flex items-center gap-2 text-[11px]">
+                                                    <span class="w-36 text-gray-600 truncate text-right" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
+                                                    <span class="w-16 text-right font-mono"
+                                                          :class="s.ms > 5000 ? 'text-red-600 font-semibold' : s.ms > 1000 ? 'text-orange-600' : 'text-gray-700'">
+                                                        {{ formatDuration(s.ms) }}
+                                                    </span>
+                                                    <div class="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+                                                        <div class="h-full rounded"
+                                                             :class="s.ms > 5000 ? 'bg-red-400' : s.ms > 1000 ? 'bg-orange-400' : 'bg-gray-300'"
+                                                             :style="{ width: Math.max(2, (s.ms / Math.max(...filteredStages.map((x: any) => x.ms))) * 100) + '%' }">
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -370,6 +404,10 @@ interface ToolExecutionUI {
             rows?: number | null
             sql?: string | null
             error?: string
+        }>
+        stages?: Array<{
+            stage: string
+            ms: number
         }>
     } | null
 }
@@ -512,6 +550,12 @@ const selectedItemSubTimings = computed(() => {
     return te?.sub_timings_json ?? null
 })
 
+const filteredStages = computed(() => {
+    const stages = selectedItemSubTimings.value?.stages
+    if (!Array.isArray(stages) || !stages.length) return []
+    return stages
+})
+
 const selectedItemDataSources = computed(() => {
     const item = selectedItem.value
     if (!item) return []
@@ -622,7 +666,20 @@ function getItemDurationMs(item: any): number | null {
     const te = block.tool_execution
     if (te && typeof te.duration_ms === 'number') return te.duration_ms
     if (typeof block.duration_ms === 'number') return block.duration_ms
+    // Planner decision timing
+    const pm = block.plan_decision?.metrics_json
+    if (pm?.total_duration_ms != null) return pm.total_duration_ms
     return null
+}
+
+function getTopStages(subTimings: any): Array<{ stage: string; ms: number }> {
+    const stages = subTimings?.stages
+    if (!Array.isArray(stages) || !stages.length) return []
+    return [...stages].sort((a, b) => b.ms - a.ms).slice(0, 2)
+}
+
+function humanizeStage(stage: string): string {
+    return stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function formatDuration(ms: number): string {

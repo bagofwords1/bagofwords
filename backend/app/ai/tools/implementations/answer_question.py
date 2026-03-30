@@ -57,6 +57,7 @@ class AnswerQuestionTool(Tool):
         yield ToolStartEvent(type="tool.start", payload={"question": data.question})
 
         # Gather context using ContextHub view provided by orchestrator
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "gathering_context"})
         organization_settings = runtime_ctx.get("settings")
         context_view = runtime_ctx.get("context_view")
         context_hub = runtime_ctx.get("context_hub")

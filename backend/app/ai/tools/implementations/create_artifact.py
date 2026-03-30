@@ -593,6 +593,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
         included_viz_ids: List[str] = []
 
         # Fetch all visualizations in a single batched query
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
         from app.models.query import Query
         from app.models.step import Step
         report_id = str(report.id) if report else None
@@ -733,9 +734,11 @@ Fix these errors while keeping the same design and functionality. Output the cor
             return
 
         # Build visualization profiles (privacy-aware)
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_profiles"})
         viz_profiles = [self._build_viz_profile(v, allow_llm_see_data) for v in visualizations]
 
         # Build instruction context
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         instructions_context = ""
         try:
             if instruction_context_builder is not None:
@@ -767,11 +770,12 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 "stage": "artifact_created",
                 "artifact_id": str(artifact.id),
                 "status": "pending",
+                "timing": False,
             }
         )
 
         # Build the prompt for generating React code
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_prompt"})
 
         # Store prompt context for potential fix iterations
         prompt_context = {
@@ -798,6 +802,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
         )
 
         # Stream from LLM
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
         slides_detected = 0  # Track number of slides detected during streaming
@@ -822,7 +827,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
                             payload={
                                 "stage": "slide_generated",
                                 "slide_index": i,
-                                "total_slides": current_slides
+                                "total_slides": current_slides,
+                                "timing": False,
                             }
                         )
                     slides_detected = current_slides
@@ -831,7 +837,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             if len(buffer) % 100 == 0:  # Throttle updates
                 yield ToolProgressEvent(
                     type="tool.progress",
-                    payload={"stage": "generating", "chars": len(buffer)}
+                    payload={"stage": "generating", "chars": len(buffer), "timing": False}
                 )
 
         # Extract the code from the response

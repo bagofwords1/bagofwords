@@ -570,7 +570,7 @@ class StreamingCodeExecutor:
             if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                 break
 
-            yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "code_generation", "attempt": retries}}
             try:
                 # Cancellation before expensive LLM call
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
@@ -591,18 +591,18 @@ class StreamingCodeExecutor:
                     code_context_builder=code_context_builder,
                 )
                 codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
-                yield {"type": "progress", "payload": {"stage": "generated_code", "attempt": retries}}
+                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "timing": False}}
             except Exception as e:
                 msg = f"Code generation error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
             # Executing code
-            yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}
             try:
                 # Cancellation before executing user code
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
@@ -623,7 +623,7 @@ class StreamingCodeExecutor:
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
         # If cancelled, emit a final done with empty results to let caller stop cleanly
@@ -704,7 +704,7 @@ class StreamingCodeExecutor:
         while retries < max_retries:
             if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                 break
-            yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "code_generation", "attempt": retries}}
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
@@ -727,17 +727,17 @@ class StreamingCodeExecutor:
                     context=ctx,
                 )
                 codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
-                yield {"type": "progress", "payload": {"stage": "generated_code", "attempt": retries}}
+                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "timing": False}}
             except Exception as e:
                 msg = f"Code generation error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
-            yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
@@ -766,7 +766,7 @@ class StreamingCodeExecutor:
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
         if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():

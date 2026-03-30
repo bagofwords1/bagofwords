@@ -133,6 +133,8 @@ class DataSourceRegistryEntry(BaseModel):
     is_document_based: bool = False
     # License tier required to use this data source (e.g., "enterprise")
     requires_license: Optional[str] = None
+    # Whether this entry is a traditional data source connection (vs a tool provider like MCP/Custom API)
+    is_connection: bool = True
 
     class Config:
         arbitrary_types_allowed = True
@@ -577,6 +579,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.mcp_client.McpClient",
         version="beta",
+        is_connection=False,
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",
@@ -605,6 +608,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.custom_api_client.CustomApiClient",
         version="beta",
+        is_connection=False,
     ),
 }
 
@@ -630,7 +634,7 @@ def list_available_data_sources() -> list[dict]:
             "requires_license": e.requires_license,
         }
         for e in REGISTRY.values()
-        if e.status == "active" and _entry_visible(e)
+        if e.status == "active" and _entry_visible(e) and e.is_connection
     ]
 
 
