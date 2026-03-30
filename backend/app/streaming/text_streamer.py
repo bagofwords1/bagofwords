@@ -117,7 +117,7 @@ class PlanningTextStreamer:
         # subsequent deltas are computed correctly against the new base.
         if content != self.prev_content:
             is_extension = content.startswith(self.prev_content)
-            if reset_on_source_change and self.prev_content and not is_extension:
+            if reset_on_source_change and self.prev_content and content and not is_extension:
                 # Source switched mid-stream: replace accumulated content entirely.
                 seq = await self.seq_fn()
                 await self.emit(SSEEvent(
