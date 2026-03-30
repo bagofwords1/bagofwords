@@ -246,9 +246,12 @@ class ConnectionService:
         try:
             await db.commit()
 
-            # Refresh tables if connection changed
+            # Refresh tables/tools if connection changed
             if connection_changed and connection.auth_policy == "system_only":
-                await self.refresh_schema(db=db, connection=connection)
+                if connection.type in self._TOOL_PROVIDER_TYPES:
+                    await self.refresh_tools(db=db, connection=connection)
+                else:
+                    await self.refresh_schema(db=db, connection=connection)
 
             # Audit log
             try:
@@ -628,8 +631,8 @@ class ConnectionService:
 
         params = {**(config or {}), **(creds or {})}
 
-        # Strip meta keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        # Strip meta keys (but keep auth_type — needed by custom_api/mcp clients)
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"}
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
         # Narrow to constructor signature

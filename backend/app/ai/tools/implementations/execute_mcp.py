@@ -138,6 +138,9 @@ Do not use when:
             )
             return
 
+        # Emit connection name so the UI can show it during streaming
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", "connection_name": connection.name})
+
         # Check tool is enabled
         tool_result = await db.execute(
             select(ConnectionTool).where(
@@ -200,6 +203,7 @@ Do not use when:
         output = {
             "success": True,
             "content_type": content_type,
+            "connection_name": connection.name,
             "file_id": None,
             "file_name": None,
             "row_count": None,
@@ -231,7 +235,21 @@ Do not use when:
             import json
             try:
                 preview_str = json.dumps(result_data, default=str)
-                output["preview"] = result_data if len(preview_str) < 3000 else f"[Large JSON result, {len(preview_str)} chars]"
+                if len(preview_str) < 3000:
+                    output["preview"] = result_data
+                else:
+                    # Truncated preview so the model can see the structure
+                    output["preview"] = preview_str[:3000] + f"… [truncated, {len(preview_str)} total chars]"
+                    # Materialize full JSON to a file for downstream use (e.g. write_csv)
+                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "materializing_json"})
+                    try:
+                        file_record = await self._materialize_to_json(
+                            result_data, data.tool_name, runtime_ctx
+                        )
+                        output["file_id"] = str(file_record.id)
+                        output["file_name"] = file_record.filename
+                    except Exception as e:
+                        logger.warning(f"execute_mcp: JSON materialization failed: {e}")
             except Exception:
                 output["preview"] = str(result_data)[:3000]
 
@@ -251,8 +269,10 @@ Do not use when:
         )
 
         summary = f"Executed '{data.tool_name}'"
-        if output.get("file_id"):
+        if output.get("file_id") and content_type == "tabular":
             summary += f" → materialized to CSV ({output['row_count']} rows)"
+        elif output.get("file_id"):
+            summary += f" → saved as {output['file_name']} (use write_csv to extract tabular data)"
         elif output.get("row_count"):
             summary += f" → {output['row_count']} rows (inline)"
         else:
@@ -313,6 +333,46 @@ Do not use when:
         db.add(file)
 
         # Link to report if available
+        if report:
+            from app.models.report_file_association import report_file_association
+            from sqlalchemy import insert
+            await db.execute(
+                insert(report_file_association).values(
+                    report_id=str(report.id),
+                    file_id=str(file.id),
+                )
+            )
+
+        await db.flush()
+        return file
+
+    async def _materialize_to_json(self, data: Any, tool_name: str, runtime_ctx: dict):
+        """Save large JSON result as a file so write_csv can process it."""
+        import json
+        from uuid import uuid4
+        from app.models.file import File
+
+        db = runtime_ctx.get("db")
+        report = runtime_ctx.get("report")
+        organization = runtime_ctx.get("organization")
+        user = runtime_ctx.get("current_user")
+
+        safe_name = tool_name.replace("/", "_").replace(" ", "_")
+        unique_name = f"{uuid4()}_{safe_name}.json"
+        path = f"uploads/files/{unique_name}"
+
+        with open(path, "w") as f:
+            json.dump(data, f, default=str)
+
+        file = File(
+            filename=f"{safe_name}.json",
+            path=path,
+            content_type="application/json",
+            user_id=str(user.id) if user else None,
+            organization_id=str(organization.id) if organization else None,
+        )
+        db.add(file)
+
         if report:
             from app.models.report_file_association import report_file_association
             from sqlalchemy import insert

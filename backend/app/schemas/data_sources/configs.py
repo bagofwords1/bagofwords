@@ -747,6 +747,11 @@ class CustomAPIConfig(BaseModel):
         description="Base URL for the API (e.g., https://api.example.com/v1)",
         json_schema_extra={"ui:type": "string"}
     )
+    headers: dict = Field(
+        default={},
+        title="Custom Headers",
+        description="Additional headers to send with every request (e.g., ontology, results-limit)",
+    )
     endpoints: list = Field(
         default=[],
         title="Endpoints",

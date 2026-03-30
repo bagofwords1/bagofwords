@@ -4,7 +4,7 @@
     <div class="mb-4 flex items-center justify-between">
       <div>
         <h1 class="text-lg font-semibold">External Tools</h1>
-        <p class="text-gray-500 text-sm">MCP tools available to the AI agent for this data source.</p>
+        <p class="text-gray-500 text-sm">External tools available to the AI agent for this data source.</p>
       </div>
       <div v-if="canUpdate" class="flex items-center gap-2">
         <UButton
@@ -16,17 +16,31 @@
         >
           Add MCP
         </UButton>
+        <UButton
+          color="blue"
+          variant="outline"
+          size="xs"
+          icon="i-heroicons-plus"
+          @click="$emit('add-custom-api')"
+        >
+          Add Custom API
+        </UButton>
       </div>
     </div>
 
     <!-- Empty state -->
     <div v-if="!loading && connections.length === 0" class="py-16 text-center border border-dashed border-gray-200 rounded-lg">
       <UIcon name="i-heroicons-server-stack" class="w-10 h-10 mx-auto text-gray-300 mb-3" />
-      <p class="text-sm text-gray-500 mb-1">No MCP connections yet</p>
-      <p class="text-xs text-gray-400 mb-4">Connect an MCP server to give the AI agent access to external tools.</p>
-      <UButton v-if="canUpdate" color="blue" variant="soft" size="xs" icon="i-heroicons-plus" @click="$emit('add-mcp')">
-        Add MCP Server
-      </UButton>
+      <p class="text-sm text-gray-500 mb-1">No tool connections yet</p>
+      <p class="text-xs text-gray-400 mb-4">Connect an MCP server or custom API to give the AI agent access to external tools.</p>
+      <div v-if="canUpdate" class="flex items-center justify-center gap-2">
+        <UButton color="blue" variant="soft" size="xs" icon="i-heroicons-plus" @click="$emit('add-mcp')">
+          Add MCP Server
+        </UButton>
+        <UButton color="blue" variant="soft" size="xs" icon="i-heroicons-plus" @click="$emit('add-custom-api')">
+          Add Custom API
+        </UButton>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -42,7 +56,7 @@
         <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-gray-900">{{ conn.name }}</span>
-            <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600 uppercase font-medium tracking-wide">MCP</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600 uppercase font-medium tracking-wide">{{ conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
           </div>
           <div class="flex items-center gap-1.5">
             <span class="text-[10px] text-gray-400 mr-1">
@@ -164,7 +178,7 @@ const props = defineProps<{
   canUpdate: boolean
 }>()
 
-defineEmits(['add-mcp', 'edit-connection', 'delete-connection'])
+defineEmits(['add-mcp', 'add-custom-api', 'edit-connection', 'delete-connection'])
 
 const toast = useToast()
 

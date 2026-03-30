@@ -75,32 +75,33 @@ Use when:
             return
 
         from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
         from app.models.connection_tool import ConnectionTool
         from app.models.connection import Connection
-        from app.models.data_source import DataSource
+        from app.models.domain_connection import domain_connection
+        from app.models.report_data_source_association import report_data_source_association
 
-        # Get data sources for this report
-        data_sources = report.data_sources or []
-        if not data_sources:
-            yield ToolEndEvent(
-                type="tool.end",
-                payload={
-                    "output": {"tools": [], "total_count": 0},
-                    "observation": {"summary": "No data sources linked to this report.", "success": False},
-                },
+        # Query MCP/API connections linked to this report's data sources directly
+        # (avoids lazy-loading report.data_sources → ds.connections which silently returns empty in async context)
+        conn_result = await db.execute(
+            select(Connection)
+            .join(domain_connection, domain_connection.c.connection_id == Connection.id)
+            .join(
+                report_data_source_association,
+                report_data_source_association.c.data_source_id == domain_connection.c.data_source_id,
             )
-            return
+            .where(
+                report_data_source_association.c.report_id == str(report.id),
+                Connection.type.in_(["mcp", "custom_api"]),
+            )
+        )
+        mcp_connections = conn_result.scalars().all()
 
-        # Collect all MCP/API connection IDs from linked data sources
         mcp_connection_ids = set()
         conn_info = {}  # connection_id -> {name, type}
-        for ds in data_sources:
-            for conn in (ds.connections or []):
-                if conn.type in ("mcp", "custom_api"):
-                    cid = str(conn.id)
-                    mcp_connection_ids.add(cid)
-                    conn_info[cid] = {"name": conn.name, "type": conn.type}
+        for conn in mcp_connections:
+            cid = str(conn.id)
+            mcp_connection_ids.add(cid)
+            conn_info[cid] = {"name": conn.name, "type": conn.type}
 
         if data.connection_ids:
             mcp_connection_ids = mcp_connection_ids.intersection(set(data.connection_ids))

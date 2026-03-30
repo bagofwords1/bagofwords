@@ -86,7 +86,11 @@ const duration = computed(() => {
 
 const runningLabel = computed(() => {
   if (toolName.value === 'search_mcps') return 'Searching MCP tools…'
-  if (toolName.value === 'execute_mcp') return `Calling ${args.value.tool_name || 'MCP tool'}…`
+  if (toolName.value === 'execute_mcp') {
+    const connName = resultJson.value.connection_name
+    const label = connName || args.value.tool_name || 'MCP tool'
+    return `Calling ${label}…`
+  }
   if (toolName.value === 'write_csv') return 'Writing CSV…'
   return 'Running MCP tool…'
 })
@@ -97,10 +101,10 @@ const doneLabel = computed(() => {
     return `Found ${count} tool(s)`
   }
   if (toolName.value === 'execute_mcp') {
-    const name = args.value.tool_name || 'MCP tool'
-    if (resultJson.value.file_id) return `${name} → CSV`
-    if (resultJson.value.success === false) return `${name} (failed)`
-    return `${name}`
+    const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
+    if (resultJson.value.file_id) return `${connName} → CSV`
+    if (resultJson.value.success === false) return `${connName} (failed)`
+    return `${connName}`
   }
   if (toolName.value === 'write_csv') {
     const rows = resultJson.value.row_count

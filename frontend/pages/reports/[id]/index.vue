@@ -1188,6 +1188,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'inspect_data' && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
+						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps') && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -1216,6 +1219,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'read_resources' && payload.payload.stage === 'submit_search' && payload.payload.icon) {
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).icon = payload.payload.icon
+						}
+						// Capture connection_name for execute_mcp when resolved
+						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'connection_resolved' && payload.payload.connection_name) {
+							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
 						}
 					}
 

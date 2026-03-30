@@ -22,6 +22,7 @@ class CustomApiClient(ToolProviderClient):
         token: Optional[str] = None,
         api_key: Optional[str] = None,
         api_key_header: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
         endpoints: Optional[List[Dict[str, Any]]] = None,
     ):
         self.base_url = base_url.rstrip("/")
@@ -29,15 +30,17 @@ class CustomApiClient(ToolProviderClient):
         self.token = token
         self.api_key = api_key
         self.api_key_header = api_key_header or "X-API-Key"
+        self.custom_headers = headers or {}
         self.endpoints = endpoints or []
 
     def _build_headers(self) -> Dict[str, str]:
-        """Build request headers with auth."""
+        """Build request headers with auth and custom headers."""
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.auth_type == "bearer" and self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         elif self.auth_type == "api_key" and self.api_key:
             headers[self.api_key_header] = self.api_key
+        headers.update(self.custom_headers)
         return headers
 
     def _find_endpoint(self, tool_name: str) -> Optional[Dict[str, Any]]:

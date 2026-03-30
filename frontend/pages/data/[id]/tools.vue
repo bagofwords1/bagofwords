@@ -7,6 +7,7 @@
                 :connections="mcpConnections"
                 :can-update="canUpdateDataSource"
                 @add-mcp="showMCPModal = true"
+                @add-custom-api="showCustomAPIModal = true"
                 @edit-connection="openEditModal"
                 @delete-connection="confirmDelete"
             />
@@ -15,13 +16,17 @@
         <!-- Add MCP Modal -->
         <AddMCPModal v-model="showMCPModal" @created="onConnectionCreated" />
 
-        <!-- Edit MCP Modal -->
-        <AddMCPModal v-model="showEditModal" :edit-connection="editingConnection" @created="onConnectionUpdated" />
+        <!-- Add Custom API Modal -->
+        <AddCustomAPIModal v-model="showCustomAPIModal" @created="onConnectionCreated" />
+
+        <!-- Edit Modal (type-aware) -->
+        <AddMCPModal v-if="editingConnection?.type === 'mcp'" v-model="showEditModal" :edit-connection="editingConnection" @created="onConnectionUpdated" />
+        <AddCustomAPIModal v-else-if="editingConnection?.type === 'custom_api'" v-model="showEditModal" :edit-connection="editingConnection" @created="onConnectionUpdated" />
 
         <!-- Delete confirmation -->
         <UModal v-model="showDeleteModal" :ui="{ width: 'sm:max-w-sm' }">
             <div class="p-6">
-                <h3 class="text-sm font-semibold text-gray-900 mb-2">Remove MCP Connection</h3>
+                <h3 class="text-sm font-semibold text-gray-900 mb-2">Remove Connection</h3>
                 <p class="text-xs text-gray-500 mb-4">
                     Remove <strong>{{ deletingConnection?.name }}</strong> and all its discovered tools from this data source?
                 </p>
@@ -38,6 +43,7 @@
 definePageMeta({ auth: true, layout: 'data' })
 import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
 import AddMCPModal from '@/components/AddMCPModal.vue'
+import AddCustomAPIModal from '@/components/AddCustomAPIModal.vue'
 import { useCan } from '~/composables/usePermissions'
 import type { Ref } from 'vue'
 
@@ -52,6 +58,7 @@ const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async (
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 
 const showMCPModal = ref(false)
+const showCustomAPIModal = ref(false)
 const showEditModal = ref(false)
 const editingConnection = ref<any>(null)
 const showDeleteModal = ref(false)
