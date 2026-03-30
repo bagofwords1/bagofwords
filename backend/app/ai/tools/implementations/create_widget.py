@@ -98,6 +98,7 @@ class CreateWidgetTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
         # Context
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "gathering_schemas"})
         organization_settings = runtime_ctx.get("settings")
         context_view = runtime_ctx.get("context_view")
         # Schemas (prefer explicit tables_by_source if provided, else AgentV2-style keyword filtering)
@@ -272,7 +273,7 @@ CRITICAL:
 
                 if "type" in parsed and parsed["type"] != current_data_model["type"]:
                     current_data_model["type"] = parsed["type"]
-                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "data_model_type_determined", "data_model_type": parsed["type"]})
+                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "data_model_type_determined", "data_model_type": parsed["type"], "timing": False})
 
                 if "columns" in parsed and isinstance(parsed["columns"], list):
                     for column in parsed["columns"]:
@@ -297,13 +298,14 @@ CRITICAL:
                                 payload={
                                     "stage": "column_added",
                                     "column": column,
-                                    "total_columns": len(current_data_model["columns"]) 
+                                    "total_columns": len(current_data_model["columns"]),
+                                    "timing": False,
                                 }
                             )
 
                 if "series" in parsed and isinstance(parsed["series"], list) and parsed["series"] != current_data_model["series"]:
                     current_data_model["series"] = parsed["series"]
-                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "series_configured", "series": parsed["series"], "chart_type": current_data_model.get("type")})
+                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "series_configured", "series": parsed["series"], "chart_type": current_data_model.get("type"), "timing": False})
 
                 for field in ["filters", "group_by", "sort", "limit"]:
                     if field in parsed:
@@ -330,7 +332,7 @@ CRITICAL:
             final_data_model = dm.model_dump()
         except Exception as e:
             final_data_model = current_data_model
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "widget_creation_needed", "widget_title": data.widget_title, "data_model": final_data_model})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "widget_creation_needed", "widget_title": data.widget_title, "data_model": final_data_model, "timing": False})
 
         # Phase 2/3: Code generation and execution with internal retries
         # Resolve builders from context_hub when available
@@ -416,6 +418,7 @@ CRITICAL:
             return
 
         # Success path: format widget data and preview (privacy aware)
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
         widget_data = streamer.format_df_for_widget(exec_df)
         info = widget_data.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True

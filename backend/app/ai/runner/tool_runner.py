@@ -105,6 +105,7 @@ class ToolRunner:
 
                 last_observation = None
                 last_output = None
+                _stage_timestamps: list[tuple[str, float]] = []
                 try:
                     async for tevt in self._stream_with_idle(
                         tool.run_stream(arguments, runtime_ctx),
@@ -127,6 +128,8 @@ class ToolRunner:
                         await emit(emit_event)
                         if _ts_first_event is None and et != "tool.start":
                             _ts_first_event = time.monotonic()
+                        if et == "tool.progress" and payload.get("timing", True):
+                            _stage_timestamps.append((payload.get("stage", "unknown"), time.monotonic()))
 
                         if et == "tool.error":
                             last_observation = {
@@ -173,6 +176,14 @@ class ToolRunner:
                     "setup_ms": _setup_ms,
                     "retry_count": attempt - 1,
                 }
+                if _stage_timestamps:
+                    _run_end = time.monotonic()
+                    stages = []
+                    for i, (stage, ts) in enumerate(_stage_timestamps):
+                        end = _stage_timestamps[i + 1][1] if i + 1 < len(_stage_timestamps) else _run_end
+                        stages.append({"stage": stage, "ms": round((end - ts) * 1000.0, 1)})
+                    sub_timings["stages"] = stages
+
                 if last_output and isinstance(last_output, dict):
                     if last_output.get("query_timings"):
                         sub_timings["queries"] = last_output["query_timings"]

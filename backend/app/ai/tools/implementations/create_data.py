@@ -501,6 +501,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     "stage": "series_configured",
                     "series": candidate.get("series") or [],
                     "chart_type": chart_type,
+                    "timing": False,
                 }
                 if view_options:
                     payload["view"] = {"type": chart_type, "options": view_options}
@@ -708,6 +709,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     "stage": "data_model_type_determined",
                     "data_model_type": viz_type,
                     "query_title": data.title,
+                    "timing": False,
                 },
             )
         except Exception:
@@ -891,7 +893,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
 
         # Code generation and execution with retries
         run_span.add_event("context_built")
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_code_execution"})
 
         coder = Coder(
             model=runtime_ctx.get("model"),
@@ -902,6 +904,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         streamer = StreamingCodeExecutor(organization_settings=organization_settings, logger=None, context_hub=context_hub)
 
         # Build typed context via helper (use resolved active tables, not original patterns)
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
             user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
@@ -1034,6 +1037,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         )
 
         # Success path: format data and privacy-aware preview
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
         formatted = streamer.format_df_for_widget(exec_df)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
@@ -1079,6 +1083,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                         "chart_type": inferred_dm.get("type"),
                         "series": inferred_dm.get("series", []),
                         "group_by": inferred_dm.get("group_by"),
+                        "timing": False,
                     }
                     yield ToolProgressEvent(type="tool.progress", payload=viz_payload)
         except Exception as viz_exc:
