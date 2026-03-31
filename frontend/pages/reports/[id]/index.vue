@@ -1288,6 +1288,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						} catch {}
 					}
 
+					// Visualizations resolved for create_artifact / edit_artifact
+					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact') && payload.payload) {
+						if (payload.payload.stage === 'visualizations_resolved' && Array.isArray(payload.payload.visualizations)) {
+							;(lastBlock.tool_execution as any).progress_visualizations = payload.payload.visualizations
+						}
+					}
+
 					// Progressive slide tracking for create_artifact tool
 					if (payload.tool_name === 'create_artifact' && payload.payload) {
 						const p = payload.payload
@@ -1333,6 +1340,17 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 
 					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'tool.confirmation':
+			// Confirmation request from create_artifact / edit_artifact
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					;(lastBlock.tool_execution as any).confirmation = payload.payload
+					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
 				}
 			}
 			break

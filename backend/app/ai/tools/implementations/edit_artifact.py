@@ -11,6 +11,7 @@ import json
 import logging
 import re
 from typing import AsyncIterator, Dict, Any, Type, List, Optional, Tuple
+from uuid import uuid4
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -23,7 +24,9 @@ from app.ai.tools.schemas import (
     ToolStartEvent,
     ToolProgressEvent,
     ToolEndEvent,
+    ToolConfirmationEvent,
 )
+from app.ai.tools.confirmation import wait_for_confirmation
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.llm import LLM
 from app.models.artifact import Artifact
@@ -691,6 +694,40 @@ Apply the edit now:"""
         for profile in viz_profiles:
             if "sample_rows" in profile:
                 profile["sample_rows"] = profile["sample_rows"][:3]
+
+        # Emit confirmation request and wait for user approval
+        confirmation_id = str(uuid4())
+        yield ToolConfirmationEvent(type="tool.confirmation", payload={
+            "stage": "awaiting_confirmation",
+            "confirmation_id": confirmation_id,
+            "title": artifact.title or "Untitled Artifact",
+            "mode": artifact.mode,
+            "visualizations": [
+                {"id": v["id"], "title": v["title"], "type": v.get("data_model_type", "")}
+                for v in visualizations
+            ],
+        })
+        confirmation = await wait_for_confirmation(confirmation_id, timeout=5.0)
+        if not confirmation.get("approved", True):
+            yield ToolEndEvent(type="tool.end", payload={
+                "output": {"error": "User cancelled"},
+                "observation": {"error": "User cancelled artifact edit"},
+            })
+            return
+        # Apply any user edits (e.g., updated title)
+        if confirmation.get("title"):
+            artifact.title = confirmation["title"]
+            await db.commit()
+
+        # Emit visualizations_resolved so badges persist after confirmation
+        yield ToolProgressEvent(type="tool.progress", payload={
+            "stage": "visualizations_resolved",
+            "tool_name": "edit_artifact",
+            "visualizations": [
+                {"id": v["id"], "title": v["title"], "type": v.get("data_model_type", "")}
+                for v in visualizations
+            ],
+        })
 
         # Build instruction context
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})

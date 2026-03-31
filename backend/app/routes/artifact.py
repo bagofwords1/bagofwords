@@ -1,8 +1,9 @@
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from lxml import html as lxml_html
 
@@ -453,3 +454,20 @@ async def get_slide_preview(
         path=str(image_path),
         media_type="image/png",
     )
+
+
+# --- Confirmation endpoint ---
+
+class ConfirmationBody(PydanticBaseModel):
+    approved: bool
+    title: Optional[str] = None
+
+
+@router.post("/confirm/{confirmation_id}")
+async def confirm_artifact(confirmation_id: str, body: ConfirmationBody):
+    from app.ai.tools.confirmation import resolve_confirmation
+
+    resolved = resolve_confirmation(confirmation_id, body.model_dump())
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+    return {"status": "ok"}
