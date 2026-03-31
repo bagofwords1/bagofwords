@@ -65,23 +65,19 @@
                     </nav>
                 </div>
 
-                <!-- Sub-filters row (status) -->
-                <div v-if="activeFilter === 'my'" class="flex flex-wrap items-center justify-between gap-3 mb-5 text-xs">
-                    <div class="flex items-center gap-3">
+                <!-- Sub-filters row -->
+                <div v-if="activeFilter === 'my'" class="flex flex-wrap items-center justify-between gap-2 mb-5 text-xs">
+                    <div class="flex items-center gap-1.5 flex-wrap">
                         <USelectMenu
                             :model-value="statusFilter"
                             @update:model-value="setStatusFilter"
                             :options="statusFilterOptions"
                             value-attribute="value"
                             option-attribute="label"
-                            size="sm"
-                            class="w-36"
+                            size="xs"
                         >
                             <template #label>
-                                <span class="text-sm">{{ selectedStatusLabel }}</span>
-                            </template>
-                            <template #option="{ option }">
-                                <span class="text-sm">{{ option.label }}</span>
+                                <span class="text-xs whitespace-nowrap">{{ selectedStatusLabel }}</span>
                             </template>
                         </USelectMenu>
                         <USelectMenu
@@ -90,17 +86,46 @@
                             :options="scheduleFilterOptions"
                             value-attribute="value"
                             option-attribute="label"
-                            size="sm"
-                            class="w-40"
+                            size="xs"
                         >
                             <template #label>
-                                <span class="flex items-center gap-1.5 text-sm">
-                                    <Icon name="heroicons:clock" class="h-4 w-4" />
-                                    {{ selectedScheduleLabel }}
-                                </span>
+                                <span class="text-xs whitespace-nowrap">{{ selectedScheduleLabel }}</span>
                             </template>
-                            <template #option="{ option }">
-                                <span class="text-sm">{{ option.label }}</span>
+                        </USelectMenu>
+                        <USelectMenu
+                            :model-value="typeFilter"
+                            @update:model-value="setTypeFilter"
+                            :options="typeFilterOptions"
+                            value-attribute="value"
+                            option-attribute="label"
+                            size="xs"
+                        >
+                            <template #label>
+                                <span class="text-xs whitespace-nowrap">{{ selectedTypeLabel }}</span>
+                            </template>
+                        </USelectMenu>
+                        <USelectMenu
+                            :model-value="dataSourceFilter"
+                            @update:model-value="setDataSourceFilter"
+                            :options="dataSourceFilterOptions"
+                            value-attribute="value"
+                            option-attribute="label"
+                            size="xs"
+                        >
+                            <template #label>
+                                <span class="text-xs whitespace-nowrap">{{ selectedDataSourceLabel }}</span>
+                            </template>
+                        </USelectMenu>
+                        <USelectMenu
+                            :model-value="artifactFilter"
+                            @update:model-value="setArtifactFilter"
+                            :options="artifactFilterOptions"
+                            value-attribute="value"
+                            option-attribute="label"
+                            size="xs"
+                        >
+                            <template #label>
+                                <span class="text-xs whitespace-nowrap">{{ selectedArtifactLabel }}</span>
                             </template>
                         </USelectMenu>
                     </div>
@@ -391,6 +416,10 @@ const searchTerm = ref('')
 const selectedIds = ref<Set<string>>(new Set())
 const statusFilter = ref<'all' | 'draft' | 'published'>('all')
 const scheduledFilter = ref<boolean | null>(null)
+const typeFilter = ref<string>('all')
+const dataSourceFilter = ref<string>('all')
+const artifactFilter = ref<string>('all')
+const dataSources = ref<any[]>([])
 const { isExcel } = useExcel()
 
 const statusFilterOptions = [
@@ -405,6 +434,27 @@ const scheduleFilterOptions = [
     { value: false, label: 'Not Scheduled' },
 ]
 
+const typeFilterOptions = [
+    { value: 'all', label: 'All Modes' },
+    { value: 'chat', label: 'Chat' },
+    { value: 'deep', label: 'Deep Analytics' },
+    { value: 'training', label: 'Training' },
+]
+
+const artifactFilterOptions = [
+    { value: 'all', label: 'All Artifacts' },
+    { value: 'yes', label: 'With Artifact' },
+    { value: 'no', label: 'No Artifact' },
+]
+
+const dataSourceFilterOptions = computed(() => {
+    const options: { value: string; label: string }[] = [{ value: 'all', label: 'All Sources' }]
+    for (const ds of dataSources.value) {
+        options.push({ value: ds.id, label: ds.name })
+    }
+    return options
+})
+
 const selectedStatusLabel = computed(() => {
     const option = statusFilterOptions.find(o => o.value === statusFilter.value)
     return option?.label || 'Status'
@@ -413,6 +463,21 @@ const selectedStatusLabel = computed(() => {
 const selectedScheduleLabel = computed(() => {
     const option = scheduleFilterOptions.find(o => o.value === scheduledFilter.value)
     return option?.label || 'Schedule'
+})
+
+const selectedTypeLabel = computed(() => {
+    const option = typeFilterOptions.find(o => o.value === typeFilter.value)
+    return option?.label || 'Type'
+})
+
+const selectedDataSourceLabel = computed(() => {
+    const option = dataSourceFilterOptions.value.find(o => o.value === dataSourceFilter.value)
+    return option?.label || 'Data Source'
+})
+
+const selectedArtifactLabel = computed(() => {
+    const option = artifactFilterOptions.find(o => o.value === artifactFilter.value)
+    return option?.label || 'Artifacts'
 })
 
 const visiblePages = computed(() => {
@@ -476,6 +541,9 @@ const setActiveFilter = async (filter: 'my' | 'published') => {
     }
     currentPage.value = 1
     scheduledFilter.value = null
+    typeFilter.value = 'all'
+    dataSourceFilter.value = 'all'
+    artifactFilter.value = 'all'
     await fetchReports(1, filter, searchTerm.value, null, filter === 'published' ? 'published' : 'all')
 }
 
@@ -490,7 +558,32 @@ const setScheduledFilter = async (scheduled: boolean | null) => {
     if (scheduledFilter.value === scheduled) return
     scheduledFilter.value = scheduled
     currentPage.value = 1
-    await fetchReports(1, activeFilter.value, searchTerm.value, scheduled, statusFilter.value)
+    await refreshReports()
+}
+
+const setTypeFilter = async (type: string) => {
+    if (typeFilter.value === type) return
+    typeFilter.value = type
+    currentPage.value = 1
+    await refreshReports()
+}
+
+const setDataSourceFilter = async (dsId: string) => {
+    if (dataSourceFilter.value === dsId) return
+    dataSourceFilter.value = dsId
+    currentPage.value = 1
+    await refreshReports()
+}
+
+const setArtifactFilter = async (value: string) => {
+    if (artifactFilter.value === value) return
+    artifactFilter.value = value
+    currentPage.value = 1
+    await refreshReports()
+}
+
+const refreshReports = () => {
+    return fetchReports(1, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
 }
 
 const fetchReports = async (page: number = 1, filter: 'my' | 'published' = 'my', search: string = '', scheduled: boolean | null = null, status: string | null = null) => {
@@ -505,6 +598,9 @@ const fetchReports = async (page: number = 1, filter: 'my' | 'published' = 'my',
                 search: search?.trim() || undefined,
                 scheduled: scheduled !== null ? scheduled : undefined,
                 status: status && status !== 'all' ? status : undefined,
+                data_source_id: dataSourceFilter.value !== 'all' ? dataSourceFilter.value : undefined,
+                mode: typeFilter.value !== 'all' ? typeFilter.value : undefined,
+                has_artifacts: artifactFilter.value !== 'all' ? artifactFilter.value : undefined,
             },
         })
 
@@ -683,6 +779,12 @@ watch(searchTerm, () => {
 
 onMounted(async () => {
     await nextTick()
-    await fetchReports(1, 'my', '')
+    const [_, dsResponse] = await Promise.all([
+        fetchReports(1, 'my', ''),
+        useMyFetch('/data_sources', { method: 'GET' }),
+    ])
+    if (dsResponse?.data?.value) {
+        dataSources.value = (dsResponse.data.value as any[]) || []
+    }
 })
 </script>

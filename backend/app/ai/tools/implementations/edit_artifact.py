@@ -538,6 +538,7 @@ Apply the edit now:"""
                 allow_llm_see_data = True
 
         # Load the existing artifact
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_artifact"})
         try:
             result = await db.execute(
                 select(Artifact).where(
@@ -692,6 +693,7 @@ Apply the edit now:"""
                 profile["sample_rows"] = profile["sample_rows"][:3]
 
         # Build instruction context
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         instruction_context_builder = runtime_ctx.get("instruction_context_builder") or (
             getattr(context_hub, "instruction_builder", None) if context_hub else None
         )
@@ -739,6 +741,7 @@ Apply the edit now:"""
         )
 
         # Stream LLM response
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
 
@@ -752,7 +755,7 @@ Apply the edit now:"""
             if len(buffer) % 100 == 0:
                 yield ToolProgressEvent(
                     type="tool.progress",
-                    payload={"stage": "generating", "chars": len(buffer)}
+                    payload={"stage": "generating", "chars": len(buffer), "timing": False}
                 )
 
         # Apply the diff

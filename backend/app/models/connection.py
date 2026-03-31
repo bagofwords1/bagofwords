@@ -64,6 +64,21 @@ class Connection(BaseSchema):
         cascade="all, delete-orphan"
     )
 
+    # MCP/API tool discovery
+    connection_tools = relationship(
+        "ConnectionTool",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
+
+    # User-level tool overlays
+    user_tools = relationship(
+        "UserConnectionTool",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+    )
+
     def get_client(self):
         """Instantiate and return the appropriate database client."""
         try:
@@ -71,7 +86,7 @@ class Connection(BaseSchema):
             # Capitalize the first letter of each word without changing the rest
             title = "".join(word[:1].upper() + word[1:] for word in self.type.split("_"))
             class_name = f"{title}Client"
-            
+
             module = import_module(module_name)
             ClientClass = getattr(module, class_name)
             

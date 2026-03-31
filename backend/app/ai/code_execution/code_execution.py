@@ -1,12 +1,16 @@
+import asyncio
 import io
+import os
 import sys
 import ast
 import re
+import time as _time
 import pandas as pd
 import numpy as np
 import datetime
 import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
@@ -18,6 +22,17 @@ from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 
 _tracer = get_tracer(__name__)
+
+# Dedicated thread pool for user code execution.
+# Keeps code-exec threads isolated from the default asyncio executor so that
+# stuck DB/network calls in generated code cannot starve other server operations.
+# When all workers are occupied, new submissions queue; the idle-timeout in the
+# tool runner will cancel queued futures (via Future.cancel()) before they start,
+# preventing unbounded queue growth.
+_CODE_EXEC_POOL = ThreadPoolExecutor(
+    max_workers=min(8, (os.cpu_count() or 4) * 2),
+    thread_name_prefix="bow_code_exec",
+)
 
 
 # =============================================================================
@@ -218,24 +233,44 @@ class QueryCapturingClientWrapper:
     """Wrapper around a database client that captures all queries passed to execute_query.
 
     Works with any client that has an execute_query method (SQL, MongoDB, etc.).
+    Optionally accumulates per-query wall-clock timing into captured_timings.
     """
 
-    def __init__(self, original_client, captured_queries: List[str]):
+    def __init__(self, original_client, captured_queries: List[str], captured_timings: List[dict]):
         self._original = original_client
         self._captured_queries = captured_queries
+        self._captured_timings = captured_timings
 
     def execute_query(self, query: str, *args, **kwargs):
-        """Intercept execute_query calls to capture the query string."""
+        """Intercept execute_query calls to capture the query string and wall-clock duration."""
         if isinstance(query, str):
             self._captured_queries.append(query)
+        idx = len(self._captured_timings)
+        _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
             span.set_attribute("datasource.type", type(self._original).__name__)
             try:
                 result = self._original.execute_query(query, *args, **kwargs)
-                if hasattr(result, '__len__'):
-                    span.set_attribute("datasource.result_rows", len(result))
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                rows = len(result) if hasattr(result, '__len__') else None
+                if rows is not None:
+                    span.set_attribute("datasource.result_rows", rows)
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": rows,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                })
                 return result
             except Exception as e:
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": None,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "error": str(e)[:200],
+                })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
@@ -245,12 +280,12 @@ class QueryCapturingClientWrapper:
         return getattr(self._original, name)
 
 
-def wrap_clients_for_capture(ds_clients: Dict, captured_queries: List[str]) -> Dict:
-    """Wrap all database clients to capture queries from execute_query calls."""
+def wrap_clients_for_capture(ds_clients: Dict, captured_queries: List[str], captured_timings: List[dict]) -> Dict:
+    """Wrap all database clients to capture queries and per-query timing."""
     wrapped = {}
     for key, client in (ds_clients or {}).items():
         if client is not None and hasattr(client, 'execute_query'):
-            wrapped[key] = QueryCapturingClientWrapper(client, captured_queries)
+            wrapped[key] = QueryCapturingClientWrapper(client, captured_queries, captured_timings)
         else:
             wrapped[key] = client
     return wrapped
@@ -287,8 +322,11 @@ class StreamingCodeExecutor:
         self.logger = logger
         self.context_hub = context_hub
 
-    def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str, List[str]]:
+    def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
+                     captured_timings: Optional[List[dict]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
+
+        captured_timings: if provided, per-query wall-clock timings are appended to this list.
 
         Security:
             - Validates Python code via AST analysis before execution
@@ -307,9 +345,10 @@ class StreamingCodeExecutor:
 
         output_log = ""
         executed_queries: List[str] = []
+        _timings: List[dict] = captured_timings if captured_timings is not None else []
 
         # Wrap clients to capture all queries passed to execute_query
-        wrapped_clients = wrap_clients_for_capture(ds_clients, executed_queries)
+        wrapped_clients = wrap_clients_for_capture(ds_clients, executed_queries, _timings)
 
         local_namespace = {
             'pd': pd,
@@ -328,6 +367,14 @@ class StreamingCodeExecutor:
                 df = generate_df(wrapped_clients, excel_files)
             output_log = stdout_capture.getvalue()
         return df, output_log, executed_queries
+
+    async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
+                                 captured_timings: Optional[List[dict]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+        """Run execute_code in a thread so it doesn't block the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _CODE_EXEC_POOL, lambda: self.execute_code(code=code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=captured_timings)
+        )
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:
         """Extract comprehensive information from a DataFrame."""
@@ -523,11 +570,12 @@ class StreamingCodeExecutor:
             if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                 break
 
-            yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "code_generation", "attempt": retries}}
             try:
                 # Cancellation before expensive LLM call
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
+                _t_codegen = _time.monotonic()
                 final_code = await code_generator_fn(
                     data_model=data_model,
                     prompt=prompt,
@@ -542,23 +590,29 @@ class StreamingCodeExecutor:
                     sigkill_event=sigkill_event,
                     code_context_builder=code_context_builder,
                 )
-                yield {"type": "progress", "payload": {"stage": "generated_code", "attempt": retries}}
+                codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
+                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "timing": False}}
             except Exception as e:
                 msg = f"Code generation error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
             # Executing code
-            yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}
             try:
                 # Cancellation before executing user code
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
-                exec_df, execution_log, executed_queries = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                _t_exec = _time.monotonic()
+                query_timings: List[dict] = []
+                exec_df, execution_log, executed_queries = await self.execute_code_async(
+                    code=final_code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=query_timings
+                )
+                execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
                 executed_successfully = True
                 break
             except Exception as e:
@@ -569,7 +623,7 @@ class StreamingCodeExecutor:
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
         # If cancelled, emit a final done with empty results to let caller stop cleanly
@@ -582,6 +636,9 @@ class StreamingCodeExecutor:
                     "errors": code_and_error_messages,
                     "execution_log": execution_log,
                     "executed_queries": [],
+                    "query_timings": [],
+                    "codegen_ms": None,
+                    "execution_ms": None,
                 },
             }
             return
@@ -597,6 +654,9 @@ class StreamingCodeExecutor:
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
                         "executed_queries": [],
+                        "query_timings": [],
+                        "codegen_ms": None,
+                        "execution_ms": None,
                     },
                 }
             else:
@@ -609,6 +669,9 @@ class StreamingCodeExecutor:
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
                         "executed_queries": executed_queries,
+                        "query_timings": query_timings,
+                        "codegen_ms": codegen_ms,
+                        "execution_ms": execution_ms,
                     },
                 }
 
@@ -641,11 +704,12 @@ class StreamingCodeExecutor:
         while retries < max_retries:
             if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                 break
-            yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "code_generation", "attempt": retries}}
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
                 # Call code generator with typed context and legacy params populated from context
+                _t_codegen = _time.monotonic()
                 final_code = await code_generator_fn(
                     data_model={},
                     prompt=derived_prompt,
@@ -662,21 +726,27 @@ class StreamingCodeExecutor:
                     code_context_builder=None,
                     context=ctx,
                 )
-                yield {"type": "progress", "payload": {"stage": "generated_code", "attempt": retries}}
+                codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
+                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "timing": False}}
             except Exception as e:
                 msg = f"Code generation error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
-            yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
+            yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
-                exec_df, execution_log, executed_queries = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                _t_exec = _time.monotonic()
+                query_timings: List[dict] = []
+                exec_df, execution_log, executed_queries = await self.execute_code_async(
+                    code=final_code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=query_timings
+                )
+                execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
                 executed_successfully = True
                 break
             except CodeSecurityError as e:
@@ -696,7 +766,7 @@ class StreamingCodeExecutor:
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if retries < max_retries:
-                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
         if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
@@ -708,6 +778,9 @@ class StreamingCodeExecutor:
                     "errors": code_and_error_messages,
                     "execution_log": execution_log,
                     "executed_queries": [],
+                    "query_timings": [],
+                    "codegen_ms": None,
+                    "execution_ms": None,
                 },
             }
             return
@@ -721,6 +794,9 @@ class StreamingCodeExecutor:
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
                         "executed_queries": [],
+                        "query_timings": [],
+                        "codegen_ms": None,
+                        "execution_ms": None,
                     },
                 }
             else:
@@ -732,6 +808,9 @@ class StreamingCodeExecutor:
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
                         "executed_queries": executed_queries,
+                        "query_timings": query_timings,
+                        "codegen_ms": codegen_ms,
+                        "execution_ms": execution_ms,
                     },
                 }
 

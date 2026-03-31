@@ -501,6 +501,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     "stage": "series_configured",
                     "series": candidate.get("series") or [],
                     "chart_type": chart_type,
+                    "timing": False,
                 }
                 if view_options:
                     payload["view"] = {"type": chart_type, "options": view_options}
@@ -708,6 +709,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     "stage": "data_model_type_determined",
                     "data_model_type": viz_type,
                     "query_title": data.title,
+                    "timing": False,
                 },
             )
         except Exception:
@@ -891,7 +893,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
 
         # Code generation and execution with retries
         run_span.add_event("context_built")
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_code_execution"})
 
         coder = Coder(
             model=runtime_ctx.get("model"),
@@ -902,6 +904,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         streamer = StreamingCodeExecutor(organization_settings=organization_settings, logger=None, context_hub=context_hub)
 
         # Build typed context via helper (use resolved active tables, not original patterns)
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
             user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
@@ -918,6 +921,9 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         exec_df = None
         output_log = ""
         executed_queries = []
+        query_timings = []
+        codegen_ms = None
+        execution_ms = None
 
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
@@ -953,6 +959,9 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     output_log = e["payload"].get("execution_log") or ""
                     exec_df = e["payload"].get("df")
                     executed_queries = e["payload"].get("executed_queries") or []
+                    query_timings = e["payload"].get("query_timings") or []
+                    codegen_ms = e["payload"].get("codegen_ms")
+                    execution_ms = e["payload"].get("execution_ms")
             codegen_span.set_attribute("codegen.success", generated_code is not None and exec_df is not None)
             codegen_span.set_attribute("codegen.error_count", len(code_errors))
             codegen_span.set_attribute("codegen.query_count", len(executed_queries))
@@ -1028,6 +1037,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         )
 
         # Success path: format data and privacy-aware preview
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
         formatted = streamer.format_df_for_widget(exec_df)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
@@ -1073,6 +1083,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                         "chart_type": inferred_dm.get("type"),
                         "series": inferred_dm.get("series", []),
                         "group_by": inferred_dm.get("group_by"),
+                        "timing": False,
                     }
                     yield ToolProgressEvent(type="tool.progress", payload=viz_payload)
         except Exception as viz_exc:
@@ -1133,6 +1144,9 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     "data_model": final_dm,
                     "view": view_payload,
                     "executed_queries": executed_queries,
+                    "query_timings": query_timings,
+                    "codegen_ms": codegen_ms,
+                    "execution_ms": execution_ms,
                 },
                 "observation": observation,
             },

@@ -2,9 +2,12 @@
 ContextHub - Main orchestrator for all agent context.
 """
 import json
+import logging
 import time
 from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
+
+_hub_logger = logging.getLogger(__name__)
 
 from .context_specs import (
     ContextMetadata, ContextSnapshot, ContextBuildSpec,
@@ -39,6 +42,13 @@ DEFAULT_CONTEXT_LIMITS = {
     "observations_max": 8    # last N observations
 }
 
+# Hard ceiling for the assembled prompt (tokens).  Bedrock Sonnet caps at
+# 200 K; even Anthropic direct benefits from staying well under the limit.
+DEFAULT_TOKEN_BUDGET = 200_000
+# Reserve room for the model's completion output so we don't fill the
+# entire context window with the prompt.
+_OUTPUT_RESERVE = 8_000
+
 
 def _truncate_list(items, max_items):
     if not isinstance(items, list) or not max_items:
@@ -67,6 +77,119 @@ def _section_token_length(text: Optional[str]) -> int:
     except Exception:
         # As a last resort, approximate via character length
         return len(text)
+
+
+def _estimate_tokens_fast(text: str) -> int:
+    """Fast token estimate without tiktoken overhead (~4 chars/token)."""
+    return len(text) // 4 if text else 0
+
+
+def _trim_text_tail(text: str, keep_ratio: float, label: str = "") -> str:
+    """Trim text keeping the tail (newest content). Returns trimmed string."""
+    if not text:
+        return text
+    char_limit = int(len(text) * keep_ratio)
+    if char_limit >= len(text):
+        return text
+    trimmed = text[-char_limit:]
+    prefix = f"... ({label} trimmed to fit context budget)\n" if label else "... (trimmed)\n"
+    return prefix + trimmed
+
+
+def trim_context_to_budget(
+    planner_input,
+    model_context_window: Optional[int] = None,
+) -> None:
+    """Trim PlannerInput string fields in priority order to fit token budget.
+
+    Mutates *planner_input* in place. Each trimmable section is cut by its
+    ``keep_ratio``; after each cut we re-estimate and stop as soon as the
+    total is under budget.
+
+    Priority (cut first → last):
+      1. past_observations  – serialised JSON list, oldest dropped first
+      2. messages_context   – oldest conversation pairs dropped
+      3. resources_combined – least important for correctness
+      4. schemas_combined   – nuclear option, but better than a hard failure
+    """
+    budget = (model_context_window or DEFAULT_TOKEN_BUDGET) - _OUTPUT_RESERVE
+    if budget <= 0:
+        budget = DEFAULT_TOKEN_BUDGET - _OUTPUT_RESERVE
+
+    # Collect all string fields for a rough total estimate
+    _str_fields = [
+        "instructions", "schemas_combined", "schemas_excerpt",
+        "files_context", "messages_context", "resources_context",
+        "resources_combined", "mentions_context", "entities_context",
+        "history_summary", "user_message",
+    ]
+
+    def _estimate_total() -> int:
+        total = 0
+        for f in _str_fields:
+            total += _estimate_tokens_fast(getattr(planner_input, f, None) or "")
+        # past_observations is a list of dicts – estimate via JSON dump
+        past = getattr(planner_input, "past_observations", None)
+        if past:
+            try:
+                total += _estimate_tokens_fast(json.dumps(past))
+            except Exception:
+                total += len(past) * 200  # rough fallback per observation
+        # last_observation
+        last = getattr(planner_input, "last_observation", None)
+        if last:
+            try:
+                total += _estimate_tokens_fast(json.dumps(last))
+            except Exception:
+                total += 500
+        return total
+
+    total = _estimate_total()
+    if total <= budget:
+        return  # nothing to do
+
+    # --- Priority 1: past_observations (drop oldest, keep last 2) ---
+    past = getattr(planner_input, "past_observations", None)
+    if past and len(past) > 2:
+        planner_input.past_observations = past[-2:]
+        total = _estimate_total()
+        if total <= budget:
+            return
+
+    # --- Priority 2: messages_context (keep newest 50%) ---
+    msg = getattr(planner_input, "messages_context", None) or ""
+    if msg and _estimate_tokens_fast(msg) > 500:
+        planner_input.messages_context = _trim_text_tail(msg, 0.5, "messages")
+        total = _estimate_total()
+        if total <= budget:
+            return
+
+    # --- Priority 3: resources_combined (keep 30%) ---
+    res = getattr(planner_input, "resources_combined", None) or ""
+    if res and _estimate_tokens_fast(res) > 500:
+        planner_input.resources_combined = _trim_text_tail(res, 0.3, "resources")
+        total = _estimate_total()
+        if total <= budget:
+            return
+
+    # --- Priority 4: schemas_combined (keep 50%) ---
+    schemas = getattr(planner_input, "schemas_combined", None) or ""
+    if schemas and _estimate_tokens_fast(schemas) > 1000:
+        planner_input.schemas_combined = _trim_text_tail(schemas, 0.5, "schemas")
+        total = _estimate_total()
+        if total <= budget:
+            return
+
+    # If still over, do a more aggressive second pass
+    if total > budget:
+        if getattr(planner_input, "past_observations", None):
+            planner_input.past_observations = planner_input.past_observations[-1:]
+        planner_input.messages_context = _trim_text_tail(
+            getattr(planner_input, "messages_context", "") or "", 0.25, "messages"
+        )
+        planner_input.schemas_combined = _trim_text_tail(
+            getattr(planner_input, "schemas_combined", "") or "", 0.3, "schemas"
+        )
 
 
 class ContextHub:
@@ -396,9 +519,9 @@ class ContextHub:
     # --------------------------------------------------------------
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
-        
+
         Runs all builders in parallel for faster startup.
-        
+
         Parameters
         ----------
         query : str | None, optional
@@ -406,19 +529,24 @@ class ContextHub:
             search to find relevant instructions beyond just 'always' load mode.
         """
         import asyncio
+        _t0 = time.monotonic()
+
+        async def _timed(name, coro):
+            t = time.monotonic()
+            result = await coro
+            _hub_logger.info(f"[context_hub:prime_static] {name} done +{(time.monotonic()-t)*1000:.0f}ms")
+            return result
+
         # Run all static builders in parallel
-        schemas_task = asyncio.create_task(self.schema_builder.build())
-        # Pass query and build_id to enable intelligent instruction search from specific build
-        instructions_task = asyncio.create_task(self.instruction_builder.build(query, build_id=self.build_id))
-        resources_task = asyncio.create_task(self.resource_builder.build())
-        files_task = asyncio.create_task(self.files_builder.build())
-        
-        # Wait for all to complete
         schemas, instructions, resources, files = await asyncio.gather(
-            schemas_task, instructions_task, resources_task, files_task,
-            return_exceptions=True
+            _timed("schemas", self.schema_builder.build()),
+            _timed("instructions", self.instruction_builder.build(query, build_id=self.build_id)),
+            _timed("resources", self.resource_builder.build()),
+            _timed("files", self.files_builder.build()),
+            return_exceptions=True,
         )
-        
+        _hub_logger.info(f"[context_hub:prime_static] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
+
         # Store results (handle exceptions gracefully)
         self._static_cache["schemas"] = schemas if not isinstance(schemas, Exception) else None
         self._static_cache["instructions"] = instructions if not isinstance(instructions, Exception) else None
@@ -428,11 +556,18 @@ class ContextHub:
 
     async def refresh_warm(self) -> None:
         """Rebuild warm sections each loop (messages, queries, observations, entities).
-        
+
         Runs builders in parallel where possible for faster refresh.
         """
         import asyncio
-        
+        _t0 = time.monotonic()
+
+        async def _timed(name, coro):
+            t = time.monotonic()
+            result = await coro
+            _hub_logger.info(f"[context_hub:refresh_warm] {name} done +{(time.monotonic()-t)*1000:.0f}ms")
+            return result
+
         # Get org settings first (needed for queries and entities)
         allow_llm_see_data = True
         try:
@@ -441,7 +576,7 @@ class ContextHub:
             allow_llm_see_data = bool(cfg.value) if cfg is not None else True
         except Exception:
             allow_llm_see_data = True
-        
+
         # Extract user text for entity keyword matching
         user_text = ""
         try:
@@ -451,23 +586,21 @@ class ContextHub:
                 user_text = str(self.prompt_content or "")
         except Exception:
             user_text = ""
-        
+
         # Run all warm builders in parallel
-        messages_task = asyncio.create_task(self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))
-        queries_task = asyncio.create_task(self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))
-        mentions_task = asyncio.create_task(self.mention_builder.build())
-        entities_task = asyncio.create_task(self.entity_builder.build_for_turn(
-            top_k=5,
-            require_source_assoc=True,
-            user_text=user_text,
-            allow_llm_see_data=allow_llm_see_data,
-        ))
-        
-        # Wait for all to complete
         messages, queries, mentions, entities = await asyncio.gather(
-            messages_task, queries_task, mentions_task, entities_task,
-            return_exceptions=True
+            _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])),
+            _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data)),
+            _timed("mentions", self.mention_builder.build()),
+            _timed("entities", self.entity_builder.build_for_turn(
+                top_k=5,
+                require_source_assoc=True,
+                user_text=user_text,
+                allow_llm_see_data=allow_llm_see_data,
+            )),
+            return_exceptions=True,
         )
+        _hub_logger.info(f"[context_hub:refresh_warm] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
         
         # Build observations synchronously (it's fast, no DB calls)
         observations = self.observation_builder.build()

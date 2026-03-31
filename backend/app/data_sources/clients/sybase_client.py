@@ -2,10 +2,16 @@ from app.data_sources.clients.base import DataSourceClient
 
 import pyodbc
 import pandas as pd
+import os
+import shutil
+import fcntl
 from contextlib import contextmanager
 from typing import Generator, List
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
+
+FREETDS_SYSTEM_CONF = "/etc/freetds/freetds.conf"
+FREETDS_CUSTOM_CONF = "/tmp/freetds.conf"
 
 
 class SybaseClient(DataSourceClient):
@@ -15,21 +21,42 @@ class SybaseClient(DataSourceClient):
         self.database = database
         self.user = user
         self.password = password
+        self._freetds_section = f"{self.host}_{self.port}_{self.database}"
+        self._freetds_ready = False
+
+    def _ensure_freetds_entry(self):
+        """Register a freetds.conf entry so FreeTDS can select the correct SQL Anywhere database."""
+        if not os.path.exists(FREETDS_CUSTOM_CONF):
+            shutil.copy(FREETDS_SYSTEM_CONF, FREETDS_CUSTOM_CONF)
+        os.environ["FREETDSCONF"] = FREETDS_CUSTOM_CONF
+
+        with open(FREETDS_CUSTOM_CONF, "r+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            content = f.read()
+            if f"[{self._freetds_section}]" not in content:
+                f.write(
+                    f"\n[{self._freetds_section}]\n"
+                    f"host = {self.host}\n"
+                    f"port = {self.port}\n"
+                    f"tds version = 5.0\n"
+                    f"ASA database = {self.database}\n"
+                )
+            fcntl.flock(f, fcntl.LOCK_UN)
 
     def _connection_string(self):
         return (
             f"DRIVER={{FreeTDS}};"
-            f"SERVER={self.host};"
-            f"PORT={self.port};"
-            f"DATABASE={self.database};"
+            f"SERVERNAME={self._freetds_section};"
             f"UID={self.user};"
             f"PWD={self.password};"
-            f"TDS_Version=5.0;"
         )
 
     @contextmanager
     def connect(self) -> Generator[pyodbc.Connection, None, None]:
         """Yield a raw pyodbc connection to a Sybase SQL Anywhere database."""
+        if not self._freetds_ready:
+            self._ensure_freetds_entry()
+            self._freetds_ready = True
         conn = None
         try:
             conn = pyodbc.connect(self._connection_string())

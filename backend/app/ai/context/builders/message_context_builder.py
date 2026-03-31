@@ -321,6 +321,90 @@ class MessageContextBuilder:
                                         digest_parts.append(f"v{rj.get('version')}")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'inspect_data' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    digest_parts = []
+                                    obs = rj.get('observation') or rj
+                                    summary = obs.get('summary') or rj.get('summary')
+                                    if summary:
+                                        digest_parts.append(summary)
+                                    if obs.get('success') is False or rj.get('success') is False:
+                                        digest_parts.append("FAILED")
+                                    dur = obs.get('execution_duration_ms') or rj.get('execution_duration_ms')
+                                    if dur:
+                                        digest_parts.append(f"{dur}ms")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'search_mcps' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    obs = rj.get('observation') or rj
+                                    digest_parts = []
+                                    summary = obs.get('summary') or ''
+                                    if summary:
+                                        digest_parts.append(summary)
+                                    tools_list = obs.get('tools') or rj.get('tools') or []
+                                    if tools_list:
+                                        by_conn = {}
+                                        for t in tools_list:
+                                            conn_label = t.get('connection_name') or t.get('connection_id') or 'unknown'
+                                            by_conn.setdefault(conn_label, []).append(t.get('name', '?'))
+                                        for conn_label, names in by_conn.items():
+                                            entry = f"{conn_label}: {', '.join(names[:5])}"
+                                            if len(names) > 5:
+                                                entry += f"… +{len(names)-5}"
+                                            digest_parts.append(entry)
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    obs = rj.get('observation') or rj
+                                    digest_parts = []
+                                    summary = obs.get('summary') or ''
+                                    if summary:
+                                        digest_parts.append(summary)
+                                    ct = obs.get('content_type') or rj.get('content_type')
+                                    if ct:
+                                        digest_parts.append(f"type: {ct}")
+                                    fid = obs.get('file_id') or rj.get('file_id')
+                                    if fid:
+                                        digest_parts.append(f"file_id: {fid}")
+                                    rc = obs.get('row_count') or rj.get('row_count')
+                                    if rc:
+                                        digest_parts.append(f"{rc} rows")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    obs = rj.get('observation') or rj
+                                    digest_parts = []
+                                    summary = obs.get('summary') or ''
+                                    if summary:
+                                        digest_parts.append(summary)
+                                    fname = rj.get('file_name') or ''
+                                    if fname:
+                                        digest_parts.append(f"file: {fname}")
+                                    fid = rj.get('file_id') or obs.get('file_id')
+                                    if fid:
+                                        digest_parts.append(f"file_id: {fid}")
+                                    # Surface visualization IDs
+                                    viz_ids = rj.get('created_visualization_ids') or []
+                                    if viz_ids:
+                                        digest_parts.append(f"visualization_ids: {viz_ids}")
+                                    rc = obs.get('row_count') or rj.get('row_count')
+                                    if rc:
+                                        digest_parts.append(f"{rc} rows")
+                                    cols = obs.get('columns') or rj.get('columns') or []
+                                    if cols:
+                                        digest_parts.append(f"columns: {cols}")
+                                    # Include a data sample from execution log
+                                    exec_log = rj.get('execution_log') or ''
+                                    if exec_log:
+                                        sample_lines = exec_log.strip().split('\n')[:8]
+                                        digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
+                                    if obs.get('success') is False:
+                                        digest_parts.append("FAILED")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.created_widget_id:
                                     # Get widget details for other tools
                                     widget_result = await self.db.execute(
@@ -331,7 +415,7 @@ class MessageContextBuilder:
                                         tool_info += f" - Widget: '{widget.title}'"
                                     else:
                                         tool_info += f" - Widget #{tool_execution.created_widget_id}"
-                                
+
                                 elif tool_execution.created_step_id:
                                     # Get step details for other tools
                                     step_result = await self.db.execute(
@@ -770,6 +854,90 @@ class MessageContextBuilder:
                                     digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                 if rj.get('version'):
                                     digest_parts.append(f"v{rj.get('version')}")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'inspect_data' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                digest_parts = []
+                                obs = rj.get('observation') or rj
+                                summary = obs.get('summary') or rj.get('summary')
+                                if summary:
+                                    digest_parts.append(summary)
+                                if obs.get('success') is False or rj.get('success') is False:
+                                    digest_parts.append("FAILED")
+                                dur = obs.get('execution_duration_ms') or rj.get('execution_duration_ms')
+                                if dur:
+                                    digest_parts.append(f"{dur}ms")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'search_mcps' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                obs = rj.get('observation') or rj
+                                digest_parts = []
+                                summary = obs.get('summary') or ''
+                                if summary:
+                                    digest_parts.append(summary)
+                                tools_list = obs.get('tools') or rj.get('tools') or []
+                                if tools_list:
+                                    by_conn = {}
+                                    for t in tools_list:
+                                        conn_label = t.get('connection_name') or t.get('connection_id') or 'unknown'
+                                        by_conn.setdefault(conn_label, []).append(t.get('name', '?'))
+                                    for conn_label, names in by_conn.items():
+                                        entry = f"{conn_label}: {', '.join(names[:5])}"
+                                        if len(names) > 5:
+                                            entry += f"… +{len(names)-5}"
+                                        digest_parts.append(entry)
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                obs = rj.get('observation') or rj
+                                digest_parts = []
+                                summary = obs.get('summary') or ''
+                                if summary:
+                                    digest_parts.append(summary)
+                                ct = obs.get('content_type') or rj.get('content_type')
+                                if ct:
+                                    digest_parts.append(f"type: {ct}")
+                                fid = obs.get('file_id') or rj.get('file_id')
+                                if fid:
+                                    digest_parts.append(f"file_id: {fid}")
+                                rc = obs.get('row_count') or rj.get('row_count')
+                                if rc:
+                                    digest_parts.append(f"{rc} rows")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                obs = rj.get('observation') or rj
+                                digest_parts = []
+                                summary = obs.get('summary') or ''
+                                if summary:
+                                    digest_parts.append(summary)
+                                fname = rj.get('file_name') or ''
+                                if fname:
+                                    digest_parts.append(f"file: {fname}")
+                                fid = rj.get('file_id') or obs.get('file_id')
+                                if fid:
+                                    digest_parts.append(f"file_id: {fid}")
+                                # Surface visualization IDs
+                                viz_ids = rj.get('created_visualization_ids') or []
+                                if viz_ids:
+                                    digest_parts.append(f"visualization_ids: {viz_ids}")
+                                rc = obs.get('row_count') or rj.get('row_count')
+                                if rc:
+                                    digest_parts.append(f"{rc} rows")
+                                cols = obs.get('columns') or rj.get('columns') or []
+                                if cols:
+                                    digest_parts.append(f"columns: {cols}")
+                                # Include a data sample from execution log
+                                exec_log = rj.get('execution_log') or ''
+                                if exec_log:
+                                    sample_lines = exec_log.strip().split('\n')[:8]
+                                    digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
+                                if obs.get('success') is False:
+                                    digest_parts.append("FAILED")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'error' and tool_execution.error_message:

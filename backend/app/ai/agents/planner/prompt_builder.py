@@ -117,9 +117,14 @@ PLAN TYPE DECISION FRAMEWORK
 - After inspect_data, move to create_data to generate the actual tracked insight.
 - If schemas are empty/insufficient, output your clarifying questions in assistant_message and call the clarify tool to pause for user response.
 - If the user's request is ambiguous, output your questions in assistant_message and call the clarify tool.
+- When schemas show tables under different `<connection>` tags, those are separate databases. Queries CANNOT join across connections. Plan accordingly: either scope to one connection, or instruct the coder (via interpreted_prompt) to query each connection separately and merge in Python.
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
 - If the user attached a screenshot or an image -- describe it in reasoning - don't use inspect_data for images
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
+
+{'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Use search_mcps to discover available external tools and get their full input schemas before calling execute_mcp.' + chr(10) + '- Use execute_mcp to invoke an external tool. Tabular results are auto-saved as CSV files accessible by create_data.' + chr(10) + '- Flow: search_mcps → execute_mcp → (optional: write_csv) → create_data for visualization.' if planner_input.mcp_tools_enabled else ''}
+- Use write_csv to generate or transform data into a CSV file using Python/pandas code. The resulting CSV can be loaded by create_data for visualization.
+- write_csv is useful when the user asks to create a table of data from scratch, or when raw/unstructured data needs to be cleaned into tabular format.
 
 ERROR HANDLING (robust; no blind retries)
 - If ANY tool error occurred, start reasoning_message with: 
@@ -171,8 +176,8 @@ COMMUNICATION
   - "high": multi-sentence deliberate reasoning; use when planning is required.
   - Always base your reasoning on the provided context (schemas, history, last_observation). If feedback metrics (in tables, code, etc) are available, acknowledge them and use them to guide your reasoning.
 - assistant_message: plain English and user facing
-  - If not final, provide a brief description of the action you will execute now. 
-  - If final, summarize findings and conclusions while citing the table/data created. Do not repeat the widgets' data, and it should not be long.
+  - If not final (analysis_complete=false): provide a brief description of the action you will execute now. Set final_answer=null.
+  - If final (analysis_complete=true): set assistant_message=null. Use only final_answer for the user-facing response.
 - First turn (no last_observation): only use "high" if non-trivial planning is needed; otherwise choose "medium" or "low".
 - For trivial/greeting flows or when using answer_question with direct context answers, prefer "low" reasoning.
 - Avoid responding with visualization id/artifact id or other identifiers in assistant_message.
@@ -226,6 +231,7 @@ INPUT ENVELOPE
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.resources_combined if getattr(planner_input, 'resources_combined', None) else ''}
+  {planner_input.tools_context if getattr(planner_input, 'tools_context', None) else ''}
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
@@ -249,17 +255,18 @@ EXPECTED JSON OUTPUT (strict):
   "analysis_complete": boolean,  // true ONLY if NO tool call is needed and you have a final answer
   "plan_type": "research" | "action" | null,
   "reasoning_message": string | null,
-  "assistant_message": string | null,
+  "assistant_message": string | null,  // Set only when analysis_complete=false. Must be null when analysis_complete=true.
   "action": {{  // Set this if you need to call a tool. If action is set, analysis_complete should be false.
     "type": "tool_call",
     "name": string,
     "arguments": object
   }} | null,
-  "final_answer": string | null  // Only set if analysis_complete is true
+  "final_answer": string | null  // Set only when analysis_complete=true. Must be null when analysis_complete=false.
 }}
 
-CRITICAL: If you are calling a tool (action is not null), set analysis_complete=false. 
+CRITICAL: If you are calling a tool (action is not null), set analysis_complete=false.
 The tool needs to execute first before analysis can be complete.
+CRITICAL: assistant_message and final_answer are mutually exclusive. Never set both in the same response.
 """
         return prompt
     
@@ -551,6 +558,7 @@ INPUT ENVELOPE
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.resources_combined if getattr(planner_input, 'resources_combined', None) else ''}
+  {planner_input.tools_context if getattr(planner_input, 'tools_context', None) else ''}
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}

@@ -154,7 +154,7 @@ class Coder:
         data_source_descriptions = []
         for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 
@@ -215,14 +215,14 @@ class Coder:
 
         {modify_existing_widget_text}
 
-        - Data Sources and Clients:
-        Each data source may be SQL, document DB, service API, or Excel.
-        You have a `ds_clients` dict where each key is a data source name.
+        - Connection Clients:
+        Each connection client may be SQL, document DB, service API, or Excel.
+        You have a `ds_clients` dict where each key identifies a specific database connection.
         Each ds_client has a method `execute_query("QUERY")` that returns data.
-        The 'QUERY' depends on the data source type. The data source descriptions are:
-        <data_sources_clients>
+        The 'QUERY' depends on the data source type. The connection descriptions are:
+        <connection_clients>
         {data_source_section}
-        </data_sources_clients>
+        </connection_clients>
 
         - Excel Files:
         <excel_files>
@@ -257,8 +257,10 @@ class Coder:
 
         2. **Data Source Usage**:
            - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
-             * CRITICAL: Use the EXACT `client_key` string from <data_sources_and_clients> section - it is a literal string, NOT a variable!
+             * CRITICAL: Use the EXACT `client_key` string from <connection_clients> section - it is a literal string, NOT a variable!
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
+           - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
+           - **Cross-Connection Queries**: If you need tables from DIFFERENT connections, you CANNOT join them in SQL. Instead, query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -426,10 +428,10 @@ class Coder:
             - Files:
             {files_context}
 
-            - Data Sources and Clients:
-            <data_sources_clients>
+            - Connection Clients:
+            <connection_clients>
             {context.data_sources_context or ""}
-            </data_sources_clients>
+            </connection_clients>
 
             - Mentions:
             {mentions_context}
@@ -470,8 +472,10 @@ class Coder:
 
             2. **Data Source Usage**:
                - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
-                 * CRITICAL: Use the EXACT `client_key` string from <data_sources_clients> section - it is a literal string, NOT a variable!
+                 * CRITICAL: Use the EXACT `client_key` string from <connection_clients> section - it is a literal string, NOT a variable!
                  * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
+               - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
+               - **Cross-Connection Queries**: If you need tables from DIFFERENT connections, you CANNOT join them in SQL. Instead, query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -598,7 +602,7 @@ class Coder:
         data_source_descriptions = []
         for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 
@@ -689,14 +693,14 @@ class Coder:
         - Last Observation:
         <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
 
-        - Data Sources and Clients:
-        Each data source may be SQL, document DB, service API, or Excel.
-        You have a `ds_clients` dict where each key is a data source name.
+        - Connection Clients:
+        Each connection client may be SQL, document DB, service API, or Excel.
+        You have a `ds_clients` dict where each key identifies a specific data connection.
         Each ds_client has a method `execute_query("QUERY")` that returns data.
-        The 'QUERY' depends on the data source type. The data source descriptions are:
-        <data_sources_clients>
+        The 'QUERY' depends on the data source type. The connection descriptions are:
+        <connection_clients>
         {data_source_section}
-        </data_sources_clients>
+        </connection_clients>
 
         - Excel Files:
         <excel_files>
@@ -829,7 +833,7 @@ class Coder:
         data_source_descriptions = []
         for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"client_key: {client_key}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {getattr(client, 'description', 'N/A')}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 
@@ -859,12 +863,14 @@ class Coder:
         - Files:
         {files_context}
 
-        - Data Sources:
+        - Connection Clients:
+        <connection_clients>
         {data_source_section}
-        
+        </connection_clients>
+
         - Excel Files (available via `excel_files` list):
         {excel_files_section}
-        
+
         **Excel File Access**: Use `pd.read_excel(excel_files[INDEX].path, sheet_name=0)` to read Excel files.
         - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)
         - Example: `df = pd.read_excel(excel_files[0].path, sheet_name=0)`
@@ -872,8 +878,9 @@ class Coder:
         **CRITICAL CONSTRAINTS**:
         1. **MAX 2-3 QUERIES TOTAL** - This is a quick validation, not a full analysis.
         2. **LIMIT 3** - Always use `LIMIT 3` in SQL. Always use `.head(3)` on DataFrames.
-        3. **Complex joins are OK** - You can join tables to validate relationships.
-        4. **DO NOT query information_schema** - Schema is already provided above.
+        3. **Complex joins are OK within the same connection** - But you CANNOT join across different connections in SQL. If tables are under different `<connection>` tags in the schemas, query each connection separately.
+        4. **Connection-Table Mapping**: Match `<connection name="...">` in schemas to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
+        5. **DO NOT query information_schema** - Schema is already provided above.
 
         **What to validate**:
         - Sample rows to see data structure

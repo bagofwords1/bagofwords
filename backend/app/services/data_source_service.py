@@ -617,7 +617,6 @@ class DataSourceService:
                 selectinload(DataSource.git_repository),
                 selectinload(DataSource.data_source_memberships),
                 selectinload(DataSource.connections),
-                selectinload(DataSource.tables),
             )
             .filter(DataSource.id == data_source_id)
             .filter(DataSource.organization_id == organization.id)
@@ -628,27 +627,35 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # Check if we need to retest the connection (cache expired or never tested)
-        conn = data_source.connections[0] if data_source.connections else None
-        needs_retest = True
-        if conn and conn.last_connection_checked_at:
-            # Handle timezone-naive datetimes from database
-            last_checked = conn.last_connection_checked_at
-            if last_checked.tzinfo is None:
-                last_checked = last_checked.replace(tzinfo=timezone.utc)
-            age = (datetime.now(timezone.utc) - last_checked).total_seconds()
-            needs_retest = age > self.CONNECTION_TEST_TTL_SECONDS
+        # Check if any connection needs retesting (cache expired or never tested)
+        from app.services.connection_service import ConnectionService
+        conn_service = ConnectionService()
+        stale_connections = []
+        for conn in (data_source.connections or []):
+            needs_retest = True
+            if conn.last_connection_checked_at:
+                last_checked = conn.last_connection_checked_at
+                if last_checked.tzinfo is None:
+                    last_checked = last_checked.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - last_checked).total_seconds()
+                needs_retest = age > self.CONNECTION_TEST_TTL_SECONDS
+            if needs_retest:
+                stale_connections.append(conn)
 
-        # Only test connection if cache is stale
-        if needs_retest:
+        # Retest stale connections
+        if stale_connections:
             try:
-                await self.test_data_source_connection(
-                    db=db,
-                    data_source_id=str(data_source.id),
-                    organization=organization,
-                    current_user=current_user or User(),
-                )
-                # After commit in test, relationships may be expired; reload with eager options
+                for conn in stale_connections:
+                    try:
+                        await conn_service.test_connection(
+                            db=db,
+                            connection_id=str(conn.id),
+                            organization=organization,
+                            current_user=current_user or User(),
+                        )
+                    except Exception:
+                        pass
+                # After commits in tests, relationships may be expired; reload with eager options
                 try:
                     stmt = (
                         select(DataSource)
@@ -656,7 +663,6 @@ class DataSourceService:
                             selectinload(DataSource.git_repository),
                             selectinload(DataSource.data_source_memberships),
                             selectinload(DataSource.connections),
-                            selectinload(DataSource.tables),
                         )
                         .where(DataSource.id == data_source.id)
                     )
@@ -1057,14 +1063,15 @@ class DataSourceService:
     async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         from datetime import datetime, timezone
         from sqlalchemy.orm import selectinload
-        
+        from app.services.connection_service import ConnectionService
+
         try:
             # Find the data source with connections eager-loaded
             result = await db.execute(
                 select(DataSource)
                 .options(selectinload(DataSource.connections))
                 .filter(
-                    DataSource.id == data_source_id, 
+                    DataSource.id == data_source_id,
                     DataSource.organization_id == organization.id
                 )
             )
@@ -1072,60 +1079,45 @@ class DataSourceService:
             if not data_source:
                 raise ValueError(f"Data source not found: {data_source_id}")
 
-            # Get the matching client from DATA_SOURCE_DETAILS
-            # Import and instantiate the client class
-            # Resolve client with policy-aware credentials
-            client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
-            # Test the connection
-            connection_status = await client.atest_connection()
+            if not data_source.connections:
+                return {"success": False, "message": "Data source has no connections"}
 
-            # Normalize success value for robust handling
-            try:
-                success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
-            except Exception:
-                success = False
-
-            # Cache the connection test result on the Connection model
-            conn = data_source.connections[0] if data_source.connections else None
-            if conn:
-                conn.last_connection_status = "success" if success else "not_connected"
-                conn.last_connection_checked_at = datetime.utcnow()
+            # Test all connections using ConnectionService (which caches results)
+            conn_service = ConnectionService()
+            all_success = True
+            last_status = None
+            for conn in data_source.connections:
+                try:
+                    last_status = await conn_service.test_connection(
+                        db=db,
+                        connection_id=str(conn.id),
+                        organization=organization,
+                        current_user=current_user,
+                    )
+                    success = bool(last_status.get("success")) if isinstance(last_status, dict) else bool(last_status)
+                    if not success:
+                        all_success = False
+                except Exception as e:
+                    all_success = False
+                    last_status = {"success": False, "message": str(e)}
 
             # Reflect connectivity on org-wide flag only for system creds
             if getattr(data_source, "auth_policy", "system_only") == "system_only":
-                if not success:
+                if not all_success:
                     data_source.is_active = False
-                else:
-                    if data_source.is_active == False:
-                        data_source.is_active = True
-            
-            await db.commit()
-            if conn:
-                await db.refresh(conn)
+                elif data_source.is_active == False:
+                    data_source.is_active = True
+                await db.commit()
+
             await db.refresh(data_source)
+            connection_status = last_status or {"success": all_success}
 
         except Exception as e:
-            # For system creds, mark DS inactive; for user creds, don't flip org state
-            try:
-                if 'data_source' in locals():
-                    # Cache the failure
-                    conn = data_source.connections[0] if data_source.connections else None
-                    if conn:
-                        conn.last_connection_status = "not_connected"
-                        conn.last_connection_checked_at = datetime.utcnow()
-                    
-                    if getattr(data_source, "auth_policy", "system_only") == "system_only":
-                        data_source.is_active = False
-                    await db.commit()
-            except Exception:
-                pass
-
-            # Return the error message instead of True
             connection_status = {
                 "success": False,
                 "message": str(e)
             }
-        
+
         return connection_status
     
     async def test_new_data_source_connection(self, db: AsyncSession, data: DataSourceCreate, organization: Organization, current_user: User):
@@ -1316,6 +1308,7 @@ class DataSourceService:
             raise HTTPException(status_code=400, detail="Data source has no associated connections")
 
         clients: Dict[str, Any] = {}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
 
         for conn in data_source.connections:
             key = f"{data_source.name}:{conn.name}"
@@ -1335,10 +1328,7 @@ class DataSourceService:
             )
 
             params = {**(config or {}), **(creds or {})}
-
-            # Strip meta keys
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
-            params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys}
+            params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
             # Narrow to constructor signature
             try:
@@ -1350,11 +1340,9 @@ class DataSourceService:
             clients[key] = ClientClass(**allowed)
 
         # Backward compatibility: add legacy key aliases for single-connection domains
-        # This supports old code patterns like ds_clients.get("domain_name") or ds_clients["domain_name"]
         if len(data_source.connections) == 1:
             first_key = next(iter(clients.keys()))
             first_client = clients[first_key]
-            # Add domain name as alias
             clients[data_source.name] = first_client
 
         return clients
@@ -1631,7 +1619,7 @@ class DataSourceService:
         from app.schemas.datasource_table_schema import PaginatedTablesResponse, DataSourceTableSchema, ConnectionInfo
         from app.models.connection_table import ConnectionTable
         from app.models.connection import Connection
-        from sqlalchemy import func, case
+        from sqlalchemy import func, case, and_
         import math
         
         # Verify data source exists
@@ -1680,12 +1668,37 @@ class DataSourceService:
                 return func.json_extract(DataSourceTable.metadata_json, '$.schema')
         
         # Apply schema filter (from metadata_json->>'schema')
+        # Supports prefixed format "connection_name:schema" for multi-connection
         if schema_filter and len(schema_filter) > 0:
-            # Filter by schema names in metadata_json
+            from sqlalchemy import or_
             schema_expr = get_schema_expr()
-            schema_conditions = [schema_expr == schema_name for schema_name in schema_filter]
+            # Check if any filter values use the "conn_name:schema" prefix format
+            prefixed = [s for s in schema_filter if ':' in s]
+            plain = [s for s in schema_filter if ':' not in s]
+
+            schema_conditions = []
+            if plain:
+                schema_conditions.extend([schema_expr == s for s in plain])
+            if prefixed:
+                # Need to join connection to filter by both connection name and schema
+                if not connection_filter:
+                    # Only join if not already joined by connection_filter below
+                    base_query = base_query.join(
+                        ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id, isouter=False
+                    ).join(
+                        Connection, ConnectionTable.connection_id == Connection.id, isouter=False
+                    )
+                    count_query = count_query.join(
+                        ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id, isouter=False
+                    ).join(
+                        Connection, ConnectionTable.connection_id == Connection.id, isouter=False
+                    )
+                for pf in prefixed:
+                    conn_name, schema_name = pf.split(':', 1)
+                    schema_conditions.append(
+                        and_(Connection.name == conn_name, schema_expr == schema_name)
+                    )
             if schema_conditions:
-                from sqlalchemy import or_
                 base_query = base_query.where(or_(*schema_conditions))
                 count_query = count_query.where(or_(*schema_conditions))
 
@@ -1718,15 +1731,6 @@ class DataSourceService:
         )
         selected_count = selected_count_result.scalar() or 0
         
-        # Get distinct schemas for filter dropdown (database-agnostic)
-        schema_expr = get_schema_expr()
-        schemas_result = await db.execute(
-            select(func.distinct(schema_expr))
-            .where(DataSourceTable.datasource_id == data_source_id)
-            .where(schema_expr.isnot(None))
-        )
-        distinct_schemas = [row[0] for row in schemas_result.fetchall() if row[0]]
-
         # Get distinct connections for filter dropdown
         connections_result = await db.execute(
             select(Connection.id, Connection.name, Connection.type)
@@ -1740,6 +1744,31 @@ class DataSourceService:
             ConnectionInfo(id=str(row[0]), name=row[1], type=row[2])
             for row in connections_result.fetchall()
         ]
+        has_multi_connection = len(distinct_connections) > 1
+
+        # Get distinct schemas for filter dropdown (database-agnostic)
+        # When multiple connections exist, prefix schema with connection name
+        schema_expr = get_schema_expr()
+        if has_multi_connection:
+            schemas_result = await db.execute(
+                select(schema_expr, Connection.name)
+                .select_from(DataSourceTable)
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .join(Connection, ConnectionTable.connection_id == Connection.id)
+                .where(DataSourceTable.datasource_id == data_source_id)
+                .where(schema_expr.isnot(None))
+                .distinct()
+            )
+            distinct_schemas = [
+                f"{row[1]}:{row[0]}" for row in schemas_result.fetchall() if row[0]
+            ]
+        else:
+            schemas_result = await db.execute(
+                select(func.distinct(schema_expr))
+                .where(DataSourceTable.datasource_id == data_source_id)
+                .where(schema_expr.isnot(None))
+            )
+            distinct_schemas = [row[0] for row in schemas_result.fetchall() if row[0]]
 
         # Apply sorting
         sort_column = DataSourceTable.name  # default
@@ -1884,12 +1913,15 @@ class DataSourceService:
         filter_params = filter_params or {}
         
         # Apply schema filter (database-agnostic JSON extraction)
+        # Supports prefixed "conn_name:schema" format for multi-connection
         schema_filter = filter_params.get("schema") or filter_params.get("schemas")
         if schema_filter:
             if isinstance(schema_filter, str):
                 schema_filter = [schema_filter]
             if len(schema_filter) > 0:
-                from sqlalchemy import or_
+                from sqlalchemy import or_, and_
+                from app.models.connection_table import ConnectionTable
+                from app.models.connection import Connection
                 # Detect dialect for cross-database JSON extraction
                 bind = db.get_bind()
                 dialect_name = bind.dialect.name if bind else "sqlite"
@@ -1897,15 +1929,54 @@ class DataSourceService:
                     schema_expr = DataSourceTable.metadata_json.op('->>')('schema')
                 else:
                     schema_expr = func.json_extract(DataSourceTable.metadata_json, '$.schema')
-                schema_conditions = [schema_expr == s for s in schema_filter]
-                update_query = update_query.where(or_(*schema_conditions))
+
+                prefixed = [s for s in schema_filter if ':' in s]
+                plain = [s for s in schema_filter if ':' not in s]
+                schema_conditions = [schema_expr == s for s in plain]
+
+                if prefixed:
+                    # Join to connection for prefixed schema filters
+                    update_query = update_query.where(
+                        DataSourceTable.id.in_(
+                            select(DataSourceTable.id)
+                            .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                            .join(Connection, ConnectionTable.connection_id == Connection.id)
+                            .where(
+                                DataSourceTable.datasource_id == data_source_id,
+                                or_(*[
+                                    and_(Connection.name == pf.split(':', 1)[0], schema_expr == pf.split(':', 1)[1])
+                                    for pf in prefixed
+                                ] + schema_conditions)
+                            )
+                        )
+                    )
+                elif schema_conditions:
+                    update_query = update_query.where(or_(*schema_conditions))
         
+        # Apply connection filter
+        connection_filter = filter_params.get("connection")
+        if connection_filter:
+            if isinstance(connection_filter, str):
+                connection_filter = [connection_filter]
+            if len(connection_filter) > 0:
+                from app.models.connection_table import ConnectionTable as CT2
+                update_query = update_query.where(
+                    DataSourceTable.id.in_(
+                        select(DataSourceTable.id)
+                        .join(CT2, DataSourceTable.connection_table_id == CT2.id)
+                        .where(
+                            DataSourceTable.datasource_id == data_source_id,
+                            CT2.connection_id.in_(connection_filter)
+                        )
+                    )
+                )
+
         # Apply search filter
         search = filter_params.get("search")
         if search and search.strip():
             search_pattern = f"%{search.strip().lower()}%"
             update_query = update_query.where(func.lower(DataSourceTable.name).like(search_pattern))
-        
+
         # Execute update
         update_query = update_query.values(is_active=new_status)
         result = await db.execute(update_query)
@@ -1957,32 +2028,63 @@ class DataSourceService:
         
         activate = activate or []
         deactivate = deactivate or []
-        
+
         activated_count = 0
         deactivated_count = 0
-        
+
+        # Detect whether caller sent table IDs (UUIDs) or legacy table names.
+        # IDs are unique per row; names may collide across connections.
+        def _looks_like_ids(items: List[str]) -> bool:
+            if not items:
+                return False
+            import re
+            uuid_re = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+            return all(uuid_re.match(i) for i in items[:3])
+
+        use_ids = _looks_like_ids(activate) or _looks_like_ids(deactivate)
+
         # Activate tables
         if activate:
-            activate_result = await db.execute(
-                update(DataSourceTable)
-                .where(
-                    DataSourceTable.datasource_id == data_source_id,
-                    DataSourceTable.name.in_(activate)
+            if use_ids:
+                activate_result = await db.execute(
+                    update(DataSourceTable)
+                    .where(
+                        DataSourceTable.datasource_id == data_source_id,
+                        DataSourceTable.id.in_(activate)
+                    )
+                    .values(is_active=True)
                 )
-                .values(is_active=True)
-            )
+            else:
+                activate_result = await db.execute(
+                    update(DataSourceTable)
+                    .where(
+                        DataSourceTable.datasource_id == data_source_id,
+                        DataSourceTable.name.in_(activate)
+                    )
+                    .values(is_active=True)
+                )
             activated_count = activate_result.rowcount
-        
+
         # Deactivate tables
         if deactivate:
-            deactivate_result = await db.execute(
-                update(DataSourceTable)
-                .where(
-                    DataSourceTable.datasource_id == data_source_id,
-                    DataSourceTable.name.in_(deactivate)
+            if use_ids:
+                deactivate_result = await db.execute(
+                    update(DataSourceTable)
+                    .where(
+                        DataSourceTable.datasource_id == data_source_id,
+                        DataSourceTable.id.in_(deactivate)
+                    )
+                    .values(is_active=False)
                 )
-                .values(is_active=False)
-            )
+            else:
+                deactivate_result = await db.execute(
+                    update(DataSourceTable)
+                    .where(
+                        DataSourceTable.datasource_id == data_source_id,
+                        DataSourceTable.name.in_(deactivate)
+                    )
+                    .values(is_active=False)
+                )
             deactivated_count = deactivate_result.rowcount
         
         await db.commit()
@@ -2926,12 +3028,13 @@ class DataSourceService:
             logger.warning(f"sync_domain_tables_from_connection: No ConnectionTable records found, cannot sync")
             return
         
-        # Get existing domain tables
+        # Get existing domain tables keyed by connection_table_id
+        # This allows the same table name from different connections to coexist
         existing = await db.execute(
             select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source.id)
         )
-        existing_by_name = {t.name: t for t in existing.scalars().all()}
-        
+        existing_by_conn_table_id = {t.connection_table_id: t for t in existing.scalars().all() if t.connection_table_id}
+
         total_tables = len(conn_tables)
 
         # Determine initial activation:
@@ -2946,11 +3049,9 @@ class DataSourceService:
             needs_smart_selection = total_tables > max_auto_select
 
         for conn_table in conn_tables:
-            if conn_table.name in existing_by_name:
-                # Update existing - link to connection table and refresh schema data
-                domain_table = existing_by_name[conn_table.name]
-                domain_table.connection_table_id = conn_table.id
-                # Update legacy fields with latest schema (preserves is_active)
+            if conn_table.id in existing_by_conn_table_id:
+                # Update existing - refresh schema data (preserves is_active)
+                domain_table = existing_by_conn_table_id[conn_table.id]
                 domain_table.columns = conn_table.columns
                 domain_table.pks = conn_table.pks
                 domain_table.fks = conn_table.fks
@@ -2981,7 +3082,7 @@ class DataSourceService:
         # Deactivate domain tables that no longer exist in the connection
         # (table was deleted from the database)
         # IMPORTANT: Only check tables that belong to THIS connection, not all domain tables
-        conn_table_names = {t.name for t in conn_tables}
+        conn_table_ids = {t.id for t in conn_tables}
 
         # Get domain tables that are linked to THIS connection (via ConnectionTable)
         existing_for_this_conn = await db.execute(
@@ -2992,13 +3093,12 @@ class DataSourceService:
                 ConnectionTable.connection_id == connection_id_str
             )
         )
-        existing_for_this_conn = {t.name: t for t in existing_for_this_conn.scalars().all()}
+        existing_for_this_conn = existing_for_this_conn.scalars().all()
 
-        missing_tables = set(existing_for_this_conn.keys()) - conn_table_names
+        missing_tables = [t for t in existing_for_this_conn if t.connection_table_id not in conn_table_ids]
         if missing_tables:
             from sqlalchemy import update
-            for table_name in missing_tables:
-                domain_table = existing_for_this_conn[table_name]
+            for domain_table in missing_tables:
                 await db.execute(
                     update(DataSourceTable)
                     .where(DataSourceTable.id == domain_table.id)

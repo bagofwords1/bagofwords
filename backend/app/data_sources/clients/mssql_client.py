@@ -38,15 +38,18 @@ class MSSQLClient(DataSourceClient):
     def sql_server_uri(self):
         from urllib.parse import quote_plus
         driver_name = f"ODBC Driver {self.odbc_driver} for SQL Server"
-        driver_encoded = quote_plus(driver_name)
-        uri = (
-            f"mssql+pyodbc://{self.user}:{self.password}@"
-            f"{self.host}:{self.port}/{self.database}"
-            f"?driver={driver_encoded}&TrustServerCertificate=yes"
+        params = (
+            f"DRIVER={driver_name};"
+            f"SERVER={self.host},{self.port};"
+            f"DATABASE={self.database};"
+            f"UID={self.user};"
+            f"PWD={self.password};"
+            f"TrustServerCertificate=yes;"
+            f"LoginTimeout=30;"
         )
         if not self.encrypt:
-            uri += "&Encrypt=no"
-        return uri
+            params += "Encrypt=no;"
+        return f"mssql+pyodbc:///?odbc_connect={quote_plus(params)}"
 
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:

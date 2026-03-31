@@ -104,20 +104,24 @@
               </button>
             </div>
             <div v-if="availableSchemas.length === 0" class="px-2 py-1 text-xs text-gray-400">No schemas</div>
-            <div v-else class="max-h-32 overflow-y-auto">
-              <label
-                v-for="schema in availableSchemas"
-                :key="schema"
-                class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  :checked="selectedSchemas.includes(schema)"
-                  @change="toggleSchemaFilter(schema)"
-                  class="mr-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span class="truncate">{{ schema }}</span>
-              </label>
+            <div v-else class="max-h-40 overflow-y-auto">
+              <template v-for="(group, connName) in groupedSchemas" :key="connName">
+                <div v-if="connName !== '_default'" class="px-2 pt-1.5 pb-0.5 text-[9px] font-medium text-gray-400 truncate">{{ connName }}</div>
+                <label
+                  v-for="item in group"
+                  :key="item.value"
+                  class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer"
+                  :class="connName !== '_default' ? 'pl-4' : ''"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="selectedSchemas.includes(item.value)"
+                    @change="toggleSchemaFilter(item.value)"
+                    class="mr-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span class="truncate">{{ item.label }}</span>
+                </label>
+              </template>
             </div>
           </div>
 
@@ -251,22 +255,25 @@
       <div v-else class="flex-1 flex flex-col min-h-full">
         <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="{ maxHeight }">
           <ul class="divide-y divide-gray-100">
-            <li v-for="table in tables" :key="table.name" class="py-2 px-2">
+            <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2">
               <div class="flex items-center">
-                <UCheckbox 
-                  v-if="canUpdate" 
-                  color="blue" 
-                  :model-value="isTableActive(table.name)"
-                  @update:model-value="(val: boolean) => onTableToggle(table.name, val)"
-                  class="mr-3" 
+                <UCheckbox
+                  v-if="canUpdate"
+                  color="blue"
+                  :model-value="isTableActive(tableKey(table))"
+                  @update:model-value="(val: boolean) => onTableToggle(tableKey(table), val)"
+                  class="mr-3"
                 />
                 <button type="button" class="flex items-center justify-between text-left flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1 text-gray-500" />
-                    <DataSourceIcon v-if="availableConnections.length > 1" :type="table.connection_type" class="h-3.5 mr-1.5 flex-shrink-0" />
+                    <template v-if="availableConnections.length > 1">
+                      <DataSourceIcon :type="table.connection_type" class="h-3.5 mr-1 flex-shrink-0" />
+                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 mr-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
+                    </template>
                     <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
-                    <span v-if="!isTableActive(table.name) && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
-                    <span v-if="isTableDirty(table.name)" class="ml-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
+                    <span v-if="isTableDirty(tableKey(table))" class="ml-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
                   </div>
                   <span v-if="props.showStats && (table.usage_count !== undefined)" class="ml-2 text-[11px] text-gray-500 whitespace-nowrap flex items-center gap-2">
                     <span>usage {{ table.usage_count }}</span>
@@ -405,6 +412,7 @@ type ForeignKey = {
   references_column?: { name: string; dtype?: string };
 }
 type Table = {
+  id?: string;
   name: string;
   is_active: boolean;
   columns?: Column[];
@@ -552,6 +560,25 @@ function onSearchInput() {
 const paginationStart = computed(() => ((page.value - 1) * props.pageSize) + 1)
 const paginationEnd = computed(() => Math.min(page.value * props.pageSize, totalMatching.value))
 
+// Group schemas by connection prefix for display
+// "conn:schema" → grouped under conn header; plain "schema" → under _default
+const groupedSchemas = computed(() => {
+  const groups: Record<string, { value: string; label: string }[]> = {}
+  for (const s of availableSchemas.value) {
+    const colonIdx = s.indexOf(':')
+    if (colonIdx > 0) {
+      const connName = s.substring(0, colonIdx)
+      const schemaName = s.substring(colonIdx + 1)
+      if (!groups[connName]) groups[connName] = []
+      groups[connName].push({ value: s, label: schemaName })
+    } else {
+      if (!groups['_default']) groups['_default'] = []
+      groups['_default'].push({ value: s, label: s })
+    }
+  }
+  return groups
+})
+
 const hasActiveFilters = computed(() => {
   return searchDebounced.value.trim() !== '' || selectedSchemas.value.length > 0 || selectedConnections.value.length > 0 || filters.value.selectedState !== null
 })
@@ -566,18 +593,22 @@ const hasPendingChanges = computed(() => {
 })
 
 // Helper functions
-function isTableActive(tableName: string): boolean {
-  return currentActiveState.value.get(tableName) ?? false
+function tableKey(table: Table): string {
+  return table.id || table.name
 }
 
-function isTableDirty(tableName: string): boolean {
-  const original = originalActiveState.value.get(tableName)
-  const current = currentActiveState.value.get(tableName)
+function isTableActive(key: string): boolean {
+  return currentActiveState.value.get(key) ?? false
+}
+
+function isTableDirty(key: string): boolean {
+  const original = originalActiveState.value.get(key)
+  const current = currentActiveState.value.get(key)
   return original !== current
 }
 
-function onTableToggle(tableName: string, newValue: boolean) {
-  currentActiveState.value.set(tableName, newValue)
+function onTableToggle(key: string, newValue: boolean) {
+  currentActiveState.value.set(key, newValue)
 }
 
 function endpointForSchema(): string {
@@ -728,12 +759,13 @@ async function fetchTables() {
           
           // Update tracking maps for loaded tables
           for (const table of paginatedData.tables) {
-            if (!originalActiveState.value.has(table.name)) {
-              originalActiveState.value.set(table.name, table.is_active)
+            const key = tableKey(table)
+            if (!originalActiveState.value.has(key)) {
+              originalActiveState.value.set(key, table.is_active)
             }
             // Only set current if not already tracked (preserve local changes)
-            if (!currentActiveState.value.has(table.name)) {
-              currentActiveState.value.set(table.name, table.is_active)
+            if (!currentActiveState.value.has(key)) {
+              currentActiveState.value.set(key, table.is_active)
             }
           }
         } else if (Array.isArray(data)) {
@@ -755,8 +787,9 @@ async function fetchTables() {
           
           // Initialize tracking
           for (const table of tables.value) {
-            originalActiveState.value.set(table.name, table.is_active)
-            currentActiveState.value.set(table.name, table.is_active)
+            const key = tableKey(table)
+            originalActiveState.value.set(key, table.is_active)
+            currentActiveState.value.set(key, table.is_active)
           }
         }
       } else {
@@ -766,7 +799,7 @@ async function fetchTables() {
       // User schema - non-paginated
       const url = `/data_sources/${props.dsId}/${endpoint}${props.showStats ? '?with_stats=true' : ''}`
       const res = await useMyFetch(url, { method: 'GET' })
-      
+
       if ((res as any)?.status?.value === 'success') {
         isPaginated.value = false
         tables.value = ((res as any).data?.value || []) as Table[]
@@ -774,10 +807,11 @@ async function fetchTables() {
         totalTables.value = tables.value.length
         selectedCount.value = tables.value.filter(t => t.is_active).length
         totalPages.value = 1
-        
+
         for (const table of tables.value) {
-          originalActiveState.value.set(table.name, table.is_active)
-          currentActiveState.value.set(table.name, table.is_active)
+          const key = tableKey(table)
+          originalActiveState.value.set(key, table.is_active)
+          currentActiveState.value.set(key, table.is_active)
         }
       } else {
         tables.value = []
@@ -827,9 +861,10 @@ function selectAllMatching() {
   
   // Update visible tables to show as checked
   for (const table of tables.value) {
-    currentActiveState.value.set(table.name, true)
+    const key = tableKey(table)
+    currentActiveState.value.set(key, true)
     // Update originalActiveState so subsequent toggles are detected as changes
-    originalActiveState.value.set(table.name, true)
+    originalActiveState.value.set(key, true)
   }
 }
 
@@ -858,9 +893,10 @@ function deselectAllMatching() {
   
   // Update visible tables to show as unchecked
   for (const table of tables.value) {
-    currentActiveState.value.set(table.name, false)
+    const key = tableKey(table)
+    currentActiveState.value.set(key, false)
     // Update originalActiveState so subsequent toggles are detected as changes
-    originalActiveState.value.set(table.name, false)
+    originalActiveState.value.set(key, false)
   }
 }
 
@@ -890,18 +926,18 @@ async function onSave() {
     // 2. Execute individual delta changes (for single checkbox toggles)
     const toActivate: string[] = []
     const toDeactivate: string[] = []
-    
-    for (const [name, currentVal] of currentActiveState.value) {
-      const originalVal = originalActiveState.value.get(name)
+
+    for (const [key, currentVal] of currentActiveState.value) {
+      const originalVal = originalActiveState.value.get(key)
       if (originalVal !== currentVal) {
         if (currentVal) {
-          toActivate.push(name)
+          toActivate.push(key)
         } else {
-          toDeactivate.push(name)
+          toDeactivate.push(key)
         }
       }
     }
-    
+
     if (toActivate.length > 0 || toDeactivate.length > 0) {
       await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
         method: 'PUT',

@@ -14,6 +14,7 @@ from app.ai.tools.schemas import (
     ToolStartEvent,
     ToolProgressEvent,
     ToolEndEvent,
+    ToolErrorEvent,
 )
 from app.ai.tools.schemas.create_dashboard import SemanticBlockOutput
 from app.services.dashboard_layout_engine import DashboardBlockSpec, ColumnSpec, ContainerChrome, compute_layout
@@ -102,6 +103,19 @@ class CreateDashboardTool(Tool):
         yield ToolStartEvent(type="tool.start", payload={"report_title": data.report_title or ""})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
+        try:
+            async for event in self._run_stream_inner(data, runtime_ctx):
+                yield event
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            yield ToolErrorEvent(
+                type="tool.error",
+                payload={"message": f"{type(e).__name__}: {e}", "traceback": tb},
+            )
+
+    async def _run_stream_inner(self, data: CreateDashboardInput, runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
+
         # Runtime context
         instruction_context_builder = runtime_ctx.get("instruction_context_builder") or (
             getattr(runtime_ctx.get("context_hub"), "instruction_builder", None) if runtime_ctx.get("context_hub") else None
@@ -186,6 +200,7 @@ class CreateDashboardTool(Tool):
             pass
 
         # Build context strings
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         instructions_context = ""
         mentions_context = "<mentions>No mentions for this turn</mentions>"
         entities_context = ""
@@ -397,6 +412,7 @@ OUTPUT FORMAT:
             except Exception:
                 return repr(blk)
 
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
         async for chunk in llm.inference_stream(
@@ -427,7 +443,7 @@ OUTPUT FORMAT:
                     # Emit progress for UI feedback
                     yield ToolProgressEvent(
                         type="tool.progress",
-                        payload={"stage": "semantic_block.received", "block_type": blk.get("type")}
+                        payload={"stage": "semantic_block.received", "block_type": blk.get("type"), "timing": False}
                     )
 
         # Final parse for any remaining blocks
@@ -464,7 +480,7 @@ OUTPUT FORMAT:
         for block in computed_layout.get("blocks", []):
             yield ToolProgressEvent(
                 type="tool.progress",
-                payload={"stage": "block.completed", "block": block}
+                payload={"stage": "block.completed", "block": block, "timing": False}
             )
 
         # Build output with both semantic and computed blocks

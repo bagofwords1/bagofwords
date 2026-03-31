@@ -7,12 +7,16 @@ class DescribeTablesInput(BaseModel):
 
     - query: table names or simple patterns; regex is auto-detected by special chars
     - data_source_ids: optional scope of data sources (UUID strings)
+    - connection_ids: optional scope to specific connections (UUID strings); use when the same table exists across multiple connections
     - limit: soft cap for how many tables to include in the rendered excerpt per data source
     """
 
     query: Union[str, List[str]] = Field(..., description="Table names or patterns")
     data_source_ids: Optional[List[str]] = Field(
         default=None, description="Optional list of data source IDs (UUIDs) to scope search"
+    )
+    connection_ids: Optional[List[str]] = Field(
+        default=None, description="Optional list of connection IDs (UUIDs) to scope search. Use when the same table name exists across multiple connections to avoid duplicates."
     )
     limit: int = Field(10, ge=1, le=100, description="Max tables to sample per data source in excerpt")
 
@@ -48,6 +52,8 @@ class DescribeTablesOutput(BaseModel):
         data_source_id: Optional[str] = None
         data_source_name: Optional[str] = None
         data_source_type: Optional[str] = None
+        connection_name: Optional[str] = None
+        connection_type: Optional[str] = None
         schema: Optional[str] = None  # optional; not all backends provide this
         name: str
         full_name: Optional[str] = None

@@ -1,5 +1,35 @@
 # Release Notes
 
+## Version 0.0.353 (March 30, 2026)
+- feat: new a2a integration for timbr
+- increase timeout in agent harness
+
+## Version 0.0.351 (March 29, 2026)
+- WAL mode for SQLite deployments and timeout settings for PostgreSQL
+- Performance improvement for the main completion flow
+- Add timing metrics across code gen / execution for agent execution traces 
+
+## Version 0.0.350 (March 29, 2026)
+- Add ability to integrate custom MCPs
+- Add NetSuite native integration
+
+## Version 0.0.349 (March 28, 2026)
+- Performance improvements
+- additional logging
+
+## Version 0.0.348 (March 26, 2026)
+- Improve Sybase integration and SQL Anywhere to use tds config
+
+## Version 0.0.347 (March 25, 2026)
+- Improve context compaction to include inspect_data and set a budget of 200k (overriden by known models if exist)
+- Add agent indicator/icon to agent trace
+- Add download as png button for charts
+- Add more filters to reports page and advanced search
+
+## Version 0.0.346 (March 24, 2026)
+- Fix bug that images are sent in future completions
+- Allow support for secret/access key in Bedrock LLM service
+
 ## Version 0.0.345 (March 24, 2026)
 - Make test_connection and other data client utils async calls
 

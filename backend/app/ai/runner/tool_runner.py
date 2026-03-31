@@ -78,7 +78,9 @@ class ToolRunner:
         backoff = self.retry.backoff_ms
         last_error = None
         last_error_type = None
-        
+        _run_start = time.monotonic()
+        _ts_first_event: float | None = None
+
         while True:
             attempt += 1
             start_ts = time.monotonic()
@@ -103,37 +105,44 @@ class ToolRunner:
 
                 last_observation = None
                 last_output = None
-                async for tevt in self._stream_with_idle(
-                    tool.run_stream(arguments, runtime_ctx),
-                    first_event_timeout_s=self.timeout.start_timeout_s,
-                    idle_timeout_s=self.timeout.idle_timeout_s,
-                ):
-                    # Handle both Pydantic events and dict events
-                    if hasattr(tevt, 'type'):
-                        # Pydantic model
-                        et = tevt.type
-                        payload = tevt.payload if hasattr(tevt, 'payload') else {}
-                        # Convert to dict for emission
-                        emit_event = tevt.model_dump() if hasattr(tevt, 'model_dump') else tevt
-                    else:
-                        # Dict event
-                        et = tevt.get("type")
-                        payload = tevt.get("payload") or {}
-                        emit_event = tevt
-                        
-                    await emit(emit_event)
-                    
-                    if et == "tool.error":
-                        last_observation = {
-                            "summary": f"Execution failed for '{tool.name}'",
-                            "error": {"type": "runtime_error", "message": payload.get("message") or "unknown"},
-                        }
-                        break
-                    if et == "tool.end":
-                        last_observation = payload.get("observation")
-                        last_output = payload.get("output")
-                if hard_timer and not hard_timer.cancelled():
-                    hard_timer.cancel()
+                _stage_timestamps: list[tuple[str, float]] = []
+                try:
+                    async for tevt in self._stream_with_idle(
+                        tool.run_stream(arguments, runtime_ctx),
+                        first_event_timeout_s=self.timeout.start_timeout_s,
+                        idle_timeout_s=self.timeout.idle_timeout_s,
+                    ):
+                        # Handle both Pydantic events and dict events
+                        if hasattr(tevt, 'type'):
+                            # Pydantic model
+                            et = tevt.type
+                            payload = tevt.payload if hasattr(tevt, 'payload') else {}
+                            # Convert to dict for emission
+                            emit_event = tevt.model_dump() if hasattr(tevt, 'model_dump') else tevt
+                        else:
+                            # Dict event
+                            et = tevt.get("type")
+                            payload = tevt.get("payload") or {}
+                            emit_event = tevt
+
+                        await emit(emit_event)
+                        if _ts_first_event is None and et != "tool.start":
+                            _ts_first_event = time.monotonic()
+                        if et == "tool.progress" and payload.get("timing", True):
+                            _stage_timestamps.append((payload.get("stage", "unknown"), time.monotonic()))
+
+                        if et == "tool.error":
+                            last_observation = {
+                                "summary": f"Execution failed for '{tool.name}'",
+                                "error": {"type": "runtime_error", "message": payload.get("message") or "unknown"},
+                            }
+                            break
+                        if et == "tool.end":
+                            last_observation = payload.get("observation")
+                            last_output = payload.get("output")
+                finally:
+                    if hard_timer and not hard_timer.cancelled():
+                        hard_timer.cancel()
 
                 # Reset validation failure count on successful execution
                 self.validation_failure_count = 0
@@ -158,9 +167,33 @@ class ToolRunner:
 
                 if last_observation is None:
                     last_observation = {"summary": f"Tool '{tool.name}' produced no result", "error": {"type": "empty_result"}}
-                
-                # Return both observation and output as separate items
-                return {"observation": last_observation, "output": last_output}
+
+                # Assemble sub_timings from phase markers and any timing data in the output
+                _total_ms = round((time.monotonic() - _run_start) * 1000.0, 1)
+                _setup_ms = round((_ts_first_event - _run_start) * 1000.0, 1) if _ts_first_event else None
+                sub_timings: dict = {
+                    "total_ms": _total_ms,
+                    "setup_ms": _setup_ms,
+                    "retry_count": attempt - 1,
+                }
+                if _stage_timestamps:
+                    _run_end = time.monotonic()
+                    stages = []
+                    for i, (stage, ts) in enumerate(_stage_timestamps):
+                        end = _stage_timestamps[i + 1][1] if i + 1 < len(_stage_timestamps) else _run_end
+                        stages.append({"stage": stage, "ms": round((end - ts) * 1000.0, 1)})
+                    sub_timings["stages"] = stages
+
+                if last_output and isinstance(last_output, dict):
+                    if last_output.get("query_timings"):
+                        sub_timings["queries"] = last_output["query_timings"]
+                    if last_output.get("codegen_ms") is not None:
+                        sub_timings["codegen_ms"] = last_output["codegen_ms"]
+                    if last_output.get("execution_ms") is not None:
+                        sub_timings["execution_ms"] = last_output["execution_ms"]
+
+                # Return both observation, output, and sub_timings
+                return {"observation": last_observation, "output": last_output, "sub_timings": sub_timings}
 
             except asyncio.TimeoutError as te:
                 await emit({"type": "tool.error", "payload": {"message": str(te)}})

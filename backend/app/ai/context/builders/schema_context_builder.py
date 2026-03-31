@@ -6,7 +6,7 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select, func, and_
-from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+from app.ai.context.sections.tables_schema_section import TablesSchemaContext, MCPToolItem
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable, TableColumn as PromptTableColumn, ForeignKey as PromptForeignKey
 from app.models.table_stats import TableStats
@@ -37,6 +37,7 @@ class SchemaContextBuilder:
         top_k: Optional[int] = None,
         *,
         data_source_ids: Optional[List[str]] = None,
+        connection_ids: Optional[List[str]] = None,
         table_names: Optional[List[str]] = None,
         name_patterns: Optional[List[str]] = None,
         active_only: bool = True,
@@ -48,6 +49,7 @@ class SchemaContextBuilder:
             with_stats: Include usage statistics for tables.
             top_k: Limit number of tables returned.
             data_source_ids: Filter to specific data sources.
+            connection_ids: Filter to specific connections (UUID strings).
             table_names: Filter to specific table names (exact match).
             name_patterns: Filter tables by regex patterns.
             active_only: If True (default), only return active tables. If False, include inactive.
@@ -72,7 +74,7 @@ class SchemaContextBuilder:
                     stats_map[(s.table_fqn or '').lower()] = s
 
             # Canonical (org-level) source - load with connection relationships
-            ds_tables_result = await self.db.execute(
+            ds_tables_query = (
                 select(DataSourceTable)
                 .options(
                     selectinload(DataSourceTable.connection_table)
@@ -80,6 +82,16 @@ class SchemaContextBuilder:
                 )
                 .where(DataSourceTable.datasource_id == str(ds.id))
             )
+            # Push active filter into SQL to avoid loading thousands of inactive rows
+            if active_only:
+                ds_tables_query = ds_tables_query.where(DataSourceTable.is_active == True)
+            # Apply connection filter if provided
+            if connection_ids:
+                conn_id_set = set(str(x) for x in connection_ids)
+                ds_tables_query = ds_tables_query.join(
+                    ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id
+                ).where(ConnectionTable.connection_id.in_(conn_id_set))
+            ds_tables_result = await self.db.execute(ds_tables_query)
             ds_tables = ds_tables_result.scalars().all()
             canonical_by_name: Dict[str, DataSourceTable] = {getattr(t, 'name', ''): t for t in ds_tables}
 
@@ -343,6 +355,9 @@ class SchemaContextBuilder:
             if top_k is not None and top_k > 0:
                 tables = tables[:top_k]
 
+            # Query MCP tools for this data source's MCP/custom_api connections
+            mcp_tools = await self._build_mcp_tools(ds)
+
             ds_sections.append(
                 TablesSchemaContext.DataSource(
                     info=DataSourceSummarySchema(
@@ -354,10 +369,45 @@ class SchemaContextBuilder:
                         context=(getattr(ds, 'description', None) or getattr(ds, 'context', None)),
                     ),
                     tables=tables,
+                    mcp_tools=mcp_tools,
                 )
             )
 
         return TablesSchemaContext(data_sources=ds_sections)
+
+    async def _build_mcp_tools(self, ds) -> List[MCPToolItem]:
+        """Query enabled MCP/custom_api tools for a data source's connections."""
+        from app.models.connection_tool import ConnectionTool
+        from app.models.connection import Connection
+
+        mcp_conn_ids = []
+        for conn in (getattr(ds, 'connections', None) or []):
+            if getattr(conn, 'type', None) in ('mcp', 'custom_api'):
+                mcp_conn_ids.append(str(conn.id))
+        if not mcp_conn_ids:
+            return []
+
+        try:
+            result = await self.db.execute(
+                select(ConnectionTool)
+                .options(selectinload(ConnectionTool.connection))
+                .where(
+                    ConnectionTool.connection_id.in_(mcp_conn_ids),
+                    ConnectionTool.is_enabled == True,
+                )
+            )
+            tools = result.scalars().all()
+            return [
+                MCPToolItem(
+                    name=t.name,
+                    description=t.description,
+                    connection_id=str(t.connection_id),
+                    connection_name=getattr(t.connection, 'name', None),
+                )
+                for t in tools
+            ]
+        except Exception:
+            return []
 
     # Backward-compatibility helpers (temporary; will be removed after full migration)
     async def get_data_source_count(self) -> int:

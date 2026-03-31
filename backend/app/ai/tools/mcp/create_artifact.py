@@ -258,6 +258,7 @@ class CreateArtifactMCPTool(MCPTool):
                 .where(Visualization.report_id == report_id)
                 .order_by(desc(Visualization.created_at))
                 .limit(limit * 2)  # Fetch more to account for filtering
+                .execution_options(populate_existing=True)
             )
             all_vizs = result.scalars().all()
         except Exception as e:

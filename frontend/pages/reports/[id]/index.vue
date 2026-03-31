@@ -82,7 +82,7 @@
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<!-- User message bubble -->
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left ">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left " dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
 												<MDC :value="m.prompt.content" class="markdown-content" />
 											</div>
@@ -155,7 +155,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -200,13 +200,7 @@
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
-											<!-- 4. Final answer fallback - only show if NOT already rendered in section 2 above -->
-											<!-- Section 2 shows: block.content OR plan_decision.final_answer OR plan_decision.assistant -->
-											<!-- So section 4 is rarely needed (fallback for edge cases) -->
-											<div v-if="block.plan_decision?.analysis_complete && block.plan_decision?.final_answer && !block.content && !block.plan_decision?.assistant" class="mt-2 markdown-wrapper">
-												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
-											</div>
-										</div>
+																	</div>
 
 										<!-- Thinking dots when system is working but no visible progress - moved to end -->
 										<div v-if="shouldShowWorkingDots(m)" class="mt-2">
@@ -430,6 +424,8 @@ import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
+import MCPTool from '~/components/tools/MCPTool.vue'
+import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -722,6 +718,11 @@ function getToolComponent(toolName: string) {
 			return ReadResourcesTool
 		case 'inspect_data':
 			return InspectDataTool
+		case 'search_mcps':
+		case 'execute_mcp':
+			return MCPTool
+		case 'write_csv':
+			return WriteCsvTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':
@@ -1187,6 +1188,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'inspect_data' && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
+						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps') && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -1215,6 +1219,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'read_resources' && payload.payload.stage === 'submit_search' && payload.payload.icon) {
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).icon = payload.payload.icon
+						}
+						// Capture connection_name for execute_mcp when resolved
+						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'connection_resolved' && payload.payload.connection_name) {
+							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
 						}
 					}
 
@@ -2378,10 +2387,10 @@ onMounted(async () => {
 	h2 { @apply text-xl; }
 	h3 { @apply text-lg; }
 
-	ul, ol { @apply pl-6 mb-4; }
+	ul, ol { @apply ps-6 mb-4; direction: inherit; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
-	li { @apply mb-1.5; }
+	li { @apply mb-1.5; direction: inherit; }
 
 	/* Code blocks (fenced with ```) */
 	pre {

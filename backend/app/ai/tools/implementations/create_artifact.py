@@ -593,10 +593,14 @@ Fix these errors while keeping the same design and functionality. Output the cor
         included_viz_ids: List[str] = []
 
         # Fetch all visualizations in a single batched query
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
         from app.models.query import Query
         from app.models.step import Step
         report_id = str(report.id) if report else None
         try:
+            # populate_existing=True forces SQLAlchemy to refresh objects from DB
+            # rather than returning stale identity-map copies (e.g. query.steps or
+            # query.default_step may have been loaded before the step was created/updated)
             result = await db.execute(
                 select(Visualization)
                 .options(
@@ -604,6 +608,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     selectinload(Visualization.query).selectinload(Query.steps),
                 )
                 .where(Visualization.id.in_(data.visualization_ids))
+                .execution_options(populate_existing=True)
             )
             fetched_vizs = {str(v.id): v for v in result.scalars().all()}
         except Exception as e:
@@ -633,6 +638,15 @@ Fix these errors while keeping the same design and functionality. Output the cor
             # Check if the associated step is successful
             step_status = step.status if step else None
             if step_status != "success":
+                _has_query = viz.query is not None
+                _has_default = viz.query.default_step is not None if _has_query else False
+                _steps_len = len(viz.query.steps) if _has_query and viz.query.steps else 0
+                _default_step_id = getattr(viz.query, 'default_step_id', None) if _has_query else None
+                logger.warning(
+                    f"Visualization {viz_id} skipped: step_status='{step_status}', "
+                    f"has_query={_has_query}, default_step_id={_default_step_id}, "
+                    f"has_default_step={_has_default}, steps_count={_steps_len}"
+                )
                 warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
                 continue
 
@@ -720,9 +734,11 @@ Fix these errors while keeping the same design and functionality. Output the cor
             return
 
         # Build visualization profiles (privacy-aware)
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_profiles"})
         viz_profiles = [self._build_viz_profile(v, allow_llm_see_data) for v in visualizations]
 
         # Build instruction context
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         instructions_context = ""
         try:
             if instruction_context_builder is not None:
@@ -754,11 +770,12 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 "stage": "artifact_created",
                 "artifact_id": str(artifact.id),
                 "status": "pending",
+                "timing": False,
             }
         )
 
         # Build the prompt for generating React code
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_prompt"})
 
         # Store prompt context for potential fix iterations
         prompt_context = {
@@ -785,6 +802,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
         )
 
         # Stream from LLM
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
         slides_detected = 0  # Track number of slides detected during streaming
@@ -809,7 +827,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
                             payload={
                                 "stage": "slide_generated",
                                 "slide_index": i,
-                                "total_slides": current_slides
+                                "total_slides": current_slides,
+                                "timing": False,
                             }
                         )
                     slides_detected = current_slides
@@ -818,7 +837,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             if len(buffer) % 100 == 0:  # Throttle updates
                 yield ToolProgressEvent(
                     type="tool.progress",
-                    payload={"stage": "generating", "chars": len(buffer)}
+                    payload={"stage": "generating", "chars": len(buffer), "timing": False}
                 )
 
         # Extract the code from the response

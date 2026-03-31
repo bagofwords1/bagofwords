@@ -54,6 +54,8 @@ from app.schemas.data_sources.configs import (
     # Timbr
     TimbrConfig,
     TimbrTokenCredentials,
+    TimbrA2AConfig,
+    TimbrA2ATokenCredentials,
     # Sisense
     SisenseConfig,
     SisenseCredentials,
@@ -79,6 +81,15 @@ from app.schemas.data_sources.configs import (
     SalesforceCredentials,
     MongoDBCredentials,
     PostHogCredentials,
+    # MCP
+    MCPConfig,
+    MCPNoAuthCredentials,
+    MCPBearerCredentials,
+    # Custom API
+    CustomAPIConfig,
+    CustomAPINoAuthCredentials,
+    CustomAPIBearerCredentials,
+    CustomAPIKeyCredentials,
 )
 
 from app.settings.config import settings
@@ -122,6 +133,8 @@ class DataSourceRegistryEntry(BaseModel):
     is_document_based: bool = False
     # License tier required to use this data source (e.g., "enterprise")
     requires_license: Optional[str] = None
+    # Whether this entry is a traditional data source connection (vs a tool provider like MCP/Custom API)
+    is_connection: bool = True
 
     class Config:
         arbitrary_types_allowed = True
@@ -226,8 +239,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "token": AuthVariant(title="Token-Based Auth", schema=NetSuiteCredentials, scopes=["system"])  # typically system
         }),
         client_path=None,
-        status="inactive",
-        version="0.0.0",
+        status="active",
+        version="1.0.0",
     ),
     "mysql": DataSourceRegistryEntry(
         type="mysql",
@@ -503,6 +516,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.timbr_client.TimbrClient",
         requires_license="enterprise",
     ),
+    "timbr_a2a": DataSourceRegistryEntry(
+        type="timbr_a2a",
+        title="Timbr A2A",
+        description="Agent-to-Agent semantic layer. Send natural-language prompts and get structured results.",
+        config_schema=TimbrA2AConfig,
+        credentials_auth=AuthOptions(
+            default="api_key",
+            by_auth={
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=TimbrA2ATokenCredentials,
+                    scopes=["system", "user"],
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.timbr_a2a_client.TimbrA2aClient",
+        requires_license="enterprise",
+    ),
     "sisense": DataSourceRegistryEntry(
         type="sisense",
         title="Sisense",
@@ -520,6 +551,64 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.sisense_client.SisenseClient",
         requires_license="enterprise",
+    ),
+    "mcp": DataSourceRegistryEntry(
+        type="mcp",
+        title="MCP Server",
+        description="Connect to a Model Context Protocol server to access external tools for discovery, knowledge, and data ingestion.",
+        config_schema=MCPConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth",
+                    schema=MCPNoAuthCredentials,
+                    scopes=["system"],
+                ),
+                "bearer": AuthVariant(
+                    title="Bearer Token",
+                    schema=MCPBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=CustomAPIKeyCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.mcp_client.McpClient",
+        version="beta",
+        is_connection=False,
+    ),
+    "custom_api": DataSourceRegistryEntry(
+        type="custom_api",
+        title="Custom API",
+        description="Connect to any REST API by defining endpoint schemas. Endpoints are exposed as callable tools.",
+        config_schema=CustomAPIConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth",
+                    schema=CustomAPINoAuthCredentials,
+                    scopes=["system"],
+                ),
+                "bearer": AuthVariant(
+                    title="Bearer Token",
+                    schema=CustomAPIBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=CustomAPIKeyCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.custom_api_client.CustomApiClient",
+        version="beta",
+        is_connection=False,
     ),
 }
 
@@ -545,7 +634,7 @@ def list_available_data_sources() -> list[dict]:
             "requires_license": e.requires_license,
         }
         for e in REGISTRY.values()
-        if e.status == "active" and _entry_visible(e)
+        if e.status == "active" and _entry_visible(e) and e.is_connection
     ]
 
 

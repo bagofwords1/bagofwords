@@ -46,6 +46,7 @@
               
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="text-[12px] text-gray-900 truncate">{{ item.name }}</span>
+                <span v-if="category.name === 'tables' && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
               </div>
             </div>
             
@@ -98,8 +99,12 @@
           </div>
         </div>
 
-        <!-- Table details: non-selectable columns list -->
+        <!-- Table details: connection/data source info + columns list -->
         <div v-else-if="expandedCategory === 'tables'" class="space-y-1">
+          <div v-if="expandedItem?.connection_name || expandedItem?.data_source_name" class="flex flex-wrap gap-1 text-[11px] text-gray-500">
+            <span v-if="expandedItem?.connection_name" class="px-1.5 py-0.5 bg-gray-100 rounded">{{ expandedItem.connection_name }}</span>
+            <span v-if="expandedItem?.data_source_name" class="px-1.5 py-0.5 bg-gray-100 rounded">{{ expandedItem.data_source_name }}</span>
+          </div>
           <div class="text-[11px] text-gray-500">Columns</div>
           <div class="flex flex-wrap gap-1 max-h-40 overflow-auto">
             <span 
@@ -161,6 +166,7 @@ interface MentionItem {
   status?: string
   data_source_id?: string
   data_source_name?: string
+  connection_name?: string
 }
 
 interface MentionCategory {
@@ -693,7 +699,8 @@ function selectItem(item: MentionItem, category: string) {
     mentionNode.setAttribute('contenteditable', 'false')
     mentionNode.setAttribute('data-mention-id', item.id)
     mentionNode.setAttribute('data-mention-type', item.type)
-    mentionNode.textContent = `@${item.name}`
+    const dsLabel = item.type === 'datasource_table' ? (item.connection_name || item.data_source_name) : null
+    mentionNode.textContent = dsLabel ? `@${dsLabel} / ${item.name}` : `@${item.name}`
     
     // Find the text node and position where @ starts
     const walker = document.createTreeWalker(

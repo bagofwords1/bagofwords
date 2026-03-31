@@ -145,15 +145,20 @@ class BigQueryConfig(BaseModel):
 
 # NetSuite - all auth related fields should be in credentials
 class NetSuiteCredentials(BaseModel):
+    account_id: str = Field(..., title="Account ID", description="", json_schema_extra={"ui:type": "string"})
     consumer_key: str = Field(..., title="Consumer Key", description="", json_schema_extra={"ui:type": "string"})
     consumer_secret: str = Field(..., title="Consumer Secret", description="", json_schema_extra={"ui:type": "password"})
     token_id: str = Field(..., title="Token ID", description="", json_schema_extra={"ui:type": "string"})
     token_secret: str = Field(..., title="Token Secret", description="", json_schema_extra={"ui:type": "password"})
-    account_id: str = Field(..., title="Account ID", description="", json_schema_extra={"ui:type": "string"})
 
 
 class NetSuiteConfig(BaseModel):
-    pass
+    table_filter: Optional[str] = Field(
+        None,
+        title="Table Filter",
+        description="Optional comma-separated list of table names to include in schema discovery. If empty, discovers all tables.",
+        json_schema_extra={"ui:type": "textarea"}
+    )
 
 
 # Clickhouse
@@ -665,6 +670,55 @@ class TimbrConfig(BaseModel):
     )
 
 
+# Timbr A2A (Agent-to-Agent)
+class TimbrA2ATokenCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="Timbr API key for authentication",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class TimbrA2AConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Timbr server URL (e.g., https://mytimbr.example.com)",
+        json_schema_extra={"ui:type": "string"},
+    )
+    ontology: str = Field(
+        ...,
+        title="Ontology",
+        description="Name of the Timbr knowledge graph / ontology to connect to",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify SSL certificate when connecting",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    results_limit: int = Field(
+        500,
+        title="Results Limit",
+        description="Maximum number of rows returned per query",
+        json_schema_extra={"ui:type": "number"},
+    )
+    graph_depth: int = Field(
+        1,
+        title="Graph Depth",
+        description="Depth of ontology graph traversal",
+        json_schema_extra={"ui:type": "number"},
+    )
+    retries: int = Field(
+        3,
+        title="Retries",
+        description="Number of retries on query failure",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Sisense
 class SisenseCredentials(BaseModel):
     username: str = Field(
@@ -700,6 +754,86 @@ class SisenseConfig(BaseModel):
         ...,
         title="Host",
         description="Sisense server URL (e.g., https://sisense.company.com)",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
+# MCP Server
+class MCPConfig(BaseModel):
+    server_url: str = Field(
+        ...,
+        title="Server URL",
+        description="URL of the MCP server (e.g., http://localhost:3000/mcp)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    transport: str = Field(
+        "sse",
+        title="Transport",
+        description="MCP transport protocol",
+        json_schema_extra={"ui:type": "select", "options": ["sse", "streamable_http"]}
+    )
+
+
+class MCPNoAuthCredentials(BaseModel):
+    class Config:
+        extra = "allow"
+
+
+class MCPBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Bearer token for authenticating with the MCP server",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+# Custom API
+class CustomAPIConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description="Base URL for the API (e.g., https://api.example.com/v1)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    headers: dict = Field(
+        default={},
+        title="Custom Headers",
+        description="Additional headers to send with every request (e.g., ontology, results-limit)",
+    )
+    endpoints: list = Field(
+        default=[],
+        title="Endpoints",
+        description="List of API endpoint definitions",
+        json_schema_extra={"ui:type": "json"}
+    )
+
+
+class CustomAPINoAuthCredentials(BaseModel):
+    class Config:
+        extra = "allow"
+
+
+class CustomAPIBearerCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Bearer token for API authentication",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class CustomAPIKeyCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="API key for authentication",
+        json_schema_extra={"ui:type": "password"}
+    )
+    api_key_header: str = Field(
+        "X-API-Key",
+        title="API Key Header",
+        description="Header name for the API key",
         json_schema_extra={"ui:type": "string"}
     )
 
@@ -774,4 +908,13 @@ __all__ = [
     # Sisense
     "SisenseCredentials",
     "SisenseConfig",
+    # MCP
+    "MCPConfig",
+    "MCPNoAuthCredentials",
+    "MCPBearerCredentials",
+    # Custom API
+    "CustomAPIConfig",
+    "CustomAPINoAuthCredentials",
+    "CustomAPIBearerCredentials",
+    "CustomAPIKeyCredentials",
 ]

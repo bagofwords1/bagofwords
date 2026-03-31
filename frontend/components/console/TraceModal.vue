@@ -13,7 +13,17 @@
                     />
                 </div>
                 <div class="flex items-start justify-between mt-1">
-                    <div class="text-sm text-gray-500">Report ID: {{ reportId }}</div>
+                    <div class="flex items-center gap-3 text-sm text-gray-500">
+                        <span>Report ID: {{ reportId }}</span>
+                        <!-- Timing summary pills -->
+                        <template v-if="traceData?.timing_breakdown">
+                            <span v-if="traceData.timing_breakdown.total_duration_ms != null"
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-xs text-gray-600">
+                                <UIcon name="i-heroicons-clock" class="w-3 h-3" />
+                                Total {{ formatDuration(traceData.timing_breakdown.total_duration_ms) }}
+                            </span>
+                        </template>
+                    </div>
                     <!-- Header AI scoring (pastel badges) -->
                     <div
                         v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)"
@@ -67,13 +77,48 @@
                                 selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
                             ]" @click="selectLeftItem(item)">
                                     <div class="flex items-center justify-between">
-                                        <div class="font-medium text-gray-900 truncate">{{ item.title }}</div>
+                                        <div class="font-medium text-gray-900 truncate flex items-center gap-1">
+                                            <span class="truncate">{{ item.title }}</span>
+                                            <span v-if="item.data_sources?.length" class="flex items-center gap-0.5 flex-shrink-0 ml-1">
+                                                <UTooltip v-for="ds in item.data_sources" :key="ds.id" :text="ds.name || ds.type || 'Data source'">
+                                                    <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
+                                                </UTooltip>
+                                            </span>
+                                        </div>
                                         <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
                                     </div>
                                     <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
-                                    <div v-if="getItemDurationMs(item) !== null" class="mt-1 flex items-center justify-end text-[10px] text-gray-500">
-                                        <UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />
-                                        <span>{{ formatDuration(getItemDurationMs(item) || 0) }}</span>
+                                    <div v-if="getItemDurationMs(item) !== null" class="mt-1.5 flex items-center gap-2 justify-end flex-wrap text-[10px]">
+                                        <!-- codegen / execution split when available -->
+                                        <template v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms != null">
+                                            <span class="text-purple-500">
+                                                LLM {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms ?? 0) }}
+                                            </span>
+                                            <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms != null" class="text-orange-500">
+                                                Exec {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms ?? 0) }}
+                                            </span>
+                                            <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.retry_count" class="text-red-500">
+                                                ×{{ ((item.ref?.tool_execution?.sub_timings_json as any)?.retry_count ?? 0) + 1 }}
+                                            </span>
+                                        </template>
+                                        <!-- Dynamic stage badges for tools without codegen_ms -->
+                                        <template v-else-if="(item.ref?.tool_execution?.sub_timings_json as any)?.stages?.length">
+                                            <span v-for="s in getTopStages(item.ref?.tool_execution?.sub_timings_json)" :key="s.stage"
+                                                  :class="s.ms > 5000 ? 'text-red-500' : s.ms > 1000 ? 'text-orange-500' : 'text-purple-500'">
+                                                {{ humanizeStage(s.stage) }} {{ formatDuration(s.ms) }}
+                                            </span>
+                                        </template>
+                                        <!-- Planner LLM badge -->
+                                        <template v-else-if="item.ref?.plan_decision?.metrics_json?.total_duration_ms != null">
+                                            <span class="text-purple-500">
+                                                LLM {{ formatDuration(item.ref.plan_decision.metrics_json.total_duration_ms) }}
+                                            </span>
+                                        </template>
+                                        <!-- total -->
+                                        <span class="flex items-center text-gray-400">
+                                            <UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-0.5" />
+                                            {{ formatDuration(getItemDurationMs(item) || 0) }}
+                                        </span>
                                     </div>
                                 </div>
                                 <!-- Arrow between blocks -->
@@ -99,6 +144,12 @@
                                 <div class="flex items-center mb-2">
                                     <UIcon :name="getSelectedItemIcon()" class="w-4 h-4 mr-2 text-gray-600" />
                                     <h4 class="text-sm font-medium text-gray-900">{{ getSelectedItemTitle() }}</h4>
+                                    <span v-if="selectedItemDataSources.length" class="flex items-center gap-1.5 ml-2">
+                                        <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-[11px] text-gray-600">
+                                            <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
+                                            <span>{{ ds.name || ds.type }}</span>
+                                        </span>
+                                    </span>
                                 </div>
                                 <div class="text-xs text-gray-500">
                                     {{ formatDate(selectedItem.created_at) }}
@@ -153,16 +204,89 @@
                                         <div v-if="selectedItem.tool_execution" class="mt-4">
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Tool Execution</div>
                                             <!-- Use specialized tool component if available -->
-                                            <component 
+                                            <component
                                                 v-if="shouldUseToolComponent(selectedItem.tool_execution)"
                                                 :is="getToolComponent(selectedItem.tool_execution.tool_name)"
                                                 :tool-execution="selectedItem.tool_execution"
                                             />
                                             <!-- Fallback to generic tool display -->
-                                            <GenericTool 
+                                            <GenericTool
                                                 v-else
                                                 :tool-execution="selectedItem.tool_execution"
                                             />
+                                            <!-- Error message fallback when result_json is empty -->
+                                            <div v-if="selectedItem.tool_execution.status === 'error' && selectedItem.tool_execution.error_message && !selectedItem.tool_execution.result_json"
+                                                 class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+                                                {{ selectedItem.tool_execution.error_message }}
+                                            </div>
+                                        </div>
+
+                                        <!-- Sub-timings: per-query breakdown -->
+                                        <div v-if="selectedItemSubTimings" class="mt-4">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Query Timing</div>
+                                            <div class="space-y-1 text-xs">
+                                                <!-- Phase summary row -->
+                                                <div class="flex items-center gap-3 text-gray-500 mb-2">
+                                                    <span v-if="selectedItemSubTimings.codegen_ms != null">
+                                                        LLM codegen <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.codegen_ms) }}</span>
+                                                    </span>
+                                                    <span v-if="selectedItemSubTimings.execution_ms != null">
+                                                        Data query execution <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.execution_ms) }}</span>
+                                                    </span>
+                                                    <span v-if="selectedItemSubTimings.retry_count">
+                                                        Retries <span class="font-medium text-red-600">{{ selectedItemSubTimings.retry_count }}</span>
+                                                    </span>
+                                                </div>
+                                                <!-- Per-query table -->
+                                                <div v-if="selectedItemSubTimings.queries?.length" class="border border-gray-200 rounded overflow-hidden">
+                                                    <table class="w-full text-[11px]">
+                                                        <thead class="bg-gray-50 text-gray-500">
+                                                            <tr>
+                                                                <th class="px-2 py-1 text-left font-medium">#</th>
+                                                                <th class="px-2 py-1 text-right font-medium">Time</th>
+                                                                <th class="px-2 py-1 text-right font-medium">Rows</th>
+                                                                <th class="px-2 py-1 text-left font-medium">SQL</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr v-for="q in selectedItemSubTimings.queries" :key="q.index"
+                                                                :class="q.error ? 'bg-red-50' : 'even:bg-gray-50'">
+                                                                <td class="px-2 py-1 text-gray-500">{{ q.index + 1 }}</td>
+                                                                <td class="px-2 py-1 text-right font-mono"
+                                                                    :class="q.query_ms > 3000 ? 'text-red-600 font-semibold' : q.query_ms > 1000 ? 'text-orange-600' : 'text-gray-700'">
+                                                                    {{ formatDuration(q.query_ms) }}
+                                                                </td>
+                                                                <td class="px-2 py-1 text-right text-gray-500">{{ q.rows ?? '—' }}</td>
+                                                                <td class="px-2 py-1 text-gray-700 truncate max-w-[200px]" :title="q.sql ?? ''">
+                                                                    <span v-if="q.error" class="text-red-600">{{ q.error }}</span>
+                                                                    <span v-else>{{ q.sql }}</span>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Stages waterfall -->
+                                        <div v-if="filteredStages.length" class="mt-4">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Stages</div>
+                                            <div class="space-y-1">
+                                                <div v-for="s in filteredStages" :key="s.stage"
+                                                     class="flex items-center gap-2 text-[11px]">
+                                                    <span class="w-36 text-gray-600 truncate text-right" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
+                                                    <span class="w-16 text-right font-mono"
+                                                          :class="s.ms > 5000 ? 'text-red-600 font-semibold' : s.ms > 1000 ? 'text-orange-600' : 'text-gray-700'">
+                                                        {{ formatDuration(s.ms) }}
+                                                    </span>
+                                                    <div class="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+                                                        <div class="h-full rounded"
+                                                             :class="s.ms > 5000 ? 'bg-red-400' : s.ms > 1000 ? 'bg-orange-400' : 'bg-gray-300'"
+                                                             :style="{ width: Math.max(2, (s.ms / Math.max(...filteredStages.map((x: any) => x.ms))) * 100) + '%' }">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </template>
@@ -257,6 +381,7 @@ import GenericTool from '../tools/GenericTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 import CreateDataTool from '../tools/CreateDataTool.vue'
 import InspectDataTool from '../tools/InspectDataTool.vue'
+import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
 
@@ -264,8 +389,27 @@ interface ToolExecutionUI {
     tool_name: string
     tool_action?: string
     result_json?: any
+    error_message?: string | null
     duration_ms?: number
     status?: string
+    sub_timings_json?: {
+        total_ms?: number
+        setup_ms?: number | null
+        retry_count?: number
+        codegen_ms?: number | null
+        execution_ms?: number | null
+        queries?: Array<{
+            index: number
+            query_ms: number
+            rows?: number | null
+            sql?: string | null
+            error?: string
+        }>
+        stages?: Array<{
+            stage: string
+            ms: number
+        }>
+    } | null
 }
 
 interface CompletionFeedbackUI {
@@ -296,6 +440,37 @@ interface CompletionBlockV2 {
     created_at: string
 }
 
+interface IterationTiming {
+    loop_index?: number | null
+    block_index?: number | null
+    llm_ms?: number | null
+    tool_name?: string | null
+    tool_ms?: number | null
+    sub_timings?: {
+        total_ms?: number
+        setup_ms?: number | null
+        retry_count?: number
+        codegen_ms?: number | null
+        execution_ms?: number | null
+        queries?: Array<{
+            index: number
+            query_ms: number
+            rows?: number | null
+            sql?: string | null
+            error?: string
+        }>
+    } | null
+}
+
+interface TimingBreakdown {
+    setup_ms?: number | null
+    total_duration_ms?: number | null
+    total_tool_ms?: number | null
+    total_llm_ms?: number | null
+    total_db_ms?: number | null
+    iterations: IterationTiming[]
+}
+
 interface AgentExecutionTraceResponse {
     agent_execution: any
     completion_blocks: CompletionBlockV2[]
@@ -303,6 +478,7 @@ interface AgentExecutionTraceResponse {
     head_context_snapshot?: any
     latest_feedback?: CompletionFeedbackUI | null
     build?: InstructionBuild
+    timing_breakdown?: TimingBreakdown | null
 }
 
 interface TraceCompletionData {
@@ -369,6 +545,26 @@ const selectedItem = ref<any>(null)
 const selectedItemType = ref<'block'>('block')
 const blocks = computed(() => traceData.value?.completion_blocks || [])
 
+const selectedItemSubTimings = computed(() => {
+    const te = selectedItem.value?.tool_execution
+    return te?.sub_timings_json ?? null
+})
+
+const filteredStages = computed(() => {
+    const stages = selectedItemSubTimings.value?.stages
+    if (!Array.isArray(stages) || !stages.length) return []
+    return stages
+})
+
+const selectedItemDataSources = computed(() => {
+    const item = selectedItem.value
+    if (!item) return []
+    // From tool_execution.data_sources on the selected block
+    if (item.tool_execution?.data_sources) return item.tool_execution.data_sources
+    if (item.data_sources) return item.data_sources
+    return []
+})
+
 const isOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
@@ -386,11 +582,12 @@ const leftItems = computed(() => {
         const te = (b as any).tool_execution
         const action = te?.tool_action ? te.tool_action : undefined
         const tool_call_name = action ? `${te.tool_name}.${action}` : te?.tool_name
+        const data_sources = te?.data_sources || (b as any).tool_execution?.data_sources || []
         if (tool_call_name) {
-            items.push({ id: b.id, kind: 'decision', title: `Decision: ${tool_call_name}`, subtitle: undefined, ref: b })
+            items.push({ id: b.id, kind: 'decision', title: `Decision: ${tool_call_name}`, subtitle: undefined, ref: b, data_sources })
         } else {
             // Non-tool decision, show title
-            items.push({ id: b.id, kind: 'decision', title: b.title || 'Decision', subtitle: undefined, ref: b })
+            items.push({ id: b.id, kind: 'decision', title: b.title || 'Decision', subtitle: undefined, ref: b, data_sources })
         }
     }
     // 2b) Latest feedback (if exists)
@@ -462,13 +659,27 @@ const selectLeftItem = (item: any) => {
     }
 }
 
+
 function getItemDurationMs(item: any): number | null {
     const block = item?.ref || item
     if (!block) return null
     const te = block.tool_execution
     if (te && typeof te.duration_ms === 'number') return te.duration_ms
     if (typeof block.duration_ms === 'number') return block.duration_ms
+    // Planner decision timing
+    const pm = block.plan_decision?.metrics_json
+    if (pm?.total_duration_ms != null) return pm.total_duration_ms
     return null
+}
+
+function getTopStages(subTimings: any): Array<{ stage: string; ms: number }> {
+    const stages = subTimings?.stages
+    if (!Array.isArray(stages) || !stages.length) return []
+    return [...stages].sort((a, b) => b.ms - a.ms).slice(0, 2)
+}
+
+function humanizeStage(stage: string): string {
+    return stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function formatDuration(ms: number): string {

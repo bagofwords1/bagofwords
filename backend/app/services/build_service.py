@@ -795,13 +795,16 @@ class BuildService:
 
         # Update Instruction.current_version_id for all instructions in this build
         contents = await self.get_build_contents(db, build_id)
-        for content in contents:
+        instruction_ids = [content.instruction_id for content in contents]
+        if instruction_ids:
             result = await db.execute(
-                select(Instruction).where(Instruction.id == content.instruction_id)
+                select(Instruction).where(Instruction.id.in_(instruction_ids))
             )
-            instruction = result.scalar_one_or_none()
-            if instruction:
-                instruction.current_version_id = content.instruction_version_id
+            instructions_by_id = {i.id: i for i in result.scalars().all()}
+            for content in contents:
+                instruction = instructions_by_id.get(content.instruction_id)
+                if instruction:
+                    instruction.current_version_id = content.instruction_version_id
 
         await db.commit()
         await db.refresh(build)

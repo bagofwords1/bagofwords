@@ -337,7 +337,7 @@ async function testConnection(connectionId: string) {
   testingConnectionId.value = connectionId
   testResults.value[connectionId] = null
   try {
-    const response = await useMyFetch(`/data_sources/${dsId.value}/test_connection`, { method: 'GET' })
+    const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
     testResults.value[connectionId] = (response.data as any)?.value || null
     await injectedFetchIntegration()
   } finally {
@@ -349,7 +349,7 @@ async function testUserConnection(connectionId: string) {
   if (!dsId.value || testingUserConnectionId.value) return
   testingUserConnectionId.value = connectionId
   try {
-    const response = await useMyFetch(`/data_sources/${dsId.value}/test_connection`, { method: 'GET' })
+    const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
     testResults.value[connectionId] = (response.data as any)?.value || null
     await injectedFetchIntegration()
   } finally {

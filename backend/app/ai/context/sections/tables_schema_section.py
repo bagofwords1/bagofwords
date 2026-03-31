@@ -30,6 +30,14 @@ class SchemaUsageSnapshot(BaseModel):
     data_sources: List[DataSourceUsage] = []
 
 
+class MCPToolItem(BaseModel):
+    """Lightweight representation of an MCP tool for context injection."""
+    name: str
+    description: Optional[str] = None
+    connection_id: Optional[str] = None
+    connection_name: Optional[str] = None
+
+
 class TablesSchemaContext(ContextSection):
     tag_name: ClassVar[str] = "data_sources"
 
@@ -37,6 +45,7 @@ class TablesSchemaContext(ContextSection):
         tag_name: ClassVar[str] = "data_source"
         info: DataSourceSummarySchema
         tables: List[PromptTable] = []
+        mcp_tools: List[MCPToolItem] = []
 
         def _group_tables_by_connection(self) -> dict:
             """Group tables by connection_id. Tables without connection_id go under 'default'."""
@@ -120,6 +129,27 @@ class TablesSchemaContext(ContextSection):
                 table_attrs["description"] = t.description
             return xml_tag("table", inner, table_attrs)
 
+        def _render_mcp_tools_xml(self) -> str:
+            """Render MCP tools grouped by connection."""
+            from collections import defaultdict
+            groups = defaultdict(list)
+            for tool in (self.mcp_tools or []):
+                key = tool.connection_id or 'default'
+                groups[key].append(tool)
+
+            conn_parts = []
+            for conn_id, tools in groups.items():
+                tool_xmls = []
+                for t in tools:
+                    desc = xml_escape(t.description or "")
+                    tool_xmls.append(f'<tool name="{xml_escape(t.name)}">{desc}</tool>')
+                conn_name = tools[0].connection_name or 'unknown'
+                conn_attrs = {"name": conn_name, "type": "mcp"}
+                if conn_id != 'default':
+                    conn_attrs["id"] = conn_id
+                conn_parts.append(xml_tag("connection", "\n".join(tool_xmls), conn_attrs))
+            return xml_tag("mcp_tools", "\n".join(conn_parts))
+
         def render(self) -> str:
             # Group tables by connection
             conn_groups = self._group_tables_by_connection()
@@ -150,6 +180,12 @@ class TablesSchemaContext(ContextSection):
                 # Single connection or legacy mode - render tables directly (backward compatible)
                 tables_xml = [self._render_table_xml(t) for t in (self.tables or [])]
                 content_parts.append("\n\n".join(tables_xml))
+
+            # Render MCP tools if present
+            if self.mcp_tools:
+                mcp_parts = self._render_mcp_tools_xml()
+                if mcp_parts:
+                    content_parts.append(mcp_parts)
 
             # Build data_source attributes
             ds_attrs = {"name": self.info.name, "id": self.info.id}
@@ -358,7 +394,9 @@ class TablesSchemaContext(ContextSection):
         for ds in (self.data_sources or []):
             sample_xml = ds._render_topk_tables_full(top_k_per_ds)
             index_xml = ds._render_names_index(index_limit) if include_index else ""
-            if not (sample_xml or index_xml):
+            # Render MCP tools for this data source
+            mcp_xml = ds._render_mcp_tools_xml() if ds.mcp_tools else ""
+            if not (sample_xml or index_xml or mcp_xml):
                 continue
 
             # Check if multi-connection (sample_xml will contain <connection> tags if so)
@@ -371,6 +409,8 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(xml_tag("sample", sample_xml, {"k": str(top_k_per_ds)}))
             if index_xml:
                 inner_parts.append(index_xml)
+            if mcp_xml:
+                inner_parts.append(mcp_xml)
 
             attrs = {
                 "name": ds.info.name,

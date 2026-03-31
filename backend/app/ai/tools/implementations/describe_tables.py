@@ -27,7 +27,8 @@ class DescribeTablesTool(Tool):
                 "Describe specific tables to get more information about them. Returns tables, columns, usage metrics, etc. "
                 "Use this to ensure you have the right tables and columns for your analysis. "
                 "Also returns instructions and business rules associated with the tables. "
-                "Tables with instructions>0 in the schema have associated rules — use this tool to see them."
+                "Tables with instructions>0 in the schema have associated rules — use this tool to see them. "
+                "When a data source has multiple connections with identically-named tables, use connection_ids to scope the search to a specific connection and avoid duplicates."
             ),
             category="research",
             version="1.0.0",
@@ -99,6 +100,7 @@ class DescribeTablesTool(Tool):
                 ctx = await builder.build(
                     with_stats=True,
                     data_source_ids=data.data_source_ids,
+                    connection_ids=data.connection_ids,
                     name_patterns=name_patterns or None,
                 )
                 # Compute counts before render limits
@@ -173,6 +175,8 @@ class DescribeTablesTool(Tool):
                             "data_source_id": ds_id,
                             "data_source_name": ds_name,
                             "data_source_type": getattr(t, "connection_type", None) or ds_type,
+                            "connection_name": getattr(t, "connection_name", None),
+                            "connection_type": getattr(t, "connection_type", None),
                             "schema": None,
                             "name": getattr(t, "name", None),
                             "full_name": None,

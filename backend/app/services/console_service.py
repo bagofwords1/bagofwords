@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from app.models.membership import Membership
 from app.models.tool_execution import ToolExecution
 from app.models.completion_block import CompletionBlock
-from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
+from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse, TimingBreakdownSchema, IterationTimingSchema
 from app.schemas.agent_execution_schema import AgentExecutionSchema
 from app.schemas.completion_v2_schema import CompletionBlockV2Schema
 from app.serializers.completion_v2 import serialize_block_v2
@@ -1517,13 +1517,91 @@ class ConsoleService:
             build_result = await db.execute(build_query)
             build = build_result.scalar_one_or_none()
 
+        timing_breakdown = self._compute_timing_breakdown(ae_payload, block_schemas)
+
         return AgentExecutionTraceResponse(
             agent_execution=ae_payload,
             completion_blocks=block_schemas,
             head_prompt_snippet=(head_prompt or '')[:160],
             head_context_snapshot=head_snapshot,
             latest_feedback=latest_feedback,
-            build=build
+            build=build,
+            timing_breakdown=timing_breakdown,
+        )
+
+    def _compute_timing_breakdown(
+        self,
+        ae: AgentExecutionSchema,
+        blocks: List[CompletionBlockV2Schema],
+    ) -> TimingBreakdownSchema:
+        """Derive a per-iteration timing summary from agent execution + serialized blocks."""
+        setup_ms: float | None = None
+        if ae.started_at and blocks:
+            first_start = min(
+                (b.started_at for b in blocks if b.started_at),
+                default=None,
+            )
+            if first_start:
+                delta = (first_start.replace(tzinfo=None) - ae.started_at.replace(tzinfo=None)).total_seconds()
+                setup_ms = round(delta * 1000.0, 1)
+
+        total_tool_ms = 0.0
+        total_codegen_llm_ms = 0.0
+        total_db_ms = 0.0
+        iterations: List[IterationTimingSchema] = []
+        for b in blocks:
+            tool_ms: float | None = None
+            sub_timings = None
+            tool_name: str | None = None
+            if b.tool_execution:
+                tool_ms = b.tool_execution.duration_ms
+                sub_timings = b.tool_execution.sub_timings_json
+                tn = b.tool_execution.tool_name
+                ta = b.tool_execution.tool_action
+                tool_name = f"{tn}.{ta}" if ta else tn
+                if tool_ms is not None:
+                    total_tool_ms += tool_ms
+                # Accumulate codegen LLM time and execution time from sub_timings
+                if isinstance(sub_timings, dict):
+                    cg = sub_timings.get("codegen_ms")
+                    if cg is not None:
+                        total_codegen_llm_ms += cg
+                    ex = sub_timings.get("execution_ms")
+                    if ex is not None:
+                        total_db_ms += ex
+                    elif tool_ms is not None:
+                        # No execution_ms reported — infer execution time as
+                        # total tool duration minus any LLM time inside the tool
+                        total_db_ms += tool_ms - (cg or 0)
+                elif tool_ms is not None:
+                    # No sub_timings at all — entire tool duration is execution
+                    total_db_ms += tool_ms
+
+            llm_ms: float | None = None
+            if b.plan_decision and b.plan_decision.metrics_json:
+                m = b.plan_decision.metrics_json
+                llm_ms = m.get("thinking_ms") or m.get("generation_ms")
+
+            iterations.append(IterationTimingSchema(
+                loop_index=b.loop_index,
+                block_index=b.block_index,
+                llm_ms=llm_ms,
+                tool_name=tool_name,
+                tool_ms=tool_ms,
+                sub_timings=sub_timings,
+            ))
+
+        # total_llm_ms = planner thinking + codegen LLM inside tools
+        planner_llm_ms = ae.thinking_ms or 0.0
+        combined_llm_ms = planner_llm_ms + total_codegen_llm_ms
+
+        return TimingBreakdownSchema(
+            setup_ms=setup_ms,
+            total_duration_ms=ae.total_duration_ms,
+            total_tool_ms=round(total_tool_ms, 1) if total_tool_ms else None,
+            total_llm_ms=round(combined_llm_ms, 1) if combined_llm_ms else None,
+            total_db_ms=round(total_db_ms, 1) if total_db_ms else None,
+            iterations=iterations,
         )
 
     async def get_tool_executions_diagnosis(self, db: AsyncSession, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, page: int = 1, page_size: int = 20) -> dict:

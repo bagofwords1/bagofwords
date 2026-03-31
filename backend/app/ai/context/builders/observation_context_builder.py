@@ -41,13 +41,12 @@ class ObservationContextBuilder:
         """
         self.execution_count += 1
 
-        # Compact previous artifact observations after 1 iteration.
-        # Any new tool observation triggers stripping of code and images
-        # from all prior artifact observations, keeping only lightweight
-        # metadata (artifact_id, summary, mode, viz_ids).
+        # Compact previous observations after 1 iteration.
+        # Any new tool observation triggers stripping of heavy fields
+        # from all prior observations, keeping only lightweight metadata.
         for prev_obs in self.tool_observations:
+            prev_observation = prev_obs.get("observation", {})
             if prev_obs["tool_name"] in ("create_artifact", "read_artifact", "edit_artifact"):
-                prev_observation = prev_obs.get("observation", {})
                 if "code" in prev_observation:
                     code_len = len(prev_observation["code"])
                     del prev_observation["code"]
@@ -55,6 +54,23 @@ class ObservationContextBuilder:
                 if "images" in prev_observation:
                     del prev_observation["images"]
                     prev_observation["images_compacted"] = True
+            elif prev_obs["tool_name"] == "inspect_data":
+                if "details" in prev_observation:
+                    details_len = len(prev_observation["details"])
+                    del prev_observation["details"]
+                    prev_observation["details_compacted"] = f"{details_len} chars"
+                if "code" in prev_observation:
+                    code_len = len(prev_observation["code"])
+                    del prev_observation["code"]
+                    prev_observation["code_compacted"] = f"{code_len} chars"
+            elif prev_obs["tool_name"] == "create_data":
+                if "data_preview" in prev_observation:
+                    del prev_observation["data_preview"]
+                    prev_observation["data_preview_compacted"] = True
+                if "code" in prev_observation:
+                    code_len = len(prev_observation["code"])
+                    del prev_observation["code"]
+                    prev_observation["code_compacted"] = f"{code_len} chars"
 
         tool_observation = {
             "execution_number": self.execution_count,

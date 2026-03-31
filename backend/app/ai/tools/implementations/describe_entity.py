@@ -263,10 +263,11 @@ class DescribeEntityTool(Tool):
 
         yield ToolProgressEvent(
             type="tool.progress",
-            payload={"stage": "entity_found", "entity_id": str(entity.id), "title": entity.title},
+            payload={"stage": "entity_found", "entity_id": str(entity.id), "title": entity.title, "timing": False},
         )
 
         # Check user access to entity's data sources
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "checking_access"})
         user = context_hub.user if context_hub else runtime_ctx.get("user")
         has_access, access_error = await self._check_user_access(db, entity, user)
 
@@ -294,7 +295,7 @@ class DescribeEntityTool(Tool):
         errors: List[str] = []
 
         if data.should_rerun:
-            yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_code"})
+            yield ToolProgressEvent(type="tool.progress", payload={"stage": "code_execution"})
             try:
                 from app.ai.code_execution.code_execution import StreamingCodeExecutor
                 from app.services.data_source_service import DataSourceService
@@ -381,6 +382,7 @@ class DescribeEntityTool(Tool):
                         "data_model_type": chart_type,
                         "query_title": entity.title,
                         "entity_id": str(entity.id),
+                        "timing": False,
                     },
                 )
 

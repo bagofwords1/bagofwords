@@ -85,7 +85,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 # Install Python runtime, Node.js 22 (runtime only), and minimal system libs
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5  && \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5 vim-tiny && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
@@ -146,7 +146,7 @@ RUN mkdir -p /app/certs && \
       https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 
 # Create directories that the application needs to write to
-RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding /app/backend/logs && \
+RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding /app/logs && \
     chown -R app:app /app
 
 WORKDIR /app

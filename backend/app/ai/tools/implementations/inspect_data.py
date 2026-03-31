@@ -173,6 +173,9 @@ Don't use on images
         execution_error = None
         execution_duration_ms = 0
         executed_queries: List[str] = []
+        query_timings: List[dict] = []
+        codegen_ms = None
+        execution_ms = None
         execution_start = time.monotonic()
 
         # No retries by default for inspection to keep it fast, unless it crashes hard
@@ -214,6 +217,9 @@ Don't use on images
                 # e["payload"] contains 'code', 'execution_log', 'errors', 'df'
                 generated_code = e["payload"].get("code") or ""
                 executed_queries = e["payload"].get("executed_queries") or []
+                query_timings = e["payload"].get("query_timings") or []
+                codegen_ms = e["payload"].get("codegen_ms")
+                execution_ms = e["payload"].get("execution_ms")
                 if e["payload"].get("errors"):
                     success = False
                     execution_error = str(e["payload"]["errors"])
@@ -264,6 +270,9 @@ Don't use on images
                     "execution_log": output_log,
                     "error_message": execution_error,
                     "execution_duration_ms": execution_duration_ms,
+                    "query_timings": query_timings,
+                    "codegen_ms": codegen_ms,
+                    "execution_ms": execution_ms,
                 },
                 "observation": {
                     "summary": f"Inspection finished for: {data.user_prompt}",

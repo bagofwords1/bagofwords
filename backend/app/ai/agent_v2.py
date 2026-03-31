@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid as _uuid_mod
 from typing import Dict, Optional
 from pydantic import ValidationError
 
@@ -142,7 +143,7 @@ class AgentV2:
         # Tool runner with enhanced policies
         self.tool_runner = ToolRunner(
             retry=RetryPolicy(max_attempts=2, backoff_ms=500, backoff_multiplier=2.0, jitter_ms=200),
-            timeout=TimeoutPolicy(start_timeout_s=5, idle_timeout_s=30, hard_timeout_s=120),
+            timeout=TimeoutPolicy(start_timeout_s=10, idle_timeout_s=180, hard_timeout_s=300),
         )
         
         # Initialize Reporter for title generation
@@ -256,45 +257,71 @@ class AgentV2:
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
-        try:
-            SessionLocal = create_async_session_factory()
-            async with SessionLocal() as session:
-                try:
-                    # Use a new Judge instance (stateless) and score from the same planner input
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                        judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                        instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
-                    else:
-                        instructions_score = 3
-                        context_score = 3
-                    # Re-fetch completion to avoid using objects from another session
-                    completion = await session.get(Completion, str(self.head_completion.id))
-                    if completion is not None:
-                        await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
-                except Exception as e:
-                    logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
+        import asyncio as _asyncio
+        from sqlalchemy.exc import OperationalError as _SAOperationalError
+        _max_attempts = 4
+        for _attempt in range(_max_attempts):
+            try:
+                SessionLocal = create_async_session_factory()
+                async with SessionLocal() as session:
+                    try:
+                        # Use a new Judge instance (stateless) and score from the same planner input
+                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                            instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+                        else:
+                            instructions_score = 3
+                            context_score = 3
+                        # Re-fetch completion to avoid using objects from another session
+                        completion = await session.get(Completion, str(self.head_completion.id))
+                        if completion is not None:
+                            await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
+                        return  # success
+                    except (_SAOperationalError, Exception) as e:
+                        _is_locked = "database is locked" in str(e).lower()
+                        if _is_locked and _attempt < _max_attempts - 1:
+                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                            logger.warning(f"SQLite locked in early scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
+                            await _asyncio.sleep(_backoff)
+                            continue
+                        logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
+                        return
+            except Exception as e:
+                logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
+                return
 
     async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
         """Run response scoring in a fresh DB session to avoid concurrency conflicts."""
-        try:
-            SessionLocal = create_async_session_factory()
-            async with SessionLocal() as session:
-                try:
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                        judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                        original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
-                        response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
-                    else:
-                        response_score = 3
-                    completion = await session.get(Completion, str(self.head_completion.id))
-                    if completion is not None:
-                        await self.project_manager.update_completion_response_score(session, completion, response_score)
-                except Exception as e:
-                    logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
+        import asyncio as _asyncio
+        from sqlalchemy.exc import OperationalError as _SAOperationalError
+        _max_attempts = 4
+        for _attempt in range(_max_attempts):
+            try:
+                SessionLocal = create_async_session_factory()
+                async with SessionLocal() as session:
+                    try:
+                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                            original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
+                            response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+                        else:
+                            response_score = 3
+                        completion = await session.get(Completion, str(self.head_completion.id))
+                        if completion is not None:
+                            await self.project_manager.update_completion_response_score(session, completion, response_score)
+                        return  # success
+                    except (_SAOperationalError, Exception) as e:
+                        _is_locked = "database is locked" in str(e).lower()
+                        if _is_locked and _attempt < _max_attempts - 1:
+                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                            logger.warning(f"SQLite locked in late scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
+                            await _asyncio.sleep(_backoff)
+                            continue
+                        logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
+                        return
+            except Exception as e:
+                logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
+                return
 
     async def _stream_suggestions_inline(self, prev_tool_name: Optional[str], conditions: list):
         """Stream instruction suggestions inline before the SSE stream closes.
@@ -613,6 +640,12 @@ class AgentV2:
 
     async def main_execution(self):
         try:
+            import time as _time
+            _t0 = _time.monotonic()
+            _rid = str(self.report.id)[:8] if self.report else "?"
+            def _mlog(label):
+                logger.info(f"[agent:{_rid}] {label} +{(_time.monotonic()-_t0)*1000:.0f}ms")
+
             # Start agent execution tracking
             self.current_execution = await self.project_manager.start_agent_execution(
                 self.db,
@@ -622,6 +655,7 @@ class AgentV2:
                 report_id=str(self.report.id) if self.report else None,
                 build_id=self.build_id,
             )
+            _mlog("execution_tracking_started")
 
             # Telemetry in background (non-blocking)
             asyncio.create_task(self._capture_telemetry_background(
@@ -635,13 +669,14 @@ class AgentV2:
 
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
-            
+
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
             await asyncio.gather(
                 self.context_hub.prime_static(query=prompt_text),
                 self.context_hub.refresh_warm(),
             )
+            _mlog("context_primed")
             view = self.context_hub.get_view()
             # Token metadata update in background (non-blocking)
             asyncio.create_task(self._update_context_token_metadata_background(view))
@@ -665,14 +700,16 @@ class AgentV2:
                 schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT) if schemas_ctx else ""
             except Exception:
                 schemas_excerpt = schemas_ctx.render() if schemas_ctx else ""
-            
+            _mlog(f"schemas_rendered len={len(schemas_excerpt)}")
+
             # Use cached resources from prime_static() - no duplicate build
             resources_ctx = view.static.resources
             try:
                 resources_combined = resources_ctx.render_combined(top_k_per_repo=self.top_k_metadata_resources, index_limit=INDEX_LIMIT) if resources_ctx else ""
             except Exception:
                 resources_combined = resources_ctx.render() if resources_ctx else ""
-            
+            _mlog(f"resources_rendered len={len(resources_combined)}")
+
             # History summary based on observation context only
             history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -730,6 +767,7 @@ class AgentV2:
             completion_finished_emitted = False
             
             # Early scoring will be launched as a background task using an isolated session
+            _mlog("loop_starting")
 
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
@@ -817,6 +855,13 @@ class AgentV2:
                         images=all_images if all_images else None,
                         active_artifact=active_artifact,
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
+                        mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
+                    )
+                    # Trim context if it exceeds the model's token budget
+                    from app.ai.context.context_hub import trim_context_to_budget
+                    trim_context_to_budget(
+                        planner_input,
+                        model_context_window=getattr(self.model, "context_window_tokens", None),
                     )
                     # Kick off early scoring in background without blocking the loop (isolated DB session)
                     asyncio.create_task(self._run_early_scoring_background(planner_input))
@@ -854,48 +899,40 @@ class AgentV2:
                 # Stable sequence for the entire planner decision lifespan
                 decision_seq = None
 
-                # Pre-create a placeholder PlanDecision and corresponding block for this loop
+                # Pre-create a placeholder block — emit SSE immediately, persist DB in background.
+                pre_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                decision_seq = pre_seq
+                # Generate stable IDs in-memory so SSE fires without waiting for DB.
+                _pre_block_id = str(_uuid_mod.uuid4())
+
                 try:
-                    pre_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                    # Default to action plan type for skeleton; will be updated on real decision
-                    pre_pd = await self.project_manager.save_plan_decision(
-                        self.db,
-                        agent_execution=self.current_execution,
+                    await self._emit_sse_event(SSEEvent(
+                        event="block.upsert",
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
                         seq=pre_seq,
-                        loop_index=loop_index,
-                        plan_type="action",
-                        analysis_complete=False,
-                        reasoning=None,
-                        assistant=None,
-                        final_answer=None,
-                        action_name=None,
-                        action_args_json=None,
-                        metrics_json=None,
-                        context_snapshot_id=None,
-                    )
-                    pre_block = await self.project_manager.upsert_block_for_decision(
-                        self.db, self.system_completion, self.current_execution, pre_pd
-                    )
-                    current_block_id = str(pre_block.id)
-                    # Pin the decision sequence so partial/final frames upsert the same row
-                    decision_seq = pre_seq
-                    # Emit initial block snapshot
-                    try:
-                        block_schema = await serialize_block_v2(self.db, pre_block)
-                        await self._emit_sse_event(SSEEvent(
-                            event="block.upsert",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=pre_seq,
-                            data={"block": block_schema.model_dump()}
-                        ))
-                    except Exception:
-                        pass
-                except Exception:
-                    # If pre-create fails, we will fallback to buffering tokens until a block exists
+                        data={"block": {
+                            "id": _pre_block_id,
+                            "source_type": "decision",
+                            "loop_index": loop_index,
+                            "status": "in_progress",
+                            "title": "Planning (action)",
+                            "icon": "🧠",
+                            "content": None,
+                            "reasoning": None,
+                            "plan_decision_id": None,
+                            "tool_execution_id": None,
+                            "started_at": None,
+                            "completed_at": None,
+                        }}
+                    ))
+                    current_block_id = _pre_block_id
+                except Exception as _emit_exc:
+                    logger.warning(f"[agent] Failed to emit pre-create block.upsert: {_emit_exc!r}")
                     current_block_id = None
-                else:
-                    # Initialize throttled text streamer for this planning block
+
+                # Initialize throttled text streamer immediately with the in-memory block ID.
+                if current_block_id:
                     async def _next_seq():
                         return await self.project_manager.next_seq(self.db, self.current_execution)
                     plan_streamer = PlanningTextStreamer(
@@ -905,6 +942,11 @@ class AgentV2:
                         agent_execution_id=str(self.current_execution.id),
                         block_id=current_block_id,
                     )
+                else:
+                    plan_streamer = None
+
+                # Write-on-complete: no skeleton PlanDecision written here.
+                # The final PlanDecision + CompletionBlock are written once at planner.decision.final.
                 
                 async for evt in self.planner.execute(planner_input, self.sigkill_event):
                     if self.sigkill_event.is_set():
@@ -926,14 +968,16 @@ class AgentV2:
                         if decision_seq is None:
                             decision_seq = event_seq
 
-                        # Emit incremental, throttled token deltas for reasoning/content
-                        # Prioritize final_answer over assistant_message - final_answer is the actual response
-                        # assistant_message is just a brief status message
+                        # Emit incremental, throttled token deltas for reasoning/content.
+                        # final_answer and assistant_message are mutually exclusive by prompt contract:
+                        # - assistant_message: set only when analysis_complete=False (brief action status)
+                        # - final_answer: set only when analysis_complete=True (detailed user response)
+                        # Stream whichever is present — never mix them to avoid delta collision.
                         try:
                             new_reasoning = getattr(decision, "reasoning_message", None) or ""
                             new_content = getattr(decision, "final_answer", None) or getattr(decision, "assistant_message", None) or ""
                             if plan_streamer:
-                                await plan_streamer.update(new_reasoning, new_content)
+                                await plan_streamer.update(new_reasoning, new_content, reset_on_source_change=True)
                         except Exception:
                             pass
 
@@ -995,47 +1039,28 @@ class AgentV2:
                         
                         # Get next sequence number for SSE event ordering (in-memory, no DB)
                         event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        
-                        # Save final decision (Pydantic model) using stable decision_seq
+
                         if decision_seq is None:
                             decision_seq = event_seq
-                        current_plan_decision = await self.project_manager.save_plan_decision_from_model(
-                            self.db,
-                            agent_execution=self.current_execution,
-                            seq=decision_seq,
-                            loop_index=loop_index,
-                            planner_decision_model=decision,
-                        )
-                        # Upsert completion block for decision and rebuild transcript
+
+                        # Persist final PlanDecision (with timeout + retry).
+                        # Wrapped in try/except so a DB failure doesn't block SSE.
                         try:
-                            block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
-                            await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
-                            
-                            # Store block ID for token streaming
-                            current_block_id = str(block.id)
-                            
-                            # Emit a v2-shaped block snapshot
-                            try:
-                                block_schema = await serialize_block_v2(self.db, block)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="block.upsert",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=event_seq,
-                                    data={"block": block_schema.model_dump()}
-                                ))
-                                # Finalize field streaming (snapshots + completion markers)
-                                try:
-                                    if plan_streamer:
-                                        await plan_streamer.complete()
-                                except Exception:
-                                    pass
-                            except Exception:
-                                pass
-                        except Exception:
-                            pass
-                        
-                        # Emit SSE event
+                            current_plan_decision = await self.project_manager.save_plan_decision_from_model(
+                                self.db,
+                                agent_execution=self.current_execution,
+                                seq=decision_seq,
+                                loop_index=loop_index,
+                                planner_decision_model=decision,
+                            )
+                        except Exception as _pd_exc:
+                            logger.error(
+                                f"[agent] save_plan_decision_from_model failed (loop={loop_index}): {_pd_exc!r}",
+                                exc_info=True,
+                            )
+                            current_plan_decision = None
+
+                        # Emit decision.final FIRST — UI renders immediately, no DB wait.
                         await self._emit_sse_event(SSEEvent(
                             event="decision.final",
                             completion_id=str(self.system_completion.id),
@@ -1047,6 +1072,101 @@ class AgentV2:
                                 "metrics": decision.metrics.model_dump() if decision.metrics else None,
                             }
                         ))
+
+                        # Finalize plan streamer (no DB needed).
+                        try:
+                            if plan_streamer:
+                                await plan_streamer.complete()
+                        except Exception:
+                            pass
+
+                        # Upsert the CompletionBlock synchronously — tool execution needs it in DB.
+                        # upsert_block_for_decision has a 5s timeout so it won't hang the stream.
+                        # Only rebuild_completion_from_blocks goes to a background task.
+                        if current_plan_decision is not None:
+                            try:
+                                block = await self.project_manager.upsert_block_for_decision(
+                                    self.db,
+                                    self.system_completion,
+                                    self.current_execution,
+                                    current_plan_decision,
+                                    preferred_id=_pre_block_id,  # Reuse the ID sent to the UI
+                                )
+                                current_block_id = str(block.id)
+                                # Emit updated block snapshot now that it's confirmed in DB.
+                                try:
+                                    block_schema = await serialize_block_v2(self.db, block)
+                                    _blk_seq = await self.project_manager.next_seq(
+                                        self.db, self.current_execution
+                                    )
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.upsert",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=_blk_seq,
+                                        data={"block": block_schema.model_dump()}
+                                    ))
+                                except Exception as _blk_emit_exc:
+                                    logger.warning(
+                                        f"[agent] block.upsert emit failed: {_blk_emit_exc!r}"
+                                    )
+                            except Exception as _upsert_exc:
+                                logger.error(
+                                    f"[agent] upsert_block_for_decision failed (loop={loop_index}): {_upsert_exc!r}",
+                                    exc_info=True,
+                                )
+                                block = None
+
+                            # Rebuild transcript in background — not needed before tool runs.
+                            _snap_comp_id = str(self.system_completion.id)
+                            _snap_exec_id = str(self.current_execution.id)
+                            _snap_loop = loop_index
+
+                            async def _bg_rebuild():
+                                import asyncio as _aio
+                                _max_attempts = 4
+                                for _attempt in range(_max_attempts):
+                                    try:
+                                        from app.settings.database import create_async_session_factory as _csf
+                                        SessionLocal = _csf()
+                                        async with SessionLocal() as bg_db:
+                                            from app.models.agent_execution import AgentExecution as _AE
+                                            from app.models.completion import Completion as _Comp
+                                            bg_execution = await bg_db.get(_AE, _snap_exec_id)
+                                            bg_completion = await bg_db.get(_Comp, _snap_comp_id)
+                                            if bg_execution and bg_completion:
+                                                await self.project_manager.rebuild_completion_from_blocks(
+                                                    bg_db, bg_completion, bg_execution
+                                                )
+                                        return
+                                    except Exception as _rb_exc:
+                                        if "database is locked" in str(_rb_exc).lower() and _attempt < _max_attempts - 1:
+                                            _backoff = 2 ** _attempt
+                                            logger.warning(f"[agent] SQLite locked in _bg_rebuild (attempt {_attempt + 1}), retrying in {_backoff}s")
+                                            await _aio.sleep(_backoff)
+                                            continue
+                                        logger.warning(
+                                            f"[agent] Background rebuild_completion failed "
+                                            f"(loop={_snap_loop}): {_rb_exc!r}"
+                                        )
+                                        return
+
+                            asyncio.create_task(_bg_rebuild())
+                        else:
+                            # plan_decision save failed — warn so it's observable.
+                            try:
+                                _warn_seq = await self.project_manager.next_seq(
+                                    self.db, self.current_execution
+                                )
+                                await self._emit_sse_event(SSEEvent(
+                                    event="agent.warning",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=_warn_seq,
+                                    data={"message": "Planning state could not be persisted; retrying may help"},
+                                ))
+                            except Exception:
+                                pass
                         
                         # IMPORTANT: Check for action FIRST before checking analysis_complete.
                         # The LLM sometimes sets analysis_complete=true when it means "this is the 
@@ -1262,13 +1382,15 @@ class AgentV2:
                         if runtime_ctx.get("training_build_id") and not self.training_build_id:
                             self.training_build_id = runtime_ctx["training_build_id"]
 
-                        # Extract observation and output from tool result
+                        # Extract observation, output, and sub_timings from tool result
                         if isinstance(tool_result, dict) and "observation" in tool_result:
                             observation = tool_result["observation"]
                             tool_output = tool_result.get("output")
+                            tool_sub_timings = tool_result.get("sub_timings")
                         else:
                             observation = tool_result
                             tool_output = None
+                            tool_sub_timings = None
 
                         # Handle tool outputs and manage widget/step state
                         await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
@@ -1374,9 +1496,8 @@ class AgentV2:
                         if not created_step_id and self.current_step_id:
                             created_step_id = self.current_step_id
 
-                        # Capture post-tool context snapshot
+                        # Refresh context (needed for next planner iteration — in-memory, no DB write here)
                         await self.context_hub.refresh_warm()
-                        # Refresh static sections (schemas with stats) so post_tool snapshot reflects latest table usage
                         try:
                             await self.context_hub.build_context()
                         except Exception:
@@ -1384,22 +1505,13 @@ class AgentV2:
                         post_view = self.context_hub.get_view()
                         await self._update_context_token_metadata(post_view)
 
-                        # Build slim context snapshot with only usage tracking
-                        post_tool_view_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
-
-                        post_snap = await self.project_manager.save_context_snapshot(
-                            self.db,
-                            agent_execution=self.current_execution,
-                            kind="post_tool",
-                            context_view_json=post_tool_view_data,
-                        )
-
                         # Build created_visualization_ids with fallback to orchestrator state
                         created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
                         if not created_visualization_ids and getattr(self, 'current_visualization', None):
                             created_visualization_ids = [str(self.current_visualization.id)]
 
-                        # Finish tool execution tracking
+                        # Finish tool execution tracking — single INSERT (write-on-complete).
+                        # context_snapshot_id is written in background below; pass None here.
                         await self.project_manager.finish_tool_execution_from_models(
                             self.db,
                             tool_execution=tool_execution,
@@ -1409,9 +1521,39 @@ class AgentV2:
                             created_step_id=created_step_id,
                             created_visualization_ids=created_visualization_ids,
                             error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
-                            context_snapshot_id=post_snap.id,
+                            context_snapshot_id=None,
                             success=bool(observation and not observation.get("error")),
+                            sub_timings_json=tool_sub_timings,
                         )
+
+                        # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
+                        _post_snap_exec_id = str(self.current_execution.id)
+                        _post_snap_tool_exec_id = str(tool_execution.id)
+                        _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
+
+                        async def _bg_post_snap():
+                            try:
+                                from app.settings.database import create_async_session_factory as _csf
+                                from app.models.agent_execution import AgentExecution as _AE
+                                from app.models.tool_execution import ToolExecution as _TE
+                                SessionLocal = _csf()
+                                async with SessionLocal() as bg_db:
+                                    bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
+                                    if bg_exec:
+                                        snap = await self.project_manager.save_context_snapshot(
+                                            bg_db, agent_execution=bg_exec,
+                                            kind="post_tool", context_view_json=_post_snap_data,
+                                        )
+                                        # Back-fill context_snapshot_id onto the tool execution row
+                                        bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
+                                        if bg_te and snap:
+                                            bg_te.context_snapshot_id = str(snap.id)
+                                            bg_db.add(bg_te)
+                                            await bg_db.commit()
+                            except Exception as _e:
+                                logger.warning(f"[agent] Background post_snap failed: {_e!r}")
+
+                        asyncio.create_task(_bg_post_snap())
 
                         # Telemetry: tool finished
                         try:
@@ -1429,10 +1571,10 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Upsert completion block for tool and rebuild transcript
+                        # Upsert block for tool (synchronous — needed before tool.finished SSE),
+                        # then rebuild transcript in background (aggregation only, not user-facing).
                         try:
                             block = await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
-                            await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
                             if block is not None:
                                 try:
                                     block_schema = await serialize_block_v2(self.db, block)
@@ -1448,6 +1590,32 @@ class AgentV2:
                                     pass
                         except Exception:
                             pass
+                        _rb_tool_comp_id = str(self.system_completion.id)
+                        _rb_tool_exec_id = str(self.current_execution.id)
+                        async def _bg_rebuild_tool():
+                            import asyncio as _aio
+                            _max_attempts = 4
+                            for _attempt in range(_max_attempts):
+                                try:
+                                    from app.settings.database import create_async_session_factory as _csf
+                                    from app.models.agent_execution import AgentExecution as _AE
+                                    from app.models.completion import Completion as _Comp
+                                    SessionLocal = _csf()
+                                    async with SessionLocal() as bg_db:
+                                        bg_exec = await bg_db.get(_AE, _rb_tool_exec_id)
+                                        bg_comp = await bg_db.get(_Comp, _rb_tool_comp_id)
+                                        if bg_exec and bg_comp:
+                                            await self.project_manager.rebuild_completion_from_blocks(bg_db, bg_comp, bg_exec)
+                                    return
+                                except Exception as _e:
+                                    if "database is locked" in str(_e).lower() and _attempt < _max_attempts - 1:
+                                        _backoff = 2 ** _attempt
+                                        logger.warning(f"[agent] SQLite locked in _bg_rebuild_tool (attempt {_attempt + 1}), retrying in {_backoff}s")
+                                        await _aio.sleep(_backoff)
+                                        continue
+                                    logger.warning(f"[agent] Background rebuild (tool) failed: {_e!r}")
+                                    return
+                        asyncio.create_task(_bg_rebuild_tool())
 
                         # Emit tool.finished with result
                         seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -1511,15 +1679,24 @@ class AgentV2:
             view = self.context_hub.get_view()
             await self._update_context_token_metadata(view)
 
-            # Build slim context snapshot with only usage tracking
-            final_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
-
-            await self.project_manager.save_context_snapshot(
-                self.db,
-                agent_execution=self.current_execution,
-                kind="final",
-                context_view_json=final_view_data,
-            )
+            # Save final context snapshot in background (not user-facing).
+            _final_snap_exec_id = str(self.current_execution.id)
+            _final_snap_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
+            async def _bg_final_snap():
+                try:
+                    from app.settings.database import create_async_session_factory as _csf
+                    from app.models.agent_execution import AgentExecution as _AE
+                    SessionLocal = _csf()
+                    async with SessionLocal() as bg_db:
+                        bg_exec = await bg_db.get(_AE, _final_snap_exec_id)
+                        if bg_exec:
+                            await self.project_manager.save_context_snapshot(
+                                bg_db, agent_execution=bg_exec,
+                                kind="final", context_view_json=_final_snap_data,
+                            )
+                except Exception as _e:
+                    logger.warning(f"[agent] Background final_snap failed: {_e!r}")
+            asyncio.create_task(_bg_final_snap())
             
             # Generate report title if this is the first completion (non-blocking)
             try:
@@ -1548,8 +1725,8 @@ class AgentV2:
             except Exception as e:
                 # Don't fail the entire execution if title generation fails
                 import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to start title generation: {e}")
+                _fallback_logger = logging.getLogger(__name__)
+                _fallback_logger.warning(f"Failed to start title generation: {e}")
             
             # Late scoring (non-blocking): capture context string and observation snapshot, then run in isolated session
             try:
@@ -1719,6 +1896,13 @@ class AgentV2:
             mode=self.mode,
             active_artifact=active_artifact,
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
+            mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
+        )
+
+        from app.ai.context.context_hub import trim_context_to_budget
+        trim_context_to_budget(
+            planner_input,
+            model_context_window=getattr(self.model, "context_window_tokens", None),
         )
 
         return self.planner.prompt_builder.build_prompt(planner_input)
@@ -1859,7 +2043,7 @@ class AgentV2:
         stage = payload.get("stage")
         
         try:
-            if tool_name in ["create_widget", "create_data", "describe_entity"]:
+            if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                 if stage == "data_model_type_determined":
                     # Create Query, Step and Visualization early when we know the type
                     data_model_type = payload.get("data_model_type")
@@ -2149,7 +2333,7 @@ class AgentV2:
             return  # Don't process failed tool executions
             
         try:
-            if tool_name in ["create_widget", "create_data", "describe_entity"]:
+            if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return
