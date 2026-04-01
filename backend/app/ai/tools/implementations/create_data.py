@@ -935,7 +935,16 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                 sigkill_event=runtime_ctx.get("sigkill_event"),
             ):
                 if e["type"] == "progress":
-                    yield ToolProgressEvent(type="tool.progress", payload=e["payload"])
+                    # Map internal stage names to UI-friendly names
+                    mapped = dict(e["payload"])
+                    _stage_map = {
+                        "code_generation": "generating_code",
+                        "code_generated": "generated_code",
+                        "data_query_execution": "executing_code",
+                    }
+                    if mapped.get("stage") in _stage_map:
+                        mapped["stage"] = _stage_map[mapped["stage"]]
+                    yield ToolProgressEvent(type="tool.progress", payload=mapped)
                 elif e["type"] == "stdout":
                     yield ToolStdoutEvent(type="tool.stdout", payload=e["payload"])
                 elif e["type"] == "security_violation":

@@ -591,7 +591,7 @@ class StreamingCodeExecutor:
                     code_context_builder=code_context_builder,
                 )
                 codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
-                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "timing": False}}
+                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "code": final_code, "timing": False}}
             except Exception as e:
                 msg = f"Code generation error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
@@ -727,7 +727,7 @@ class StreamingCodeExecutor:
                     context=ctx,
                 )
                 codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
-                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "timing": False}}
+                yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "code": final_code, "timing": False}}
             except Exception as e:
                 msg = f"Code generation error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
