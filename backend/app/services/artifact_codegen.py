@@ -204,11 +204,41 @@ def _build_heatmap(data_model: dict, viz_index: int) -> str:
     )
 
 
+def _build_table(data_model: dict, viz_index: int) -> str:
+    """Table JSX — renders viz[N].columns / viz[N].rows as a Tailwind table."""
+    v = f"viz[{viz_index}]"
+    return (
+        f"(() => {{\n"
+        f"  const cols = {v}.columns || [];\n"
+        f"  const rows = {v}.rows || [];\n"
+        f"  return <div style={{{{maxHeight: 400, overflow: 'auto'}}}}>\n"
+        f'    <table className="w-full text-sm text-left">\n'
+        f'      <thead className="text-xs uppercase bg-slate-50 sticky top-0">\n'
+        f"        <tr>{{cols.map((c, i) =>\n"
+        f'          <th key={{i}} className="px-4 py-3 font-medium text-slate-500">{{c.headerName || c.field}}</th>\n'
+        f"        )}}</tr>\n"
+        f"      </thead>\n"
+        f"      <tbody>\n"
+        f"        {{rows.map((row, i) =>\n"
+        f'          <tr key={{i}} className="border-b border-slate-100 hover:bg-slate-50">\n'
+        f"            {{cols.map((c, j) =>\n"
+        f'              <td key={{j}} className="px-4 py-2 text-slate-700">{{row[c.field] != null ? String(row[c.field]) : \'\'}}</td>\n'
+        f"            )}}\n"
+        f"          </tr>\n"
+        f"        )}}\n"
+        f"      </tbody>\n"
+        f"    </table>\n"
+        f"  </div>;\n"
+        f"}})()"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
-_BUILDERS = {
+# Builders that return an ECharts option JS expression
+_CHART_BUILDERS = {
     "bar_chart": _build_cartesian,
     "line_chart": _build_cartesian,
     "area_chart": _build_cartesian,
@@ -217,15 +247,40 @@ _BUILDERS = {
     "heatmap": _build_heatmap,
 }
 
+# Types that produce raw JSX (not an EChart option)
+_JSX_BUILDERS = {
+    "table": _build_table,
+}
+
+
+def is_table_type(data_model: dict) -> bool:
+    """Check if the data_model type should render as a table."""
+    dm_type = (data_model.get("type") or "").lower()
+    return dm_type in _JSX_BUILDERS
+
 
 def generate_echart_option_code(data_model: dict, viz_index: int) -> str:
     """Map a visualization's data_model to an ECharts option JS expression.
 
     Returns a JS expression string referencing ``viz[N].rows``.
+    For table types, use ``generate_table_jsx`` instead.
     """
     dm_type = (data_model.get("type") or "bar_chart").lower()
-    builder = _BUILDERS.get(dm_type, _build_cartesian)
+    builder = _CHART_BUILDERS.get(dm_type, _build_cartesian)
     return builder(data_model, viz_index)
+
+
+def generate_table_jsx(title: str, data_model: dict, viz_index: int) -> str:
+    """Generate a full <SectionCard> with a table inside."""
+    dm_type = (data_model.get("type") or "table").lower()
+    builder = _JSX_BUILDERS.get(dm_type, _build_table)
+    jsx_expr = builder(data_model, viz_index)
+    safe_title = _js_str(title)
+    return (
+        f'<SectionCard title="{safe_title}">\n'
+        f"        {{{jsx_expr}}}\n"
+        f"      </SectionCard>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +291,7 @@ def generate_section_jsx(title: str, option_code: str, height: int = 350) -> str
     """Wrap an ECharts option expression in a <SectionCard><EChart /> block."""
     safe_title = _js_str(title)
     return (
-        f'      <SectionCard title="{safe_title}">\n'
+        f'<SectionCard title="{safe_title}">\n'
         f"        <EChart height={{{height}}} option={{{option_code}}} />\n"
         f"      </SectionCard>"
     )

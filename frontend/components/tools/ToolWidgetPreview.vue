@@ -779,10 +779,16 @@ const canAddToDashboard = computed(() => {
   if (isExcel.value) return false
   const v = visualization.value as any
   if (!v || !v.id || v._isSynthetic) return false
-  if (v.status !== 'success') return false
   if (!reportId.value) return false
   if (props.readonly) return false
-  return true
+  // Show button once we have data (step succeeded), even if viz status
+  // hasn't been updated to 'success' yet during streaming
+  const stepStatus = effectiveStep.value?.status
+  const vizStatus = v.status
+  if (vizStatus === 'success' || stepStatus === 'success') return true
+  // Also show if we already have rows (data is ready)
+  if (effectiveStep.value?.data?.rows?.length > 0) return true
+  return false
 })
 
 async function addToDashboard() {

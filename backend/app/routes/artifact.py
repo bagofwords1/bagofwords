@@ -30,8 +30,10 @@ from app.services.artifact_service import ArtifactService
 from app.services.artifact_codegen import (
     generate_echart_option_code,
     generate_section_jsx,
+    generate_table_jsx,
     generate_scaffold,
     inject_section_into_code,
+    is_table_type,
 )
 from app.services.pptx_export_service import PptxExportService
 
@@ -530,8 +532,11 @@ async def add_visualization_to_dashboard(
             raise HTTPException(status_code=409, detail="Visualization already added to dashboard")
 
         viz_index = len(existing_viz_ids)
-        option_code = generate_echart_option_code(data_model, viz_index)
-        section_jsx = generate_section_jsx(viz_title, option_code)
+        if is_table_type(data_model):
+            section_jsx = generate_table_jsx(viz_title, data_model, viz_index)
+        else:
+            option_code = generate_echart_option_code(data_model, viz_index)
+            section_jsx = generate_section_jsx(viz_title, option_code)
 
         existing_code = (latest.content or {}).get("code", "")
         new_code = inject_section_into_code(existing_code, section_jsx)
@@ -563,8 +568,11 @@ async def add_visualization_to_dashboard(
     else:
         # No artifact yet — generate scaffold from scratch
         viz_index = 0
-        option_code = generate_echart_option_code(data_model, viz_index)
-        section_jsx = generate_section_jsx(viz_title, option_code)
+        if is_table_type(data_model):
+            section_jsx = generate_table_jsx(viz_title, data_model, viz_index)
+        else:
+            option_code = generate_echart_option_code(data_model, viz_index)
+            section_jsx = generate_section_jsx(viz_title, option_code)
         code = generate_scaffold([section_jsx])
 
         new_artifact = ArtifactModel(
