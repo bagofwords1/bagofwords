@@ -34,7 +34,7 @@ from app.services.artifact_codegen import (
     generate_scaffold,
     inject_section_into_code,
     is_table_type,
-)
+)  # noqa: F401 — some used only in the scaffold (no-artifact) path
 from app.services.pptx_export_service import PptxExportService
 
 logger = logging.getLogger(__name__)
@@ -532,14 +532,9 @@ async def add_visualization_to_dashboard(
             raise HTTPException(status_code=409, detail="Visualization already added to dashboard")
 
         viz_index = len(existing_viz_ids)
-        if is_table_type(data_model):
-            section_jsx = generate_table_jsx(viz_title, data_model, viz_index)
-        else:
-            option_code = generate_echart_option_code(data_model, viz_index)
-            section_jsx = generate_section_jsx(viz_title, option_code)
 
         existing_code = (latest.content or {}).get("code", "")
-        new_code = inject_section_into_code(existing_code, section_jsx)
+        new_code = inject_section_into_code(existing_code, viz_title, data_model, viz_index)
         if new_code is None:
             raise HTTPException(
                 status_code=400,

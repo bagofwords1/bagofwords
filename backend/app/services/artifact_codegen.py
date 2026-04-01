@@ -317,12 +317,20 @@ def generate_scaffold(sections: List[str]) -> str:
     )
 
 
-def inject_section_into_code(existing_code: str, new_section: str) -> Optional[str]:
-    """Append a new <SectionCard> to existing artifact code.
+def inject_section_into_code(
+    existing_code: str,
+    title: str,
+    data_model: dict,
+    viz_index: int,
+) -> Optional[str]:
+    """Append a new visualization section to existing artifact code.
 
     Strategy: find the closing ``</script>`` tag and insert a self-contained
     IIFE just before it.  The IIFE creates its own container element and
     React root, so it never touches the existing LLM-generated JSX tree.
+
+    The option code is computed in a ``var`` statement *before* the JSX return
+    to avoid nested-brace parsing issues in Babel.
 
     Returns the modified code, or None if ``</script>`` can't be found.
     """
@@ -330,18 +338,37 @@ def inject_section_into_code(existing_code: str, new_section: str) -> Optional[s
     if script_close_pos == -1:
         return None
 
+    safe_title = _js_str(title)
+
+    if is_table_type(data_model):
+        table_jsx = _build_table(data_model, viz_index)
+        body = (
+            f'    return <div className="space-y-6" style={{{{padding: "0 2rem 2rem"}}}}>\n'
+            f'      <SectionCard title="{safe_title}">\n'
+            f"        {{{table_jsx}}}\n"
+            f"      </SectionCard>\n"
+            f"    </div>;\n"
+        )
+    else:
+        option_code = generate_echart_option_code(data_model, viz_index)
+        body = (
+            f"    var _opt = {option_code};\n"
+            f'    return <div className="space-y-6" style={{{{padding: "0 2rem 2rem"}}}}>\n'
+            f'      <SectionCard title="{safe_title}">\n'
+            f"        <EChart height={{350}} option={{_opt}} />\n"
+            f"      </SectionCard>\n"
+            f"    </div>;\n"
+        )
+
     addition = (
         "\n\n// --- Programmatically added visualization ---\n"
         "(function() {\n"
-        "  function _AddedViz() {\n"
-        "    const data = useArtifactData();\n"
+        "  function AddedViz() {\n"
+        "    var data = useArtifactData();\n"
         "    if (!data) return null;\n"
-        "    const viz = data.visualizations;\n"
-        '    return <div className="space-y-6" style={{padding: "0 2rem 2rem"}}>\n'
-        f"      {new_section}\n"
-        "    </div>;\n"
+        "    var viz = data.visualizations;\n"
+        f"{body}"
         "  }\n"
-        "  // Wait for React to render the main app, then append inside its container\n"
         "  var _obs = new MutationObserver(function() {\n"
         "    var root = document.getElementById('root');\n"
         "    var container = root && root.firstElementChild;\n"
@@ -349,7 +376,7 @@ def inject_section_into_code(existing_code: str, new_section: str) -> Optional[s
         "      _obs.disconnect();\n"
         "      var _el = document.createElement('div');\n"
         "      container.appendChild(_el);\n"
-        "      ReactDOM.createRoot(_el).render(<_AddedViz />);\n"
+        "      ReactDOM.createRoot(_el).render(React.createElement(AddedViz));\n"
         "    }\n"
         "  });\n"
         "  _obs.observe(document.getElementById('root'), { childList: true, subtree: true });\n"
