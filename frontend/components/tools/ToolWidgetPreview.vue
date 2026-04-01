@@ -254,7 +254,7 @@
               Add to Spreadsheet
             </button>
             <button
-              v-if="canAddToDashboard"
+              v-else-if="canAddToDashboard"
               :disabled="isAddingToDashboard"
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-blue-500 hover:text-blue-600 disabled:opacity-40"
               @click.stop="addToDashboard"
