@@ -5,10 +5,12 @@
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-document-text" class="w-3 h-3 mr-1.5 text-blue-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">Reading artifact...</span>
       <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">Reading artifact</span>
       <span v-else-if="status === 'error'" class="text-gray-700">Failed to read artifact</span>
       <span v-else class="text-gray-700">Read Artifact</span>
 
