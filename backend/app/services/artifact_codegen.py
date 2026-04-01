@@ -263,40 +263,33 @@ def generate_scaffold(sections: List[str]) -> str:
 
 
 def inject_section_into_code(existing_code: str, new_section: str) -> Optional[str]:
-    """Insert a new <SectionCard> block into existing artifact code.
+    """Append a new <SectionCard> to existing artifact code.
 
-    Strategy: find ``ReactDOM.createRoot`` and walk backwards to the last
-    ``</div>`` before it — that's the outermost container's closing tag.
-    Insert the new section right before it.
+    Strategy: find the closing ``</script>`` tag and insert a self-contained
+    IIFE just before it.  The IIFE creates its own container element and
+    React root, so it never touches the existing LLM-generated JSX tree.
 
-    Returns the modified code, or None if the injection point can't be found.
+    Returns the modified code, or None if ``</script>`` can't be found.
     """
-    # Find the ReactDOM.createRoot anchor
-    anchor_match = re.search(r"ReactDOM\.createRoot", existing_code)
-    if not anchor_match:
+    script_close_pos = existing_code.rfind("</script>")
+    if script_close_pos == -1:
         return None
 
-    anchor_pos = anchor_match.start()
-
-    # Search backwards from anchor for the last </div>
-    code_before_anchor = existing_code[:anchor_pos]
-    last_div_close = code_before_anchor.rfind("</div>")
-    if last_div_close == -1:
-        # Try fragment closing tag </>
-        last_div_close = code_before_anchor.rfind("</>")
-        if last_div_close == -1:
-            return None
-
-    # Find the indentation of the closing tag for consistent formatting
-    line_start = code_before_anchor.rfind("\n", 0, last_div_close)
-    if line_start == -1:
-        line_start = 0
-    else:
-        line_start += 1  # skip the newline itself
-
-    # Insert the new section before the closing tag
-    return (
-        existing_code[:last_div_close]
-        + new_section + "\n"
-        + existing_code[last_div_close:]
+    addition = (
+        "\n\n// --- Programmatically added visualization ---\n"
+        "(function() {\n"
+        "  const _el = document.createElement('div');\n"
+        "  document.getElementById('root').after(_el);\n"
+        "  function _AddedViz() {\n"
+        "    const data = useArtifactData();\n"
+        "    if (!data) return null;\n"
+        "    const viz = data.visualizations;\n"
+        '    return <div className="px-8 pb-8 space-y-6">\n'
+        f"      {new_section}\n"
+        "    </div>;\n"
+        "  }\n"
+        "  ReactDOM.createRoot(_el).render(<_AddedViz />);\n"
+        "})();\n"
     )
+
+    return existing_code[:script_close_pos] + addition + existing_code[script_close_pos:]
