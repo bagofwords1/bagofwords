@@ -1412,76 +1412,37 @@ Create a beautiful, varied presentation following these design principles. Each 
 {SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
-CHARTING — USE `<EChart>` WRAPPER (declarative ECharts)
+CHARTING & COMPONENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
-Use the global `<EChart>` component for ALL charts. It handles init/dispose/resize automatically.
-Do NOT use raw `echarts.init()`, `useRef`, or `useEffect` for charts.
-
-**Usage:** `<EChart height={{350}} option={{{{ ... ECharts option object ... }}}} />`
-
-The `<EChart>` wrapper uses the **'bow' theme** — colors, tooltip, grid, axis styling, rounded corners are all pre-configured. You only need to specify **data mapping** in the option. Do NOT repeat styling that the theme already provides.
-
-**Chart patterns (minimal — theme handles styling):**
+**`<EChart height={{N}} option={{{{...}}}} />`** — chart wrapper. 'bow' theme pre-configures colors, tooltip, grid, axes, rounded corners. Only write data mapping:
 ```jsx
-// Bar chart — just data
-<EChart height={{350}} option={{{{
-  xAxis: {{ type: 'category', data: rows.map(r => r.name) }},
-  yAxis: {{ type: 'value' }},
-  series: [{{ type: 'bar', data: rows.map(r => r.value) }}]
-}}}} />
-
-// Pie/Donut — tooltip trigger 'item' override
-<EChart height={{350}} option={{{{
-  tooltip: {{ trigger: 'item' }},
-  legend: {{ bottom: 0 }},
-  series: [{{
-    type: 'pie', radius: ['45%', '75%'], center: ['50%', '45%'],
-    padAngle: 2,
-    data: rows.map(r => ({{ value: r.amount, name: r.label }})),
-    label: {{ show: false }}, emphasis: {{ label: {{ show: true, fontSize: 14, fontWeight: 'bold' }} }}
-  }}]
-}}}} />
-
-// Line/Area — areaStyle for fill
-<EChart height={{350}} option={{{{
-  xAxis: {{ type: 'category', data: rows.map(r => r.date) }},
-  yAxis: {{ type: 'value' }},
-  series: [{{ type: 'line', data: rows.map(r => r.value),
-    areaStyle: {{ opacity: 0.15 }}
-  }}]
-}}}} />
-
-// Multi-series — theme auto-assigns colors
-<EChart height={{350}} option={{{{
-  xAxis: {{ type: 'category', data: months }},
-  yAxis: {{ type: 'value' }},
-  legend: {{}},
-  series: [
-    {{ name: 'Revenue', type: 'bar', data: revData }},
-    {{ name: 'Costs', type: 'line', data: costData }}
-  ]
-}}}} />
+<EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.name) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'bar', data: rows.map(r => r.val) }}] }}}} />
+<EChart height={{300}} option={{{{ tooltip: {{ trigger: 'item' }}, series: [{{ type: 'pie', radius: ['45%','75%'], data: rows.map(r => ({{ value: r.amt, name: r.lbl }})) }}] }}}} />
+<EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.date) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'line', data: rows.map(r => r.val), areaStyle: {{ opacity: 0.15 }} }}] }}}} />
 ```
 
-**Theme provides** (do NOT repeat): colors, tooltip styling, grid margins, axis hide, splitLine colors, bar borderRadius, line smooth/symbol, pie borderRadius. Only override if the user explicitly requests different styling.
+**Other globals** (do NOT redefine):
+- `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" />` — omit className for light mode, pass className to override theme
+- `<SectionCard title="" subtitle="">...children...</SectionCard>` — omit className for light mode
+- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} />` — multi-select dropdown
+- `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
+- `<LoadingSpinner size={{32}} />`
 
-**Pre-built global components** (already loaded — do NOT redefine):
-- `<KPICard title="Revenue" value={{fmt(total, {{currency: true}})}} subtitle="Total sales" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" subtitleClassName="text-slate-500" />` — stat card. className replaces default theme (bg/border/text). No className = light mode.
-- `<SectionCard title="Chart Title" subtitle="Description" className="bg-white border-slate-200" titleClassName="text-slate-800" subtitleClassName="text-slate-500">...children...</SectionCard>` — card wrapper. className replaces default theme. No className = light mode.
-- `<FilterSelect label="Artist" options={{artists}} selected={{filters.artist}} onChange={{v => setFilters(f => ({{...f, artist: v}}))}} className="bg-white border-slate-200 text-slate-900" />` — multi-select dropdown with checkboxes. `selected` is an array, `options` is string array. className replaces default theme.
-- `fmt(n, opts)` — number formatter. Options: `{{currency: true}}`, `{{pct: true}}`, `{{decimals: 2}}`. Auto K/M/B
-- `<LoadingSpinner size={{32}} />` — loading spinner
-
-**Do NOT redefine** EChart, KPICard, SectionCard, FilterSelect, fmt, or LoadingSpinner — they are already global.
-**Do NOT repeat theme styling** — no axis hide, no grid margins, no tooltip config, no bar borderRadius, no line smooth/symbol. The theme handles all of this.
+⚠️ **CRITICAL — KEEP OUTPUT SHORT:**
+- Target **under 8K characters** of code. Be concise.
+- Do NOT pass className/titleClassName/subtitleClassName to globals when using light mode — omit them entirely, the defaults handle it.
+- Do NOT repeat theme styling (axes, grid, tooltip, colors, borderRadius) — the 'bow' theme provides all of it.
+- Do NOT write custom table/sort/search components — use simple `<table>` with minimal markup.
+- Do NOT over-engineer: no custom hooks, no elaborate helper functions, no verbose comments.
+- Prefer inline expressions over separate variables when used once.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS
 ═══════════════════════════════════════════════════════════════════════════════
 
 ```javascript
-const data = useArtifactData(); // React hook — returns null while loading
+const data = useArtifactData(); // Returns null while loading
 // data = {{ report: {{id, title}}, visualizations: [...] }}
 ```
 
@@ -1524,28 +1485,11 @@ DESIGN REQUEST
 DESIGN PRINCIPLES
 ═══════════════════════════════════════════════════════════════════════════════
 
-Create a polished, executive-ready dashboard:
-- Narrative is key. Use context (messages history, instructions) to shape the report
-- Show data from different angles without redundancy
-- **Minimalism** — less is more, generous whitespace, clean typography
-- **Beautiful charts** — the 'bow' theme handles styling (colors, tooltips, rounded corners, smooth lines). Just map data.
-- **Professional** — like a modern analytics platform, data-focused
-- **Use the globals** — `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for chart wrappers, `fmt()` for numbers, `<FilterSelect>` for filters
-- Do NOT manually set axis styling, grid margins, tooltip config, or bar/line/pie styling — the theme provides these
-- By default use light mode unless instructed otherwise
-- Color palette: blues (#3B82F6, #60A5FA), greens (#10B981, #34D399), purples (#8B5CF6), oranges (#F59E0B), reds (#EF4444)
-
-═══════════════════════════════════════════════════════════════════════════════
-CROSS-VISUALIZATION FILTERS
-═══════════════════════════════════════════════════════════════════════════════
-
-If visualizations have `filterable_columns`, implement cross-visualization filters:
-- Store filter state in App with `useState` — object mapping field names to selected arrays: `{{ artist: [], genre: [] }}`
-- Use `<FilterSelect>` for each filter (multi-select with checkboxes). Do NOT use raw `<select>`.
-- Render sticky filter bar at top (`sticky top-0 z-50 bg-white/95 backdrop-blur`)
-- Filter rows: `rows.filter(r => filters.field.length === 0 || filters.field.includes(r[field]))`
-- Include "Reset" button when filters are active
-- Zero matching rows → show "No data matches current filters" message
+- Polished, executive-ready. Minimalist — whitespace, clean typography. Light mode default.
+- Show data from different angles without redundancy. Narrative > decoration.
+- Use globals: `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for wrappers, `<FilterSelect>` for filters, `fmt()` for numbers
+- If visualizations have `filterable_columns`: use `<FilterSelect>` in a sticky bar, filter state as arrays, include Reset button
+- User's explicit requests override all defaults
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -1553,32 +1497,19 @@ OUTPUT FORMAT
 
 ```
 <script type="text/babel">
-// EChart (with 'bow' theme), KPICard, SectionCard, FilterSelect, fmt, LoadingSpinner are all globals
-
 function App() {{
   const data = useArtifactData();
   if (!data) return <div className="flex items-center justify-center h-screen text-gray-400"><LoadingSpinner size={{32}} /></div>;
-
   const viz = data.visualizations;
-  // ... your dashboard
+  // ... concise dashboard code
 }}
-
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 ```
 
-REQUIREMENTS:
-1. `<script type="text/babel">` wrapper
-2. Use `useArtifactData()` hook — NEVER hardcode data
-3. Use `<LoadingSpinner size={{32}} />` for loading state
-4. Use `<EChart option={{...}} />` for ALL charts — NO raw echarts.init, NO useRef/useEffect for charts
-5. Responsive layout (mobile + desktop)
-6. Minimalist, clean, professional — no branding, no IDs, no decorative headers — BUT NOT BORING
-7. ALL values from `data.visualizations[N].rows`
-8. Handle zero rows gracefully — show "No data" message, don't crash
-9. User's explicit requests take priority over default design choices
+RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji.
 
-**DO NOT include:** UUIDs, branding badges, footer credits, "Powered by" text, unnecessary emoji
+⚠️ **OUTPUT MUST BE UNDER 8K CHARACTERS.** Write compact code. No unnecessary variables, comments, or verbose JSX. Omit default props.
 
 Now create the dashboard:"""
 

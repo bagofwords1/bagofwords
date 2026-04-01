@@ -388,28 +388,24 @@ VISUALIZATION DATA (for reference if the edit involves data access)
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
-Output your changes as one or more SEARCH/REPLACE blocks. Each block identifies an exact contiguous sequence of lines from the existing code (the SEARCH section) and provides the replacement lines (the REPLACE section). The SEARCH text must match the existing code exactly, including whitespace and indentation.
-
-Format each block exactly like this:
+Output SEARCH/REPLACE blocks. SEARCH must match existing code exactly.
 
 <<<<<<< SEARCH
-(exact lines from existing code to find)
+(exact lines from existing code)
 =======
 (replacement lines)
 >>>>>>> REPLACE
 
 Rules:
-- Output ONLY the SEARCH/REPLACE blocks. Do not output the full file.
-- The SEARCH section must be an exact, verbatim copy of consecutive lines from the existing code. Include enough surrounding context (2-3 lines before and after the change point) so the match is unambiguous.
-- If adding entirely new code (e.g., a new component), use a SEARCH block that finds the insertion point (the lines immediately before where the new code should go) and a REPLACE block that includes those same lines plus the new code after them.
-- If removing code, the REPLACE section should contain only the surrounding context lines without the removed code.
-- You may output multiple SEARCH/REPLACE blocks if the change touches multiple locations.
-- Order the blocks from top to bottom of the file.
-- Never change visualization data access patterns (useArtifactData, column.field, etc.) unless the user asked for it.
-- Preserve all existing chart configurations, responsive handling, and event listeners unless the user asked to change them.
-- For NEW charts or rewrites, use `<EChart option={{...}} height={{N}} />` wrapper — do NOT use raw echarts.init/useRef/useEffect. Use `ECHARTS_TOOLTIP` for tooltips.
-- If the user's request requires adding a new visualization or data source, use the visualization data profiles above to access it correctly via data.visualizations[N].
-- If the edit is too large or fundamentally restructures the dashboard (e.g., "completely redesign this"), output the complete new code inside `<script type="text/babel">` and `</script>` tags instead of SEARCH/REPLACE blocks.
+- Output ONLY SEARCH/REPLACE blocks — not the full file.
+- Include 2-3 lines of context in SEARCH for unambiguous matching.
+- Order blocks top to bottom.
+- Preserve existing code unless the user asked to change it.
+- For NEW charts, use `<EChart option={{...}} height={{N}} />` — 'bow' theme handles styling. Do NOT repeat theme defaults.
+- For large rewrites ("completely redesign"), output full code in `<script type="text/babel">` tags instead.
+- Omit className on globals (KPICard, SectionCard, FilterSelect) when using light mode — defaults handle it.
+
+⚠️ **KEEP EDITS MINIMAL.** Do not rewrite code that doesn't need to change. Do not add verbose comments or unnecessary variables.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS (applies to ALL edits and full rewrites)
