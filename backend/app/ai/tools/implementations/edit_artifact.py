@@ -409,49 +409,19 @@ Rules:
 - You may output multiple SEARCH/REPLACE blocks if the change touches multiple locations.
 - Order the blocks from top to bottom of the file.
 - Never change visualization data access patterns (useArtifactData, column.field, etc.) unless the user asked for it.
-- Preserve all existing ECharts configurations, responsive handling, resize observers, and event listeners unless the user asked to change them.
+- Preserve all existing chart configurations (Recharts or ECharts), responsive handling, and event listeners unless the user asked to change them.
+- For NEW charts or rewrites, prefer Recharts (declarative) over raw ECharts. Recharts is available globally via `window.Recharts`.
 - If the user's request requires adding a new visualization or data source, use the visualization data profiles above to access it correctly via data.visualizations[N].
 - If the edit is too large or fundamentally restructures the dashboard (e.g., "completely redesign this"), output the complete new code inside `<script type="text/babel">` and `</script>` tags instead of SEARCH/REPLACE blocks.
 
 ═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS - CRITICAL RULES (applies to ALL edits and full rewrites)
+DATA ACCESS (applies to ALL edits and full rewrites)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Data is available via `window.ARTIFACT_DATA`:
-```javascript
-const data = useArtifactData(); // React hook - returns null while loading
-// data = {{ report: {{id, title, theme}}, visualizations: [...] }}
-```
-
-Each visualization object has this EXACT structure:
-```js
-{{
-  id: "uuid-string",
-  title: "Visualization Title",
-  columns: [
-    {{ "headerName": "AlbumId", "field": "AlbumId" }},
-    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
-    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
-  ],
-  rows: [
-    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
-    // ... more rows
-  ],
-  view: {{ /* chart config hints */ }},
-  dataModel: {{ /* series/axis config */ }}
-}}
-```
-
-**CRITICAL - How to access data:**
-- Use `column.field` to get the key for accessing row data: `row[column.field]`
-- Use `column.headerName` for display labels in table headers
-- Example: `rows.map(row => row[columns[0].field])` to get values for first column
-
-**NEVER HARDCODE DATA or use iframes to embed visualizations.**
-- You MUST use `useArtifactData()` to access ALL data
-- NEVER use `<iframe src="./viz/...">` or any URL-based embedding
-- ALL chart data, KPI values, labels, and metrics MUST come from `data.visualizations[N].rows`
-- The code runs inside a sandboxed iframe and receives data via postMessage — there are no visualization URLs to load
+- `useArtifactData()` returns `{{ report, visualizations }}` or `null` while loading
+- Each viz: `{{ id, title, columns: [{{headerName, field}}], rows: [{{...}}], view, dataModel }}`
+- Access values: `row[column.field]`, display labels: `column.headerName`
+- **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
 
 Apply the user's edit now:"""
 

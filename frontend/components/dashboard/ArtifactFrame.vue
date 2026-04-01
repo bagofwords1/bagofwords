@@ -1018,6 +1018,9 @@ const iframeSrcdoc = computed(() => {
   <script crossorigin src="/libs/react-dom-18.development.js">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
+  <script src="/libs/react-is-18.production.min.js">${SC}
+  <script src="/libs/recharts-3.8.1.min.js">${SC}
+  <script>if(window.Recharts)Object.assign(window,Recharts);${SC}
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, sans-serif; }
@@ -1060,6 +1063,54 @@ const iframeSrcdoc = computed(() => {
           })
         )
       );
+    };
+    // Global fmt() number formatter
+    window.fmt = function(n, opts) {
+      if (n == null) return '\u2014';
+      if (typeof n !== 'number') return String(n);
+      opts = opts || {};
+      if (opts.currency) return new Intl.NumberFormat('en-US', { style: 'currency', currency: opts.currency === true ? 'USD' : opts.currency, maximumFractionDigits: opts.decimals != null ? opts.decimals : 0 }).format(n);
+      if (opts.pct) return n.toFixed(1) + '%';
+      if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(1) + 'B';
+      if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(1) + 'M';
+      if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1) + 'K';
+      return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    };
+    // Global CustomTooltip for Recharts
+    window.CustomTooltip = function(props) {
+      if (!props.active || !props.payload || !props.payload.length) return null;
+      var h = React.createElement;
+      return h('div', { className: 'bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700/50 text-sm' }, [
+        h('p', { key: 'l', className: 'font-medium text-slate-300 mb-1' }, props.label),
+      ].concat(props.payload.map(function(p, i) {
+        return h('p', { key: i, className: 'flex items-center gap-2' }, [
+          h('span', { key: 'd', className: 'w-2 h-2 rounded-full inline-block', style: { backgroundColor: p.color } }),
+          h('span', { key: 'n', className: 'text-slate-400' }, p.name + ': '),
+          h('span', { key: 'v', className: 'font-semibold' }, typeof p.value === 'number' ? p.value.toLocaleString() : p.value),
+        ]);
+      })));
+    };
+    // Global KPICard component
+    window.KPICard = function(props) {
+      var h = React.createElement;
+      var color = props.color || '#3B82F6';
+      return h('div', { className: 'relative bg-white rounded-2xl border border-slate-200 p-5 shadow-sm overflow-hidden ' + (props.className || '') }, [
+        h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
+        h('p', { key: 't', className: 'text-xs font-medium text-slate-500 uppercase tracking-wider mb-1' }, props.title),
+        h('p', { key: 'v', className: 'text-2xl font-semibold text-slate-900' }, props.value),
+        props.subtitle ? h('p', { key: 's', className: 'text-sm text-slate-500 mt-1' }, props.subtitle) : null,
+      ]);
+    };
+    // Global SectionCard wrapper
+    window.SectionCard = function(props) {
+      var h = React.createElement;
+      return h('div', { className: 'bg-white rounded-2xl border border-slate-200 shadow-sm p-6 ' + (props.className || '') }, [
+        props.title ? h('div', { key: 'hdr', className: 'mb-4' }, [
+          h('h2', { key: 't', className: 'text-lg font-semibold text-slate-800' }, props.title),
+          props.subtitle ? h('p', { key: 's', className: 'text-sm text-slate-500 mt-1' }, props.subtitle) : null,
+        ]) : null,
+        h('div', { key: 'body' }, props.children),
+      ]);
     };
     // Fix ECharts 0-height issue: resize all charts after render
     window.resizeAllCharts = function() {
