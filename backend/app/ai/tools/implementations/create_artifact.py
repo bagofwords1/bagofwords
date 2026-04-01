@@ -1420,53 +1420,61 @@ Do NOT use raw `echarts.init()`, `useRef`, or `useEffect` for charts.
 
 **Usage:** `<EChart height={{350}} option={{{{ ... ECharts option object ... }}}} />`
 
-**Chart patterns:**
-```jsx
-const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#14B8A6'];
+The `<EChart>` wrapper uses the **'bow' theme** — colors, tooltip, grid, axis styling, rounded corners are all pre-configured. You only need to specify **data mapping** in the option. Do NOT repeat styling that the theme already provides.
 
-// Bar chart
+**Chart patterns (minimal — theme handles styling):**
+```jsx
+// Bar chart — just data
 <EChart height={{350}} option={{{{
-  tooltip: {{ ...ECHARTS_TOOLTIP }},
-  grid: {{ left: 40, right: 20, top: 20, bottom: 40, containLabel: true }},
-  xAxis: {{ type: 'category', data: rows.map(r => r.name), axisLine: {{ show: false }}, axisTick: {{ show: false }}, axisLabel: {{ color: '#64748b', fontSize: 12 }} }},
-  yAxis: {{ type: 'value', axisLine: {{ show: false }}, axisTick: {{ show: false }}, splitLine: {{ lineStyle: {{ color: '#f1f5f9' }} }}, axisLabel: {{ color: '#64748b', fontSize: 12 }} }},
-  series: [{{ type: 'bar', data: rows.map(r => r.value), itemStyle: {{ color: '#3B82F6', borderRadius: [6, 6, 0, 0] }} }}]
+  xAxis: {{ type: 'category', data: rows.map(r => r.name) }},
+  yAxis: {{ type: 'value' }},
+  series: [{{ type: 'bar', data: rows.map(r => r.value) }}]
 }}}} />
 
-// Pie/Donut
+// Pie/Donut — tooltip trigger 'item' override
 <EChart height={{350}} option={{{{
-  tooltip: {{ ...ECHARTS_TOOLTIP, trigger: 'item' }},
-  legend: {{ bottom: 0, textStyle: {{ color: '#64748b' }} }},
+  tooltip: {{ trigger: 'item' }},
+  legend: {{ bottom: 0 }},
   series: [{{
     type: 'pie', radius: ['45%', '75%'], center: ['50%', '45%'],
-    padAngle: 2, itemStyle: {{ borderRadius: 6 }},
-    data: rows.map((r, i) => ({{ value: r.amount, name: r.label, itemStyle: {{ color: COLORS[i % COLORS.length] }} }})),
+    padAngle: 2,
+    data: rows.map(r => ({{ value: r.amount, name: r.label }})),
     label: {{ show: false }}, emphasis: {{ label: {{ show: true, fontSize: 14, fontWeight: 'bold' }} }}
   }}]
 }}}} />
 
-// Line/Area chart
+// Line/Area — areaStyle for fill
 <EChart height={{350}} option={{{{
-  tooltip: {{ ...ECHARTS_TOOLTIP, trigger: 'axis' }},
-  grid: {{ left: 40, right: 20, top: 20, bottom: 40, containLabel: true }},
-  xAxis: {{ type: 'category', data: rows.map(r => r.date), axisLine: {{ show: false }}, axisTick: {{ show: false }} }},
-  yAxis: {{ type: 'value', splitLine: {{ lineStyle: {{ color: '#f1f5f9' }} }} }},
-  series: [{{ type: 'line', data: rows.map(r => r.value), smooth: true, symbol: 'none',
-    lineStyle: {{ color: '#3B82F6', width: 2 }},
-    areaStyle: {{ color: {{ type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{{ offset: 0, color: 'rgba(59,130,246,0.25)' }}, {{ offset: 1, color: 'rgba(59,130,246,0.02)' }}] }} }}
+  xAxis: {{ type: 'category', data: rows.map(r => r.date) }},
+  yAxis: {{ type: 'value' }},
+  series: [{{ type: 'line', data: rows.map(r => r.value),
+    areaStyle: {{ opacity: 0.15 }}
   }}]
+}}}} />
+
+// Multi-series — theme auto-assigns colors
+<EChart height={{350}} option={{{{
+  xAxis: {{ type: 'category', data: months }},
+  yAxis: {{ type: 'value' }},
+  legend: {{}},
+  series: [
+    {{ name: 'Revenue', type: 'bar', data: revData }},
+    {{ name: 'Costs', type: 'line', data: costData }}
+  ]
 }}}} />
 ```
 
-**`ECHARTS_TOOLTIP`** — global dark-styled tooltip config. Use `{{ ...ECHARTS_TOOLTIP }}` in every chart's tooltip.
+**Theme provides** (do NOT repeat): colors, tooltip styling, grid margins, axis hide, splitLine colors, bar borderRadius, line smooth/symbol, pie borderRadius. Only override if the user explicitly requests different styling.
 
 **Pre-built global components** (already loaded — do NOT redefine):
 - `<KPICard title="Revenue" value={{fmt(total, {{currency: true}})}} subtitle="Total sales" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" subtitleClassName="text-slate-500" />` — stat card. className replaces default theme (bg/border/text). No className = light mode.
 - `<SectionCard title="Chart Title" subtitle="Description" className="bg-white border-slate-200" titleClassName="text-slate-800" subtitleClassName="text-slate-500">...children...</SectionCard>` — card wrapper. className replaces default theme. No className = light mode.
+- `<FilterSelect label="Artist" options={{artists}} selected={{filters.artist}} onChange={{v => setFilters(f => ({{...f, artist: v}}))}} className="bg-white border-slate-200 text-slate-900" />` — multi-select dropdown with checkboxes. `selected` is an array, `options` is string array. className replaces default theme.
 - `fmt(n, opts)` — number formatter. Options: `{{currency: true}}`, `{{pct: true}}`, `{{decimals: 2}}`. Auto K/M/B
 - `<LoadingSpinner size={{32}} />` — loading spinner
 
-**Do NOT redefine** EChart, ECHARTS_TOOLTIP, KPICard, SectionCard, fmt, or LoadingSpinner — they are already global.
+**Do NOT redefine** EChart, KPICard, SectionCard, FilterSelect, fmt, or LoadingSpinner — they are already global.
+**Do NOT repeat theme styling** — no axis hide, no grid margins, no tooltip config, no bar borderRadius, no line smooth/symbol. The theme handles all of this.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS
@@ -1520,10 +1528,10 @@ Create a polished, executive-ready dashboard:
 - Narrative is key. Use context (messages history, instructions) to shape the report
 - Show data from different angles without redundancy
 - **Minimalism** — less is more, generous whitespace, clean typography
-- **Beautiful charts** — use gradient fills, rounded corners (`borderRadius`), `{{ ...ECHARTS_TOOLTIP }}`, smooth lines
+- **Beautiful charts** — the 'bow' theme handles styling (colors, tooltips, rounded corners, smooth lines). Just map data.
 - **Professional** — like a modern analytics platform, data-focused
-- **Use the globals** — `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for chart wrappers, `fmt()` for numbers
-- Hide axis lines and tick lines (`axisLine: {{ show: false }}, axisTick: {{ show: false }}`), light split lines (`color: '#f1f5f9'`)
+- **Use the globals** — `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for chart wrappers, `fmt()` for numbers, `<FilterSelect>` for filters
+- Do NOT manually set axis styling, grid margins, tooltip config, or bar/line/pie styling — the theme provides these
 - By default use light mode unless instructed otherwise
 - Color palette: blues (#3B82F6, #60A5FA), greens (#10B981, #34D399), purples (#8B5CF6), oranges (#F59E0B), reds (#EF4444)
 
@@ -1532,9 +1540,10 @@ CROSS-VISUALIZATION FILTERS
 ═══════════════════════════════════════════════════════════════════════════════
 
 If visualizations have `filterable_columns`, implement cross-visualization filters:
-- Store filter state in App with `useState` — object mapping field names to selected values (or `null`)
+- Store filter state in App with `useState` — object mapping field names to selected arrays: `{{ artist: [], genre: [] }}`
+- Use `<FilterSelect>` for each filter (multi-select with checkboxes). Do NOT use raw `<select>`.
 - Render sticky filter bar at top (`sticky top-0 z-50 bg-white/95 backdrop-blur`)
-- Every chart/table filters its own rows before rendering
+- Filter rows: `rows.filter(r => filters.field.length === 0 || filters.field.includes(r[field]))`
 - Include "Reset" button when filters are active
 - Zero matching rows → show "No data matches current filters" message
 
@@ -1544,7 +1553,7 @@ OUTPUT FORMAT
 
 ```
 <script type="text/babel">
-// EChart, ECHARTS_TOOLTIP, KPICard, SectionCard, fmt, LoadingSpinner are all globals
+// EChart (with 'bow' theme), KPICard, SectionCard, FilterSelect, fmt, LoadingSpinner are all globals
 
 function App() {{
   const data = useArtifactData();
