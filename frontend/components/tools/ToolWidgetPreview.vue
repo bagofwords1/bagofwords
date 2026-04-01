@@ -803,6 +803,7 @@ async function addToDashboard() {
     const result = data.value as any
     if (result?.id) {
       window.dispatchEvent(new CustomEvent('artifact:created', { detail: { report_id: reportId.value, artifact_id: result.id } }))
+      window.dispatchEvent(new CustomEvent('artifact:open', { detail: { artifact_id: result.id } }))
     }
   } catch (err) {
     console.error('Add to dashboard error:', err)

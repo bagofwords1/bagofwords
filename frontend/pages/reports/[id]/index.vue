@@ -1760,6 +1760,9 @@ onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
     })
+    window.addEventListener('artifact:open', ((ev: CustomEvent) => {
+        handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
+    }) as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info

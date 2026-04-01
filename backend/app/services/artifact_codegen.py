@@ -18,8 +18,21 @@ def _js_str(s: str) -> str:
     return s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
 
 
+# Runtime JS helper: compute axis-label rotation from category count.
+# Mirrors the heuristic in EChartsVisual.vue → getAxisLabelConfig().
+_AXIS_LABEL_HEURISTIC = (
+    "const _rot = cats.length > 5 ? 45 : 0;\n"
+    "  const _interval = cats.length > 50 "
+    "? Math.max(1, Math.floor(cats.length / 20)) "
+    ": (cats.length > 25 ? 1 : 0);\n"
+)
+
+
 def _build_cartesian(data_model: dict, viz_index: int) -> str:
-    """Bar / line / area chart option code."""
+    """Bar / line / area chart option code.
+
+    Always emits an IIFE so we can compute categories + rotation at runtime.
+    """
     dm_type = (data_model.get("type") or "bar_chart").lower()
     series_list = data_model.get("series") or []
     if not series_list:
@@ -37,36 +50,36 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
 
     rows_ref = f"viz[{viz_index}].rows"
 
+    # --- preamble (shared for group_by and traditional) ---
+    code = (
+        f"(() => {{\n"
+        f"  const rows = {rows_ref};\n"
+        f"  const cats = [...new Set(rows.map(r => r['{_js_str(category_key)}']))];\n"
+        f"  {_AXIS_LABEL_HEURISTIC}"
+    )
+
+    # category axis with rotation
+    if is_horizontal:
+        cat_axis = "yAxis: { type: 'category', data: cats, axisLabel: { rotate: 0 } }"
+        val_axis = "xAxis: { type: 'value' }"
+    else:
+        cat_axis = "xAxis: { type: 'category', data: cats, axisLabel: { rotate: _rot, interval: _interval, hideOverlap: true } }"
+        val_axis = "yAxis: { type: 'value' }"
+
     if group_by:
-        # Multi-series via group_by — use an IIFE
         value_key = (series_list[0].get("value") or "").lower()
         if not value_key:
             return "{}"
 
-        area_block = ""
-        if is_area:
-            area_block = "areaStyle: {}, "
+        area_block = "areaStyle: {}, " if is_area else ""
 
-        code = (
-            f"(() => {{\n"
-            f"  const rows = {rows_ref};\n"
-            f"  const cats = [...new Set(rows.map(r => r['{_js_str(category_key)}']))];\n"
+        code += (
             f"  const groups = [...new Set(rows.map(r => r['{_js_str(group_by)}']))].filter(Boolean);\n"
             f"  return {{\n"
             f"    tooltip: {{ trigger: 'axis' }},\n"
             f"    legend: {{ show: groups.length > 1, top: 0 }},\n"
-        )
-        if is_horizontal:
-            code += (
-                f"    yAxis: {{ type: 'category', data: cats }},\n"
-                f"    xAxis: {{ type: 'value' }},\n"
-            )
-        else:
-            code += (
-                f"    xAxis: {{ type: 'category', data: cats }},\n"
-                f"    yAxis: {{ type: 'value' }},\n"
-            )
-        code += (
+            f"    {cat_axis},\n"
+            f"    {val_axis},\n"
             f"    series: groups.map(g => ({{\n"
             f"      name: g, type: '{chart_type}', smooth: {smooth}, {area_block}\n"
             f"      data: cats.map(c => {{\n"
@@ -89,7 +102,8 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
         area_str = "areaStyle: {}, " if is_area else ""
         series_js_parts.append(
             f"{{ name: '{name}', type: '{chart_type}', smooth: {smooth}, {area_str}"
-            f"data: {rows_ref}.map(r => Number(r['{_js_str(value_key)}'])) }}"
+            f"data: cats.map(c => {{ const row = rows.find(r => r['{_js_str(category_key)}'] === c); "
+            f"return row ? Number(row['{_js_str(value_key)}']) : null; }}) }}"
         )
 
     if not series_js_parts:
@@ -97,22 +111,16 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
 
     series_js = ", ".join(series_js_parts)
 
-    if is_horizontal:
-        axes = (
-            f"yAxis: {{ type: 'category', data: {rows_ref}.map(r => r['{_js_str(category_key)}']) }},\n"
-            f"    xAxis: {{ type: 'value' }}"
-        )
-    else:
-        axes = (
-            f"xAxis: {{ type: 'category', data: {rows_ref}.map(r => r['{_js_str(category_key)}']) }},\n"
-            f"    yAxis: {{ type: 'value' }}"
-        )
-
-    return (
-        f"{{ tooltip: {{ trigger: 'axis' }},\n"
-        f"    {axes},\n"
-        f"    series: [{series_js}] }}"
+    code += (
+        f"  return {{\n"
+        f"    tooltip: {{ trigger: 'axis' }},\n"
+        f"    {cat_axis},\n"
+        f"    {val_axis},\n"
+        f"    series: [{series_js}]\n"
+        f"  }};\n"
+        f"}})()"
     )
+    return code
 
 
 def _build_pie(data_model: dict, viz_index: int) -> str:
