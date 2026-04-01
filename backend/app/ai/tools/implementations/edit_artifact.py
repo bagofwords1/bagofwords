@@ -405,7 +405,7 @@ Rules:
 - Order blocks top to bottom.
 - Preserve existing code unless the user asked to change it.
 - For NEW charts, use `<EChart option={{...}} height={{N}} />` — 'bow' theme handles styling. Do NOT repeat theme defaults.
-- For large rewrites ("completely redesign"), output full code in `<script type="text/babel">` tags instead.
+- For large rewrites ("completely redesign"), output full code in `<script type="text/babel">` tags instead. ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end.
 - Omit className on globals (KPICard, SectionCard, FilterSelect) when using light mode — defaults handle it.
 
 ⚠️ **KEEP EDITS MINIMAL.** Do not rewrite code that doesn't need to change. Do not add verbose comments or unnecessary variables.

@@ -5,10 +5,12 @@
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ runningLabel }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700">{{ errorLabel }}</span>
       <span v-else class="text-gray-700">Create Artifact</span>
 
@@ -33,8 +35,20 @@
       {{ artifactPrompt }}
     </div>
 
-    <!-- Error message below header -->
-    <div v-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
+    <!-- Resolved viz badges (always visible) -->
+    <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ml-[18px] flex flex-wrap gap-1">
+      <span
+        v-for="viz in resolvedVisualizations"
+        :key="viz.id"
+        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
+      >
+        {{ viz.title }}
+      </span>
+    </div>
+
+    <!-- Stopped/Error message below header -->
+    <div v-if="status === 'stopped'" class="mt-1 ml-4 text-xs text-gray-400 italic">Generation stopped</div>
+    <div v-else-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
       {{ errorMessage }}
     </div>
 
@@ -81,17 +95,6 @@
         <!-- Title display -->
         <div v-if="artifactTitle && progressStage !== 'awaiting_confirmation'" class="text-xs text-gray-600">
           <span class="text-gray-400">Title:</span> {{ artifactTitle }}
-        </div>
-
-        <!-- Viz badges (after confirmation resolved) -->
-        <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="flex flex-wrap gap-1">
-          <span
-            v-for="viz in resolvedVisualizations"
-            :key="viz.id"
-            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
-          >
-            {{ viz.title }}
-          </span>
         </div>
 
         <!-- Progress stages for slides mode -->

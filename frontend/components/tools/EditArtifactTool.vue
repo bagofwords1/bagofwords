@@ -5,10 +5,12 @@
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">Editing Dashboard</span>
       <span v-else-if="status === 'success'" class="text-gray-700">Dashboard Edited</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">Editing Dashboard</span>
       <span v-else-if="status === 'error'" class="text-gray-700">Failed to Edit Dashboard</span>
       <span v-else class="text-gray-700">Edit Artifact</span>
 
@@ -36,14 +38,26 @@
       <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
-    <!-- Error message -->
-    <div v-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
+    <!-- Stopped/Error message -->
+    <div v-if="status === 'stopped'" class="mt-1 ml-4 text-xs text-gray-400 italic">Generation stopped</div>
+    <div v-else-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
       {{ errorMessage }}
     </div>
 
     <!-- Edit instruction summary (always visible, truncated) -->
     <div v-if="editInstruction" class="mt-0.5 ml-[18px] text-[11px] text-gray-400 truncate max-w-md" :title="editInstruction">
       {{ editInstruction }}
+    </div>
+
+    <!-- Resolved viz badges (always visible) -->
+    <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ml-[18px] flex flex-wrap gap-1">
+      <span
+        v-for="viz in resolvedVisualizations"
+        :key="viz.id"
+        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
+      >
+        {{ viz.title }}
+      </span>
     </div>
 
     <!-- Confirmation card (outside collapsible, always visible) -->
@@ -86,17 +100,6 @@
     <!-- Collapsible content -->
     <Transition name="fade">
       <div v-if="!isCollapsed" class="mt-2 ml-4 space-y-2">
-        <!-- Viz badges (after confirmation resolved) -->
-        <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="flex flex-wrap gap-1">
-          <span
-            v-for="viz in resolvedVisualizations"
-            :key="viz.id"
-            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
-          >
-            {{ viz.title }}
-          </span>
-        </div>
-
         <!-- Progress stages -->
         <div v-if="status === 'running' && progressStage !== 'awaiting_confirmation'" class="text-xs text-gray-400">
           <div v-if="progressStage === 'loading_artifact'">

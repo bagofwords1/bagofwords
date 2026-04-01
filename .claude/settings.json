@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "sqlite3"
+      "sqlite3",
+      "bash(ls:*)",
+      "bash(sqlite3:*)",
+      "bash(grep:*)",
+      "Grep",
+      "bash(wc:*)"
     ]
   }
 }

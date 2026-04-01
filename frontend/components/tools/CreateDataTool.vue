@@ -5,16 +5,19 @@
       <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
       <span v-if="status === 'running'" class="tool-shimmer">Creating Data</span>
       <span v-else-if="status === 'success'" class="text-gray-700">Created Data</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">Creating Data</span>
       <span v-else-if="status === 'error'" class="text-gray-700">Create Data</span>
       <span v-else class="text-gray-700">Create Data</span>
       <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
-    <!-- Error message below header -->
-    <div v-if="status === 'error' && lastErrorMessage" class="mt-1 ml-4 text-xs text-gray-500">
+    <!-- Stopped/Error message below header -->
+    <div v-if="status === 'stopped'" class="mt-1 ml-4 text-xs text-gray-400 italic">Generation stopped</div>
+    <div v-else-if="status === 'error' && lastErrorMessage" class="mt-1 ml-4 text-xs text-gray-500">
       {{ lastErrorMessage }}
     </div>
 
@@ -24,11 +27,12 @@
         <!-- Generating Code section -->
         <div>
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click.stop="toggleCode">
-            <Spinner v-if="isCodeRunning" class="w-3 h-3 mr-1.5 text-gray-400" />
+            <Spinner v-if="isCodeRunning && status !== 'stopped'" class="w-3 h-3 mr-1.5 text-gray-400" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-gray-400" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating Code</span>
-            <span v-else-if="isCodeRunning" class="tool-shimmer">Generating Code</span>
+            <span v-if="isCodeRunning && status !== 'stopped' && progressStage === 'validating_code'" class="tool-shimmer">Validating Code</span>
+            <span v-else-if="isCodeRunning && status !== 'stopped'" class="tool-shimmer">Generating Code</span>
             <span v-else class="text-gray-700">Generated Code</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ml-2" />
           </div>
@@ -52,10 +56,11 @@
         <!-- Visualizing section -->
         <div v-if="showVisualizingSection">
           <div class="flex items-center text-xs text-gray-500">
-            <Spinner v-if="isVisualizing" class="w-3 h-3 mr-1.5 text-gray-400" />
+            <Spinner v-if="isVisualizing && status !== 'stopped'" class="w-3 h-3 mr-1.5 text-gray-400" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
             <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
             <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-            <span v-if="isVisualizing" class="tool-shimmer">Visualizing</span>
+            <span v-if="isVisualizing && status !== 'stopped'" class="tool-shimmer">Visualizing</span>
             <span v-else-if="vizError" class="text-gray-700">Visualizing</span>
             <span v-else class="text-gray-700">{{ chartTypeLabel }}</span>
             <span v-if="vizSummary && !vizError" class="ml-1.5 text-gray-400">· {{ vizSummary }}</span>

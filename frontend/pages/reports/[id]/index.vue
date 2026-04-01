@@ -1559,7 +1559,7 @@ async function loadCompletions() {
 					id: b.tool_execution.id,
 					tool_name: b.tool_execution.tool_name,
 					tool_action: b.tool_execution.tool_action,
-					status: b.tool_execution.status,
+					status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
 					result_summary: b.tool_execution.result_summary,
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
@@ -1570,7 +1570,7 @@ async function loadCompletions() {
 					created_step: b.tool_execution.created_step
 				} : undefined
 			})) || []
-			
+
 			// Auto-collapse reasoning for blocks that have content or tool execution
 			for (const b of blocks) {
 				if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1638,7 +1638,7 @@ async function loadPreviousCompletions() {
                     id: b.tool_execution.id,
                     tool_name: b.tool_execution.tool_name,
                     tool_action: b.tool_execution.tool_action,
-                    status: b.tool_execution.status,
+                    status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
                     result_summary: b.tool_execution.result_summary,
                     result_json: b.tool_execution.result_json,
                     duration_ms: b.tool_execution.duration_ms,
@@ -1648,7 +1648,7 @@ async function loadPreviousCompletions() {
                     created_step: b.tool_execution.created_step
                 } : undefined
             })) || []
-            
+
             // Auto-collapse reasoning for blocks that have content or tool execution
             for (const b of blocks) {
                 if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1957,12 +1957,13 @@ function abortStream() {
 				const newMessages = [...messages.value]
 				const updatedMessage = { ...newMessages[msgIndex], status: 'stopped' as ChatStatus }
 				
-				// Also update all completion blocks to stopped status
+				// Also update all completion blocks and their tool executions to stopped status
 				if (updatedMessage.completion_blocks) {
 					updatedMessage.completion_blocks = updatedMessage.completion_blocks.map(block => ({
 						...block,
 						status: block.status === 'in_progress' ? 'stopped' as ChatStatus : block.status,
-						completed_at: block.completed_at || new Date().toISOString()
+						completed_at: block.completed_at || new Date().toISOString(),
+						tool_execution: block.tool_execution?.status === 'running' ? { ...block.tool_execution, status: 'stopped' } : block.tool_execution
 					}))
 				}
 				

@@ -1543,6 +1543,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 ```
 
+CRITICAL: ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. NEVER put return statements outside a function.
+
 RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji.
 
 ⚠️ **OUTPUT MUST BE UNDER 8K CHARACTERS.** Write compact code. No unnecessary variables, comments, or verbose JSX. Omit default props.
@@ -1606,14 +1608,53 @@ Now create the dashboard:"""
         if start_idx != -1:
             end_idx = response.find(end_marker, start_idx)
             if end_idx != -1:
-                return response[start_idx:end_idx + len(end_marker)]
+                code = response[start_idx:end_idx + len(end_marker)]
+                return self._ensure_app_wrapper(code)
 
         # If no script tags found, wrap the response
         code = response.strip()
         if not code.startswith("<script"):
             code = f'<script type="text/babel">\n{code}\n</script>'
 
-        return code
+        return self._ensure_app_wrapper(code)
+
+    @staticmethod
+    def _ensure_app_wrapper(code: str) -> str:
+        """Ensure code has a proper App component wrapper.
+
+        LLM sometimes outputs bare return statements outside a function.
+        Detect and fix by wrapping the inner code in function App() + ReactDOM.createRoot.
+        """
+        import re
+
+        # Check if code already has an App function/component
+        if re.search(r'function\s+App\s*\(', code) or re.search(r'(?:const|let|var)\s+App\s*=', code):
+            return code
+
+        # Extract inner code between script tags
+        inner_match = re.search(
+            r'<script\s+type=["\']text/babel["\']>\s*([\s\S]*?)\s*</script>',
+            code
+        )
+        if not inner_match:
+            return code
+
+        inner = inner_match.group(1).strip()
+
+        # Strip any existing broken ReactDOM.createRoot/render calls
+        inner = re.sub(r'ReactDOM\.createRoot\(.*?\)\.render\(.*?\);?\s*$', '', inner, flags=re.DOTALL).strip()
+
+        logger.warning("_ensure_app_wrapper: LLM output missing function App() wrapper — auto-wrapping")
+
+        wrapped = (
+            '<script type="text/babel">\n'
+            'function App() {\n'
+            f'{inner}\n'
+            '}\n'
+            "ReactDOM.createRoot(document.getElementById('root')).render(<App />);\n"
+            '</script>'
+        )
+        return wrapped
 
     def _extract_slides_python(self, response: str) -> str:
         """Extract python-pptx code for slides mode."""
