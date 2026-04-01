@@ -37,16 +37,6 @@
               <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
-          <UTooltip v-if="canAddToDashboard" text="Add to Dashboard">
-            <button
-              @click.stop="addToDashboard"
-              :disabled="isAddingToDashboard"
-              class="text-gray-400 hover:text-gray-600 transition-colors flex items-center disabled:opacity-40"
-            >
-              <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5" />
-              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 animate-spin" />
-            </button>
-          </UTooltip>
         </div>
       </div>
     </div>
@@ -262,6 +252,16 @@
             >
               <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 mr-1" />
               Add to Spreadsheet
+            </button>
+            <button
+              v-if="canAddToDashboard"
+              :disabled="isAddingToDashboard"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-blue-500 hover:text-blue-600 disabled:opacity-40"
+              @click.stop="addToDashboard"
+            >
+              <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5 mr-1" />
+              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 mr-1 animate-spin" />
+              Add to Dashboard
             </button>
           </div>
           <div class="flex items-center space-x-2">
@@ -776,6 +776,7 @@ function downloadCSV() {
 
 // --- Add to Dashboard ---
 const canAddToDashboard = computed(() => {
+  if (isExcel.value) return false
   const v = visualization.value as any
   if (!v || !v.id || v._isSynthetic) return false
   if (v.status !== 'success') return false
