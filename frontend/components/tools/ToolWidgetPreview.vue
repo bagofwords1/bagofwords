@@ -37,6 +37,16 @@
               <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
+          <UTooltip v-if="canAddToDashboard" text="Add to Dashboard">
+            <button
+              @click.stop="addToDashboard"
+              :disabled="isAddingToDashboard"
+              class="text-gray-400 hover:text-gray-600 transition-colors flex items-center disabled:opacity-40"
+            >
+              <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5" />
+              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 animate-spin" />
+            </button>
+          </UTooltip>
         </div>
       </div>
     </div>
@@ -329,6 +339,7 @@ const { isExcel } = useExcel()
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(props.initialCollapsed ?? false)
+const isAddingToDashboard = ref(false)
 const chartContainerRef = ref<HTMLElement | null>(null)
 const layoutBlocks = ref<any[]>([])
 const route = useRoute()
@@ -761,6 +772,42 @@ function downloadCSV() {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+}
+
+// --- Add to Dashboard ---
+const canAddToDashboard = computed(() => {
+  const v = visualization.value as any
+  if (!v || !v.id || v._isSynthetic) return false
+  if (v.status !== 'success') return false
+  if (!reportId.value) return false
+  if (props.readonly) return false
+  return true
+})
+
+async function addToDashboard() {
+  const v = visualization.value as any
+  if (!v?.id || !reportId.value || isAddingToDashboard.value) return
+
+  isAddingToDashboard.value = true
+  try {
+    const { data, error } = await useMyFetch(
+      `/api/artifacts/report/${reportId.value}/add-visualization`,
+      { method: 'POST', body: { visualization_id: v.id } },
+    )
+    if (error.value) {
+      const msg = (error.value as any)?.data?.detail || 'Failed to add to dashboard'
+      console.error('Add to dashboard failed:', msg)
+      return
+    }
+    const result = data.value as any
+    if (result?.id) {
+      window.dispatchEvent(new CustomEvent('artifact:created', { detail: { report_id: reportId.value, artifact_id: result.id } }))
+    }
+  } catch (err) {
+    console.error('Add to dashboard error:', err)
+  } finally {
+    isAddingToDashboard.value = false
+  }
 }
 
 // Helper for external broadcasts

@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import re
 from typing import List, Dict, Any, Optional
 from io import BytesIO
@@ -5,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from lxml import html as lxml_html
 
 from app.dependencies import get_async_db, get_current_organization
@@ -14,6 +18,8 @@ from app.core.permissions_decorator import requires_permission
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.artifact import Artifact as ArtifactModel
+from app.models.visualization import Visualization
+from app.models.query import Query
 from app.schemas.artifact_schema import (
     ArtifactSchema,
     ArtifactListSchema,
@@ -21,7 +27,15 @@ from app.schemas.artifact_schema import (
     ArtifactUpdate,
 )
 from app.services.artifact_service import ArtifactService
+from app.services.artifact_codegen import (
+    generate_echart_option_code,
+    generate_section_jsx,
+    generate_scaffold,
+    inject_section_into_code,
+)
 from app.services.pptx_export_service import PptxExportService
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
@@ -454,6 +468,127 @@ async def get_slide_preview(
         path=str(image_path),
         media_type="image/png",
     )
+
+
+# --- Add visualization to dashboard (programmatic, no LLM) ---
+
+class AddVisualizationBody(PydanticBaseModel):
+    visualization_id: str
+
+
+@router.post("/report/{report_id}/add-visualization", response_model=ArtifactSchema)
+@requires_permission('update_reports')
+async def add_visualization_to_dashboard(
+    report_id: str,
+    body: AddVisualizationBody,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Add a visualization to the dashboard artifact programmatically.
+
+    Generates ECharts code from the visualization's data_model and injects it
+    into the artifact. Creates a new artifact if none exists, otherwise creates
+    a new version with the section appended.
+    """
+    # 1. Fetch visualization with query → default_step
+    stmt = (
+        select(Visualization)
+        .options(
+            selectinload(Visualization.query).selectinload(Query.default_step),
+        )
+        .where(
+            Visualization.id == body.visualization_id,
+            Visualization.deleted_at.is_(None),
+        )
+    )
+    result = await db.execute(stmt)
+    viz = result.scalar_one_or_none()
+
+    if not viz:
+        raise HTTPException(status_code=404, detail="Visualization not found")
+    if str(viz.report_id) != str(report_id):
+        raise HTTPException(status_code=400, detail="Visualization does not belong to this report")
+
+    # 2. Get step and data_model
+    step = viz.query.default_step if viz.query else None
+    if not step or not step.data_model:
+        raise HTTPException(status_code=400, detail="Visualization has no data model")
+    if step.status not in ("success", "completed"):
+        raise HTTPException(status_code=400, detail="Visualization step has not completed successfully")
+
+    data_model = step.data_model
+    viz_title = viz.title or step.title or "Untitled"
+
+    # 3. Fetch latest artifact for this report
+    latest = await service.get_latest_by_report(db, report_id)
+
+    if latest:
+        # Check for duplicate
+        existing_viz_ids = (latest.content or {}).get("visualization_ids", [])
+        if body.visualization_id in existing_viz_ids:
+            raise HTTPException(status_code=409, detail="Visualization already added to dashboard")
+
+        viz_index = len(existing_viz_ids)
+        option_code = generate_echart_option_code(data_model, viz_index)
+        section_jsx = generate_section_jsx(viz_title, option_code)
+
+        existing_code = (latest.content or {}).get("code", "")
+        new_code = inject_section_into_code(existing_code, section_jsx)
+        if new_code is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not inject section into existing artifact code. "
+                       "Try using the AI editor to add the visualization instead.",
+            )
+
+        new_viz_ids = existing_viz_ids + [body.visualization_id]
+        new_content = {"code": new_code, "visualization_ids": new_viz_ids}
+
+        # Create new version
+        new_artifact = ArtifactModel(
+            report_id=str(latest.report_id),
+            user_id=str(current_user.id),
+            organization_id=str(latest.organization_id),
+            title=latest.title,
+            mode=latest.mode,
+            content=new_content,
+            generation_prompt=latest.generation_prompt,
+            version=latest.version + 1,
+            status="completed",
+        )
+        db.add(new_artifact)
+        await db.commit()
+        await db.refresh(new_artifact)
+    else:
+        # No artifact yet — generate scaffold from scratch
+        viz_index = 0
+        option_code = generate_echart_option_code(data_model, viz_index)
+        section_jsx = generate_section_jsx(viz_title, option_code)
+        code = generate_scaffold([section_jsx])
+
+        new_artifact = ArtifactModel(
+            report_id=str(report_id),
+            user_id=str(current_user.id),
+            organization_id=str(organization.id),
+            title="Dashboard",
+            mode="page",
+            content={"code": code, "visualization_ids": [body.visualization_id]},
+            version=1,
+            status="completed",
+        )
+        db.add(new_artifact)
+        await db.commit()
+        await db.refresh(new_artifact)
+
+    # 4. Trigger thumbnail regeneration in background
+    try:
+        from app.services.thumbnail_service import ThumbnailService
+        asyncio.create_task(ThumbnailService().regenerate_for_report(report_id))
+    except Exception:
+        logger.warning("Failed to schedule thumbnail regeneration", exc_info=True)
+
+    return ArtifactSchema.model_validate(new_artifact)
 
 
 # --- Confirmation endpoint ---
