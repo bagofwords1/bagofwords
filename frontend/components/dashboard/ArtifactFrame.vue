@@ -1118,6 +1118,65 @@ const iframeSrcdoc = computed(() => {
         h('div', { key: 'body' }, props.children),
       ]);
     };
+    // Global FilterSelect — multi-select dropdown with checkboxes
+    // options: string[] OR {label, value}[]
+    window.FilterSelect = function(props) {
+      var h = React.createElement;
+      var label = props.label || '';
+      var rawOpts = props.options || [];
+      var opts = rawOpts.map(function(o) { return typeof o === 'object' && o !== null ? { val: o.value, lbl: o.label || String(o.value) } : { val: o, lbl: String(o) }; });
+      var selected = props.selected || [];
+      var onChange = props.onChange || function(){};
+      var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+      var _s = React.useState(false), open = _s[0], setOpen = _s[1];
+      var ref = React.useRef(null);
+      React.useEffect(function() {
+        function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+        document.addEventListener('mousedown', handleClick);
+        return function() { document.removeEventListener('mousedown', handleClick); };
+      }, []);
+      function toggle(val) {
+        var idx = selected.indexOf(val);
+        onChange(idx >= 0 ? selected.filter(function(v){ return v !== val; }) : selected.concat([val]));
+      }
+      var selLabels = opts.filter(function(o) { return selected.indexOf(o.val) >= 0; }).map(function(o) { return o.lbl; });
+      var display = selected.length === 0 ? 'All' : selLabels.length <= 2 ? selLabels.join(', ') : selected.length + ' selected';
+      return h('div', { ref: ref, className: 'relative inline-block min-w-[140px]' }, [
+        label ? h('label', { key: 'l', className: 'block text-xs font-medium opacity-60 mb-1' }, label) : null,
+        h('button', {
+          key: 'btn', type: 'button',
+          className: 'w-full flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-sm cursor-pointer ' + theme,
+          onClick: function() { setOpen(!open); }
+        }, [
+          h('span', { key: 't', className: 'truncate' }, display),
+          h('svg', { key: 'i', width: 12, height: 12, viewBox: '0 0 12 12', className: 'opacity-50 shrink-0' },
+            h('path', { d: 'M3 5l3 3 3-3', stroke: 'currentColor', strokeWidth: 1.5, fill: 'none' }))
+        ]),
+        open ? h('div', {
+          key: 'dd',
+          className: 'absolute z-50 mt-1 left-0 right-0 rounded-lg border shadow-lg max-h-60 overflow-auto py-1 ' + theme
+        }, [
+          selected.length > 0 ? h('button', {
+            key: 'clr', type: 'button',
+            className: 'w-full text-left px-3 py-1.5 text-xs font-medium opacity-50 hover:opacity-100',
+            onClick: function() { onChange([]); }
+          }, 'Clear all') : null
+        ].concat(opts.map(function(o) {
+          var isSelected = selected.indexOf(o.val) >= 0;
+          return h('label', {
+            key: o.val,
+            className: 'flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-black/5'
+          }, [
+            h('input', {
+              key: 'cb', type: 'checkbox', checked: isSelected,
+              onChange: function() { toggle(o.val); },
+              className: 'rounded border-slate-300 accent-blue-500'
+            }),
+            h('span', { key: 'v', className: 'truncate' }, o.lbl)
+          ]);
+        }))) : null
+      ]);
+    };
     // Expose React hooks as globals so LLM code can use them without React. prefix
     window.useState = React.useState;
     window.useEffect = React.useEffect;
@@ -1125,22 +1184,45 @@ const iframeSrcdoc = computed(() => {
     window.useMemo = React.useMemo;
     window.useCallback = React.useCallback;
 
+    // Register 'bow' ECharts theme — clean defaults so LLM only writes data mapping
+    echarts.registerTheme('bow', {
+      color: ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#14B8A6', '#60A5FA', '#34D399'],
+      backgroundColor: 'transparent',
+      categoryAxis: {
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: '#64748b', fontSize: 12 },
+        splitLine: { show: false }
+      },
+      valueAxis: {
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: '#64748b', fontSize: 12 },
+        splitLine: { lineStyle: { color: '#f1f5f9' } }
+      },
+      line: { smooth: true, symbol: 'none', lineStyle: { width: 2 } },
+      bar: { itemStyle: { borderRadius: [6, 6, 0, 0] } },
+      pie: { itemStyle: { borderRadius: 6 } },
+      grid: { left: 40, right: 20, top: 20, bottom: 40, containLabel: true },
+      tooltip: {
+        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        borderColor: 'rgba(51, 65, 85, 0.5)',
+        borderWidth: 1,
+        borderRadius: 12,
+        padding: [12, 16],
+        textStyle: { color: '#fff', fontSize: 13 },
+        trigger: 'axis'
+      }
+    });
+
     // Global EChart React wrapper — handles init/dispose/resize automatically
-    window.ECHARTS_TOOLTIP = {
-      backgroundColor: 'rgba(15, 23, 42, 0.95)',
-      borderColor: 'rgba(51, 65, 85, 0.5)',
-      borderWidth: 1,
-      borderRadius: 12,
-      padding: [12, 16],
-      textStyle: { color: '#fff', fontSize: 13 },
-    };
     window.EChart = function(props) {
       var ref = React.useRef(null);
       var chartRef = React.useRef(null);
       var h = props.height || 400;
       React.useEffect(function() {
         if (!ref.current) return;
-        var chart = echarts.init(ref.current);
+        var chart = echarts.init(ref.current, 'bow');
         chartRef.current = chart;
         if (props.option) chart.setOption(props.option);
         var ro = new ResizeObserver(function() { chart.resize(); });

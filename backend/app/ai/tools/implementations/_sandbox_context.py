@@ -29,13 +29,11 @@ references to any of them:
 
 • **`<EChart>`** — Global React wrapper for ECharts (handles init/dispose/resize)
   - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string)
-  - Usage: `<EChart height={400} option={{ xAxis: {...}, yAxis: {...}, series: [...] }} />`
+  - Usage: `<EChart height={400} option={{ xAxis: {...}, series: [...] }} />`
   - NO useRef, NO useEffect, NO echarts.init — just pass the option object
   - Auto-resizes via ResizeObserver
-
-• **`ECHARTS_TOOLTIP`** — Global styled tooltip config for ECharts
-  - Usage: `tooltip: { ...ECHARTS_TOOLTIP, formatter: '{b}: {c}' }`
-  - Dark theme matching the dashboard style
+  - Uses 'bow' theme: colors, tooltip, grid, axis styling, rounded corners all pre-configured
+  - Only specify data mapping in option — do NOT repeat styling the theme provides
 
 • **Recharts** — All components are pre-loaded as globals (kept for backward compatibility)
   - Available globally: BarChart, Bar, LineChart, Line, etc.
@@ -59,6 +57,7 @@ references to any of them:
   - `<CustomTooltip />` — dark styled Recharts tooltip. Use: `<Tooltip content={<CustomTooltip />} />`
   - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
   - `<SectionCard title="" subtitle="" className="bg-white border-slate-200" titleClassName="text-slate-800">...children...</SectionCard>` — card wrapper. className replaces default theme (no className = light mode)
+  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} className="" />` — multi-select dropdown with checkboxes. className replaces default theme.
   - `fmt(n, {currency: true})` — number formatter (currency, pct, auto K/M/B)
 
 • **window.ARTIFACT_DATA** — Raw data object (same shape as useArtifactData return)
@@ -76,8 +75,7 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "do NOT redefine, import, or remove references to them: "
     "React (v18), ReactDOM, echarts (v5), Tailwind CSS (v3.4), Babel (JSX transpilation), "
     "useArtifactData() hook (returns { report, visualizations } or null while loading), "
-    "<EChart option=... height=N /> wrapper (handles init/dispose/resize — do NOT use raw echarts.init), "
-    "ECHARTS_TOOLTIP (styled tooltip config), "
+    "<EChart option=... height=N /> wrapper with 'bow' theme (handles init/dispose/resize/styling — do NOT use raw echarts.init, do NOT repeat theme styling), "
     "Pre-built globals (do NOT redefine): LoadingSpinner, KPICard, SectionCard, fmt(). "
     "Recharts is also available globally for backward compat. "
     "For NEW dashboards, use <EChart> wrapper — it is fast and eliminates lifecycle bugs. "
