@@ -57,7 +57,7 @@ references to any of them:
   - `<CustomTooltip />` — dark styled Recharts tooltip. Use: `<Tooltip content={<CustomTooltip />} />`
   - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
   - `<SectionCard title="" subtitle="" className="bg-white border-slate-200" titleClassName="text-slate-800">...children...</SectionCard>` — card wrapper. className replaces default theme (no className = light mode)
-  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} className="" />` — multi-select dropdown with checkboxes. className replaces default theme.
+  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} className="" />` — multi-select dropdown with checkboxes. className replaces default theme. Use ONLY for categorical filters (country, genre, status, etc.). For date ranges, numeric ranges, or search inputs, build a custom component using standard HTML inputs — do NOT force FilterSelect for non-categorical data.
   - `fmt(n, {currency: true})` — number formatter (currency, pct, auto K/M/B)
 
 • **window.ARTIFACT_DATA** — Raw data object (same shape as useArtifactData return)
