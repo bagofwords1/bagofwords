@@ -1225,6 +1225,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
 						}
+
+						// Capture code, attempt, and errors for create_data / inspect_data
+						if ((payload.tool_name === 'create_data' || payload.tool_name === 'inspect_data') && payload.payload) {
+							const p = payload.payload
+							const te = lastBlock.tool_execution as any
+							// Stream generated code from code_generated stage
+							if (p.stage === 'generated_code' && p.code) {
+								te.progress_code = p.code
+							}
+							// Track current attempt number
+							if (typeof p.attempt === 'number') {
+								te.progress_attempt = p.attempt
+							}
+							// On retry, capture the error that triggered it
+							if (p.stage === 'retry') {
+								te.progress_errors = te.progress_errors || []
+								// The error was already emitted via stdout before the retry event
+							}
+						}
 					}
 
           // Progressive data model updates for create_widget tool
@@ -1340,6 +1359,21 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 
 					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'tool.stdout':
+			// Capture stdout messages (errors, execution logs) for create_data / inspect_data
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					const te = lastBlock.tool_execution as any
+					te.progress_stdout = te.progress_stdout || []
+					const msg = typeof payload.payload === 'string' ? payload.payload : (payload.payload?.message || '')
+					if (msg) {
+						te.progress_stdout.push(msg)
+					}
 				}
 			}
 			break
