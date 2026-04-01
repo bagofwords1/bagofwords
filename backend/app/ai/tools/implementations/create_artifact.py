@@ -1412,46 +1412,92 @@ Create a beautiful, varied presentation following these design principles. Each 
 {SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS - CRITICAL RULES
+CHARTING — USE RECHARTS (declarative React components)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Data is available via `window.ARTIFACT_DATA`:
-```javascript
-const data = useArtifactData(); // React hook - returns null while loading
-// data = {{ report: {{id, title, theme}}, visualizations: [...] }}
+All Recharts components are **pre-loaded as globals** — do NOT destructure or import them.
+Just use them directly: `<BarChart>`, `<Bar>`, `<Cell>`, `<Tooltip>`, `<ResponsiveContainer>`, etc.
+
+Available components: ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area,
+PieChart, Pie, Cell, ScatterChart, Scatter, RadarChart, Radar, PolarGrid,
+PolarAngleAxis, PolarRadiusAxis, Treemap, ComposedChart, Funnel, FunnelChart,
+XAxis, YAxis, CartesianGrid, Tooltip, Legend, Label, LabelList
+
+**Rules:**
+- Always wrap charts in `<ResponsiveContainer width="100%" height={{N}}>` — NEVER set fixed width
+- Recharts is declarative — NO useRef, NO useEffect for chart lifecycle, NO manual resize
+- Use `<Tooltip>` and `<Legend>` for interactivity
+- Use `<Cell>` to give individual bars/slices different colors
+- Use `dataKey` prop to map row fields to chart dimensions
+- Do NOT write `const {{ ... }} = Recharts;` — components are already global
+
+**Chart patterns:**
+```jsx
+const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#14B8A6'];
+
+// Bar chart — use gradient defs, rounded corners, clean axes
+<ResponsiveContainer width="100%" height={{350}}>
+  <BarChart data={{rows}} margin={{{{ top: 10, right: 10, left: 0, bottom: 0 }}}}>
+    <defs>
+      <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#3B82F6" stopOpacity={{0.9}} />
+        <stop offset="100%" stopColor="#3B82F6" stopOpacity={{0.5}} />
+      </linearGradient>
+    </defs>
+    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={{false}} />
+    <XAxis dataKey="category" tick={{{{ fill: '#64748b', fontSize: 12 }}}} axisLine={{false}} tickLine={{false}} />
+    <YAxis tick={{{{ fill: '#64748b', fontSize: 12 }}}} axisLine={{false}} tickLine={{false}} />
+    <Tooltip content={{<CustomTooltip />}} />
+    <Bar dataKey="value" fill="url(#barGrad)" radius={{[6, 6, 0, 0]}} />
+  </BarChart>
+</ResponsiveContainer>
+
+// Pie/Donut — use Cell for colors, innerRadius for donut
+<ResponsiveContainer width="100%" height={{350}}>
+  <PieChart>
+    <Pie data={{rows}} dataKey="value" nameKey="name" cx="50%" cy="50%"
+      innerRadius={{70}} outerRadius={{120}} paddingAngle={{3}} cornerRadius={{4}}>
+      {{rows.map((_, i) => <Cell key={{i}} fill={{COLORS[i % COLORS.length]}} />)}}
+    </Pie>
+    <Tooltip content={{<CustomTooltip />}} />
+    <Legend iconType="circle" iconSize={{8}} />
+  </PieChart>
+</ResponsiveContainer>
 ```
 
-Each visualization object has this EXACT structure:
+**Pre-built global components** (already loaded — do NOT redefine):
+- `<CustomTooltip />` — dark styled tooltip. Use as: `<Tooltip content={{<CustomTooltip />}} />`
+- `<KPICard title="Revenue" value={{fmt(total, {{currency: true}})}} subtitle="Total sales" color="#3B82F6" className="" />` — stat card with gradient accent bar
+- `<SectionCard title="Chart Title" subtitle="Description" className="">...children...</SectionCard>` — white card wrapper
+- `fmt(n, opts)` — number formatter. Options: `{{currency: true}}`, `{{pct: true}}`, `{{decimals: 2}}`, `{{currency: 'EUR'}}`. Auto-abbreviates large numbers (1.2M, 3.5K)
+- `<LoadingSpinner size={{32}} />` — loading spinner
+
+**Do NOT redefine** CustomTooltip, KPICard, SectionCard, fmt, or LoadingSpinner — they are already global.
+
+═══════════════════════════════════════════════════════════════════════════════
+DATA ACCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+```javascript
+const data = useArtifactData(); // React hook — returns null while loading
+// data = {{ report: {{id, title}}, visualizations: [...] }}
+```
+
+Each visualization:
 ```js
 {{
-  id: "uuid-string",
+  id: "uuid",
   title: "Visualization Title",
-  columns: [
-    {{ "headerName": "AlbumId", "field": "AlbumId" }},
-    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
-    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
-  ],
-  rows: [
-    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
-    {{ "AlbumId": 251, "AlbumTitle": "The Office", "total_revenue": 31.84 }},
-    // ... more rows
-  ],
+  columns: [{{ "headerName": "Album Title", "field": "AlbumTitle" }}, ...],
+  rows: [{{ "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }}, ...],
   view: {{ /* chart config hints */ }},
   dataModel: {{ /* series/axis config */ }}
 }}
 ```
 
-**CRITICAL - How to access data:**
-- Use `column.field` to get the key for accessing row data: `row[column.field]`
-- Use `column.headerName` for display labels in table headers
-- Example: `rows.map(row => row[columns[0].field])` to get values for first column
-
-**⚠️ CRITICAL: NEVER HARDCODE DATA**
-- You MUST use `useArtifactData()` to access ALL data
-- NEVER write literal/hardcoded values like `const data = [{{name: "Product A", value: 100}}]`
-- NEVER use placeholder or example data in the output code
-- ALL chart data, KPI values, labels, and metrics MUST come from `data.visualizations[N].rows`
-- If the data structure is unclear, access it dynamically from the visualization objects
+- Use `column.field` to access row values: `row[column.field]`
+- Use `column.headerName` for display labels
+- **NEVER hardcode data** — ALL values must come from `data.visualizations[N].rows`
 
 ═══════════════════════════════════════════════════════════════════════════════
 YOUR VISUALIZATIONS
@@ -1466,7 +1512,6 @@ DESIGN REQUEST
 ═══════════════════════════════════════════════════════════════════════════════
 
 **Report Title:** {report_title or title or 'Dashboard'}
-**Artifact Mode:** page
 **User Request:** {user_prompt}
 {images_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
@@ -1477,100 +1522,27 @@ DESIGN REQUEST
 DESIGN PRINCIPLES
 ═══════════════════════════════════════════════════════════════════════════════
 
-**Style: Minimalist, Clean, Professional**
-
-Create a polished, executive-ready dashboard. Think:
-- Narrative is key. Use context (messages history, instructions) to create the outline/layut of the report
-- You can show data in different angles, but don't make it redundant and noisy
-- **Minimalism first** - Less is more. Remove visual clutter, no unnecessary decorations
-- **Generous whitespace** - Let elements breathe, use padding liberally
-- **Clean typography** - Simple, readable fonts. No fancy headers or badges
-- **Subtle containers** - Light borders or shadows, not heavy cards
-- **Beautiful, colorful charts** - Use vibrant but harmonious color palettes for data visualization. By default use light mode unless the user/instructions indicate dark theme
-- **Professional feel** - Like a Bloomberg terminal or modern analytics platform
-- **Data-focused** - The data is the star, UI should support not distract
-**Color Guidelines for Charts:**
-- Use rich, vibrant colors: blues (#3B82F6, #60A5FA), greens (#10B981, #34D399), purples (#8B5CF6), oranges (#F59E0B)
-- Apply smooth gradients for area charts and backgrounds
-- Ensure sufficient contrast for readability
-- Use color consistently across related metrics
+Create a polished, executive-ready dashboard:
+- Narrative is key. Use context (messages history, instructions) to shape the report
+- Show data from different angles without redundancy
+- **Minimalism** — less is more, generous whitespace, clean typography
+- **Beautiful charts** — use gradient fills (`<defs><linearGradient>`), rounded bar corners, `<Tooltip content={{<CustomTooltip />}} />`, smooth animations
+- **Professional** — like a modern analytics platform, data-focused
+- **Use the globals** — `<KPICard>` for metrics, `<SectionCard>` for chart wrappers, `fmt()` for numbers, `<CustomTooltip />` for tooltips
+- Hide axis lines and tick lines (`axisLine={{false}} tickLine={{false}}`), use `vertical={{false}}` on CartesianGrid
+- By default use light mode unless instructed otherwise
+- Color palette: blues (#3B82F6, #60A5FA), greens (#10B981, #34D399), purples (#8B5CF6), oranges (#F59E0B), reds (#EF4444)
 
 ═══════════════════════════════════════════════════════════════════════════════
 CROSS-VISUALIZATION FILTERS
 ═══════════════════════════════════════════════════════════════════════════════
 
-If visualizations have `filterable_columns` in their profile, implement cross-visualization filters.
-
-**Architecture:**
-- Store filter state in App with `useState` — one object mapping field names to selected values (or `null` for "All")
-- Pass filters down to every chart/table component. Each component filters its own `rows` before rendering.
-- Render the filter bar as a **sticky/fixed row at the top** with `z-50` so it stays above all charts.
-
-**Implementation pattern:**
-```jsx
-// In App:
-const [filters, setFilters] = React.useState({{}});
-
-// Collect filterable columns across all visualizations
-const filterableColumns = React.useMemo(() => {{
-  const seen = new Set();
-  const cols = [];
-  data.visualizations.forEach(viz => {{
-    (viz.filterable_columns || []).forEach(fc => {{
-      if (!seen.has(fc.field)) {{
-        seen.add(fc.field);
-        cols.push(fc);
-      }}
-    }});
-  }});
-  return cols;
-}}, [data]);
-
-// Filter function — reuse in every chart component
-const filterRows = (rows) => {{
-  return rows.filter(row =>
-    Object.entries(filters).every(([field, value]) =>
-      value == null || String(row[field]) === value
-    )
-  );
-}};
-
-// Filter bar UI (sticky, above charts)
-<div className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b px-6 py-3 flex gap-4 flex-wrap">
-  {{filterableColumns.map(fc => (
-    <select key={{fc.field}} value={{filters[fc.field] || ""}}
-      onChange={{e => setFilters(f => ({{...f, [fc.field]: e.target.value || null}}))}}
-      className="px-3 py-1.5 rounded-lg border text-sm">
-      <option value="">{{fc.field}}: All</option>
-      {{fc.unique_values.map(v => <option key={{v}} value={{v}}>{{v}}</option>)}}
-    </select>
-  ))}}
-</div>
-
-// In each chart component, always use filterRows(viz.rows) instead of viz.rows directly
-```
-
-**Rules:**
-- Only show filters if `filterable_columns` exist in the data
-- Filter bar must be `sticky top-0 z-50` — always visible above chart canvases
-- Every chart/table must respect active filters
-- Include a visual indicator of active filters and a "Reset" option
-- When multiple visualizations share a filterable column with the same field name, that filter MUST operate across ALL visualizations simultaneously. A filter for "Country" should filter every chart and table that has a "Country" column, not just one. If a visualization does not have the filtered column, it should remain unaffected (show all its data).
-- After filtering, if a visualization has zero matching rows, display a friendly "No data matches current filters" message instead of rendering a broken or empty chart.
-
-**DO NOT include:**
-- Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
-- Branding badges or watermarks (e.g., "Built with ECharts", "Powered by React")
-- Decorative headers like "Light, minimal dashboard • ECharts + React"
-- Unnecessary icons or emoji
-- Footer credits or attribution text
-- Theme metadata or configuration blocks
-
-Example design patterns:
-- Clean KPI cards with large numbers and subtle trend indicators
-- Full-width charts with minimal chrome
-- Responsive grid with consistent spacing
-- Smooth, subtle animations on load
+If visualizations have `filterable_columns`, implement cross-visualization filters:
+- Store filter state in App with `useState` — object mapping field names to selected values (or `null`)
+- Render sticky filter bar at top (`sticky top-0 z-50 bg-white/95 backdrop-blur`)
+- Every chart/table filters its own rows before rendering
+- Include "Reset" button when filters are active
+- Zero matching rows → show "No data matches current filters" message
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -1578,18 +1550,14 @@ OUTPUT FORMAT
 
 ```
 <script type="text/babel">
-// Your React code here
+// All Recharts components (BarChart, Bar, Cell, Tooltip, etc.) are already global — just use them
 
 function App() {{
   const data = useArtifactData();
+  if (!data) return <div className="flex items-center justify-center h-screen text-gray-400"><LoadingSpinner size={{32}} /></div>;
 
-  if (!data) {{
-    return <LoadingState />;
-  }}
-
-  return (
-    // Your gorgeous dashboard
-  );
+  const viz = data.visualizations;
+  // ... your dashboard
 }}
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
@@ -1597,32 +1565,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 ```
 
 REQUIREMENTS:
-1. Start with `<script type="text/babel">` and end with `</script>`
-2. Use the `useArtifactData()` hook for reactive data access - NEVER hardcode any data values
-3. Use `<LoadingSpinner size={{32}} />` for loading state (do NOT build your own spinner)
-4. Initialize ECharts in useEffect, dispose on cleanup, handle resize
-5. Make it responsive (works on mobile and desktop)
-6. Style: Minimalist, clean, professional - no branding badges or decorative headers -- BUT NOT BORING AND TEMPLATE LIKE!
-7. Charts must be beautiful with vibrant, harmonious colors, gradients, and smooth animations
-8. ALL displayed values must come from data.visualizations[N].rows - no placeholder data
-9. Handle edge cases gracefully: if a visualization has zero rows after filtering, show "No data matches the current filters" instead of a broken chart. If a column value is null or undefined, skip it rather than crashing. Wrap ECharts initialization in try/catch so a single broken chart does not take down the entire dashboard.
+1. `<script type="text/babel">` wrapper
+2. Use `useArtifactData()` hook — NEVER hardcode data
+3. Use `<LoadingSpinner size={{32}} />` for loading state
+4. Use Recharts with `<ResponsiveContainer>` for all charts — NO raw ECharts, NO useRef/useEffect for charts
+5. Responsive layout (mobile + desktop)
+6. Minimalist, clean, professional — no branding, no IDs, no decorative headers — BUT NOT BORING
+7. ALL values from `data.visualizations[N].rows`
+8. Handle zero rows gracefully — show "No data" message, don't crash
+9. User's explicit requests take priority over default design choices
 
-Example loading state:
-```jsx
-if (!data) {{
-  return (
-    <div className="flex items-center justify-center h-screen text-gray-400">
-      <LoadingSpinner size={{32}} />
-    </div>
-  );
-}}
-```
-
-**FINAL REMINDERS:**
-- Extract ALL values from `data.visualizations` - never write literal numbers or strings
-- Keep it minimal and professional - no decorative text, badges, or branding
-- Use beautiful, colorful charts with vibrant palettes
-- Pay close attention to the user's specific requests in the conversation history and the prompt. If they mention specific colors, layouts, chart types, or data points to highlight, follow those instructions precisely. The user's explicit request takes priority over default design choices. Do not override user preferences with your own aesthetic judgment.
+**DO NOT include:** UUIDs, branding badges, footer credits, "Powered by" text, unnecessary emoji
 
 Now create the dashboard:"""
 

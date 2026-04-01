@@ -27,6 +27,8 @@ _PAGE_LIBS = [
     "react-dom-18.development.js",
     "babel-standalone.min.js",
     "echarts-5.min.js",
+    "react-is-18.production.min.js",
+    "recharts-3.8.1.min.js",
 ]
 
 # Libraries needed for slides mode artifacts
