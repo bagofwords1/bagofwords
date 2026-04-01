@@ -1094,24 +1094,71 @@ const iframeSrcdoc = computed(() => {
     window.KPICard = function(props) {
       var h = React.createElement;
       var color = props.color || '#3B82F6';
-      return h('div', { className: 'relative bg-white rounded-2xl border border-slate-200 p-5 shadow-sm overflow-hidden ' + (props.className || '') }, [
+      var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+      var titleCls = props.titleClassName || 'text-slate-500';
+      var subtitleCls = props.subtitleClassName || 'text-slate-500';
+      return h('div', { className: 'relative rounded-2xl border p-5 shadow-sm overflow-hidden ' + theme }, [
         h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
-        h('p', { key: 't', className: 'text-xs font-medium text-slate-500 uppercase tracking-wider mb-1' }, props.title),
-        h('p', { key: 'v', className: 'text-2xl font-semibold text-slate-900' }, props.value),
-        props.subtitle ? h('p', { key: 's', className: 'text-sm text-slate-500 mt-1' }, props.subtitle) : null,
+        h('p', { key: 't', className: 'text-xs font-medium uppercase tracking-wider mb-1 ' + titleCls }, props.title),
+        h('p', { key: 'v', className: 'text-2xl font-semibold' }, props.value),
+        props.subtitle ? h('p', { key: 's', className: 'text-sm mt-1 ' + subtitleCls }, props.subtitle) : null,
       ]);
     };
     // Global SectionCard wrapper
     window.SectionCard = function(props) {
       var h = React.createElement;
-      return h('div', { className: 'bg-white rounded-2xl border border-slate-200 shadow-sm p-6 ' + (props.className || '') }, [
+      var theme = props.className || 'bg-white border-slate-200';
+      var titleCls = props.titleClassName || 'text-slate-800';
+      var subtitleCls = props.subtitleClassName || 'text-slate-500';
+      return h('div', { className: 'rounded-2xl border shadow-sm p-6 ' + theme }, [
         props.title ? h('div', { key: 'hdr', className: 'mb-4' }, [
-          h('h2', { key: 't', className: 'text-lg font-semibold text-slate-800' }, props.title),
-          props.subtitle ? h('p', { key: 's', className: 'text-sm text-slate-500 mt-1' }, props.subtitle) : null,
+          h('h2', { key: 't', className: 'text-lg font-semibold ' + titleCls }, props.title),
+          props.subtitle ? h('p', { key: 's', className: 'text-sm mt-1 ' + subtitleCls }, props.subtitle) : null,
         ]) : null,
         h('div', { key: 'body' }, props.children),
       ]);
     };
+    // Expose React hooks as globals so LLM code can use them without React. prefix
+    window.useState = React.useState;
+    window.useEffect = React.useEffect;
+    window.useRef = React.useRef;
+    window.useMemo = React.useMemo;
+    window.useCallback = React.useCallback;
+
+    // Global EChart React wrapper — handles init/dispose/resize automatically
+    window.ECHARTS_TOOLTIP = {
+      backgroundColor: 'rgba(15, 23, 42, 0.95)',
+      borderColor: 'rgba(51, 65, 85, 0.5)',
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: [12, 16],
+      textStyle: { color: '#fff', fontSize: 13 },
+    };
+    window.EChart = function(props) {
+      var ref = React.useRef(null);
+      var chartRef = React.useRef(null);
+      var h = props.height || 400;
+      React.useEffect(function() {
+        if (!ref.current) return;
+        var chart = echarts.init(ref.current);
+        chartRef.current = chart;
+        if (props.option) chart.setOption(props.option);
+        var ro = new ResizeObserver(function() { chart.resize(); });
+        ro.observe(ref.current);
+        return function() { ro.disconnect(); chart.dispose(); };
+      }, []);
+      React.useEffect(function() {
+        if (chartRef.current && props.option) {
+          chartRef.current.setOption(props.option, true);
+        }
+      }, [props.option]);
+      return React.createElement('div', {
+        ref: ref,
+        style: { width: '100%', height: h },
+        className: props.className || ''
+      });
+    };
+
     // Fix ECharts 0-height issue: resize all charts after render
     window.resizeAllCharts = function() {
       if (typeof echarts !== 'undefined') {

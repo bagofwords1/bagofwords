@@ -409,8 +409,8 @@ Rules:
 - You may output multiple SEARCH/REPLACE blocks if the change touches multiple locations.
 - Order the blocks from top to bottom of the file.
 - Never change visualization data access patterns (useArtifactData, column.field, etc.) unless the user asked for it.
-- Preserve all existing chart configurations (Recharts or ECharts), responsive handling, and event listeners unless the user asked to change them.
-- For NEW charts or rewrites, prefer Recharts (declarative) over raw ECharts. Recharts is available globally via `window.Recharts`.
+- Preserve all existing chart configurations, responsive handling, and event listeners unless the user asked to change them.
+- For NEW charts or rewrites, use `<EChart option={{...}} height={{N}} />` wrapper — do NOT use raw echarts.init/useRef/useEffect. Use `ECHARTS_TOOLTIP` for tooltips.
 - If the user's request requires adding a new visualization or data source, use the visualization data profiles above to access it correctly via data.visualizations[N].
 - If the edit is too large or fundamentally restructures the dashboard (e.g., "completely redesign this"), output the complete new code inside `<script type="text/babel">` and `</script>` tags instead of SEARCH/REPLACE blocks.
 

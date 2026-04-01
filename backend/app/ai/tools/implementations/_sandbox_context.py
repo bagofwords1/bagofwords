@@ -21,16 +21,25 @@ helpers are **already loaded globally** — do NOT import, redefine, or remove
 references to any of them:
 
 • **React 18** — `React`, `ReactDOM` available globally
-  - Use hooks: useState, useEffect, useRef, useMemo, useCallback
+  - Hooks are also global: `useState`, `useEffect`, `useRef`, `useMemo`, `useCallback` — use directly without `React.` prefix
 
-• **Recharts** — All components are pre-loaded as globals (do NOT destructure or import)
-  - Available globally: BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, ScatterChart, Scatter, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Treemap, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Label, LabelList, ComposedChart
-  - Declarative & composable — no imperative init/dispose/resize needed
-  - Always wrap charts in `<ResponsiveContainer width="100%" height={400}>`
+• **ECharts 5** — `echarts` available globally
+  - Use the `<EChart>` wrapper component (see below) — do NOT use raw echarts.init/dispose
+  - Full ECharts option API: bar, line, pie, scatter, radar, treemap, heatmap, gauge, etc.
 
-• **ECharts 5** — `echarts` available globally (kept for backward compatibility)
-  - For NEW dashboards, prefer Recharts (declarative, simpler, fewer bugs)
-  - ECharts is available if you need exotic chart types not in Recharts
+• **`<EChart>`** — Global React wrapper for ECharts (handles init/dispose/resize)
+  - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string)
+  - Usage: `<EChart height={400} option={{ xAxis: {...}, yAxis: {...}, series: [...] }} />`
+  - NO useRef, NO useEffect, NO echarts.init — just pass the option object
+  - Auto-resizes via ResizeObserver
+
+• **`ECHARTS_TOOLTIP`** — Global styled tooltip config for ECharts
+  - Usage: `tooltip: { ...ECHARTS_TOOLTIP, formatter: '{b}: {c}' }`
+  - Dark theme matching the dashboard style
+
+• **Recharts** — All components are pre-loaded as globals (kept for backward compatibility)
+  - Available globally: BarChart, Bar, LineChart, Line, etc.
+  - Existing Recharts artifacts will continue to work
 
 • **Tailwind CSS (v3.4)** — All utility classes available
   - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
@@ -48,8 +57,8 @@ references to any of them:
 • **Pre-built UI components** — all global, do NOT redefine:
   - `<LoadingSpinner size={24} className="" />` — animated spinner
   - `<CustomTooltip />` — dark styled Recharts tooltip. Use: `<Tooltip content={<CustomTooltip />} />`
-  - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="" />` — stat card with accent bar
-  - `<SectionCard title="" subtitle="" className="">...children...</SectionCard>` — white card wrapper
+  - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
+  - `<SectionCard title="" subtitle="" className="bg-white border-slate-200" titleClassName="text-slate-800">...children...</SectionCard>` — card wrapper. className replaces default theme (no className = light mode)
   - `fmt(n, {currency: true})` — number formatter (currency, pct, auto K/M/B)
 
 • **window.ARTIFACT_DATA** — Raw data object (same shape as useArtifactData return)
@@ -65,11 +74,13 @@ The code is rendered into `<div id="root">`.
 SANDBOX_RUNTIME_OBSERVATION = (
     "This code runs inside a sandboxed iframe that pre-loads these globals — "
     "do NOT redefine, import, or remove references to them: "
-    "React (v18), ReactDOM, Recharts (declarative React charting via window.Recharts), "
-    "echarts (v5, for backward compat), Tailwind CSS (v3.4), Babel (JSX transpilation), "
+    "React (v18), ReactDOM, echarts (v5), Tailwind CSS (v3.4), Babel (JSX transpilation), "
     "useArtifactData() hook (returns { report, visualizations } or null while loading), "
-    "Pre-built globals (do NOT redefine): LoadingSpinner, CustomTooltip, KPICard, SectionCard, fmt(). "
-    "For new dashboards, prefer Recharts over raw ECharts — it is declarative and composable. "
+    "<EChart option=... height=N /> wrapper (handles init/dispose/resize — do NOT use raw echarts.init), "
+    "ECHARTS_TOOLTIP (styled tooltip config), "
+    "Pre-built globals (do NOT redefine): LoadingSpinner, KPICard, SectionCard, fmt(). "
+    "Recharts is also available globally for backward compat. "
+    "For NEW dashboards, use <EChart> wrapper — it is fast and eliminates lifecycle bugs. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
-    "All globals (React, Recharts, echarts, LoadingSpinner, useArtifactData) are always available at runtime."
+    "All globals (React, echarts, EChart, LoadingSpinner, useArtifactData) are always available at runtime."
 )

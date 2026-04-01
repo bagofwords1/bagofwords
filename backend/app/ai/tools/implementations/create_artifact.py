@@ -1448,67 +1448,61 @@ Create a beautiful, varied presentation following these design principles. Each 
 {SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
-CHARTING — USE RECHARTS (declarative React components)
+CHARTING — USE `<EChart>` WRAPPER (declarative ECharts)
 ═══════════════════════════════════════════════════════════════════════════════
 
-All Recharts components are **pre-loaded as globals** — do NOT destructure or import them.
-Just use them directly: `<BarChart>`, `<Bar>`, `<Cell>`, `<Tooltip>`, `<ResponsiveContainer>`, etc.
+Use the global `<EChart>` component for ALL charts. It handles init/dispose/resize automatically.
+Do NOT use raw `echarts.init()`, `useRef`, or `useEffect` for charts.
 
-Available components: ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area,
-PieChart, Pie, Cell, ScatterChart, Scatter, RadarChart, Radar, PolarGrid,
-PolarAngleAxis, PolarRadiusAxis, Treemap, ComposedChart, Funnel, FunnelChart,
-XAxis, YAxis, CartesianGrid, Tooltip, Legend, Label, LabelList
-
-**Rules:**
-- Always wrap charts in `<ResponsiveContainer width="100%" height={{N}}>` — NEVER set fixed width
-- Recharts is declarative — NO useRef, NO useEffect for chart lifecycle, NO manual resize
-- Use `<Tooltip>` and `<Legend>` for interactivity
-- Use `<Cell>` to give individual bars/slices different colors
-- Use `dataKey` prop to map row fields to chart dimensions
-- Do NOT write `const {{ ... }} = Recharts;` — components are already global
+**Usage:** `<EChart height={{350}} option={{{{ ... ECharts option object ... }}}} />`
 
 **Chart patterns:**
 ```jsx
 const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#14B8A6'];
 
-// Bar chart — use gradient defs, rounded corners, clean axes
-<ResponsiveContainer width="100%" height={{350}}>
-  <BarChart data={{rows}} margin={{{{ top: 10, right: 10, left: 0, bottom: 0 }}}}>
-    <defs>
-      <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#3B82F6" stopOpacity={{0.9}} />
-        <stop offset="100%" stopColor="#3B82F6" stopOpacity={{0.5}} />
-      </linearGradient>
-    </defs>
-    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={{false}} />
-    <XAxis dataKey="category" tick={{{{ fill: '#64748b', fontSize: 12 }}}} axisLine={{false}} tickLine={{false}} />
-    <YAxis tick={{{{ fill: '#64748b', fontSize: 12 }}}} axisLine={{false}} tickLine={{false}} />
-    <Tooltip content={{<CustomTooltip />}} />
-    <Bar dataKey="value" fill="url(#barGrad)" radius={{[6, 6, 0, 0]}} />
-  </BarChart>
-</ResponsiveContainer>
+// Bar chart
+<EChart height={{350}} option={{{{
+  tooltip: {{ ...ECHARTS_TOOLTIP }},
+  grid: {{ left: 40, right: 20, top: 20, bottom: 40, containLabel: true }},
+  xAxis: {{ type: 'category', data: rows.map(r => r.name), axisLine: {{ show: false }}, axisTick: {{ show: false }}, axisLabel: {{ color: '#64748b', fontSize: 12 }} }},
+  yAxis: {{ type: 'value', axisLine: {{ show: false }}, axisTick: {{ show: false }}, splitLine: {{ lineStyle: {{ color: '#f1f5f9' }} }}, axisLabel: {{ color: '#64748b', fontSize: 12 }} }},
+  series: [{{ type: 'bar', data: rows.map(r => r.value), itemStyle: {{ color: '#3B82F6', borderRadius: [6, 6, 0, 0] }} }}]
+}}}} />
 
-// Pie/Donut — use Cell for colors, innerRadius for donut
-<ResponsiveContainer width="100%" height={{350}}>
-  <PieChart>
-    <Pie data={{rows}} dataKey="value" nameKey="name" cx="50%" cy="50%"
-      innerRadius={{70}} outerRadius={{120}} paddingAngle={{3}} cornerRadius={{4}}>
-      {{rows.map((_, i) => <Cell key={{i}} fill={{COLORS[i % COLORS.length]}} />)}}
-    </Pie>
-    <Tooltip content={{<CustomTooltip />}} />
-    <Legend iconType="circle" iconSize={{8}} />
-  </PieChart>
-</ResponsiveContainer>
+// Pie/Donut
+<EChart height={{350}} option={{{{
+  tooltip: {{ ...ECHARTS_TOOLTIP, trigger: 'item' }},
+  legend: {{ bottom: 0, textStyle: {{ color: '#64748b' }} }},
+  series: [{{
+    type: 'pie', radius: ['45%', '75%'], center: ['50%', '45%'],
+    padAngle: 2, itemStyle: {{ borderRadius: 6 }},
+    data: rows.map((r, i) => ({{ value: r.amount, name: r.label, itemStyle: {{ color: COLORS[i % COLORS.length] }} }})),
+    label: {{ show: false }}, emphasis: {{ label: {{ show: true, fontSize: 14, fontWeight: 'bold' }} }}
+  }}]
+}}}} />
+
+// Line/Area chart
+<EChart height={{350}} option={{{{
+  tooltip: {{ ...ECHARTS_TOOLTIP, trigger: 'axis' }},
+  grid: {{ left: 40, right: 20, top: 20, bottom: 40, containLabel: true }},
+  xAxis: {{ type: 'category', data: rows.map(r => r.date), axisLine: {{ show: false }}, axisTick: {{ show: false }} }},
+  yAxis: {{ type: 'value', splitLine: {{ lineStyle: {{ color: '#f1f5f9' }} }} }},
+  series: [{{ type: 'line', data: rows.map(r => r.value), smooth: true, symbol: 'none',
+    lineStyle: {{ color: '#3B82F6', width: 2 }},
+    areaStyle: {{ color: {{ type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{{ offset: 0, color: 'rgba(59,130,246,0.25)' }}, {{ offset: 1, color: 'rgba(59,130,246,0.02)' }}] }} }}
+  }}]
+}}}} />
 ```
 
+**`ECHARTS_TOOLTIP`** — global dark-styled tooltip config. Use `{{ ...ECHARTS_TOOLTIP }}` in every chart's tooltip.
+
 **Pre-built global components** (already loaded — do NOT redefine):
-- `<CustomTooltip />` — dark styled tooltip. Use as: `<Tooltip content={{<CustomTooltip />}} />`
-- `<KPICard title="Revenue" value={{fmt(total, {{currency: true}})}} subtitle="Total sales" color="#3B82F6" className="" />` — stat card with gradient accent bar
-- `<SectionCard title="Chart Title" subtitle="Description" className="">...children...</SectionCard>` — white card wrapper
-- `fmt(n, opts)` — number formatter. Options: `{{currency: true}}`, `{{pct: true}}`, `{{decimals: 2}}`, `{{currency: 'EUR'}}`. Auto-abbreviates large numbers (1.2M, 3.5K)
+- `<KPICard title="Revenue" value={{fmt(total, {{currency: true}})}} subtitle="Total sales" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" subtitleClassName="text-slate-500" />` — stat card. className replaces default theme (bg/border/text). No className = light mode.
+- `<SectionCard title="Chart Title" subtitle="Description" className="bg-white border-slate-200" titleClassName="text-slate-800" subtitleClassName="text-slate-500">...children...</SectionCard>` — card wrapper. className replaces default theme. No className = light mode.
+- `fmt(n, opts)` — number formatter. Options: `{{currency: true}}`, `{{pct: true}}`, `{{decimals: 2}}`. Auto K/M/B
 - `<LoadingSpinner size={{32}} />` — loading spinner
 
-**Do NOT redefine** CustomTooltip, KPICard, SectionCard, fmt, or LoadingSpinner — they are already global.
+**Do NOT redefine** EChart, ECHARTS_TOOLTIP, KPICard, SectionCard, fmt, or LoadingSpinner — they are already global.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS
@@ -1562,10 +1556,10 @@ Create a polished, executive-ready dashboard:
 - Narrative is key. Use context (messages history, instructions) to shape the report
 - Show data from different angles without redundancy
 - **Minimalism** — less is more, generous whitespace, clean typography
-- **Beautiful charts** — use gradient fills (`<defs><linearGradient>`), rounded bar corners, `<Tooltip content={{<CustomTooltip />}} />`, smooth animations
+- **Beautiful charts** — use gradient fills, rounded corners (`borderRadius`), `{{ ...ECHARTS_TOOLTIP }}`, smooth lines
 - **Professional** — like a modern analytics platform, data-focused
-- **Use the globals** — `<KPICard>` for metrics, `<SectionCard>` for chart wrappers, `fmt()` for numbers, `<CustomTooltip />` for tooltips
-- Hide axis lines and tick lines (`axisLine={{false}} tickLine={{false}}`), use `vertical={{false}}` on CartesianGrid
+- **Use the globals** — `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for chart wrappers, `fmt()` for numbers
+- Hide axis lines and tick lines (`axisLine: {{ show: false }}, axisTick: {{ show: false }}`), light split lines (`color: '#f1f5f9'`)
 - By default use light mode unless instructed otherwise
 - Color palette: blues (#3B82F6, #60A5FA), greens (#10B981, #34D399), purples (#8B5CF6), oranges (#F59E0B), reds (#EF4444)
 
@@ -1586,7 +1580,7 @@ OUTPUT FORMAT
 
 ```
 <script type="text/babel">
-// All Recharts components (BarChart, Bar, Cell, Tooltip, etc.) are already global — just use them
+// EChart, ECHARTS_TOOLTIP, KPICard, SectionCard, fmt, LoadingSpinner are all globals
 
 function App() {{
   const data = useArtifactData();
@@ -1604,7 +1598,7 @@ REQUIREMENTS:
 1. `<script type="text/babel">` wrapper
 2. Use `useArtifactData()` hook — NEVER hardcode data
 3. Use `<LoadingSpinner size={{32}} />` for loading state
-4. Use Recharts with `<ResponsiveContainer>` for all charts — NO raw ECharts, NO useRef/useEffect for charts
+4. Use `<EChart option={{...}} />` for ALL charts — NO raw echarts.init, NO useRef/useEffect for charts
 5. Responsive layout (mobile + desktop)
 6. Minimalist, clean, professional — no branding, no IDs, no decorative headers — BUT NOT BORING
 7. ALL values from `data.visualizations[N].rows`
