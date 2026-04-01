@@ -21,10 +21,30 @@
       {{ lastErrorMessage }}
     </div>
 
-    <!-- Collapsible content: Generating Code, Executing, Visualizing sections -->
+    <!-- Collapsible content -->
     <Transition name="fade">
       <div v-if="!createDataCollapsed" class="mt-2 ml-4 space-y-2">
-        <!-- Generating Code section -->
+
+        <!-- Failed attempts (persisted in result_json.errors, survive refresh) -->
+        <div v-for="(attempt, idx) in failedAttempts" :key="'attempt-' + idx">
+          <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click.stop="toggleAttemptCode(idx)">
+            <Icon name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-amber-500" />
+            <span class="text-gray-500">Attempt {{ idx + 1 }}</span>
+            <Icon :name="attemptCodeExpanded[idx] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ml-2" />
+          </div>
+          <Transition name="fade">
+            <div v-if="attemptCodeExpanded[idx]" class="mt-1 ml-4">
+              <div v-if="attempt.code" class="bg-gray-50 rounded px-3 py-2 font-mono text-[10px] max-h-28 overflow-y-auto mb-1">
+                <pre class="text-gray-600 whitespace-pre-wrap m-0">{{ attempt.code }}</pre>
+              </div>
+            </div>
+          </Transition>
+          <div class="mt-0.5 ml-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1">
+            {{ attempt.error }}
+          </div>
+        </div>
+
+        <!-- Current/final code generation section -->
         <div>
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click.stop="toggleCode">
             <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 mr-1.5 text-gray-400" />
@@ -34,7 +54,8 @@
             <Icon v-else name="heroicons-minus" class="w-3 h-3 mr-1.5 text-gray-300" />
             <span v-if="isCodeGenerating && status !== 'stopped'" class="tool-shimmer">Generating Code</span>
             <span v-else class="text-gray-700">Generated Code</span>
-            <span v-if="currentAttempt > 1 && isCodeGenerating" class="ml-1.5 text-gray-400">· attempt {{ currentAttempt }}</span>
+            <span v-if="failedAttempts.length > 0 && !isCodeGenerating" class="ml-1.5 text-gray-400">· attempt {{ failedAttempts.length + 1 }}</span>
+            <span v-if="isCodeGenerating && currentAttempt > 1" class="ml-1.5 text-gray-400">· attempt {{ currentAttempt }}</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ml-2" />
           </div>
           <Transition name="fade">
@@ -59,20 +80,20 @@
           <div class="flex items-center text-xs text-gray-500">
             <Spinner v-if="isExecuting && status !== 'stopped'" class="w-3 h-3 mr-1.5 text-gray-400" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="executionFailed" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-amber-500" />
+            <Icon v-else-if="executionFailed && !isRetrying" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-amber-500" />
             <Icon v-else-if="executionDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
             <Icon v-else name="heroicons-minus" class="w-3 h-3 mr-1.5 text-gray-300" />
             <span v-if="isExecuting && status !== 'stopped'" class="tool-shimmer">Executing</span>
-            <span v-else-if="executionFailed" class="text-gray-700">Execution Failed</span>
+            <span v-else-if="executionFailed && !isRetrying" class="text-gray-700">Execution Failed</span>
             <span v-else class="text-gray-700">Executed</span>
           </div>
-          <!-- Execution error from stdout -->
-          <div v-if="latestStdoutError" class="mt-1 ml-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1 max-h-16 overflow-y-auto">
+          <!-- Execution error from stdout (live only, before it gets captured in result_json.errors) -->
+          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ml-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1 max-h-16 overflow-y-auto">
             <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
           </div>
         </div>
 
-        <!-- Retry indicator -->
+        <!-- Retry indicator (live only) -->
         <div v-if="isRetrying" class="flex items-center text-xs text-gray-500">
           <Spinner class="w-3 h-3 mr-1.5 text-gray-400" />
           <span class="tool-shimmer">Retrying · attempt {{ currentAttempt }}</span>
@@ -113,7 +134,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, reactive, watch } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -150,6 +171,7 @@ const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
 const codeCollapsed = ref(false)
 const createDataCollapsed = ref(true) // Collapsed by default
+const attemptCodeExpanded = reactive<Record<number, boolean>>({})
 const dataTitle = computed(() => props.toolExecution.arguments_json?.title || 'Data')
 const status = computed(() => props.toolExecution.status)
 const progressStage = computed(() => (props.toolExecution as any).progress_stage || '')
@@ -161,27 +183,28 @@ const codeContent = computed(() =>
   || (props.toolExecution as any).progress_code
   || ''
 )
-const resultSummary = computed(() => props.toolExecution.result_summary)
-const successDetails = computed(() => {
-  if (status.value !== 'success') return null
-  const totalRows = (props.toolExecution as any)?.result_json?.stats?.total_rows
-    || (props.toolExecution as any)?.result_json?.data?.info?.total_rows
-    || (props.toolExecution as any)?.result_json?.widget_data?.info?.total_rows
-  return totalRows !== undefined ? `${Number(totalRows).toLocaleString()} rows` : null
-})
-const attempts = computed(() => {
+
+// Failed attempts from result_json.errors: [[code, error], ...]
+// This data survives refresh since it's persisted in tool execution result_json
+const failedAttempts = computed(() => {
   const errs = (props.toolExecution.result_json as any)?.errors || []
   return errs.map((pair: any) => {
-    const msg = Array.isArray(pair) ? pair[1] : (pair?.message || String(pair))
-    const firstLine = (msg || '').split('\n')[0]
-    return firstLine
+    const code = Array.isArray(pair) ? pair[0] : (pair?.code || '')
+    const rawError = Array.isArray(pair) ? pair[1] : (pair?.message || String(pair))
+    // Show first line of error for compact display
+    const error = (rawError || '').split('\n')[0]
+    return { code, error }
   })
 })
-const lastErrorMessage = computed(() => attempts.value?.[attempts.value.length - 1] || '')
+
+const lastErrorMessage = computed(() => {
+  const last = failedAttempts.value[failedAttempts.value.length - 1]
+  return last?.error || ''
+})
 const currentAttempt = computed(() => {
   const pa = (props.toolExecution as any).progress_attempt
   if (typeof pa === 'number') return pa + 1
-  const len = attempts.value?.length || 0
+  const len = failedAttempts.value?.length || 0
   return len > 0 ? len + 1 : 1
 })
 const hasPreview = computed(() => {
@@ -199,13 +222,11 @@ const codeGenDone = computed(() => !!codeContent.value && !isCodeGenerating.valu
 const isExecuting = computed(() => progressStage.value === 'executing_code')
 const isRetrying = computed(() => progressStage.value === 'retry')
 const executionDone = computed(() => {
-  // Execution is done if we've moved past executing_code to a later stage or finished
   if (status.value === 'success') return true
   const pastExecution = ['inferring_visualization', 'formatting_widget', 'visualization_inferred', 'series_configured'].includes(progressStage.value)
   return pastExecution
 })
 const executionFailed = computed(() => {
-  // Failed if status is error OR if we're retrying (meaning previous execution failed)
   if (status.value === 'error') return true
   if (isRetrying.value) return true
   return false
@@ -214,15 +235,17 @@ const executionFailed = computed(() => {
 // Show executing section once code generation is done
 const showExecutingSection = computed(() => {
   if (status.value === 'stopped') return false
+  // After refresh: show if we have code (success or error with code)
+  if (status.value !== 'running' && codeContent.value) return true
+  // During streaming: show once past code generation
   const pastCodeGen = ['generated_code', 'executing_code', 'retry', 'inferring_visualization', 'formatting_widget', 'visualization_inferred', 'series_configured'].includes(progressStage.value)
-  return pastCodeGen || isExecuting.value || executionDone.value || (status.value === 'error' && codeContent.value)
+  return pastCodeGen || isExecuting.value || executionDone.value
 })
 
-// Stdout errors from progress_stdout
+// Stdout errors from progress_stdout (live streaming only)
 const stdoutMessages = computed(() => (props.toolExecution as any).progress_stdout || [])
 const latestStdoutError = computed(() => {
   if (!stdoutMessages.value.length) return ''
-  // Show the most recent error, trim to first meaningful line
   const last = stdoutMessages.value[stdoutMessages.value.length - 1] || ''
   const firstLine = last.split('\n')[0]
   return firstLine.length > 200 ? firstLine.slice(0, 200) + '…' : firstLine
@@ -264,7 +287,6 @@ const chartTypeLabel = computed(() => {
   return typeMap[chartType.value] || chartType.value
 })
 
-// Simple visualization summary (e.g., "x → y")
 const vizSummary = computed(() => {
   const series = vizInferredData.value?.series || (props.toolExecution.result_json as any)?.data_model?.series || []
   if (!series.length) return ''
@@ -282,7 +304,6 @@ const formatDuration = computed(() => {
 })
 
 watch([codeGenDone, status], ([codeNow, st]) => {
-  // Keep code section collapsed by default
   if (st === 'error' || st === 'success') {
     codeCollapsed.value = true
   }
@@ -290,6 +311,7 @@ watch([codeGenDone, status], ([codeNow, st]) => {
 
 function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
 function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }
+function toggleAttemptCode(idx: number) { attemptCodeExpanded[idx] = !attemptCodeExpanded[idx] }
 function onAddWidget(payload: { widget?: any, step?: any }) { emit('addWidget', payload) }
 
 const initialStepId = computed(() => props.toolExecution?.created_step_id || props.toolExecution?.created_step?.id || null)
