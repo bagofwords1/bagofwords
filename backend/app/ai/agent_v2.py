@@ -180,6 +180,7 @@ class AgentV2:
                     "title": artifact.title,
                     "mode": artifact.mode,
                     "version": artifact.version,
+                    "generation_prompt": artifact.generation_prompt,
                 }
         except Exception:
             pass
@@ -762,6 +763,10 @@ class AgentV2:
             consecutive_artifact_tool_count = 0
             last_artifact_tool_name = None
             max_consecutive_artifact_calls = 1
+
+            # Circuit breaker for total artifact calls across the entire execution
+            total_artifact_calls = 0
+            max_total_artifact_calls = 2
             
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
@@ -1420,12 +1425,13 @@ class AgentV2:
 
                             # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
                             if tool_name in ("create_artifact", "edit_artifact"):
+                                total_artifact_calls += 1
                                 if tool_name == last_artifact_tool_name:
                                     consecutive_artifact_tool_count += 1
                                 else:
                                     consecutive_artifact_tool_count = 1
                                     last_artifact_tool_name = tool_name
-                                if consecutive_artifact_tool_count > max_consecutive_artifact_calls:
+                                if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
                                     analysis_done = True
                                     observation.update({
                                         "analysis_complete": True,

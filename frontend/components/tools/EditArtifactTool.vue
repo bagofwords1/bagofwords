@@ -49,17 +49,6 @@
       {{ editInstruction }}
     </div>
 
-    <!-- Resolved viz badges (always visible) -->
-    <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ml-[18px] flex flex-wrap gap-1">
-      <span
-        v-for="viz in resolvedVisualizations"
-        :key="viz.id"
-        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
-      >
-        {{ viz.title }}
-      </span>
-    </div>
-
     <!-- Confirmation card (outside collapsible, always visible) -->
     <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ml-4 rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
       <div class="text-xs font-medium text-gray-700">Confirm artifact edit</div>
@@ -100,6 +89,17 @@
     <!-- Collapsible content -->
     <Transition name="fade">
       <div v-if="!isCollapsed" class="mt-2 ml-4 space-y-2">
+        <!-- Resolved viz badges -->
+        <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="flex flex-wrap gap-1">
+          <span
+            v-for="viz in resolvedVisualizations"
+            :key="viz.id"
+            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
+          >
+            {{ viz.title }}
+          </span>
+        </div>
+
         <!-- Progress stages -->
         <div v-if="status === 'running' && progressStage !== 'awaiting_confirmation'" class="text-xs text-gray-400">
           <div v-if="progressStage === 'loading_artifact'">

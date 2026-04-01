@@ -32,6 +32,7 @@ class ReadArtifactTool(Tool):
             description=(
                 "Read an existing dashboard, slides, and artifact's code and metadata from the current report. "
                 "Use this to load previous artifact code into context before modifying with edit_artifact (or create_artifact) or when the user wants to inspect or analyze an existing artifact. "
+                "Use this also if the user is saying something is not working like filters or UI elements are not showing up - to check the existing code and visualizations for debugging. "
                 "ALWAYS use this before editing an artifact (edit_artifact) to have a full view of the existing code, visualizations, and layout. "
                 "If the user refers to a specific version of an artifact, ALWAYS load that version with this tool to have the correct code context for the edit. "
                 "IMPORTANT: The artifact_id is found in previous create_artifact results shown as 'artifact_id: <uuid>' in the conversation. "

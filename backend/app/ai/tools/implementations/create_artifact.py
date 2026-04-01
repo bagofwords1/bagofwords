@@ -55,7 +55,8 @@ class CreateArtifactTool(Tool):
         return ToolMetadata(
             name="create_artifact",
             description=(
-                "Create artifacts (dashboards, pages, slide presentations) from visualizations in the current report. "
+                "Create or fully rebuild artifacts (dashboards, pages, slide presentations) from visualizations. "
+                "Use for: new dashboards, full redesigns, large layout changes, or when edit_artifact cannot handle the scope. "
                 "Modes: 'page' for interactive dashboards with KPI cards, charts, and responsive grids; "
                 "'slides' for presentation decks (exportable to PPTX). "
                 "IMPORTANT: visualization_ids are required - find them in previous create_data tool results "
@@ -91,21 +92,26 @@ class CreateArtifactTool(Tool):
     async def _take_preview_screenshot(
         self,
         html_content: str,
-    ) -> Optional[str]:
-        """Take a quick screenshot for planner reflection. Non-blocking, best-effort.
+    ) -> tuple[Optional[str], list[str]]:
+        """Take a quick screenshot for planner reflection and capture JS errors.
 
-        Returns base64-encoded PNG string, or None on failure.
+        Returns (base64-encoded PNG string or None, list of JS error messages).
         """
         try:
             from playwright.async_api import async_playwright
         except ImportError:
-            return None
+            return None, []
+
+        js_errors: list[str] = []
 
         try:
             import tempfile, os
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
+
+                # Capture JS errors during render
+                page.on("pageerror", lambda err: js_errors.append(str(err)))
 
                 # Write HTML to a temp file and navigate via file:// URL.
                 # This allows vendored scripts (e.g. Tailwind runtime) that use
@@ -129,12 +135,12 @@ class CreateArtifactTool(Tool):
                     await asyncio.sleep(0.3)
                     screenshot_bytes = await page.screenshot(type="png", full_page=False)
                     await browser.close()
-                    return base64.b64encode(screenshot_bytes).decode("utf-8")
+                    return base64.b64encode(screenshot_bytes).decode("utf-8"), js_errors
                 finally:
                     os.unlink(tmp.name)
         except Exception as e:
             logger.warning(f"Preview screenshot failed: {e}")
-            return None
+            return None, js_errors
 
     async def _generate_thumbnail_background(
         self,
@@ -961,6 +967,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
         # Page mode: take preview screenshot for planner reflection + generate thumbnail
         screenshot_base64: Optional[str] = None
+        render_errors: list[str] = []
         if data.mode == "page":
             artifact_data = {
                 "report": {
@@ -976,7 +983,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             model = runtime_ctx.get("model")
             if allow_llm_see_data and model and getattr(model, "supports_vision", False):
                 yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
-                screenshot_base64 = await self._take_preview_screenshot(thumbnail_html)
+                screenshot_base64, render_errors = await self._take_preview_screenshot(thumbnail_html)
 
             # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
@@ -1026,6 +1033,11 @@ Fix these errors while keeping the same design and functionality. Output the cor
         summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
         if data.mode == "slides" and preview_images:
             summary_msg += f". Generated {len(preview_images)} slide preview images."
+        elif render_errors:
+            summary_msg += f". RENDER FAILED with {len(render_errors)} error(s): {render_errors[0]}"
+            if len(render_errors) > 1:
+                summary_msg += f" (and {len(render_errors) - 1} more)"
+            summary_msg += ". The dashboard code has a bug — use edit_artifact to fix the specific error."
         elif screenshot_base64:
             summary_msg += ". Screenshot of the rendered dashboard is attached — review it for visual correctness."
 
@@ -1036,6 +1048,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }
+        if render_errors:
+            observation["render_errors"] = render_errors
 
         # Add preview screenshot for planner reflection (page mode)
         if screenshot_base64:
