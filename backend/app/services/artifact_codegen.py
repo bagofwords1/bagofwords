@@ -333,17 +333,26 @@ def inject_section_into_code(existing_code: str, new_section: str) -> Optional[s
     addition = (
         "\n\n// --- Programmatically added visualization ---\n"
         "(function() {\n"
-        "  const _el = document.createElement('div');\n"
-        "  document.getElementById('root').after(_el);\n"
         "  function _AddedViz() {\n"
         "    const data = useArtifactData();\n"
         "    if (!data) return null;\n"
         "    const viz = data.visualizations;\n"
-        '    return <div className="px-8 pb-8 space-y-6">\n'
+        '    return <div className="space-y-6" style={{padding: "0 2rem 2rem"}}>\n'
         f"      {new_section}\n"
         "    </div>;\n"
         "  }\n"
-        "  ReactDOM.createRoot(_el).render(<_AddedViz />);\n"
+        "  // Wait for React to render the main app, then append inside its container\n"
+        "  var _obs = new MutationObserver(function() {\n"
+        "    var root = document.getElementById('root');\n"
+        "    var container = root && root.firstElementChild;\n"
+        "    if (container) {\n"
+        "      _obs.disconnect();\n"
+        "      var _el = document.createElement('div');\n"
+        "      container.appendChild(_el);\n"
+        "      ReactDOM.createRoot(_el).render(<_AddedViz />);\n"
+        "    }\n"
+        "  });\n"
+        "  _obs.observe(document.getElementById('root'), { childList: true, subtree: true });\n"
         "})();\n"
     )
 
