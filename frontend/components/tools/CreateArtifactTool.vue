@@ -38,46 +38,46 @@
       {{ errorMessage }}
     </div>
 
+    <!-- Confirmation card (outside collapsible, always visible) -->
+    <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ml-4 rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+      <div class="text-xs font-medium text-gray-700">Confirm artifact creation</div>
+      <!-- Viz badges -->
+      <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
+        <span
+          v-for="viz in confirmation.visualizations"
+          :key="viz.id"
+          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white border border-amber-200 text-gray-600"
+        >
+          {{ viz.title }}
+        </span>
+      </div>
+      <!-- Editable title input -->
+      <input
+        v-model="editableTitle"
+        class="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:border-blue-400"
+        placeholder="Artifact title"
+      />
+      <!-- Actions -->
+      <div class="flex items-center gap-2">
+        <button
+          class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
+          @click="approveConfirmation"
+        >
+          Approve
+        </button>
+        <button
+          class="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+          @click="rejectConfirmation"
+        >
+          Cancel
+        </button>
+        <span class="text-[10px] text-gray-400">Auto-approving in {{ confirmationCountdown }}s</span>
+      </div>
+    </div>
+
     <!-- Collapsible content -->
     <Transition name="fade">
       <div v-if="!isCollapsed" class="mt-2 ml-4 space-y-2">
-        <!-- Confirmation card -->
-        <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
-          <div class="text-xs font-medium text-gray-700">Confirm artifact creation</div>
-          <!-- Viz badges -->
-          <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
-            <span
-              v-for="viz in confirmation.visualizations"
-              :key="viz.id"
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white border border-amber-200 text-gray-600"
-            >
-              {{ viz.title }}
-            </span>
-          </div>
-          <!-- Editable title input -->
-          <input
-            v-model="editableTitle"
-            class="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:border-blue-400"
-            placeholder="Artifact title"
-          />
-          <!-- Actions -->
-          <div class="flex items-center gap-2">
-            <button
-              class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
-              @click="approveConfirmation"
-            >
-              Approve
-            </button>
-            <button
-              class="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
-              @click="rejectConfirmation"
-            >
-              Cancel
-            </button>
-            <span class="text-[10px] text-gray-400">Auto-approving in {{ confirmationCountdown }}s</span>
-          </div>
-        </div>
-
         <!-- Title display -->
         <div v-if="artifactTitle && progressStage !== 'awaiting_confirmation'" class="text-xs text-gray-600">
           <span class="text-gray-400">Title:</span> {{ artifactTitle }}
