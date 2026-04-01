@@ -190,7 +190,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const emit = defineEmits(['openArtifact', 'toggleSplitScreen'])
+const emit = defineEmits(['openArtifact', 'toggleSplitScreen', 'stopGeneration'])
 const toast = useToast()
 
 const isCollapsed = ref(true)
@@ -258,6 +258,8 @@ async function rejectConfirmation() {
       body: { approved: false },
     })
   } catch {}
+  // Kill the entire streaming session
+  emit('stopGeneration')
 }
 
 const errorMessage = computed(() => props.toolExecution.result_json?.error || '')

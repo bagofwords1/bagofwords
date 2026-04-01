@@ -178,6 +178,7 @@
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
+													@stopGeneration="abortStream"
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
