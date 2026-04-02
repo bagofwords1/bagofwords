@@ -195,6 +195,33 @@ class ReadArtifactTool(Tool):
             "runtime_environment": SANDBOX_RUNTIME_OBSERVATION,
         }
 
+        # Include stored screenshot if requested, gated by privacy and vision support
+        if data.load_screenshot:
+            # Check allow_llm_see_data privacy setting
+            organization_settings = runtime_ctx.get("settings")
+            allow_llm_see_data = True
+            if organization_settings:
+                try:
+                    allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
+                except Exception:
+                    allow_llm_see_data = True
+
+            # Check model supports vision
+            model = runtime_ctx.get("model")
+            supports_vision = model and getattr(model, "supports_vision", False)
+
+            if allow_llm_see_data and supports_vision and artifact.screenshot_base64:
+                observation["images"] = [{
+                    "data": artifact.screenshot_base64,
+                    "media_type": "image/png",
+                    "source_type": "base64",
+                }]
+                observation["summary"] += " (screenshot included)"
+
+            # Include render errors if stored (useful even without screenshot)
+            if artifact.render_errors:
+                observation["render_errors"] = artifact.render_errors
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
