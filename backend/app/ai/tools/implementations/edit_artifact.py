@@ -873,6 +873,12 @@ Apply the edit now:"""
                 yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
                 screenshot_base64, render_errors = await self._create_tool._take_preview_screenshot(thumbnail_html)
 
+            # Persist screenshot and render errors on artifact for later retrieval (read_artifact)
+            if screenshot_base64 or render_errors:
+                new_artifact.screenshot_base64 = screenshot_base64
+                new_artifact.render_errors = render_errors or None
+                await db.commit()
+
             # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
                 self._create_tool._generate_thumbnail_background(

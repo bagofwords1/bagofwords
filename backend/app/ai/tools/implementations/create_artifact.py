@@ -985,6 +985,12 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
                 screenshot_base64, render_errors = await self._take_preview_screenshot(thumbnail_html)
 
+            # Persist screenshot and render errors on artifact for later retrieval (read_artifact)
+            if screenshot_base64 or render_errors:
+                artifact.screenshot_base64 = screenshot_base64
+                artifact.render_errors = render_errors or None
+                await db.commit()
+
             # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
                 self._generate_thumbnail_background(

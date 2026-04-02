@@ -55,6 +55,12 @@ class Artifact(BaseSchema):
     # Path to generated PPTX file (for slides mode)
     pptx_path = Column(String(512), nullable=True)
 
+    # Stored preview screenshot (base64 PNG) from last create/edit render
+    screenshot_base64 = Column(Text, nullable=True)
+
+    # JS render errors captured during last screenshot capture
+    render_errors = Column(JSON, nullable=True)
+
     # Optional: Reference to the completion that generated this
     completion_id = Column(String(36), ForeignKey('completions.id'), nullable=True, index=True)
     completion = relationship("Completion", lazy="selectin")
