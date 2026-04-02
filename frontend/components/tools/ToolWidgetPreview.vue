@@ -253,6 +253,13 @@
               <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 mr-1" />
               Add to Spreadsheet
             </button>
+            <span
+              v-else-if="canAddToDashboard && isAlreadyInDashboard"
+              class="text-xs px-2 py-0.5 rounded flex items-center text-green-600"
+            >
+              <Icon name="heroicons:check-circle-solid" class="w-3.5 h-3.5 mr-1" />
+              Added to Dashboard
+            </span>
             <button
               v-else-if="canAddToDashboard"
               :disabled="isAddingToDashboard"
@@ -340,6 +347,7 @@ const { isExcel } = useExcel()
 // Reactive state for collapsible behavior
 const isCollapsed = ref(props.initialCollapsed ?? false)
 const isAddingToDashboard = ref(false)
+const artifactVizIds = ref<string[]>([])
 const chartContainerRef = ref<HTMLElement | null>(null)
 const layoutBlocks = ref<any[]>([])
 const route = useRoute()
@@ -775,6 +783,11 @@ function downloadCSV() {
 }
 
 // --- Add to Dashboard ---
+const isAlreadyInDashboard = computed(() => {
+  const v = visualization.value as any
+  return v?.id && artifactVizIds.value.includes(v.id)
+})
+
 const canAddToDashboard = computed(() => {
   if (isExcel.value) return false
   const v = visualization.value as any
@@ -808,6 +821,10 @@ async function addToDashboard() {
     }
     const result = data.value as any
     if (result?.id) {
+      // Track locally so button switches to "Added to Dashboard"
+      if (!artifactVizIds.value.includes(v.id)) {
+        artifactVizIds.value = [...artifactVizIds.value, v.id]
+      }
       window.dispatchEvent(new CustomEvent('artifact:created', { detail: { report_id: reportId.value, artifact_id: result.id } }))
       window.dispatchEvent(new CustomEvent('artifact:open', { detail: { artifact_id: result.id } }))
     }
@@ -831,6 +848,22 @@ function broadcastDefaultStep(step: any) {
 onMounted(() => {
   // Listen for shared filter updates from VisualizationFilter and FilterBuilder
   window.addEventListener('filter:updated', handleSharedFilterUpdate as any)
+
+  // Track which viz IDs are in the active artifact (for "Added to Dashboard" state)
+  function handleArtifactVizIds(ev: Event) {
+    artifactVizIds.value = (ev as CustomEvent).detail?.visualization_ids || []
+  }
+  window.addEventListener('artifact:viz-ids', handleArtifactVizIds as any)
+  ;(window as any).__tw_preview_artifact_handler__ = handleArtifactVizIds
+
+  // Fetch initial artifact viz IDs on mount (handles page refresh)
+  if (reportId.value) {
+    useMyFetch(`/api/artifacts/report/${reportId.value}/latest`).then(({ data }) => {
+      if (data.value) {
+        artifactVizIds.value = (data.value as any)?.content?.visualization_ids || []
+      }
+    }).catch(() => {})
+  }
   
   function handleLayoutChanged(ev: CustomEvent) {
     try {
@@ -964,6 +997,11 @@ onUnmounted(() => {
     try { window.removeEventListener('query:default_step_changed', handlers.handleDefaultStepChanged as any) } catch {}
     try { window.removeEventListener('tool_preview:rebind', handlers.handleToolPreviewRebind as any) } catch {}
     ;(window as any).__tw_preview_handlers__ = undefined
+  }
+  const artifactHandler = (window as any).__tw_preview_artifact_handler__
+  if (artifactHandler) {
+    try { window.removeEventListener('artifact:viz-ids', artifactHandler as any) } catch {}
+    ;(window as any).__tw_preview_artifact_handler__ = undefined
   }
 })
 

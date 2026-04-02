@@ -189,9 +189,64 @@
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
-        class="absolute inset-0 w-full h-full border-0 bg-white"
+        class="absolute inset-0 w-full h-full border-0 bg-white z-0"
         @load="onIframeLoad"
       />
+
+      <!-- Polish Mode Button -->
+      <div
+        v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError"
+        class="absolute bottom-4 right-4 z-20"
+      >
+        <UTooltip text="Polish dashboard" :popper="{ placement: 'left' }">
+          <button
+            @click="togglePolishMode"
+            :class="[
+              'p-2.5 rounded-full shadow-lg border transition-all',
+              isPolishMode
+                ? 'bg-indigo-500 text-white hover:bg-indigo-600 ring-2 ring-indigo-300 border-indigo-400'
+                : 'bg-white text-gray-500 hover:text-indigo-500 border-gray-200'
+            ]"
+          >
+            <Icon name="heroicons:paint-brush" class="w-4 h-4" />
+          </button>
+        </UTooltip>
+      </div>
+
+      <!-- Polish Prompt Box -->
+      <div
+        v-if="polishPromptVisible"
+        class="absolute z-30 w-80 bg-white rounded-lg shadow-xl border border-gray-200 p-3"
+        :style="polishPromptPosition"
+      >
+        <div class="flex items-center gap-2 mb-2">
+          <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
+          <span class="text-xs font-medium text-gray-700">Polish this element</span>
+          <button @click="cancelPolishPrompt" class="ml-auto text-gray-400 hover:text-gray-600">
+            <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 rounded px-2 py-1 truncate">
+          &lt;{{ polishSelectedElement?.tag?.toLowerCase() }}&gt; {{ polishSelectedElement?.text?.slice(0, 60) }}
+        </div>
+        <form @submit.prevent="submitPolishPrompt" class="flex gap-2">
+          <input
+            ref="polishInputRef"
+            v-model="polishInstruction"
+            type="text"
+            placeholder="e.g. make this bigger, change colors..."
+            class="flex-1 text-sm border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            @keydown.escape="cancelPolishPrompt"
+          />
+          <button
+            type="submit"
+            :disabled="!polishInstruction.trim()"
+            class="px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Apply
+          </button>
+        </form>
+      </div>
     </div>
 
     <!-- Fullscreen Modal -->
@@ -230,7 +285,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, toRaw } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
 import PublishModal from '../PublishModal.vue';
@@ -300,6 +355,71 @@ const isRefreshing = ref(false);
 
 // Iframe render error state
 const iframeError = ref<string | null>(null);
+
+// Polish mode state
+const isPolishMode = ref(false);
+const polishPromptVisible = ref(false);
+const polishInstruction = ref('');
+const polishInputRef = ref<HTMLInputElement | null>(null);
+const polishSelectedElement = ref<{ tag: string; classes: string; text: string; htmlSnippet: string; rect: { top: number; left: number; width: number; height: number } } | null>(null);
+
+const polishPromptPosition = computed(() => {
+  if (!polishSelectedElement.value?.rect) return { top: '50%', left: '50%' };
+  const r = polishSelectedElement.value.rect;
+  // Position below the element, clamped within the container
+  const top = Math.min(Math.max(r.top + r.height + 8, 8), 500);
+  const left = Math.min(Math.max(r.left, 8), 400);
+  return { top: top + 'px', left: left + 'px' };
+});
+
+function togglePolishMode() {
+  if (isPolishMode.value) {
+    exitPolishMode();
+  } else {
+    enterPolishMode();
+  }
+}
+
+function enterPolishMode() {
+  isPolishMode.value = true;
+  polishPromptVisible.value = false;
+  polishSelectedElement.value = null;
+  polishInstruction.value = '';
+  // Tell iframe to enable pick mode
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
+}
+
+function exitPolishMode() {
+  isPolishMode.value = false;
+  polishPromptVisible.value = false;
+  polishSelectedElement.value = null;
+  polishInstruction.value = '';
+  // Tell iframe to disable pick mode
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, '*');
+}
+
+function cancelPolishPrompt() {
+  polishPromptVisible.value = false;
+  polishSelectedElement.value = null;
+  polishInstruction.value = '';
+  // Re-enter pick mode so user can select another element
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
+}
+
+function submitPolishPrompt() {
+  if (!polishInstruction.value.trim() || !polishSelectedElement.value) return;
+
+  const artifactTitle = selectedArtifact.value?.title || 'the dashboard';
+  const artifactId = selectedArtifact.value?.id || selectedArtifactId.value || '';
+  const el = polishSelectedElement.value;
+  const prompt = `Polish the dashboard "${artifactTitle}" (artifact_id: ${artifactId}).\nTarget element:\n\`\`\`html\n${el.htmlSnippet}\n\`\`\`\nInstruction: ${polishInstruction.value.trim()}`;
+
+  window.dispatchEvent(new CustomEvent('prompt:prefill', {
+    detail: { text: prompt, autoSubmit: false }
+  }));
+
+  exitPolishMode();
+}
 
 // Refresh Dashboard - reruns report queries and refreshes data
 async function refreshDashboard() {
@@ -556,6 +676,9 @@ async function fetchSelectedArtifact() {
     if (data.value) {
       selectedArtifact.value = data.value;
       console.log('[ArtifactFrame] Loaded artifact:', (data.value as any).title);
+      // Broadcast active artifact viz IDs so ToolWidgetPreview can show "Added to Dashboard"
+      const vizIds = (data.value as any)?.content?.visualization_ids || [];
+      window.dispatchEvent(new CustomEvent('artifact:viz-ids', { detail: { visualization_ids: vizIds } }));
     }
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch artifact:', e);
@@ -566,6 +689,7 @@ async function fetchSelectedArtifact() {
 watch(selectedArtifactId, async (newId, oldId) => {
   iframeError.value = null;
   iframeReady.value = false;
+  if (isPolishMode.value) exitPolishMode();
   await fetchSelectedArtifact();
   // Only refetch data if this is a user-initiated change (not initial load)
   if (oldId !== undefined) {
@@ -577,6 +701,7 @@ onUnmounted(() => {
   window.removeEventListener('message', handleIframeMessage);
   window.removeEventListener('artifact:select', handleArtifactSelect);
   window.removeEventListener('artifact:created', handleArtifactCreated);
+  if (isPolishMode.value) exitPolishMode();
 });
 
 // Handle messages from iframe
@@ -589,6 +714,11 @@ function handleIframeMessage(event: MessageEvent) {
   } else if (event.data?.type === 'ARTIFACT_ERROR') {
     console.error('[ArtifactFrame] Iframe render error:', event.data.payload?.message);
     iframeError.value = event.data.payload?.message || 'Unknown render error';
+  } else if (event.data?.type === 'POLISH_ELEMENT_SELECTED') {
+    polishSelectedElement.value = event.data.element;
+    polishPromptVisible.value = true;
+    polishInstruction.value = '';
+    nextTick(() => polishInputRef.value?.focus());
   }
 }
 
@@ -1256,6 +1386,91 @@ const iframeSrcdoc = computed(() => {
     setTimeout(window.resizeAllCharts, 500);
     window.addEventListener('resize', window.resizeAllCharts);
     console.log('[Artifact] Data loaded:', window.ARTIFACT_DATA?.visualizations?.length || 0, 'visualizations');
+
+    // Polish mode: element pick & highlight
+    (function() {
+      var polishActive = false;
+      var currentHighlight = null;
+      var polishStyle = document.createElement('style');
+      polishStyle.textContent = '.__polish-highlight { outline: 2px solid #6366f1 !important; outline-offset: 2px; cursor: crosshair !important; }';
+      document.head.appendChild(polishStyle);
+
+      function snapToMeaningful(el) {
+        // Walk up to a meaningful container (card, section, chart wrapper)
+        var node = el;
+        var maxDepth = 6;
+        while (node && node !== document.body && node.id !== 'root' && maxDepth-- > 0) {
+          var cls = node.className || '';
+          if (typeof cls === 'string' && (
+            /rounded-(lg|xl|2xl)/.test(cls) ||
+            /shadow/.test(cls) ||
+            /\\bp-[4-9]\\b/.test(cls) ||
+            /\\bp-1[0-9]/.test(cls) ||
+            node.getAttribute('role') ||
+            node.hasAttribute('data-section') ||
+            node.hasAttribute('data-card')
+          )) {
+            return node;
+          }
+          if (node.parentElement && node.parentElement !== document.body && node.parentElement.id !== 'root') {
+            node = node.parentElement;
+          } else {
+            break;
+          }
+        }
+        return el;
+      }
+
+      function onHover(e) {
+        if (!polishActive) return;
+        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+        var target = snapToMeaningful(e.target);
+        target.classList.add('__polish-highlight');
+        currentHighlight = target;
+      }
+      function onOut(e) {
+        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+        currentHighlight = null;
+      }
+      function onClick(e) {
+        if (!polishActive) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var target = snapToMeaningful(e.target);
+        var rect = target.getBoundingClientRect();
+        // Clean up highlight
+        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+        polishActive = false;
+        window.parent.postMessage({
+          type: 'POLISH_ELEMENT_SELECTED',
+          element: {
+            tag: target.tagName,
+            classes: target.className.replace('__polish-highlight', '').trim(),
+            text: (target.textContent || '').slice(0, 100).trim(),
+            htmlSnippet: target.outerHTML.slice(0, 500),
+            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+          }
+        }, '*');
+      }
+
+      window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'POLISH_ENTER') {
+          polishActive = true;
+          document.body.style.cursor = 'crosshair';
+          document.body.addEventListener('mouseover', onHover, true);
+          document.body.addEventListener('mouseout', onOut, true);
+          document.body.addEventListener('click', onClick, true);
+        } else if (e.data && e.data.type === 'POLISH_EXIT') {
+          polishActive = false;
+          document.body.style.cursor = '';
+          if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+          currentHighlight = null;
+          document.body.removeEventListener('mouseover', onHover, true);
+          document.body.removeEventListener('mouseout', onOut, true);
+          document.body.removeEventListener('click', onClick, true);
+        }
+      });
+    })();
 
     // Error reporting: send compile/runtime errors to parent
     window.__artifactErrorSent = false;

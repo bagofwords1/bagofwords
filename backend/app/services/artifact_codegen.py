@@ -38,11 +38,11 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
     if not series_list:
         return "{}"
 
-    category_key = (series_list[0].get("key") or "").lower()
+    category_key = series_list[0].get("key") or ""
     if not category_key:
         return "{}"
 
-    group_by = (data_model.get("group_by") or "").lower()
+    group_by = data_model.get("group_by") or ""
     is_horizontal = data_model.get("horizontal", False)
     chart_type = "line" if dm_type in ("line_chart", "area_chart") else "bar"
     is_area = dm_type == "area_chart"
@@ -67,7 +67,7 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
         val_axis = "yAxis: { type: 'value' }"
 
     if group_by:
-        value_key = (series_list[0].get("value") or "").lower()
+        value_key = series_list[0].get("value") or ""
         if not value_key:
             return "{}"
 
@@ -95,7 +95,7 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
     # Traditional: one series per series config entry
     series_js_parts: list[str] = []
     for s in series_list:
-        value_key = (s.get("value") or "").lower()
+        value_key = s.get("value") or ""
         if not value_key:
             continue
         name = _js_str(s.get("name") or value_key)
@@ -130,8 +130,8 @@ def _build_pie(data_model: dict, viz_index: int) -> str:
         return "{}"
 
     cfg = series_list[0]
-    key = (cfg.get("key") or "").lower()
-    value = (cfg.get("value") or "").lower()
+    key = cfg.get("key") or ""
+    value = cfg.get("value") or ""
     if not key or not value:
         return "{}"
 
@@ -151,8 +151,8 @@ def _build_scatter(data_model: dict, viz_index: int) -> str:
         return "{}"
 
     cfg = series_list[0]
-    x_key = (cfg.get("x") or cfg.get("key") or "").lower()
-    y_key = (cfg.get("y") or cfg.get("value") or "").lower()
+    x_key = cfg.get("x") or cfg.get("key") or ""
+    y_key = cfg.get("y") or cfg.get("value") or ""
     if not x_key or not y_key:
         return "{}"
 
@@ -174,9 +174,9 @@ def _build_heatmap(data_model: dict, viz_index: int) -> str:
         return "{}"
 
     cfg = series_list[0]
-    x_key = (cfg.get("x") or cfg.get("key") or "").lower()
-    y_key = (cfg.get("y") or "").lower()
-    v_key = (cfg.get("value") or "").lower()
+    x_key = cfg.get("x") or cfg.get("key") or ""
+    y_key = cfg.get("y") or ""
+    v_key = cfg.get("value") or ""
     if not x_key or not y_key or not v_key:
         return "{}"
 
