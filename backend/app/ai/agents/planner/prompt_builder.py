@@ -149,14 +149,16 @@ ERROR HANDLING (robust; no blind retries)
 - When calling create_artifact, choose the appropriate mode:
   - Use mode="page" (default) for dashboards, reports, and interactive data displays
   - Use mode="slides" for presentations, slide decks, or when the user mentions PowerPoint/PPTX export
+- **Writing artifact prompts:** When calling `create_artifact` (prompt) or `edit_artifact` (edit_prompt), write a DETAILED description that includes ALL user requirements accumulated across the conversation — not just the latest message. Include: layout structure, theme/colors/style, which visualizations go where, filters, KPI cards, and any design preferences the user mentioned in any previous turn. Missing details = missing features in the output.
 - **Create vs Edit artifacts:**
-  - Use `create_artifact` when building a brand new dashboard from scratch, or when the user explicitly asks to start over / rebuild.
-  - Use `edit_artifact` when the user asks to modify, adjust, fix, or tweak an existing dashboard (e.g., "remove the filter", "change colors", "add a KPI card", "make the chart bigger"). The `edit_artifact` tool preserves the existing design and applies only the requested change surgically.
+  - Use `create_artifact` when building a brand new dashboard, when the user asks to rebuild/redesign, or when the requested change is large (e.g., "completely change the layout", "make it dark theme with gradients", "add filters to all charts"). Large changes lose context through surgical diffs — a full regeneration via `create_artifact` produces better results.
+  - Use `edit_artifact` for small, focused changes to an existing dashboard (e.g., "change the chart color", "fix the title", "remove the KPI card", "make the chart taller"). The `edit_artifact` tool applies surgical search/replace diffs — it works best when the change touches a small portion of the code.
+  - **If unsure whether the change is small or large:** call `read_artifact` first to inspect the current code, then decide. If the change would require modifying more than ~30% of the code, use `create_artifact`.
   - To use `edit_artifact`, you need an `artifact_id`. Use the `active_artifact` from context (the most recent artifact in this report) when available — its `artifact_id` is always the latest version. If `active_artifact` is not set, fall back to the most recently created or edited artifact_id from the conversation history. Do NOT ask the user which artifact to edit unless there is genuine ambiguity (e.g., the user explicitly names a different artifact). If you still cannot find an artifact_id, call `read_artifact` to load it.
-  - When `edit_artifact` returns `diff_applied: false` in the observation, it fell back to a full rewrite — this is acceptable but note it for context.
   - **Edit that requires new data:** If the user asks to ADD a new chart/visualization to an existing dashboard (e.g., "add a revenue-by-country chart"), you must first call `create_data` to produce the new visualization, then call `edit_artifact` with BOTH the `artifact_id` AND `visualization_ids: [<new_viz_id>]`. The edit tool will merge the new visualization data with the existing ones automatically. Do NOT call `create_artifact` from scratch just because the edit needs new data — use the create_data → edit_artifact flow instead.
   - **Artifact reflection:** If a `create_artifact` observation includes a screenshot and the result looks wrong (bad layout, missing charts, broken rendering, misaligned elements), use `edit_artifact` to fix it — do NOT call `create_artifact` again. The existing code is a better starting point than regenerating from scratch. Describe the specific visual issues in the `edit_instruction` (e.g., "the bar chart is cut off on the right side", "the KPI cards are overlapping").
   - **After successful artifact create/edit:** When a `create_artifact` or `edit_artifact` observation shows success (no errors), set `analysis_complete=true` and provide a brief `final_answer` summarizing what was created or changed. Do NOT loop again unless the screenshot clearly shows visual issues that need fixing. The artifact is already saved and visible to the user — there is nothing left to do.
+  - **User reports visual issue after edit:** When the user says something is missing or wrong after an artifact edit (e.g., "I don't see filters", "no gradient"), call `read_artifact` with `load_screenshot=true` first to inspect BOTH the current code AND the last rendered screenshot, then call `edit_artifact` with specific, code-level instructions based on what you found (e.g., "add a FilterSelect component above the grid" rather than "add filters"). Vague edit prompts are the #1 cause of failed edits.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), output your clarifying questions in assistant_message and call the clarify tool.
 - If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.
@@ -223,7 +225,7 @@ TOOL SCHEMAS (follow exactly)
 {format_tool_schemas(planner_input.tool_catalog)}
 
 INPUT ENVELOPE
-<user_prompt>{planner_input.user_message}</user_prompt>
+{PromptBuilder._format_user_prompt(planner_input)}
 {images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
@@ -270,6 +272,22 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
 """
         return prompt
     
+    @staticmethod
+    def _format_user_prompt(planner_input: PlannerInput) -> str:
+        """Format user prompt based on loop iteration.
+
+        On the first iteration (no last_observation), the user message is the
+        active instruction. On subsequent iterations it becomes context —
+        the real driver is the observation.
+        """
+        if planner_input.last_observation:
+            return (
+                f"<original_user_prompt>{planner_input.user_message}</original_user_prompt>\n"
+                f"You have already taken action. Review <last_observation> and decide: "
+                f"is the original request fulfilled, or what is the single next step?"
+            )
+        return f"<user_prompt>{planner_input.user_message}</user_prompt>"
+
     @staticmethod
     def _extract_research_step_count(history_summary: str) -> int:
         """Extract research step count from history for loop prevention."""
@@ -550,7 +568,7 @@ TOOL SCHEMAS (follow exactly)
 {format_tool_schemas(planner_input.tool_catalog)}
 
 INPUT ENVELOPE
-<user_prompt>{planner_input.user_message}</user_prompt>
+{PromptBuilder._format_user_prompt(planner_input)}
 {images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>

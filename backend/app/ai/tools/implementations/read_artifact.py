@@ -32,8 +32,10 @@ class ReadArtifactTool(Tool):
             description=(
                 "Read an existing dashboard, slides, and artifact's code and metadata from the current report. "
                 "Use this to load previous artifact code into context before modifying with edit_artifact (or create_artifact) or when the user wants to inspect or analyze an existing artifact. "
+                "Use this also if the user is saying something is not working like filters or UI elements are not showing up - to check the existing code and visualizations for debugging. "
                 "ALWAYS use this before editing an artifact (edit_artifact) to have a full view of the existing code, visualizations, and layout. "
                 "If the user refers to a specific version of an artifact, ALWAYS load that version with this tool to have the correct code context for the edit. "
+                "Pass load_screenshot=true to include the last rendered preview screenshot in the observation — use this when debugging visual issues or when you need to see the current state before deciding how to edit. "
                 "IMPORTANT: The artifact_id is found in previous create_artifact results shown as 'artifact_id: <uuid>' in the conversation. "
                 "Do NOT ask the user for URLs or artifact IDs - extract the artifact_id from the conversation context."
             ),
@@ -192,6 +194,33 @@ class ReadArtifactTool(Tool):
             "version": artifact.version,
             "runtime_environment": SANDBOX_RUNTIME_OBSERVATION,
         }
+
+        # Include stored screenshot if requested, gated by privacy and vision support
+        if data.load_screenshot:
+            # Check allow_llm_see_data privacy setting
+            organization_settings = runtime_ctx.get("settings")
+            allow_llm_see_data = True
+            if organization_settings:
+                try:
+                    allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
+                except Exception:
+                    allow_llm_see_data = True
+
+            # Check model supports vision
+            model = runtime_ctx.get("model")
+            supports_vision = model and getattr(model, "supports_vision", False)
+
+            if allow_llm_see_data and supports_vision and artifact.screenshot_base64:
+                observation["images"] = [{
+                    "data": artifact.screenshot_base64,
+                    "media_type": "image/png",
+                    "source_type": "base64",
+                }]
+                observation["summary"] += " (screenshot included)"
+
+            # Include render errors if stored (useful even without screenshot)
+            if artifact.render_errors:
+                observation["render_errors"] = artifact.render_errors
 
         yield ToolEndEvent(
             type="tool.end",

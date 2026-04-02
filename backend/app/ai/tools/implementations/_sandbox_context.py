@@ -21,19 +21,27 @@ helpers are **already loaded globally** — do NOT import, redefine, or remove
 references to any of them:
 
 • **React 18** — `React`, `ReactDOM` available globally
-  - Use hooks: useState, useEffect, useRef, useMemo, useCallback
-  - Create beautiful, reusable components
+  - Hooks are also global: `useState`, `useEffect`, `useRef`, `useMemo`, `useCallback` — use directly without `React.` prefix
 
 • **ECharts 5** — `echarts` available globally
-  - Full charting library: bar, line, area, pie, scatter, heatmap, radar, treemap, sunburst, gauge, funnel, sankey, etc.
-  - Rich animations, tooltips, legends, gradients
-  - Responsive with chart.resize()
-  - Always init in useEffect, dispose on cleanup, handle window resize
+  - Use the `<EChart>` wrapper component (see below) — do NOT use raw echarts.init/dispose
+  - Full ECharts option API: bar, line, pie, scatter, radar, treemap, heatmap, gauge, etc.
+
+• **`<EChart>`** — Global React wrapper for ECharts (handles init/dispose/resize)
+  - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string)
+  - Usage: `<EChart height={400} option={{ xAxis: {...}, series: [...] }} />`
+  - NO useRef, NO useEffect, NO echarts.init — just pass the option object
+  - Auto-resizes via ResizeObserver
+  - Uses 'bow' theme: colors, tooltip, grid, axis styling, rounded corners all pre-configured
+  - Only specify data mapping in option — do NOT repeat styling the theme provides
+
+• **Recharts** — All components are pre-loaded as globals (kept for backward compatibility)
+  - Available globally: BarChart, Bar, LineChart, Line, etc.
+  - Existing Recharts artifacts will continue to work
 
 • **Tailwind CSS (v3.4)** — All utility classes available
   - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
   - Dark/light themes, responsive grids, flexbox
-  - Animations: animate-pulse, transition-all, hover effects
 
 • **Babel** — JSX is transpiled automatically
   - Code must be wrapped in `<script type="text/babel">...</script>`
@@ -55,42 +63,17 @@ references to any of them:
   - Columns with only numeric values, fewer than 2 unique values, or more than 30 unique values are excluded
   - Cross-viz safe: if a row does not have a filtered field, it passes through unaffected
 
-• **LoadingSpinner** — Global React component
-  - Props: `size` (number, default 24), `className` (string)
-  - Inherits text color via currentColor
-  - Use for loading states instead of building your own spinner
+• **Pre-built UI components** — all global, do NOT redefine:
+  - `<LoadingSpinner size={24} className="" />` — animated spinner
+  - `<CustomTooltip />` — dark styled Recharts tooltip. Use: `<Tooltip content={<CustomTooltip />} />`
+  - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
+  - `<SectionCard title="" subtitle="" className="bg-white border-slate-200" titleClassName="text-slate-800">...children...</SectionCard>` — card wrapper. className replaces default theme (no className = light mode)
+  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} className="" />` — multi-select dropdown with checkboxes. className replaces default theme. Use ONLY for categorical filters (country, genre, status, etc.). For date ranges, numeric ranges, or search inputs, build a custom component using standard HTML inputs — do NOT force FilterSelect for non-categorical data.
+  - `fmt(n, {currency: true})` — number formatter (currency, pct, auto K/M/B)
 
 • **window.ARTIFACT_DATA** — Raw data object (same shape as useArtifactData return)
-• **window.ARTIFACT_READY** — Boolean flag set when iframe is initialized
 
 The code is rendered into `<div id="root">`.
-
-═══════════════════════════════════════════════════════════════════════════════
-REACT ERROR CODES — the sandbox uses development React (readable errors)
-═══════════════════════════════════════════════════════════════════════════════
-
-Development React provides full error messages. If you still encounter
-"Minified React error #NNN" (e.g. in cached builds), these are the common codes:
-
-• **#130** — Component returned `undefined` from render. Check that all
-  components return valid JSX (not `undefined` or missing return).
-• **#152** — Hook called outside a component body or in a conditional. Ensure
-  all useState/useEffect/etc. calls are at the top level of a function component.
-• **#185** — Rendered fewer hooks than expected. A hook is inside an `if`/`return`
-  that skips it on some renders. Move hooks above early returns.
-• **#301** — `ReactDOM.createRoot` called on a container that already has a root.
-  Ensure `createRoot` is called only once.
-• **#310** — Rendered an invalid React element — typically passing a plain object
-  or array where React expects a string, number, or component. Check that you
-  are not accidentally rendering `{someObject}` instead of `{someObject.value}`.
-  This is NOT about missing imports or undefined components.
-• **#418** / **#423** — Hydration mismatch (server vs client). In artifact
-  context this usually means the initial render differs from a re-render.
-• **#31** — Objects are not valid as a React child. If you need to display an
-  object, serialize it with `JSON.stringify()` or extract a scalar field.
-
-When diagnosing errors, focus on the actual code logic — not on whether globals
-like React, echarts, LoadingSpinner, or useArtifactData are defined (they always are).
 """.strip()
 
 
@@ -105,10 +88,11 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "useArtifactData() hook (returns { report, visualizations } or null while loading), "
     "useFilters() hook (returns { filterableColumns, filters, setFilter, resetFilters, filterRows } "
     "for cross-visualization filtering with shared state), "
-    "LoadingSpinner component (props: size, className), "
-    "window.ARTIFACT_DATA, window.ARTIFACT_READY. "
+    "<EChart option=... height=N /> wrapper with 'bow' theme (handles init/dispose/resize/styling — do NOT use raw echarts.init, do NOT repeat theme styling), "
+    "Pre-built globals (do NOT redefine): LoadingSpinner, KPICard, SectionCard, FilterSelect, fmt(). "
+    "Recharts is also available globally for backward compat. "
+    "For NEW dashboards, use <EChart> wrapper — it is fast and eliminates lifecycle bugs. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
-    "Development React is used — error messages are readable. Minified error codes like #310 mean 'invalid React child' "
-    "(object rendered instead of string/number), NOT missing imports. "
-    "All globals (React, echarts, LoadingSpinner, useArtifactData, useFilters) are always available at runtime."
+    "All globals (React, echarts, EChart, LoadingSpinner, useArtifactData, useFilters, useState, useEffect, useRef, useMemo, useCallback) are always available at runtime. "
+    "NEVER destructure hooks from React (e.g. 'const { useState } = React') — Babel standalone cannot parse it. Use hooks directly as globals."
 )

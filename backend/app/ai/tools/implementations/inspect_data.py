@@ -195,7 +195,16 @@ Don't use on images
                 else:
                     output_log += (payload.get("message") or "") + "\n"
             elif e["type"] == "progress":
-                yield ToolProgressEvent(type="tool.progress", payload=e["payload"])
+                # Map internal stage names to UI-friendly names
+                mapped = dict(e["payload"])
+                _stage_map = {
+                    "code_generation": "generating_code",
+                    "code_generated": "generated_code",
+                    "data_query_execution": "executing_code",
+                }
+                if mapped.get("stage") in _stage_map:
+                    mapped["stage"] = _stage_map[mapped["stage"]]
+                yield ToolProgressEvent(type="tool.progress", payload=mapped)
             elif e["type"] == "security_violation":
                 _vtype = e["payload"].get("violation_type", "unknown")
                 _action = "security.unsafe_code_blocked" if _vtype == "unsafe_python" else "security.unsafe_sql_blocked"

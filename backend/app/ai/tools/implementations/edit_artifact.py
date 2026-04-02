@@ -11,6 +11,7 @@ import json
 import logging
 import re
 from typing import AsyncIterator, Dict, Any, Type, List, Optional, Tuple
+from uuid import uuid4
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -23,7 +24,9 @@ from app.ai.tools.schemas import (
     ToolStartEvent,
     ToolProgressEvent,
     ToolEndEvent,
+    ToolConfirmationEvent,
 )
+from app.ai.tools.confirmation import wait_for_confirmation
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.llm import LLM
 from app.models.artifact import Artifact
@@ -281,9 +284,10 @@ def sanitize_code_output(code: str, mode: str = "page") -> Tuple[str, List[str]]
 class EditArtifactTool(Tool):
     """Tool for surgically editing existing artifact code.
 
-    Instead of regenerating the entire dashboard, this tool loads the existing
-    code and applies targeted search/replace diffs based on the user's instruction.
-    Falls back to full rewrite if the diff cannot be applied.
+    This tool loads the existing code and applies targeted search/replace diffs
+    based on the user's instruction. For small, focused changes only — if the
+    change is too large for diffs, the tool returns a failure so the planner
+    can route to create_artifact instead.
     """
 
     def __init__(self):
@@ -296,11 +300,11 @@ class EditArtifactTool(Tool):
         return ToolMetadata(
             name="edit_artifact",
             description=(
-                "Edit an existing dashboard or artifact by applying targeted changes to its code. "
-                "Prioritize using read_artifact before editing an artifact"
-                "Use this instead of create_artifact when modifying an existing artifact's layout, styling, "
-                "filters, charts, or content. Preserves the existing design and only changes what is requested. "
-                "If the edit is adding a new visualization, you MUST ADD it as a parameter to the tool"
+                "Apply small, surgical edits to an existing artifact using search/replace diffs. "
+                "Best for: tweaking colors, adjusting layout, fixing bugs, adding a single component. "
+                "NOT for large redesigns or full rewrites — use create_artifact for those. "
+                "Prioritize using read_artifact before editing an artifact. "
+                "If the edit is adding a new visualization, you MUST ADD it as a parameter to the tool. "
                 "Requires artifact_id from a previous create_artifact or read_artifact result. "
                 "Do NOT ask the user for artifact IDs - extract them from the conversation context."
             ),
@@ -335,6 +339,7 @@ class EditArtifactTool(Tool):
         messages_context: str = "",
         report_title: Optional[str] = None,
         image_count: int = 0,
+        original_spec: Optional[str] = None,
     ) -> str:
         """Build the prompt for editing existing artifact code."""
 
@@ -355,6 +360,19 @@ class EditArtifactTool(Tool):
         if image_count > 0:
             images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
+        original_spec_section = ""
+        if original_spec:
+            original_spec_section = f"""
+═══════════════════════════════════════════════════════════════════════════════
+ORIGINAL DASHBOARD SPEC (accumulated requirements from previous iterations)
+═══════════════════════════════════════════════════════════════════════════════
+
+{original_spec}
+
+IMPORTANT: The above spec describes what the dashboard should already look like.
+Preserve ALL of these requirements while applying the new edit below.
+"""
+
         return f"""You are editing an existing React dashboard. Your job is to apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.
 
 {SANDBOX_RUNTIME_PROMPT}
@@ -366,7 +384,7 @@ EXISTING DASHBOARD CODE
 ```
 {existing_code}
 ```
-
+{original_spec_section}
 ═══════════════════════════════════════════════════════════════════════════════
 USER'S EDIT REQUEST
 ═══════════════════════════════════════════════════════════════════════════════
@@ -388,67 +406,33 @@ VISUALIZATION DATA (for reference if the edit involves data access)
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
-Output your changes as one or more SEARCH/REPLACE blocks. Each block identifies an exact contiguous sequence of lines from the existing code (the SEARCH section) and provides the replacement lines (the REPLACE section). The SEARCH text must match the existing code exactly, including whitespace and indentation.
-
-Format each block exactly like this:
+Output SEARCH/REPLACE blocks. SEARCH must match existing code exactly.
 
 <<<<<<< SEARCH
-(exact lines from existing code to find)
+(exact lines from existing code)
 =======
 (replacement lines)
 >>>>>>> REPLACE
 
 Rules:
-- Output ONLY the SEARCH/REPLACE blocks. Do not output the full file.
-- The SEARCH section must be an exact, verbatim copy of consecutive lines from the existing code. Include enough surrounding context (2-3 lines before and after the change point) so the match is unambiguous.
-- If adding entirely new code (e.g., a new component), use a SEARCH block that finds the insertion point (the lines immediately before where the new code should go) and a REPLACE block that includes those same lines plus the new code after them.
-- If removing code, the REPLACE section should contain only the surrounding context lines without the removed code.
-- You may output multiple SEARCH/REPLACE blocks if the change touches multiple locations.
-- Order the blocks from top to bottom of the file.
-- Never change visualization data access patterns (useArtifactData, column.field, etc.) unless the user asked for it.
-- Preserve all existing ECharts configurations, responsive handling, resize observers, and event listeners unless the user asked to change them.
-- If the user's request requires adding a new visualization or data source, use the visualization data profiles above to access it correctly via data.visualizations[N].
-- If the edit is too large or fundamentally restructures the dashboard (e.g., "completely redesign this"), output the complete new code inside `<script type="text/babel">` and `</script>` tags instead of SEARCH/REPLACE blocks.
+- Output ONLY SEARCH/REPLACE blocks — not the full file.
+- Include 2-3 lines of context in SEARCH for unambiguous matching.
+- Order blocks top to bottom.
+- Preserve existing code unless the user asked to change it.
+- For NEW charts, use `<EChart option={{...}} height={{N}} />` — 'bow' theme handles styling. Do NOT repeat theme defaults.
+- Do NOT output full code. Only SEARCH/REPLACE blocks. If the change feels too large for diffs, output nothing — the planner will use create_artifact instead.
+- Omit className on globals (KPICard, SectionCard, FilterSelect) when using light mode — defaults handle it.
+
+⚠️ **KEEP EDITS MINIMAL.** Do not rewrite code that doesn't need to change. Do not add verbose comments or unnecessary variables.
 
 ═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS - CRITICAL RULES (applies to ALL edits and full rewrites)
+DATA ACCESS (applies to ALL edits)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Data is available via `window.ARTIFACT_DATA`:
-```javascript
-const data = useArtifactData(); // React hook - returns null while loading
-// data = {{ report: {{id, title, theme}}, visualizations: [...] }}
-```
-
-Each visualization object has this EXACT structure:
-```js
-{{
-  id: "uuid-string",
-  title: "Visualization Title",
-  columns: [
-    {{ "headerName": "AlbumId", "field": "AlbumId" }},
-    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
-    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
-  ],
-  rows: [
-    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
-    // ... more rows
-  ],
-  view: {{ /* chart config hints */ }},
-  dataModel: {{ /* series/axis config */ }}
-}}
-```
-
-**CRITICAL - How to access data:**
-- Use `column.field` to get the key for accessing row data: `row[column.field]`
-- Use `column.headerName` for display labels in table headers
-- Example: `rows.map(row => row[columns[0].field])` to get values for first column
-
-**NEVER HARDCODE DATA or use iframes to embed visualizations.**
-- You MUST use `useArtifactData()` to access ALL data
-- NEVER use `<iframe src="./viz/...">` or any URL-based embedding
-- ALL chart data, KPI values, labels, and metrics MUST come from `data.visualizations[N].rows`
-- The code runs inside a sandboxed iframe and receives data via postMessage — there are no visualization URLs to load
+- `useArtifactData()` returns `{{ report, visualizations }}` or `null` while loading
+- Each viz: `{{ id, title, columns: [{{headerName, field}}], rows: [{{...}}], view, dataModel }}`
+- Access values: `row[column.field]`, display labels: `column.headerName`
+- **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
 
 ═══════════════════════════════════════════════════════════════════════════════
 FILTERING (if the edit involves adding, modifying, or fixing filters)
@@ -528,7 +512,7 @@ Rules:
 - SEARCH must exactly match consecutive lines from the existing code.
 - Include 2-3 lines of context around each change for unambiguous matching.
 - Multiple blocks allowed, ordered top to bottom.
-- If the edit is too large, output the complete new code in a ```python``` code block instead.
+- NEVER output full code — only SEARCH/REPLACE blocks. This tool is for surgical edits only.
 
 Apply the edit now:"""
 
@@ -709,6 +693,40 @@ Apply the edit now:"""
             if "sample_rows" in profile:
                 profile["sample_rows"] = profile["sample_rows"][:3]
 
+        # Emit confirmation request and wait for user approval
+        confirmation_id = str(uuid4())
+        yield ToolConfirmationEvent(type="tool.confirmation", payload={
+            "stage": "awaiting_confirmation",
+            "confirmation_id": confirmation_id,
+            "title": artifact.title or "Untitled Artifact",
+            "mode": artifact.mode,
+            "visualizations": [
+                {"id": v["id"], "title": v["title"], "type": v.get("data_model_type", "")}
+                for v in visualizations
+            ],
+        })
+        confirmation = await wait_for_confirmation(confirmation_id, timeout=5.0)
+        if not confirmation.get("approved", True):
+            yield ToolEndEvent(type="tool.end", payload={
+                "output": {"error": "User cancelled"},
+                "observation": {"error": "User cancelled artifact edit"},
+            })
+            return
+        # Apply any user edits (e.g., updated title)
+        if confirmation.get("title"):
+            artifact.title = confirmation["title"]
+            await db.commit()
+
+        # Emit visualizations_resolved so badges persist after confirmation
+        yield ToolProgressEvent(type="tool.progress", payload={
+            "stage": "visualizations_resolved",
+            "tool_name": "edit_artifact",
+            "visualizations": [
+                {"id": v["id"], "title": v["title"], "type": v.get("data_model_type", "")}
+                for v in visualizations
+            ],
+        })
+
         # Build instruction context
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         instruction_context_builder = runtime_ctx.get("instruction_context_builder") or (
@@ -755,6 +773,7 @@ Apply the edit now:"""
             messages_context=messages_context,
             report_title=getattr(report, 'title', None) if report else None,
             image_count=len(completion_images),
+            original_spec=artifact.generation_prompt,
         )
 
         # Stream LLM response
@@ -781,19 +800,15 @@ Apply the edit now:"""
         new_code, diff_applied, num_blocks, failure_details = apply_search_replace_diff(existing_code, buffer)
 
         if num_blocks == 0:
-            # No diff blocks found — check if LLM output full code as intentional rewrite
-            extracted = self._create_tool._extract_code(buffer, mode=artifact.mode)
-            if extracted and extracted != buffer.strip():
-                # LLM chose full rewrite (no diff markers at all)
-                new_code = extracted
-                diff_applied = False
-                logger.info(f"edit_artifact: No diff blocks found, using full rewrite ({len(new_code)} chars)")
-            else:
-                # Neither diff nor full code — keep original unchanged
-                logger.warning("edit_artifact: No diff blocks and no full code found in LLM output")
-                new_code = existing_code
-                diff_applied = False
-                warnings.append("Could not parse edit from LLM output. The artifact was not modified.")
+            # No diff blocks found — reject full rewrites, edit_artifact is for surgical diffs only.
+            # The planner should use create_artifact for large changes.
+            logger.warning("edit_artifact: No SEARCH/REPLACE blocks found. Change is too large for surgical edit.")
+            new_code = existing_code
+            diff_applied = False
+            warnings.append(
+                "This change is too large for edit_artifact (no surgical diffs could be produced). "
+                "The artifact was NOT modified. Use create_artifact to rebuild the dashboard with this change instead."
+            )
 
         elif not diff_applied:
             # Diff blocks found but some/all failed to match — return original unchanged (Aider-style)
@@ -836,6 +851,10 @@ Apply the edit now:"""
         included_viz_ids = [v["id"] for v in visualizations]
         new_version = artifact.version + 1
 
+        # Accumulate generation_prompt: merge previous spec with current edit
+        prev_spec = artifact.generation_prompt or ""
+        accumulated_spec = f"{prev_spec}\n+ Edit (v{new_version}): {data.edit_prompt}".strip()
+
         new_artifact = Artifact(
             report_id=artifact.report_id,
             user_id=str(user.id) if user else artifact.user_id,
@@ -843,7 +862,7 @@ Apply the edit now:"""
             title=new_title,
             mode=artifact.mode,
             content={"code": new_code, "visualization_ids": included_viz_ids},
-            generation_prompt=data.edit_prompt,
+            generation_prompt=accumulated_spec,
             version=new_version,
             status="completed",
         )
@@ -853,6 +872,7 @@ Apply the edit now:"""
 
         # Page mode: take preview screenshot for planner reflection + generate thumbnail
         screenshot_base64: Optional[str] = None
+        render_errors: list[str] = []
         if new_artifact.mode == "page":
             artifact_data = {
                 "report": {
@@ -868,7 +888,13 @@ Apply the edit now:"""
             model = runtime_ctx.get("model")
             if allow_llm_see_data and model and getattr(model, "supports_vision", False):
                 yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
-                screenshot_base64 = await self._create_tool._take_preview_screenshot(thumbnail_html)
+                screenshot_base64, render_errors = await self._create_tool._take_preview_screenshot(thumbnail_html)
+
+            # Persist screenshot and render errors on artifact for later retrieval (read_artifact)
+            if screenshot_base64 or render_errors:
+                new_artifact.screenshot_base64 = screenshot_base64
+                new_artifact.render_errors = render_errors or None
+                await db.commit()
 
             # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
@@ -916,7 +942,12 @@ Apply the edit now:"""
             summary_msg += f" — applied {num_blocks} surgical edit(s)"
         else:
             summary_msg += " — fell back to full rewrite"
-        if screenshot_base64:
+        if render_errors:
+            summary_msg += f". RENDER FAILED with {len(render_errors)} error(s): {render_errors[0]}"
+            if len(render_errors) > 1:
+                summary_msg += f" (and {len(render_errors) - 1} more)"
+            summary_msg += ". The dashboard code has a bug — use edit_artifact to fix the specific error."
+        elif screenshot_base64:
             summary_msg += ". Screenshot of the rendered dashboard is attached — review it for visual correctness."
 
         observation: Dict[str, Any] = {
@@ -928,6 +959,8 @@ Apply the edit now:"""
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }
+        if render_errors:
+            observation["render_errors"] = render_errors
 
         # Add preview screenshot for planner reflection (page mode)
         if screenshot_base64:

@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.354 (March 30, 2026)
+- Show abort status in tool execution
+- Improved dashboard generation speed and performance
+- Add to dashboard button to instantly add widgets to artifact
+- Added "Polish" dashboard for a quick update
+
 ## Version 0.0.353 (March 30, 2026)
 - feat: new a2a integration for timbr
 - increase timeout in agent harness

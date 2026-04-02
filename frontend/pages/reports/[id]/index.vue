@@ -1225,6 +1225,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
 						}
+
+						// Capture code, attempt, and errors for create_data / inspect_data
+						if ((payload.tool_name === 'create_data' || payload.tool_name === 'inspect_data') && payload.payload) {
+							const p = payload.payload
+							const te = lastBlock.tool_execution as any
+							// Stream generated code from code_generated stage
+							if (p.stage === 'generated_code' && p.code) {
+								te.progress_code = p.code
+							}
+							// Track current attempt number
+							if (typeof p.attempt === 'number') {
+								te.progress_attempt = p.attempt
+							}
+							// On retry, capture the error that triggered it
+							if (p.stage === 'retry') {
+								te.progress_errors = te.progress_errors || []
+								// The error was already emitted via stdout before the retry event
+							}
+						}
 					}
 
           // Progressive data model updates for create_widget tool
@@ -1288,6 +1307,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						} catch {}
 					}
 
+					// Visualizations resolved for create_artifact / edit_artifact
+					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact') && payload.payload) {
+						if (payload.payload.stage === 'visualizations_resolved' && Array.isArray(payload.payload.visualizations)) {
+							;(lastBlock.tool_execution as any).progress_visualizations = payload.payload.visualizations
+						}
+					}
+
 					// Progressive slide tracking for create_artifact tool
 					if (payload.tool_name === 'create_artifact' && payload.payload) {
 						const p = payload.payload
@@ -1333,6 +1359,32 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 
 					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'tool.stdout':
+			// Capture stdout messages (errors, execution logs) for create_data / inspect_data
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					const te = lastBlock.tool_execution as any
+					te.progress_stdout = te.progress_stdout || []
+					const msg = typeof payload.payload === 'string' ? payload.payload : (payload.payload?.message || '')
+					if (msg) {
+						te.progress_stdout.push(msg)
+					}
+				}
+			}
+			break
+
+		case 'tool.confirmation':
+			// Confirmation request from create_artifact / edit_artifact
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					;(lastBlock.tool_execution as any).confirmation = payload.payload
+					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
 				}
 			}
 			break
@@ -1541,7 +1593,7 @@ async function loadCompletions() {
 					id: b.tool_execution.id,
 					tool_name: b.tool_execution.tool_name,
 					tool_action: b.tool_execution.tool_action,
-					status: b.tool_execution.status,
+					status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
 					result_summary: b.tool_execution.result_summary,
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
@@ -1552,7 +1604,7 @@ async function loadCompletions() {
 					created_step: b.tool_execution.created_step
 				} : undefined
 			})) || []
-			
+
 			// Auto-collapse reasoning for blocks that have content or tool execution
 			for (const b of blocks) {
 				if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1620,7 +1672,7 @@ async function loadPreviousCompletions() {
                     id: b.tool_execution.id,
                     tool_name: b.tool_execution.tool_name,
                     tool_action: b.tool_execution.tool_action,
-                    status: b.tool_execution.status,
+                    status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
                     result_summary: b.tool_execution.result_summary,
                     result_json: b.tool_execution.result_json,
                     duration_ms: b.tool_execution.duration_ms,
@@ -1630,7 +1682,7 @@ async function loadPreviousCompletions() {
                     created_step: b.tool_execution.created_step
                 } : undefined
             })) || []
-            
+
             // Auto-collapse reasoning for blocks that have content or tool execution
             for (const b of blocks) {
                 if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1742,6 +1794,9 @@ onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
     })
+    window.addEventListener('artifact:open', ((ev: CustomEvent) => {
+        handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
+    }) as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -1939,12 +1994,13 @@ function abortStream() {
 				const newMessages = [...messages.value]
 				const updatedMessage = { ...newMessages[msgIndex], status: 'stopped' as ChatStatus }
 				
-				// Also update all completion blocks to stopped status
+				// Also update all completion blocks and their tool executions to stopped status
 				if (updatedMessage.completion_blocks) {
 					updatedMessage.completion_blocks = updatedMessage.completion_blocks.map(block => ({
 						...block,
 						status: block.status === 'in_progress' ? 'stopped' as ChatStatus : block.status,
-						completed_at: block.completed_at || new Date().toISOString()
+						completed_at: block.completed_at || new Date().toISOString(),
+						tool_execution: block.tool_execution?.status === 'running' ? { ...block.tool_execution, status: 'stopped' } : block.tool_execution
 					}))
 				}
 				

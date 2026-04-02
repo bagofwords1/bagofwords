@@ -38,18 +38,40 @@
       </div>
     </Transition>
 
-    <!-- Expandable content -->
+    <!-- Live progress while running -->
+    <Transition name="slide">
+      <div v-if="status === 'running' && progressStage" class="mt-1.5 ml-5 space-y-1">
+        <div class="flex items-center text-[11px] text-gray-500">
+          <Spinner v-if="isCodeGenerating" class="w-2.5 h-2.5 mr-1 text-gray-400" />
+          <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-2.5 h-2.5 mr-1 text-green-500" />
+          <span v-if="isCodeGenerating" class="tool-shimmer">Generating Code</span>
+          <span v-else-if="codeGenDone" class="text-gray-500">Generated Code</span>
+        </div>
+        <div v-if="showExecutingStep" class="flex items-center text-[11px] text-gray-500">
+          <Spinner v-if="isExecuting" class="w-2.5 h-2.5 mr-1 text-gray-400" />
+          <Icon v-else-if="executionDone" name="heroicons-check" class="w-2.5 h-2.5 mr-1 text-green-500" />
+          <span v-if="isExecuting" class="tool-shimmer">Executing</span>
+          <span v-else-if="executionDone" class="text-gray-500">Executed</span>
+        </div>
+        <!-- Execution error from stdout -->
+        <div v-if="latestStdoutError" class="text-[10px] text-amber-600 bg-amber-50/50 rounded px-2 py-1 max-h-12 overflow-y-auto">
+          <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Expandable content (after completion) -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-1.5">
         <!-- Code section -->
         <div v-if="code" class="group">
-          <div 
+          <div
             class="flex items-center text-[11px] text-gray-500 cursor-pointer hover:text-gray-600 mb-0.5"
             @click="toggleCode"
           >
-            <Icon 
-              :name="showCode ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" 
-              class="w-2.5 h-2.5 mr-1 text-gray-400" 
+            <Icon
+              :name="showCode ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+              class="w-2.5 h-2.5 mr-1 text-gray-400"
             />
             <span>Code</span>
           </div>
@@ -60,13 +82,13 @@
 
         <!-- Output section -->
         <div v-if="output" class="group">
-          <div 
+          <div
             class="flex items-center text-[11px] text-gray-500 cursor-pointer hover:text-gray-600 mb-0.5"
             @click="toggleOutput"
           >
-            <Icon 
-              :name="showOutput ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" 
-              class="w-2.5 h-2.5 mr-1 text-gray-400" 
+            <Icon
+              :name="showOutput ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+              class="w-2.5 h-2.5 mr-1 text-gray-400"
             />
             <span>Output</span>
           </div>
@@ -87,6 +109,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface ToolExecution {
   id: string
@@ -118,9 +141,9 @@ const showCode = ref(false)
 const showOutput = ref(true)
 
 const status = computed<string>(() => props.toolExecution?.status || '')
+const progressStage = computed<string>(() => (props.toolExecution as any)?.progress_stage || '')
 
 const duration = computed<string>(() => {
-  // Prefer execution_duration_ms from result (actual code execution time) over total tool duration
   const rj = props.toolExecution?.result_json || {}
   const ms = rj.execution_duration_ms ?? props.toolExecution?.duration_ms
   if (!ms) return ''
@@ -128,9 +151,10 @@ const duration = computed<string>(() => {
   return `${(ms / 1000).toFixed(1)}s`
 })
 
+// Code: prefer final result, fall back to streamed progress code
 const code = computed<string>(() => {
   const rj = props.toolExecution?.result_json || {}
-  return rj.code || ''
+  return rj.code || (props.toolExecution as any).progress_code || ''
 })
 
 const output = computed<string>(() => {
@@ -143,6 +167,25 @@ const errorMessage = computed<string>(() => {
   return rj.error_message || ''
 })
 
+// Live progress stages
+const isCodeGenerating = computed(() => progressStage.value === 'generating_code')
+const codeGenDone = computed(() => {
+  const past = ['generated_code', 'executing_code', 'executing_inspection'].includes(progressStage.value)
+  return past || (!!code.value && !isCodeGenerating.value && status.value === 'running')
+})
+const isExecuting = computed(() => ['executing_code', 'executing_inspection'].includes(progressStage.value))
+const executionDone = computed(() => status.value !== 'running' && status.value !== '' && !isExecuting.value)
+const showExecutingStep = computed(() => codeGenDone.value || isExecuting.value)
+
+// Stdout errors
+const stdoutMessages = computed(() => (props.toolExecution as any).progress_stdout || [])
+const latestStdoutError = computed(() => {
+  if (!stdoutMessages.value.length) return ''
+  const last = stdoutMessages.value[stdoutMessages.value.length - 1] || ''
+  const firstLine = last.split('\n')[0]
+  return firstLine.length > 200 ? firstLine.slice(0, 200) + '…' : firstLine
+})
+
 // Group tables by connection type for display
 const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
   const aj = props.toolExecution?.arguments_json || {}
@@ -150,7 +193,6 @@ const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
 
   const groups: Record<string, string[]> = {}
   for (const group of aj.tables_by_source) {
-    // Look up connection type from dataSources prop
     let connType = 'resource'
     if (group.data_source_id && props.dataSources?.length) {
       const ds = props.dataSources.find((d) => d.id === group.data_source_id)

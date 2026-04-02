@@ -5,10 +5,12 @@
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ runningLabel }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700">{{ errorLabel }}</span>
       <span v-else class="text-gray-700">Create Artifact</span>
 
@@ -33,16 +35,65 @@
       {{ artifactPrompt }}
     </div>
 
-    <!-- Error message below header -->
-    <div v-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
+    <!-- Resolved viz badges (always visible) -->
+    <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ml-[18px] flex flex-wrap gap-1">
+      <span
+        v-for="viz in resolvedVisualizations"
+        :key="viz.id"
+        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600"
+      >
+        {{ viz.title }}
+      </span>
+    </div>
+
+    <!-- Stopped/Error message below header -->
+    <div v-if="status === 'stopped'" class="mt-1 ml-4 text-xs text-gray-400 italic">Generation stopped</div>
+    <div v-else-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
       {{ errorMessage }}
+    </div>
+
+    <!-- Confirmation card (outside collapsible, always visible) -->
+    <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ml-4 rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+      <div class="text-xs font-medium text-gray-700">Confirm artifact creation</div>
+      <!-- Viz badges -->
+      <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
+        <span
+          v-for="viz in confirmation.visualizations"
+          :key="viz.id"
+          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white border border-amber-200 text-gray-600"
+        >
+          {{ viz.title }}
+        </span>
+      </div>
+      <!-- Editable title input -->
+      <input
+        v-model="editableTitle"
+        class="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:border-blue-400"
+        placeholder="Artifact title"
+      />
+      <!-- Actions -->
+      <div class="flex items-center gap-2">
+        <button
+          class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
+          @click="approveConfirmation"
+        >
+          Approve
+        </button>
+        <button
+          class="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+          @click="rejectConfirmation"
+        >
+          Cancel
+        </button>
+        <span class="text-[10px] text-gray-400">Auto-approving in {{ confirmationCountdown }}s</span>
+      </div>
     </div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
       <div v-if="!isCollapsed" class="mt-2 ml-4 space-y-2">
         <!-- Title display -->
-        <div v-if="artifactTitle" class="text-xs text-gray-600">
+        <div v-if="artifactTitle && progressStage !== 'awaiting_confirmation'" class="text-xs text-gray-600">
           <span class="text-gray-400">Title:</span> {{ artifactTitle }}
         </div>
 
@@ -156,7 +207,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
 interface Props {
@@ -223,6 +274,54 @@ const slideProgress = computed(() => {
   const slides = (props.toolExecution as any).progress_slides || []
   return slides
 })
+
+// Confirmation state
+const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
+const resolvedVisualizations = computed(() => (props.toolExecution as any).progress_visualizations || [])
+const editableTitle = ref('')
+const confirmationCountdown = ref(5)
+let countdownInterval: ReturnType<typeof setInterval> | null = null
+
+watch(confirmation, (val) => {
+  if (val) {
+    editableTitle.value = val.title || ''
+    confirmationCountdown.value = 5
+    if (countdownInterval) clearInterval(countdownInterval)
+    countdownInterval = setInterval(() => {
+      confirmationCountdown.value--
+      if (confirmationCountdown.value <= 0) {
+        if (countdownInterval) clearInterval(countdownInterval)
+        countdownInterval = null
+      }
+    }, 1000)
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (countdownInterval) clearInterval(countdownInterval)
+})
+
+async function approveConfirmation() {
+  if (!confirmation.value?.confirmation_id) return
+  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
+  try {
+    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
+      method: 'POST',
+      body: { approved: true, title: editableTitle.value || null },
+    })
+  } catch {}
+}
+
+async function rejectConfirmation() {
+  if (!confirmation.value?.confirmation_id) return
+  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
+  try {
+    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
+      method: 'POST',
+      body: { approved: false },
+    })
+  } catch {}
+}
 
 // Labels
 const runningLabel = computed(() => {
