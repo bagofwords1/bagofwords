@@ -196,19 +196,19 @@
       <!-- Polish Mode Button -->
       <div
         v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError"
-        class="absolute bottom-4 right-4 z-20"
+        class="absolute bottom-4 left-4 z-20"
       >
-        <UTooltip text="Polish dashboard" :popper="{ placement: 'left' }">
+        <UTooltip text="Polish dashboard" :popper="{ placement: 'right' }">
           <button
             @click="togglePolishMode"
             :class="[
-              'p-2.5 rounded-full shadow-lg border transition-all',
+              'w-10 h-10 flex items-center justify-center rounded-full shadow-lg transition-all',
               isPolishMode
-                ? 'bg-indigo-500 text-white hover:bg-indigo-600 ring-2 ring-indigo-300 border-indigo-400'
-                : 'bg-white text-gray-500 hover:text-indigo-500 border-gray-200'
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700 ring-2 ring-indigo-300'
+                : 'bg-gray-800 text-gray-100 hover:bg-gray-700'
             ]"
           >
-            <Icon name="heroicons:paint-brush" class="w-4 h-4" />
+            <Icon name="heroicons:paint-brush" class="w-5 h-5" />
           </button>
         </UTooltip>
       </div>
@@ -415,7 +415,7 @@ function submitPolishPrompt() {
   const prompt = `Polish the dashboard "${artifactTitle}" (artifact_id: ${artifactId}).\nTarget element:\n\`\`\`html\n${el.htmlSnippet}\n\`\`\`\nInstruction: ${polishInstruction.value.trim()}`;
 
   window.dispatchEvent(new CustomEvent('prompt:prefill', {
-    detail: { text: prompt, autoSubmit: false }
+    detail: { text: prompt, autoSubmit: true }
   }));
 
   exitPolishMode();
@@ -1222,43 +1222,11 @@ const iframeSrcdoc = computed(() => {
       };
     })();
 
-    // ── Filterable columns (computed once from data, merged across all vizs) ──
-    window.__filterableColumns = (function() {
-      var data = window.ARTIFACT_DATA;
-      if (!data || !data.visualizations) return [];
-      var fieldMap = {};
-      data.visualizations.forEach(function(viz) {
-        var rows = viz.rows || [];
-        var cols = viz.columns || [];
-        if (!rows.length) return;
-        cols.forEach(function(col) {
-          var f = typeof col === 'string' ? col
-            : (col.field || col.colId || col.headerName || col.name);
-          if (!f) return;
-          if (!fieldMap[f]) fieldMap[f] = { vals: {}, total: 0, allNum: true };
-          var info = fieldMap[f];
-          for (var i = 0; i < rows.length; i++) {
-            var v = rows[i][f];
-            if (v != null) {
-              info.total++;
-              if (typeof v !== 'number') info.allNum = false;
-              info.vals[String(v)] = true;
-            }
-          }
-        });
-      });
-      var result = [];
-      for (var f in fieldMap) {
-        var info = fieldMap[f];
-        if (info.allNum) continue;
-        var unique = Object.keys(info.vals).sort();
-        if (unique.length >= 2 && unique.length <= 30 && unique.length < info.total)
-          result.push({ field: f, unique_values: unique });
-      }
-      return result;
-    })();
-
     // ── useFilters() hook — cross-visualization filtering ──
+    // No magic column detection — LLM explicitly chooses which columns to filter.
+    // filterRows(rows, fieldMap?) applies active filters; optional fieldMap
+    // remaps canonical filter keys to viz-specific column names,
+    // e.g. filterRows(rows, { country: 'CountryName' })
     window.useFilters = function() {
       var _s = React.useState(0);
       var forceUpdate = _s[1];
@@ -1271,21 +1239,30 @@ const iframeSrcdoc = computed(() => {
 
       var filters = window.__filterStore.get();
 
-      var filterRows = React.useCallback(function(rows) {
+      var filterRows = React.useCallback(function(rows, fieldMap) {
         var entries = Object.entries(filters);
         if (!entries.length) return rows;
         return rows.filter(function(row) {
           for (var i = 0; i < entries.length; i++) {
             var key = entries[i][0], val = entries[i][1];
-            if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
-            if (String(row[key]) !== val) return false;
+            var col = (fieldMap && fieldMap[key]) ? fieldMap[key] : key;
+            if (!Object.prototype.hasOwnProperty.call(row, col)) continue;
+            var rv = row[col];
+            if (val && typeof val === 'object' && !Array.isArray(val) && (val.from || val.to)) {
+              var s = String(rv);
+              if (val.from && s < val.from) return false;
+              if (val.to && s > val.to) return false;
+            } else if (Array.isArray(val)) {
+              if (val.length > 0 && val.indexOf(String(rv)) === -1) return false;
+            } else {
+              if (val && String(rv).toLowerCase().indexOf(String(val).toLowerCase()) === -1) return false;
+            }
           }
           return true;
         });
       }, [filters]);
 
       return {
-        filterableColumns: window.__filterableColumns,
         filters: filters,
         setFilter: window.__filterStore.set,
         resetFilters: window.__filterStore.reset,
@@ -1356,17 +1333,27 @@ const iframeSrcdoc = computed(() => {
       var selected = props.selected || [];
       var onChange = props.onChange || function(){};
       var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+      var searchable = props.searchable !== undefined ? props.searchable : opts.length >= 8;
       var _s = React.useState(false), open = _s[0], setOpen = _s[1];
+      var _q = React.useState(''), query = _q[0], setQuery = _q[1];
       var ref = React.useRef(null);
+      var searchRef = React.useRef(null);
       React.useEffect(function() {
         function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
         document.addEventListener('mousedown', handleClick);
         return function() { document.removeEventListener('mousedown', handleClick); };
       }, []);
+      React.useEffect(function() {
+        if (open && searchable && searchRef.current) searchRef.current.focus();
+        if (!open) setQuery('');
+      }, [open]);
       function toggle(val) {
         var idx = selected.indexOf(val);
         onChange(idx >= 0 ? selected.filter(function(v){ return v !== val; }) : selected.concat([val]));
       }
+      var filtered = searchable && query
+        ? opts.filter(function(o) { return o.lbl.toLowerCase().indexOf(query.toLowerCase()) !== -1; })
+        : opts;
       var selLabels = opts.filter(function(o) { return selected.indexOf(o.val) >= 0; }).map(function(o) { return o.lbl; });
       var display = selected.length === 0 ? 'All' : selLabels.length <= 2 ? selLabels.join(', ') : selected.length + ' selected';
       return h('div', { ref: ref, className: 'relative inline-block min-w-[140px]' }, [
@@ -1382,14 +1369,24 @@ const iframeSrcdoc = computed(() => {
         ]),
         open ? h('div', {
           key: 'dd',
-          className: 'absolute z-50 mt-1 left-0 right-0 rounded-lg border shadow-lg max-h-60 overflow-auto py-1 ' + theme
+          className: 'absolute z-50 mt-1 left-0 right-0 rounded-lg border shadow-lg max-h-72 overflow-auto py-1 ' + theme,
+          style: { backgroundColor: '#fff' }
         }, [
+          searchable ? h('div', { key: 'search', className: 'px-2 pt-1 pb-1 sticky top-0', style: { backgroundColor: '#fff' } }, [
+            h('input', {
+              ref: searchRef, type: 'text', value: query,
+              placeholder: 'Search...',
+              onChange: function(e) { setQuery(e.target.value); },
+              className: 'w-full rounded border px-2 py-1 text-sm outline-none focus:border-blue-400 ' + theme,
+              onClick: function(e) { e.stopPropagation(); }
+            })
+          ]) : null,
           selected.length > 0 ? h('button', {
             key: 'clr', type: 'button',
             className: 'w-full text-left px-3 py-1.5 text-xs font-medium opacity-50 hover:opacity-100',
             onClick: function() { onChange([]); }
           }, 'Clear all') : null
-        ].concat(opts.map(function(o) {
+        ].concat(filtered.map(function(o) {
           var isSelected = selected.indexOf(o.val) >= 0;
           return h('label', {
             key: o.val,
@@ -1403,6 +1400,54 @@ const iframeSrcdoc = computed(() => {
             h('span', { key: 'v', className: 'truncate' }, o.lbl)
           ]);
         }))) : null
+      ]);
+    };
+    // Global FilterSearch — text search input for columns with unique values
+    // onChange receives the raw DOM event (like a native <input>) so LLM code
+    // can use the standard pattern: onChange={e => setFilter(field, e.target.value)}
+    window.FilterSearch = function(props) {
+      var h = React.createElement;
+      var label = props.label || '';
+      var value = props.value || '';
+      var onChange = props.onChange || function(){};
+      var placeholder = props.placeholder || 'Search...';
+      var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+      return h('div', { className: 'inline-block min-w-[140px]' }, [
+        label ? h('label', { key: 'l', className: 'block text-xs font-medium opacity-60 mb-1' }, label) : null,
+        h('input', {
+          key: 'inp',
+          type: 'text',
+          value: value,
+          placeholder: placeholder,
+          onChange: onChange,
+          className: 'w-full rounded-lg border px-3 py-1.5 text-sm ' + theme
+        })
+      ]);
+    };
+    // Global FilterDateRange — two date inputs for date/time column filtering
+    // onChange receives { from, to } object — pass to setFilter(field, { from, to })
+    window.FilterDateRange = function(props) {
+      var h = React.createElement;
+      var label = props.label || '';
+      var value = props.value || {};
+      var onChange = props.onChange || function(){};
+      var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+      var inputType = props.type || 'date';
+      return h('div', { className: 'inline-block min-w-[200px]' }, [
+        label ? h('label', { key: 'l', className: 'block text-xs font-medium opacity-60 mb-1' }, label) : null,
+        h('div', { key: 'row', className: 'flex items-center gap-2' }, [
+          h('input', {
+            key: 'from', type: inputType, value: value.from || '',
+            onChange: function(e) { onChange({ from: e.target.value || null, to: value.to || null }); },
+            className: 'w-full rounded-lg border px-2 py-1.5 text-sm ' + theme
+          }),
+          h('span', { key: 'sep', className: 'text-xs opacity-50' }, '–'),
+          h('input', {
+            key: 'to', type: inputType, value: value.to || '',
+            onChange: function(e) { onChange({ from: value.from || null, to: e.target.value || null }); },
+            className: 'w-full rounded-lg border px-2 py-1.5 text-sm ' + theme
+          })
+        ])
       ]);
     };
     // Expose React hooks as globals so LLM code can use them without React. prefix

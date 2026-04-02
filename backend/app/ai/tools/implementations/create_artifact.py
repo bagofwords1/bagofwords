@@ -351,43 +351,11 @@ class CreateArtifactTool(Tool):
       }};
     }})();
 
-    // ── Filterable columns (computed once from data, merged across all vizs) ──
-    window.__filterableColumns = (function() {{
-      var data = window.ARTIFACT_DATA;
-      if (!data || !data.visualizations) return [];
-      var fieldMap = {{}};
-      data.visualizations.forEach(function(viz) {{
-        var rows = viz.rows || [];
-        var cols = viz.columns || [];
-        if (!rows.length) return;
-        cols.forEach(function(col) {{
-          var f = typeof col === 'string' ? col
-            : (col.field || col.colId || col.headerName || col.name);
-          if (!f) return;
-          if (!fieldMap[f]) fieldMap[f] = {{ vals: {{}}, total: 0, allNum: true }};
-          var info = fieldMap[f];
-          for (var i = 0; i < rows.length; i++) {{
-            var v = rows[i][f];
-            if (v != null) {{
-              info.total++;
-              if (typeof v !== 'number') info.allNum = false;
-              info.vals[String(v)] = true;
-            }}
-          }}
-        }});
-      }});
-      var result = [];
-      for (var f in fieldMap) {{
-        var info = fieldMap[f];
-        if (info.allNum) continue;
-        var unique = Object.keys(info.vals).sort();
-        if (unique.length >= 2 && unique.length <= 30 && unique.length < info.total)
-          result.push({{ field: f, unique_values: unique }});
-      }}
-      return result;
-    }})();
-
     // ── useFilters() hook — cross-visualization filtering ──
+    // No magic column detection — LLM explicitly chooses which columns to filter.
+    // filterRows(rows, fieldMap?) applies active filters; optional fieldMap
+    // remaps canonical filter keys to viz-specific column names,
+    // e.g. filterRows(rows, {{ country: 'CountryName' }})
     window.useFilters = function() {{
       var _s = React.useState(0);
       var forceUpdate = _s[1];
@@ -400,21 +368,30 @@ class CreateArtifactTool(Tool):
 
       var filters = window.__filterStore.get();
 
-      var filterRows = React.useCallback(function(rows) {{
+      var filterRows = React.useCallback(function(rows, fieldMap) {{
         var entries = Object.entries(filters);
         if (!entries.length) return rows;
         return rows.filter(function(row) {{
           for (var i = 0; i < entries.length; i++) {{
             var key = entries[i][0], val = entries[i][1];
-            if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
-            if (String(row[key]) !== val) return false;
+            var col = (fieldMap && fieldMap[key]) ? fieldMap[key] : key;
+            if (!Object.prototype.hasOwnProperty.call(row, col)) continue;
+            var rv = row[col];
+            if (val && typeof val === 'object' && !Array.isArray(val) && (val.from || val.to)) {{
+              var s = String(rv);
+              if (val.from && s < val.from) return false;
+              if (val.to && s > val.to) return false;
+            }} else if (Array.isArray(val)) {{
+              if (val.length > 0 && val.indexOf(String(rv)) === -1) return false;
+            }} else {{
+              if (val && String(rv).toLowerCase().indexOf(String(val).toLowerCase()) === -1) return false;
+            }}
           }}
           return true;
         }});
       }}, [filters]);
 
       return {{
-        filterableColumns: window.__filterableColumns,
         filters: filters,
         setFilter: window.__filterStore.set,
         resetFilters: window.__filterStore.reset,
@@ -607,9 +584,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     if stats:
                         profile["column_stats"] = stats
 
-                    # Note: filterable columns are now computed client-side by the
-                    # useFilters() hook in the iframe runtime, not here.
-
         return profile
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
@@ -768,9 +742,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
             # Build visualization entry
             view_dict = viz.view or {}
             query_id = str(viz.query_id) if viz.query_id else None
-
-            # Note: filterable columns are now computed client-side by the
-            # useFilters() hook in the iframe runtime.
 
             ventry = {
                 "id": str(viz.id),
@@ -1553,7 +1524,9 @@ CHARTING & COMPONENTS
 **Other globals** (do NOT redefine):
 - `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" />` — omit className for light mode, pass className to override theme
 - `<SectionCard title="" subtitle="">...children...</SectionCard>` — omit className for light mode
-- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} />` — multi-select dropdown
+- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} />` — multi-select dropdown with checkboxes + built-in search (auto at 8+ options). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
+- `<FilterSearch label="" value={{str}} onChange={{e => setFilter(field, e.target.value)}} placeholder="Search..." />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names).
+- `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} type="date" />` — from/to date range picker. Value: `{{ from, to }}`. Type: "date" (default), "month", "datetime-local".
 - `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
 - `<LoadingSpinner size={{32}} />`
 
@@ -1615,11 +1588,18 @@ DESIGN PRINCIPLES
 
 - Polished, executive-ready. Minimalist — whitespace, clean typography. Light mode default.
 - Show data from different angles without redundancy. Narrative > decoration.
-- Use globals: `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for wrappers, `<FilterSelect>` for filters, `fmt()` for numbers
-- Use `useFilters()` hook for cross-visualization filtering — returns `{{ filterableColumns, filters, setFilter, resetFilters, filterRows }}`
-- Call `filterRows(viz.rows)` on each visualization's rows to apply global filters
-- If `filterableColumns` is non-empty, render a sticky filter bar with `<FilterSelect>` and a Reset button
+- Use globals: `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for wrappers, `<FilterSelect>`/`<FilterSearch>`/`<FilterDateRange>` for filters, `fmt()` for numbers
+- Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
+- YOU choose which columns to filter — inspect each viz's `columns` and `rows` to decide:
+  - `<FilterSelect>` for columns with repeating values (country, genre, status)
+  - `<FilterSearch>` for mostly-unique columns (titles, names)
+  - `<FilterDateRange>` for date/time columns (YYYY-MM, YYYY-MM-DD, timestamps)
+- Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
+- Call `filterRows(viz[N].rows)` on each visualization's rows to apply active filters
+- If two vizs have semantically the same column but different field names, use field mapping: `filterRows(viz[1].rows, {{ country: 'CountryName' }})`
+- Include a Reset button when any filters are active (`Object.keys(filters).length > 0`)
 - After filtering, if a visualization has zero matching rows, display "No data matches current filters"
+- If you need a custom overlay/dropdown beyond the globals: always use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, and a `mousedown` click-outside listener. Use `useFilters()` for state — do NOT duplicate filter state locally.
 - User's explicit requests override all defaults
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1704,14 +1684,37 @@ Now create the dashboard:"""
             end_idx = response.find(end_marker, start_idx)
             if end_idx != -1:
                 code = response[start_idx:end_idx + len(end_marker)]
-                return self._ensure_app_wrapper(code)
+                return self._sanitize_code(self._ensure_app_wrapper(code))
 
         # If no script tags found, wrap the response
         code = response.strip()
         if not code.startswith("<script"):
             code = f'<script type="text/babel">\n{code}\n</script>'
 
-        return self._ensure_app_wrapper(code)
+        return self._sanitize_code(self._ensure_app_wrapper(code))
+
+    @staticmethod
+    def _sanitize_code(code: str) -> str:
+        """Fix common LLM code generation artifacts deterministically."""
+        import re
+
+        # Fix double-brace pattern: function App() {\n{ ... }\n}
+        # The LLM sometimes wraps the function body in an extra block scope.
+        # Match: function App() {\n{ at the start, and }\n} at the end (before render call)
+        code = re.sub(
+            r'(function\s+\w+\s*\([^)]*\)\s*\{)\s*\n\s*\{',
+            r'\1',
+            code,
+        )
+        # Remove the matching trailing extra }
+        # Look for }\n}\n before ReactDOM.createRoot
+        code = re.sub(
+            r'\}\s*\n\s*\}\s*\n(\s*ReactDOM\.createRoot)',
+            r'}\n\1',
+            code,
+        )
+
+        return code
 
     @staticmethod
     def _ensure_app_wrapper(code: str) -> str:

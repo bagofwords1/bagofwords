@@ -269,6 +269,18 @@ def sanitize_code_output(code: str, mode: str = "page") -> Tuple[str, List[str]]
     code = re.sub(r'\n{4,}', '\n\n\n', code)
     code = code.strip()
 
+    # Fix double-brace pattern: function App() {\n{ ... }\n}
+    code = re.sub(
+        r'(function\s+\w+\s*\([^)]*\)\s*\{)\s*\n\s*\{',
+        r'\1',
+        code,
+    )
+    code = re.sub(
+        r'\}\s*\n\s*\}\s*\n(\s*ReactDOM\.createRoot)',
+        r'}\n\1',
+        code,
+    )
+
     # Validate basic structure for page mode
     if mode == "page":
         if code and '<script' not in code.lower() and len(code) > 100:
@@ -421,7 +433,7 @@ Rules:
 - Preserve existing code unless the user asked to change it.
 - For NEW charts, use `<EChart option={{...}} height={{N}} />` — 'bow' theme handles styling. Do NOT repeat theme defaults.
 - Do NOT output full code. Only SEARCH/REPLACE blocks. If the change feels too large for diffs, output nothing — the planner will use create_artifact instead.
-- Omit className on globals (KPICard, SectionCard, FilterSelect) when using light mode — defaults handle it.
+- Omit className on globals (KPICard, SectionCard, FilterSelect, FilterSearch, FilterDateRange) when using light mode — defaults handle it.
 
 ⚠️ **KEEP EDITS MINIMAL.** Do not rewrite code that doesn't need to change. Do not add verbose comments or unnecessary variables.
 
@@ -440,16 +452,23 @@ FILTERING (if the edit involves adding, modifying, or fixing filters)
 
 Use the built-in `useFilters()` hook — do NOT reimplement filter logic manually:
 
-  const {{ filterableColumns, filters, setFilter, resetFilters, filterRows }} = useFilters();
+  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
 
-- `filterableColumns`: auto-detected categorical columns (array of `{{ field, unique_values }}`)
-- `filterRows(rows)`: returns rows matching active filters — call on each viz's rows
-- `setFilter(field, value)`: apply a filter; `null` to clear
+- `filters`: current state `{{ [field]: value }}`. Array = categorical selection, string = search text.
+- `setFilter(field, value)`: set a filter; `null` or `""` to clear. Array for categorical, string for search.
 - `resetFilters()`: clear all active filters
+- `filterRows(rows, fieldMap?)`: returns filtered rows. Optional `fieldMap` remaps filter keys to viz-specific column names, e.g. `filterRows(rows, {{ country: 'CountryName' }})`.
+- Array values (FilterSelect): exact match — row passes if value is in array
+- String values (FilterSearch): case-insensitive substring match
+- `{{ from, to }}` values (FilterDateRange): string comparison range
 - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
-- Render filter UI using `filterableColumns`. Place filter bar `sticky top-0 z-50`
+- YOU choose which columns to filter by inspecting `viz.columns` and `viz.rows` — no auto-detection
+- Use `<FilterSelect>` for columns with repeating values (has built-in search at 8+ options)
+- Use `<FilterSearch>` for unique-value columns (titles, names)
+- Use `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} />` for date/time columns
 - Charts that should NOT be filtered can use `viz.rows` directly without `filterRows`
-- If a viz does not have the filtered column, its rows pass through unaffected
+- If a viz does not have the filtered column (after mapping), its rows pass through unaffected
+- Custom overlays: always use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, `mousedown` click-outside. Use `useFilters()` for state — never duplicate locally.
 
 Apply the user's edit now:"""
 
@@ -799,12 +818,13 @@ Apply the edit now:"""
 
         new_code, diff_applied, num_blocks, failure_details = apply_search_replace_diff(existing_code, buffer)
 
+        edit_failed = False
+
         if num_blocks == 0:
             # No diff blocks found — reject full rewrites, edit_artifact is for surgical diffs only.
             # The planner should use create_artifact for large changes.
             logger.warning("edit_artifact: No SEARCH/REPLACE blocks found. Change is too large for surgical edit.")
-            new_code = existing_code
-            diff_applied = False
+            edit_failed = True
             warnings.append(
                 "This change is too large for edit_artifact (no surgical diffs could be produced). "
                 "The artifact was NOT modified. Use create_artifact to rebuild the dashboard with this change instead."
@@ -813,7 +833,7 @@ Apply the edit now:"""
         elif not diff_applied:
             # Diff blocks found but some/all failed to match — return original unchanged (Aider-style)
             # Do NOT attempt _extract_code fallback here — that's what causes marker leakage
-            new_code = existing_code
+            edit_failed = True
             logger.warning(
                 f"edit_artifact: {num_blocks} diff blocks found but failed to apply. "
                 f"Returning original code unchanged. Failures: {failure_details}"
@@ -825,22 +845,48 @@ Apply the edit now:"""
             for detail in failure_details:
                 warnings.append(detail)
 
-        # Output sanitization: strip any leaked diff markers, validate structure
-        new_code, sanitize_warnings = sanitize_code_output(new_code, mode=artifact.mode)
-        warnings.extend(sanitize_warnings)
+        if not edit_failed:
+            # Output sanitization: strip any leaked diff markers, validate structure
+            new_code, sanitize_warnings = sanitize_code_output(new_code, mode=artifact.mode)
+            warnings.extend(sanitize_warnings)
 
-        # Size guard: reject suspiciously small output
-        if len(new_code) < 4000 and len(existing_code) >= 4000:
-            logger.warning(
-                f"edit_artifact: Output code ({len(new_code)} chars) is suspiciously small "
-                f"compared to original ({len(existing_code)} chars). Keeping original."
+            # Size guard: reject suspiciously small output
+            if len(new_code) < 4000 and len(existing_code) >= 4000:
+                logger.warning(
+                    f"edit_artifact: Output code ({len(new_code)} chars) is suspiciously small "
+                    f"compared to original ({len(existing_code)} chars). Keeping original."
+                )
+                edit_failed = True
+                warnings.append(
+                    f"Output code was only {len(new_code)} chars vs original {len(existing_code)} chars. "
+                    "This looks like a failed edit. The artifact was NOT modified."
+                )
+
+        # If edit failed, return early with error — do NOT create a phantom artifact version
+        if edit_failed:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "artifact_id": str(artifact.id),
+                        "error": warnings[0] if warnings else "Edit failed",
+                    },
+                    "observation": {
+                        "summary": f"Edit failed for artifact '{artifact.title or 'Untitled'}' (v{artifact.version}). " + (warnings[0] if warnings else ""),
+                        "error": {
+                            "type": "edit_failed",
+                            "message": warnings[0] if warnings else "Edit failed",
+                        },
+                        "artifact_id": str(artifact.id),
+                        "mode": artifact.mode,
+                        "version": artifact.version,
+                        "diff_applied": False,
+                        "warnings": warnings,
+                    },
+                },
             )
-            warnings.append(
-                f"Output code was only {len(new_code)} chars vs original {len(existing_code)} chars. "
-                "This looks like a failed edit. The artifact was NOT modified."
-            )
-            new_code = existing_code
-            diff_applied = False
+            return
 
         # Update title if provided
         new_title = data.title or artifact.title
@@ -958,6 +1004,7 @@ Apply the edit now:"""
             "diff_applied": diff_applied,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
+            "visualization_profiles": viz_profiles,  # columns, sample rows (gated by allow_llm_see_data), data model
         }
         if render_errors:
             observation["render_errors"] = render_errors

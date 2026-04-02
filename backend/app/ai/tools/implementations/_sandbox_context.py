@@ -53,27 +53,38 @@ references to any of them:
   - Always handle the `null` (loading) state before accessing data
 
 • **useFilters()** — Global React hook for cross-visualization filtering
-  - Returns `{ filterableColumns, filters, setFilter, resetFilters, filterRows }`
-  - `filterableColumns`: auto-detected categorical columns (array of `{ field, unique_values }`)
-  - `filters`: current filter state object `{ [field]: selectedValue }`
-  - `setFilter(field, value)`: set a filter (pass `null` or `""` to clear)
+  - Returns `{ filters, setFilter, resetFilters, filterRows }`
+  - `filters`: current filter state object `{ [field]: selectedValue | string[] }`
+  - `setFilter(field, value)`: set a filter (pass `null` or `""` to clear). For categorical: pass array of selected values. For search: pass string.
   - `resetFilters()`: clear all active filters
-  - `filterRows(rows)`: returns rows matching active filters — call on each viz's rows before rendering
+  - `filterRows(rows, fieldMap?)`: returns rows matching active filters. Optional `fieldMap` remaps filter keys to viz-specific column names, e.g. `filterRows(rows, { country: 'CountryName' })`.
+    - Array values (from FilterSelect): exact match — row passes if its value is in the array
+    - String values (from FilterSearch): case-insensitive substring match
+    - `{ from, to }` values (from FilterDateRange): string comparison range — row passes if `from <= value <= to`
   - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
-  - Columns with only numeric values, fewer than 2 unique values, or more than 30 unique values are excluded
-  - Cross-viz safe: if a row does not have a filtered field, it passes through unaffected
+  - Cross-viz safe: if a row does not have the filtered column (after mapping), it passes through unaffected
+  - No automatic column detection — YOU choose which columns to filter by inspecting `visualizations[N].columns` and `visualizations[N].rows`
 
 • **Pre-built UI components** — all global, do NOT redefine:
   - `<LoadingSpinner size={24} className="" />` — animated spinner
   - `<CustomTooltip />` — dark styled Recharts tooltip. Use: `<Tooltip content={<CustomTooltip />} />`
   - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
   - `<SectionCard title="" subtitle="" className="bg-white border-slate-200" titleClassName="text-slate-800">...children...</SectionCard>` — card wrapper. className replaces default theme (no className = light mode)
-  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} className="" />` — multi-select dropdown with checkboxes. className replaces default theme. Use ONLY for categorical filters (country, genre, status, etc.). For date ranges, numeric ranges, or search inputs, build a custom component using standard HTML inputs — do NOT force FilterSelect for non-categorical data.
+  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} searchable={bool} />` — multi-select dropdown with checkboxes. Built-in search auto-enabled at 8+ options (override with `searchable` prop). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
+  - `<FilterSearch label="" value="" onChange={e => setFilter(field, e.target.value)} placeholder="Search..." />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names).
+  - `<FilterDateRange label="" value={filters[field] || {}} onChange={val => setFilter(field, val)} type="date" />` — from/to date range picker. `value`/`onChange` use `{ from, to }` object. `type`: "date" (default), "month", or "datetime-local".
   - `fmt(n, {currency: true})` — number formatter (currency, pct, auto K/M/B)
 
 • **window.ARTIFACT_DATA** — Raw data object (same shape as useArtifactData return)
 
 The code is rendered into `<div id="root">`.
+
+CUSTOM OVERLAY/DROPDOWN COMPONENTS (only if globals don't cover your need):
+- Always use inline `style={{ backgroundColor: '#fff' }}` on dropdown/overlay panels
+- Always use `z-50` + `position: absolute` (or fixed for modals)
+- Always add click-outside-to-close via `mousedown` listener on `document`
+- Use `useFilters()` for filter state — call `setFilter(field, value)` to update, `filterRows(rows)` to read
+- Do NOT duplicate filter state in local component state
 """.strip()
 
 
@@ -86,10 +97,14 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "do NOT redefine, import, or remove references to them: "
     "React (v18), ReactDOM, echarts (v5), Tailwind CSS (v3.4), Babel (JSX transpilation), "
     "useArtifactData() hook (returns { report, visualizations } or null while loading), "
-    "useFilters() hook (returns { filterableColumns, filters, setFilter, resetFilters, filterRows } "
-    "for cross-visualization filtering with shared state), "
+    "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } "
+    "for cross-visualization filtering — no auto column detection, LLM chooses which columns to filter "
+    "by inspecting viz.columns/rows. filterRows(rows, fieldMap?) supports optional field mapping "
+    "for cross-viz column name differences e.g. filterRows(rows, { country: 'CountryName' }). "
+    "Array filter values = exact match (FilterSelect), string values = substring search (FilterSearch), "
+    "{from,to} values = date range (FilterDateRange)), "
     "<EChart option=... height=N /> wrapper with 'bow' theme (handles init/dispose/resize/styling — do NOT use raw echarts.init, do NOT repeat theme styling), "
-    "Pre-built globals (do NOT redefine): LoadingSpinner, KPICard, SectionCard, FilterSelect, fmt(). "
+    "Pre-built globals (do NOT redefine): LoadingSpinner, KPICard, SectionCard, FilterSelect (with built-in search at 8+ options), FilterSearch, FilterDateRange, fmt(). "
     "Recharts is also available globally for backward compat. "
     "For NEW dashboards, use <EChart> wrapper — it is fast and eliminates lifecycle bugs. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
