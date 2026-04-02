@@ -625,11 +625,16 @@ function handleArtifactSelect(event: Event) {
 // Handle artifact:created event (refresh list and select new artifact)
 async function handleArtifactCreated(event: Event) {
   const artifactId = (event as CustomEvent).detail?.artifact_id;
+  // Reset dataReady BEFORE selecting the new artifact so iframeSrcdoc doesn't
+  // render new code (with viz[N] refs) against stale visualization data.
+  dataReady.value = false;
   await fetchArtifactsList();
   if (artifactId) {
     selectedArtifactId.value = artifactId;
     // Force refetch in case same artifact transitioned from pending to completed
     await fetchSelectedArtifact();
+    // Fetch visualization data for the new artifact before rendering
+    await fetchData(artifactId);
   }
 }
 

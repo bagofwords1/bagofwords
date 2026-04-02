@@ -204,6 +204,41 @@ def _build_heatmap(data_model: dict, viz_index: int) -> str:
     )
 
 
+def _build_metric_card(data_model: dict, viz_index: int) -> str:
+    """Metric card / KPI — renders viz[N].rows[0][valueField] via KPICard."""
+    series_list = data_model.get("series") or []
+    value_key = ""
+    if series_list:
+        value_key = series_list[0].get("value") or ""
+
+    v = f"viz[{viz_index}]"
+
+    if value_key:
+        safe_key = _js_str(value_key)
+        value_expr = f"{v}.rows[0]['{safe_key}']"
+    else:
+        # Fallback: first numeric value in the row
+        value_expr = (
+            f"(() => {{ const r = {v}.rows[0]; "
+            f"const k = Object.keys(r).find(k => typeof r[k] === 'number'); "
+            f"return k ? r[k] : Object.values(r)[0]; }})()"
+        )
+
+    name = _js_str(series_list[0].get("name") or "") if series_list else ""
+    # Format: add commas for large numbers, keep 1 decimal for floats
+    return (
+        f"(() => {{\n"
+        f"  const row = ({v}.rows || [])[0];\n"
+        f"  if (!row) return null;\n"
+        f"  const raw = {value_expr};\n"
+        f"  const val = typeof raw === 'number'\n"
+        f"    ? (raw % 1 === 0 ? raw.toLocaleString() : raw.toLocaleString(undefined, {{minimumFractionDigits: 1, maximumFractionDigits: 2}}))\n"
+        f"    : String(raw ?? '');\n"
+        f"  return <KPICard title=\"{name}\" value={{val}} />;\n"
+        f"}})()"
+    )
+
+
 def _build_table(data_model: dict, viz_index: int) -> str:
     """Table JSX — renders viz[N].columns / viz[N].rows as a Tailwind table."""
     v = f"viz[{viz_index}]"
@@ -250,13 +285,18 @@ _CHART_BUILDERS = {
 # Types that produce raw JSX (not an EChart option)
 _JSX_BUILDERS = {
     "table": _build_table,
+    "metric_card": _build_metric_card,
 }
 
 
-def is_table_type(data_model: dict) -> bool:
-    """Check if the data_model type should render as a table."""
+def is_jsx_type(data_model: dict) -> bool:
+    """Check if the data_model type produces raw JSX (not an EChart)."""
     dm_type = (data_model.get("type") or "").lower()
     return dm_type in _JSX_BUILDERS
+
+
+# Keep backward-compatible alias
+is_table_type = is_jsx_type
 
 
 def generate_echart_option_code(data_model: dict, viz_index: int) -> str:
@@ -270,17 +310,26 @@ def generate_echart_option_code(data_model: dict, viz_index: int) -> str:
     return builder(data_model, viz_index)
 
 
-def generate_table_jsx(title: str, data_model: dict, viz_index: int) -> str:
-    """Generate a full <SectionCard> with a table inside."""
+def generate_jsx_section(title: str, data_model: dict, viz_index: int) -> str:
+    """Generate JSX for a non-chart visualization (table, metric_card, etc.)."""
     dm_type = (data_model.get("type") or "table").lower()
     builder = _JSX_BUILDERS.get(dm_type, _build_table)
     jsx_expr = builder(data_model, viz_index)
+
+    # KPICard is self-contained — no SectionCard wrapper needed
+    if dm_type == "metric_card":
+        return f"{{{jsx_expr}}}"
+
     safe_title = _js_str(title)
     return (
         f'<SectionCard title="{safe_title}">\n'
         f"        {{{jsx_expr}}}\n"
         f"      </SectionCard>"
     )
+
+
+# Keep backward-compatible alias
+generate_table_jsx = generate_jsx_section
 
 
 # ---------------------------------------------------------------------------
@@ -339,21 +388,20 @@ def inject_section_into_code(
         return None
 
     safe_title = _js_str(title)
+    dm_type = (data_model.get("type") or "").lower()
 
-    if is_table_type(data_model):
-        table_jsx = _build_table(data_model, viz_index)
+    if dm_type in _JSX_BUILDERS:
+        jsx_section = generate_jsx_section(title, data_model, viz_index)
         body = (
-            f'    return <div className="space-y-6" style={{{{padding: "0 2rem 2rem"}}}}>\n'
-            f'      <SectionCard title="{safe_title}">\n'
-            f"        {{{table_jsx}}}\n"
-            f"      </SectionCard>\n"
+            f"    return <div className=\"space-y-6\">\n"
+            f"      {jsx_section}\n"
             f"    </div>;\n"
         )
     else:
         option_code = generate_echart_option_code(data_model, viz_index)
         body = (
             f"    var _opt = {option_code};\n"
-            f'    return <div className="space-y-6" style={{{{padding: "0 2rem 2rem"}}}}>\n'
+            f"    return <div className=\"space-y-6\">\n"
             f'      <SectionCard title="{safe_title}">\n'
             f"        <EChart height={{350}} option={{_opt}} />\n"
             f"      </SectionCard>\n"
