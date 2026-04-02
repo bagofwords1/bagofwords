@@ -450,6 +450,23 @@ Each visualization object has this EXACT structure:
 - ALL chart data, KPI values, labels, and metrics MUST come from `data.visualizations[N].rows`
 - The code runs inside a sandboxed iframe and receives data via postMessage — there are no visualization URLs to load
 
+═══════════════════════════════════════════════════════════════════════════════
+FILTERING (if the edit involves adding, modifying, or fixing filters)
+═══════════════════════════════════════════════════════════════════════════════
+
+Use the built-in `useFilters()` hook — do NOT reimplement filter logic manually:
+
+  const {{ filterableColumns, filters, setFilter, resetFilters, filterRows }} = useFilters();
+
+- `filterableColumns`: auto-detected categorical columns (array of `{{ field, unique_values }}`)
+- `filterRows(rows)`: returns rows matching active filters — call on each viz's rows
+- `setFilter(field, value)`: apply a filter; `null` to clear
+- `resetFilters()`: clear all active filters
+- Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
+- Render filter UI using `filterableColumns`. Place filter bar `sticky top-0 z-50`
+- Charts that should NOT be filtered can use `viz.rows` directly without `filterRows`
+- If a viz does not have the filtered column, its rows pass through unaffected
+
 Apply the user's edit now:"""
 
     def _build_slides_edit_prompt(

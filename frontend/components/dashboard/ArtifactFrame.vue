@@ -1061,6 +1061,105 @@ const iframeSrcdoc = computed(() => {
         )
       );
     };
+    // ── Global filter store (shared state for useFilters hook) ──
+    window.__filterStore = (function() {
+      var filters = {};
+      var listeners = [];
+      return {
+        get: function() { return filters; },
+        set: function(field, value) {
+          var next = {};
+          for (var k in filters) next[k] = filters[k];
+          if (value == null || value === '') delete next[field];
+          else next[field] = value;
+          filters = next;
+          for (var i = 0; i < listeners.length; i++) listeners[i]();
+        },
+        reset: function() {
+          filters = {};
+          for (var i = 0; i < listeners.length; i++) listeners[i]();
+        },
+        sub: function(fn) {
+          listeners.push(fn);
+          return function() {
+            var idx = listeners.indexOf(fn);
+            if (idx >= 0) listeners.splice(idx, 1);
+          };
+        }
+      };
+    })();
+
+    // ── Filterable columns (computed once from data, merged across all vizs) ──
+    window.__filterableColumns = (function() {
+      var data = window.ARTIFACT_DATA;
+      if (!data || !data.visualizations) return [];
+      var fieldMap = {};
+      data.visualizations.forEach(function(viz) {
+        var rows = viz.rows || [];
+        var cols = viz.columns || [];
+        if (!rows.length) return;
+        cols.forEach(function(col) {
+          var f = typeof col === 'string' ? col
+            : (col.field || col.colId || col.headerName || col.name);
+          if (!f) return;
+          if (!fieldMap[f]) fieldMap[f] = { vals: {}, total: 0, allNum: true };
+          var info = fieldMap[f];
+          for (var i = 0; i < rows.length; i++) {
+            var v = rows[i][f];
+            if (v != null) {
+              info.total++;
+              if (typeof v !== 'number') info.allNum = false;
+              info.vals[String(v)] = true;
+            }
+          }
+        });
+      });
+      var result = [];
+      for (var f in fieldMap) {
+        var info = fieldMap[f];
+        if (info.allNum) continue;
+        var unique = Object.keys(info.vals).sort();
+        if (unique.length >= 2 && unique.length <= 30 && unique.length < info.total)
+          result.push({ field: f, unique_values: unique });
+      }
+      return result;
+    })();
+
+    // ── useFilters() hook — cross-visualization filtering ──
+    window.useFilters = function() {
+      var _s = React.useState(0);
+      var forceUpdate = _s[1];
+
+      React.useEffect(function() {
+        return window.__filterStore.sub(function() {
+          forceUpdate(function(c) { return c + 1; });
+        });
+      }, []);
+
+      var filters = window.__filterStore.get();
+
+      var filterRows = React.useCallback(function(rows) {
+        var entries = Object.entries(filters);
+        if (!entries.length) return rows;
+        return rows.filter(function(row) {
+          for (var i = 0; i < entries.length; i++) {
+            var key = entries[i][0], val = entries[i][1];
+            if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
+            if (String(row[key]) !== val) return false;
+          }
+          return true;
+        });
+      }, [filters]);
+
+      return {
+        filterableColumns: window.__filterableColumns,
+        filters: filters,
+        setFilter: window.__filterStore.set,
+        resetFilters: window.__filterStore.reset,
+        filterRows: filterRows
+      };
+    };
+
     // Fix ECharts 0-height issue: resize all charts after render
     window.resizeAllCharts = function() {
       if (typeof echarts !== 'undefined') {

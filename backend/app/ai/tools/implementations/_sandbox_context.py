@@ -44,6 +44,17 @@ references to any of them:
   - `visualizations`: array of `{ id, title, view, rows, columns, dataModel }`
   - Always handle the `null` (loading) state before accessing data
 
+• **useFilters()** — Global React hook for cross-visualization filtering
+  - Returns `{ filterableColumns, filters, setFilter, resetFilters, filterRows }`
+  - `filterableColumns`: auto-detected categorical columns (array of `{ field, unique_values }`)
+  - `filters`: current filter state object `{ [field]: selectedValue }`
+  - `setFilter(field, value)`: set a filter (pass `null` or `""` to clear)
+  - `resetFilters()`: clear all active filters
+  - `filterRows(rows)`: returns rows matching active filters — call on each viz's rows before rendering
+  - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
+  - Columns with only numeric values, fewer than 2 unique values, or more than 30 unique values are excluded
+  - Cross-viz safe: if a row does not have a filtered field, it passes through unaffected
+
 • **LoadingSpinner** — Global React component
   - Props: `size` (number, default 24), `className` (string)
   - Inherits text color via currentColor
@@ -92,10 +103,12 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "do NOT redefine, import, or remove references to them: "
     "React (v18), ReactDOM, echarts (v5), Tailwind CSS (v3.4), Babel (JSX transpilation), "
     "useArtifactData() hook (returns { report, visualizations } or null while loading), "
+    "useFilters() hook (returns { filterableColumns, filters, setFilter, resetFilters, filterRows } "
+    "for cross-visualization filtering with shared state), "
     "LoadingSpinner component (props: size, className), "
     "window.ARTIFACT_DATA, window.ARTIFACT_READY. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
     "Development React is used — error messages are readable. Minified error codes like #310 mean 'invalid React child' "
     "(object rendered instead of string/number), NOT missing imports. "
-    "All globals (React, echarts, LoadingSpinner, useArtifactData) are always available at runtime."
+    "All globals (React, echarts, LoadingSpinner, useArtifactData, useFilters) are always available at runtime."
 )

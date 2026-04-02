@@ -306,6 +306,105 @@ class CreateArtifactTool(Tool):
     setTimeout(window.resizeAllCharts, 100);
     setTimeout(window.resizeAllCharts, 500);
     window.addEventListener('resize', window.resizeAllCharts);
+
+    // ── Global filter store (shared state for useFilters hook) ──
+    window.__filterStore = (function() {{
+      var filters = {{}};
+      var listeners = [];
+      return {{
+        get: function() {{ return filters; }},
+        set: function(field, value) {{
+          var next = {{}};
+          for (var k in filters) next[k] = filters[k];
+          if (value == null || value === '') delete next[field];
+          else next[field] = value;
+          filters = next;
+          for (var i = 0; i < listeners.length; i++) listeners[i]();
+        }},
+        reset: function() {{
+          filters = {{}};
+          for (var i = 0; i < listeners.length; i++) listeners[i]();
+        }},
+        sub: function(fn) {{
+          listeners.push(fn);
+          return function() {{
+            var idx = listeners.indexOf(fn);
+            if (idx >= 0) listeners.splice(idx, 1);
+          }};
+        }}
+      }};
+    }})();
+
+    // ── Filterable columns (computed once from data, merged across all vizs) ──
+    window.__filterableColumns = (function() {{
+      var data = window.ARTIFACT_DATA;
+      if (!data || !data.visualizations) return [];
+      var fieldMap = {{}};
+      data.visualizations.forEach(function(viz) {{
+        var rows = viz.rows || [];
+        var cols = viz.columns || [];
+        if (!rows.length) return;
+        cols.forEach(function(col) {{
+          var f = typeof col === 'string' ? col
+            : (col.field || col.colId || col.headerName || col.name);
+          if (!f) return;
+          if (!fieldMap[f]) fieldMap[f] = {{ vals: {{}}, total: 0, allNum: true }};
+          var info = fieldMap[f];
+          for (var i = 0; i < rows.length; i++) {{
+            var v = rows[i][f];
+            if (v != null) {{
+              info.total++;
+              if (typeof v !== 'number') info.allNum = false;
+              info.vals[String(v)] = true;
+            }}
+          }}
+        }});
+      }});
+      var result = [];
+      for (var f in fieldMap) {{
+        var info = fieldMap[f];
+        if (info.allNum) continue;
+        var unique = Object.keys(info.vals).sort();
+        if (unique.length >= 2 && unique.length <= 30 && unique.length < info.total)
+          result.push({{ field: f, unique_values: unique }});
+      }}
+      return result;
+    }})();
+
+    // ── useFilters() hook — cross-visualization filtering ──
+    window.useFilters = function() {{
+      var _s = React.useState(0);
+      var forceUpdate = _s[1];
+
+      React.useEffect(function() {{
+        return window.__filterStore.sub(function() {{
+          forceUpdate(function(c) {{ return c + 1; }});
+        }});
+      }}, []);
+
+      var filters = window.__filterStore.get();
+
+      var filterRows = React.useCallback(function(rows) {{
+        var entries = Object.entries(filters);
+        if (!entries.length) return rows;
+        return rows.filter(function(row) {{
+          for (var i = 0; i < entries.length; i++) {{
+            var key = entries[i][0], val = entries[i][1];
+            if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
+            if (String(row[key]) !== val) return false;
+          }}
+          return true;
+        }});
+      }}, [filters]);
+
+      return {{
+        filterableColumns: window.__filterableColumns,
+        filters: filters,
+        setFilter: window.__filterStore.set,
+        resetFilters: window.__filterStore.reset,
+        filterRows: filterRows
+      }};
+    }};
   {SC}
 
   {code}
@@ -492,27 +591,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     if stats:
                         profile["column_stats"] = stats
 
-                    # Identify filterable columns: categorical with reasonable cardinality
-                    filterable = []
-                    for col in viz.get("columns", []):
-                        col_name = col if isinstance(col, str) else col.get("field", col.get("name"))
-                        if not col_name:
-                            continue
-                        values = [r.get(col_name) for r in rows if r.get(col_name) is not None]
-                        if not values:
-                            continue
-                        # Skip numeric-only columns (metrics, not dimensions)
-                        if all(isinstance(v, (int, float)) for v in values):
-                            continue
-                        unique = list(set(str(v) for v in values))
-                        # Filterable: has repeating values (not all unique) and reasonable cardinality
-                        if 2 <= len(unique) <= 30 and len(unique) < len(values):
-                            filterable.append({
-                                "field": col_name,
-                                "unique_values": sorted(unique),
-                            })
-                    if filterable:
-                        profile["filterable_columns"] = filterable
+                    # Note: filterable columns are now computed client-side by the
+                    # useFilters() hook in the iframe runtime, not here.
 
         return profile
 
@@ -673,21 +753,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
             view_dict = viz.view or {}
             query_id = str(viz.query_id) if viz.query_id else None
 
-            # Compute filterable columns for this visualization
-            filterable_columns = []
-            if rows and isinstance(rows[0], dict):
-                for col_name in column_fields:
-                    values = [r.get(col_name) for r in rows if r.get(col_name) is not None]
-                    if not values:
-                        continue
-                    if all(isinstance(v, (int, float)) for v in values):
-                        continue
-                    unique = sorted(set(str(v) for v in values))
-                    if 2 <= len(unique) <= 30 and len(unique) < len(values):
-                        filterable_columns.append({
-                            "field": col_name,
-                            "unique_values": unique,
-                        })
+            # Note: filterable columns are now computed client-side by the
+            # useFilters() hook in the iframe runtime.
 
             ventry = {
                 "id": str(viz.id),
@@ -700,8 +767,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 "rows": rows,
                 "dataModel": data_model or {},
             }
-            if filterable_columns:
-                ventry["filterable_columns"] = filterable_columns
 
             # Debug logging
             logger.info(f"Visualization {viz.title}: {len(rows)} rows, {len(column_fields)} columns: {column_fields[:5] if column_fields else 'none'}")
@@ -1499,64 +1564,46 @@ Create a polished, executive-ready dashboard. Think:
 CROSS-VISUALIZATION FILTERS
 ═══════════════════════════════════════════════════════════════════════════════
 
-If visualizations have `filterable_columns` in their profile, implement cross-visualization filters.
+Use the built-in `useFilters()` hook for cross-visualization filtering. Do NOT reimplement filter logic manually.
 
-**Architecture:**
-- Store filter state in App with `useState` — one object mapping field names to selected values (or `null` for "All")
-- Pass filters down to every chart/table component. Each component filters its own `rows` before rendering.
-- Render the filter bar as a **sticky/fixed row at the top** with `z-50` so it stays above all charts.
-
-**Implementation pattern:**
 ```jsx
-// In App:
-const [filters, setFilters] = React.useState({{}});
+// In App — filter once at the top, pass filtered vizs down:
+const {{ filterableColumns, filters, setFilter, resetFilters, filterRows }} = useFilters();
 
-// Collect filterable columns across all visualizations
-const filterableColumns = React.useMemo(() => {{
-  const seen = new Set();
-  const cols = [];
-  data.visualizations.forEach(viz => {{
-    (viz.filterable_columns || []).forEach(fc => {{
-      if (!seen.has(fc.field)) {{
-        seen.add(fc.field);
-        cols.push(fc);
-      }}
-    }});
-  }});
-  return cols;
-}}, [data]);
+const vizs = data.visualizations.map(viz => ({{
+  ...viz,
+  rows: filterRows(viz.rows)  // apply global filters
+}}));
 
-// Filter function — reuse in every chart component
-const filterRows = (rows) => {{
-  return rows.filter(row =>
-    Object.entries(filters).every(([field, value]) =>
-      value == null || String(row[field]) === value
-    )
-  );
-}};
+// Render filter bar (sticky, above charts)
+{{filterableColumns.length > 0 && (
+  <div className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b px-6 py-3 flex gap-4 flex-wrap items-center">
+    {{filterableColumns.map(fc => (
+      <select key={{fc.field}} value={{filters[fc.field] || ""}}
+        onChange={{e => setFilter(fc.field, e.target.value || null)}}
+        className="px-3 py-1.5 rounded-lg border text-sm">
+        <option value="">{{fc.field}}: All</option>
+        {{fc.unique_values.map(v => <option key={{v}} value={{v}}>{{v}}</option>)}}
+      </select>
+    ))}}
+    {{Object.keys(filters).length > 0 && (
+      <button onClick={{resetFilters}} className="text-xs text-gray-500 hover:text-gray-700">Reset</button>
+    )}}
+  </div>
+)}}
 
-// Filter bar UI (sticky, above charts)
-<div className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b px-6 py-3 flex gap-4 flex-wrap">
-  {{filterableColumns.map(fc => (
-    <select key={{fc.field}} value={{filters[fc.field] || ""}}
-      onChange={{e => setFilters(f => ({{...f, [fc.field]: e.target.value || null}}))}}
-      className="px-3 py-1.5 rounded-lg border text-sm">
-      <option value="">{{fc.field}}: All</option>
-      {{fc.unique_values.map(v => <option key={{v}} value={{v}}>{{v}}</option>)}}
-    </select>
-  ))}}
-</div>
-
-// In each chart component, always use filterRows(viz.rows) instead of viz.rows directly
+// Pass filtered vizs to chart components — they just read viz.rows
+{{vizs.map(viz => <ChartComponent key={{viz.id}} viz={{viz}} />)}}
 ```
 
 **Rules:**
-- Only show filters if `filterable_columns` exist in the data
+- `filterableColumns` is auto-detected from the data (categorical columns with 2-30 unique repeating values)
+- Filter state is shared globally — `setFilter` in any component updates `filterRows` everywhere
+- Charts that should NOT be filtered can use `viz.rows` directly (without `filterRows`)
+- If a visualization does not have the filtered column, its rows pass through unaffected
+- After filtering, if a visualization has zero matching rows, display a "No data matches current filters" message
 - Filter bar must be `sticky top-0 z-50` — always visible above chart canvases
-- Every chart/table must respect active filters
-- Include a visual indicator of active filters and a "Reset" option
-- When multiple visualizations share a filterable column with the same field name, that filter MUST operate across ALL visualizations simultaneously. A filter for "Country" should filter every chart and table that has a "Country" column, not just one. If a visualization does not have the filtered column, it should remain unaffected (show all its data).
-- After filtering, if a visualization has zero matching rows, display a friendly "No data matches current filters" message instead of rendering a broken or empty chart.
+- If `filterableColumns` is empty, skip the filter bar entirely
 
 **DO NOT include:**
 - Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
