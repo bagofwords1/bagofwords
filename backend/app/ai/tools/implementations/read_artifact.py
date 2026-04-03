@@ -206,6 +206,8 @@ class ReadArtifactTool(Tool):
                     rows = (step_data.get("rows") or [])[:100] if step_data else []
                     raw_columns = step_data.get("columns") or [] if step_data else []
                     data_model = step.data_model if step else {}
+                    step_info = step_data.get("info") or {} if step_data else {}
+                    column_info = step_info.get("column_info") or {}
                     view_dict = viz.view or {}
 
                     ventry = {
@@ -215,6 +217,7 @@ class ReadArtifactTool(Tool):
                         "view": create_tool._trim_none(view_dict),
                         "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                         "columns": raw_columns,
+                        "column_info": column_info,
                         "row_count": len(rows),
                         "rows": rows,
                         "dataModel": data_model or {},

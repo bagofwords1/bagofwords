@@ -35,10 +35,6 @@ references to any of them:
   - Uses 'bow' theme: colors, tooltip, grid, axis styling, rounded corners all pre-configured
   - Only specify data mapping in option — do NOT repeat styling the theme provides
 
-• **Recharts** — All components are pre-loaded as globals (kept for backward compatibility)
-  - Available globally: BarChart, Bar, LineChart, Line, etc.
-  - Existing Recharts artifacts will continue to work
-
 • **Tailwind CSS (v3.4)** — All utility classes available
   - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
   - Dark/light themes, responsive grids, flexbox
@@ -63,11 +59,11 @@ references to any of them:
     - `{ from, to }` values (from FilterDateRange): string comparison range — row passes if `from <= value <= to`
   - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
   - Cross-viz safe: if a row does not have the filtered column (after mapping), it passes through unaffected
-  - No automatic column detection — YOU choose which columns to filter by inspecting `visualizations[N].columns` and `visualizations[N].rows`
+  - No automatic column detection — YOU choose which columns to filter using `dtype` and `unique_count` from `visualizations[N].columns`
 
 • **Pre-built UI components** — all global, do NOT redefine:
   - `<LoadingSpinner size={24} className="" />` — animated spinner
-  - `<CustomTooltip />` — dark styled Recharts tooltip. Use: `<Tooltip content={<CustomTooltip />} />`
+  - `<CustomTooltip />` — dark styled tooltip component (props: active, payload, label)
   - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
   - `<SectionCard title="" subtitle="" className="bg-white border-slate-200" titleClassName="text-slate-800">...children...</SectionCard>` — card wrapper. className replaces default theme (no className = light mode)
   - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} searchable={bool} />` — multi-select dropdown with checkboxes. Built-in search auto-enabled at 8+ options (override with `searchable` prop). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
@@ -99,14 +95,15 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "useArtifactData() hook (returns { report, visualizations } or null while loading), "
     "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } "
     "for cross-visualization filtering — no auto column detection, LLM chooses which columns to filter "
-    "by inspecting viz.columns/rows. filterRows(rows, fieldMap?) supports optional field mapping "
+    "using dtype and unique_count from viz.columns (e.g. dtype 'object' + unique_count < 50 → FilterSelect, "
+    "dtype 'datetime64[ns]' → FilterDateRange, high unique_count → FilterSearch). "
+    "filterRows(rows, fieldMap?) supports optional field mapping "
     "for cross-viz column name differences e.g. filterRows(rows, { country: 'CountryName' }). "
     "Array filter values = exact match (FilterSelect), string values = substring search (FilterSearch), "
     "{from,to} values = date range (FilterDateRange)), "
     "<EChart option=... height=N /> wrapper with 'bow' theme (handles init/dispose/resize/styling — do NOT use raw echarts.init, do NOT repeat theme styling), "
     "Pre-built globals (do NOT redefine): LoadingSpinner, KPICard, SectionCard, FilterSelect (with built-in search at 8+ options), FilterSearch, FilterDateRange, fmt(). "
-    "Recharts is also available globally for backward compat. "
-    "For NEW dashboards, use <EChart> wrapper — it is fast and eliminates lifecycle bugs. "
+    "For charts, use <EChart> wrapper — it is fast and eliminates lifecycle bugs. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
     "All globals (React, echarts, EChart, LoadingSpinner, useArtifactData, useFilters, useState, useEffect, useRef, useMemo, useCallback) are always available at runtime. "
     "NEVER destructure hooks from React (e.g. 'const { useState } = React') — Babel standalone cannot parse it. Use hooks directly as globals."

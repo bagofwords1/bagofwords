@@ -33,17 +33,9 @@ curl -sL "https://unpkg.com/react-dom@18/umd/react-dom.development.js" \
 curl -sL "https://unpkg.com/@babel/standalone/babel.min.js" \
   -o "$LIBS_DIR/babel-standalone.min.js"
 
-# ECharts 5 (charting library — kept for backward compatibility with older artifacts)
+# ECharts 5 (charting library)
 curl -sL "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js" \
   -o "$LIBS_DIR/echarts-5.min.js"
-
-# react-is (required by Recharts UMD)
-curl -sL "https://cdn.jsdelivr.net/npm/react-is@18.3.1/umd/react-is.production.min.js" \
-  -o "$LIBS_DIR/react-is-18.production.min.js"
-
-# Recharts (declarative React charting — used by LLM-generated dashboards)
-curl -sL "https://cdn.jsdelivr.net/npm/recharts@3.8.1/umd/Recharts.js" \
-  -o "$LIBS_DIR/recharts-3.8.1.min.js"
 
 echo "Vendored JS libraries downloaded:"
 ls -lh "$LIBS_DIR"

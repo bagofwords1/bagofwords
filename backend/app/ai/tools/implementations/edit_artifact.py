@@ -442,8 +442,9 @@ DATA ACCESS (applies to ALL edits)
 ═══════════════════════════════════════════════════════════════════════════════
 
 - `useArtifactData()` returns `{{ report, visualizations }}` or `null` while loading
-- Each viz: `{{ id, title, columns: [{{headerName, field}}], rows: [{{...}}], view, dataModel }}`
+- Each viz: `{{ id, title, columns: [{{headerName, field, dtype, unique_count}}], rows: [{{...}}], view, dataModel }}`
 - Access values: `row[column.field]`, display labels: `column.headerName`
+- Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -462,10 +463,10 @@ Use the built-in `useFilters()` hook — do NOT reimplement filter logic manuall
 - String values (FilterSearch): case-insensitive substring match
 - `{{ from, to }}` values (FilterDateRange): string comparison range
 - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
-- YOU choose which columns to filter by inspecting `viz.columns` and `viz.rows` — no auto-detection
-- Use `<FilterSelect>` for columns with repeating values (has built-in search at 8+ options)
-- Use `<FilterSearch>` for unique-value columns (titles, names)
-- Use `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} />` for date/time columns
+- YOU choose which columns to filter using `dtype` and `unique_count` from column metadata — no auto-detection
+- Use `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, has built-in search at 8+ options)
+- Use `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
+- Use `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} />` for date/time columns (dtype contains "datetime")
 - Charts that should NOT be filtered can use `viz.rows` directly without `filterRows`
 - If a viz does not have the filtered column (after mapping), its rows pass through unaffected
 - Custom overlays: always use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, `mousedown` click-outside. Use `useFilters()` for state — never duplicate locally.
@@ -688,6 +689,8 @@ Apply the edit now:"""
             rows = (step_data.get("rows") or [])[:100] if step_data else []
             raw_columns = step_data.get("columns") or [] if step_data else []
             data_model = step.data_model if step else {}
+            step_info = step_data.get("info") or {} if step_data else {}
+            column_info = step_info.get("column_info") or {}
 
             view_dict = viz.view or {}
             query_id = str(viz.query_id) if viz.query_id else None
@@ -699,6 +702,7 @@ Apply the edit now:"""
                 "view": self._create_tool._trim_none(view_dict),
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": raw_columns,
+                "column_info": column_info,
                 "row_count": len(rows),
                 "rows": rows,
                 "dataModel": data_model or {},
