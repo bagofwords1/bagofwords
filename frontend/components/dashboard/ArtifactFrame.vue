@@ -1153,9 +1153,6 @@ const iframeSrcdoc = computed(() => {
   <script crossorigin src="/libs/react-dom-18.development.js">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
-  <script src="/libs/react-is-18.production.min.js">${SC}
-  <script src="/libs/recharts-3.8.1.min.js">${SC}
-  <script>if(window.Recharts)Object.assign(window,Recharts);${SC}
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, sans-serif; }
@@ -1286,7 +1283,7 @@ const iframeSrcdoc = computed(() => {
       if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1) + 'K';
       return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
     };
-    // Global CustomTooltip for Recharts
+    // Global CustomTooltip component
     window.CustomTooltip = function(props) {
       if (!props.active || !props.payload || !props.payload.length) return null;
       var h = React.createElement;
