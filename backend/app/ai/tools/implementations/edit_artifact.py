@@ -431,7 +431,7 @@ Rules:
 - Include 2-3 lines of context in SEARCH for unambiguous matching.
 - Order blocks top to bottom.
 - Preserve existing code unless the user asked to change it.
-- For NEW charts, use `<EChart option={{...}} height={{N}} />` — 'bow' theme handles styling. Do NOT repeat theme defaults.
+- For NEW charts, prefer `<EChart option={{...}} height={{N}} />` — supports ALL ECharts types (bar, pie, radar, gauge, treemap, funnel, sankey, etc.). 'bow' theme handles base styling.
 - Do NOT output full code. Only SEARCH/REPLACE blocks. If the change feels too large for diffs, output nothing — the planner will use create_artifact instead.
 - Omit className on globals (KPICard, SectionCard, FilterSelect, FilterSearch, FilterDateRange) when using light mode — defaults handle it.
 

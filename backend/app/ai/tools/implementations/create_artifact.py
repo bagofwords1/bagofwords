@@ -1534,14 +1534,20 @@ Create a beautiful, varied presentation following these design principles. Each 
 CHARTING & COMPONENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
-**`<EChart height={{N}} option={{{{...}}}} />`** — chart wrapper. 'bow' theme pre-configures colors, tooltip, grid, axes, rounded corners. Only write data mapping:
+**`<EChart height={{N}} option={{{{...}}}} />`** — chart wrapper. Supports ALL ECharts chart types. 'bow' theme pre-configures colors, tooltip, grid, axes. For standard charts, only write data mapping:
 ```jsx
 <EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.name) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'bar', data: rows.map(r => r.val) }}] }}}} />
 <EChart height={{300}} option={{{{ tooltip: {{ trigger: 'item' }}, series: [{{ type: 'pie', radius: ['45%','75%'], data: rows.map(r => ({{ value: r.amt, name: r.lbl }})) }}] }}}} />
 <EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.date) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'line', data: rows.map(r => r.val), areaStyle: {{ opacity: 0.15 }} }}] }}}} />
 ```
+For advanced charts (radar, gauge, treemap, sunburst, funnel, sankey, calendar heatmap, parallel coordinates, graph), pass the full ECharts option — the theme still provides colors and tooltip:
+```jsx
+<EChart height={{300}} option={{{{ radar: {{ indicator: indicators }}, series: [{{ type: 'radar', data: radarData }}] }}}} />
+<EChart height={{250}} option={{{{ series: [{{ type: 'gauge', data: [{{ value: 72 }}], detail: {{ formatter: '{{value}}%' }} }}] }}}} />
+<EChart height={{400}} option={{{{ series: [{{ type: 'treemap', data: treeData }}] }}}} />
+```
 
-**Other globals** (do NOT redefine):
+**Pre-built globals** (prefer for speed, build custom React components when the design calls for it):
 - `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" />` — omit className for light mode, pass className to override theme
 - `<SectionCard title="" subtitle="">...children...</SectionCard>` — omit className for light mode
 - `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} />` — multi-select dropdown with checkboxes + built-in search (auto at 8+ options). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
@@ -1550,13 +1556,12 @@ CHARTING & COMPONENTS
 - `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
 - `<LoadingSpinner size={{32}} />`
 
-⚠️ **CRITICAL — KEEP OUTPUT SHORT:**
-- Target **under 8K characters** of code. Be concise.
-- Do NOT pass className/titleClassName/subtitleClassName to globals when using light mode — omit them entirely, the defaults handle it.
-- Do NOT repeat theme styling (axes, grid, tooltip, colors, borderRadius) — the 'bow' theme provides all of it.
-- Do NOT write custom table/sort/search components — use simple `<table>` with minimal markup.
-- Do NOT over-engineer: no custom hooks, no elaborate helper functions, no verbose comments.
+⚠️ **KEEP OUTPUT COMPACT:**
+- Target **under 8K characters** of code. Be concise — but don't sacrifice UX quality for brevity.
+- Omit className/titleClassName on globals when using light mode — defaults handle it.
+- Don't repeat theme styling (axes, grid, tooltip, colors) — the 'bow' theme provides it.
 - Prefer inline expressions over separate variables when used once.
+- Keep helper functions short. Custom components are fine when the design needs them — just keep them focused.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS
@@ -1609,7 +1614,8 @@ DESIGN PRINCIPLES
 
 - Polished, executive-ready. Minimalist — whitespace, clean typography. Light mode default.
 - Show data from different angles without redundancy. Narrative > decoration.
-- Use globals: `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for wrappers, `<FilterSelect>`/`<FilterSearch>`/`<FilterDateRange>` for filters, `fmt()` for numbers
+- Choose the best visualization for the data: standard charts (bar, line, pie) for simple data; advanced charts (radar, gauge, treemap, funnel, sankey, etc.) when the data structure or user request calls for it
+- Prefer globals (`<EChart>`, `<KPICard>`, `<SectionCard>`, `<FilterSelect>`, `fmt()`) for speed — but build custom React components with Tailwind when the design requires something the globals don't cover
 - Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
 - YOU choose which columns to filter — use `dtype` and `unique_count` from the column metadata:
   - `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, dtype "object"/"int64" with few values)
@@ -1620,8 +1626,8 @@ DESIGN PRINCIPLES
 - If two vizs have semantically the same column but different field names, use field mapping: `filterRows(viz[1].rows, {{ country: 'CountryName' }})`
 - Include a Reset button when any filters are active (`Object.keys(filters).length > 0`)
 - After filtering, if a visualization has zero matching rows, display "No data matches current filters"
-- If you need a custom overlay/dropdown beyond the globals: always use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, and a `mousedown` click-outside listener. Use `useFilters()` for state — do NOT duplicate filter state locally.
-- User's explicit requests override all defaults
+- Custom overlays/dropdowns: use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, and a `mousedown` click-outside listener. Use `useFilters()` for state — do NOT duplicate filter state locally.
+- User's explicit requests override all defaults — if they ask for creative, unique, or advanced visualizations, prioritize that over compactness
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT

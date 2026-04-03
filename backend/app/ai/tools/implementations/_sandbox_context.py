@@ -24,16 +24,17 @@ references to any of them:
   - Hooks are also global: `useState`, `useEffect`, `useRef`, `useMemo`, `useCallback` — use directly without `React.` prefix
 
 • **ECharts 5** — `echarts` available globally
-  - Use the `<EChart>` wrapper component (see below) — do NOT use raw echarts.init/dispose
-  - Full ECharts option API: bar, line, pie, scatter, radar, treemap, heatmap, gauge, etc.
+  - Prefer the `<EChart>` wrapper component (see below) for standard charts
+  - Full ECharts option API supported: bar, line, pie, scatter, radar, treemap, sunburst, heatmap, gauge, funnel, sankey, parallel, calendar, graph, etc.
 
 • **`<EChart>`** — Global React wrapper for ECharts (handles init/dispose/resize)
   - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string)
   - Usage: `<EChart height={400} option={{ xAxis: {...}, series: [...] }} />`
-  - NO useRef, NO useEffect, NO echarts.init — just pass the option object
+  - Supports ALL ECharts chart types — pass any valid ECharts option object
   - Auto-resizes via ResizeObserver
   - Uses 'bow' theme: colors, tooltip, grid, axis styling, rounded corners all pre-configured
-  - Only specify data mapping in option — do NOT repeat styling the theme provides
+  - For standard charts, only specify data mapping — the theme handles styling
+  - For advanced charts (gauge, radar, treemap, sankey, etc.), specify the full option — the theme still provides colors and tooltip
 
 • **Tailwind CSS (v3.4)** — All utility classes available
   - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
@@ -61,7 +62,7 @@ references to any of them:
   - Cross-viz safe: if a row does not have the filtered column (after mapping), it passes through unaffected
   - No automatic column detection — YOU choose which columns to filter using `dtype` and `unique_count` from `visualizations[N].columns`
 
-• **Pre-built UI components** — all global, do NOT redefine:
+• **Pre-built UI components** — all global, prefer these for speed but build custom components when the design requires it:
   - `<LoadingSpinner size={24} className="" />` — animated spinner
   - `<CustomTooltip />` — dark styled tooltip component (props: active, payload, label)
   - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
@@ -75,12 +76,10 @@ references to any of them:
 
 The code is rendered into `<div id="root">`.
 
-CUSTOM OVERLAY/DROPDOWN COMPONENTS (only if globals don't cover your need):
-- Always use inline `style={{ backgroundColor: '#fff' }}` on dropdown/overlay panels
-- Always use `z-50` + `position: absolute` (or fixed for modals)
-- Always add click-outside-to-close via `mousedown` listener on `document`
-- Use `useFilters()` for filter state — call `setFilter(field, value)` to update, `filterRows(rows)` to read
-- Do NOT duplicate filter state in local component state
+CUSTOM COMPONENTS — build your own when the user's design requires something the globals don't cover:
+- You have full React 18 + Tailwind + ECharts — use them creatively for custom UX (tabs, progress bars, sparklines, custom legends, interactive tables, etc.)
+- Custom overlays/dropdowns: use inline `style={{ backgroundColor: '#fff' }}`, `z-50`, `absolute`, and a `mousedown` click-outside listener
+- Use `useFilters()` for filter state — call `setFilter(field, value)` to update, `filterRows(rows)` to read. Do NOT duplicate filter state in local component state
 """.strip()
 
 
@@ -101,9 +100,9 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "for cross-viz column name differences e.g. filterRows(rows, { country: 'CountryName' }). "
     "Array filter values = exact match (FilterSelect), string values = substring search (FilterSearch), "
     "{from,to} values = date range (FilterDateRange)), "
-    "<EChart option=... height=N /> wrapper with 'bow' theme (handles init/dispose/resize/styling — do NOT use raw echarts.init, do NOT repeat theme styling), "
-    "Pre-built globals (do NOT redefine): LoadingSpinner, KPICard, SectionCard, FilterSelect (with built-in search at 8+ options), FilterSearch, FilterDateRange, fmt(). "
-    "For charts, use <EChart> wrapper — it is fast and eliminates lifecycle bugs. "
+    "<EChart option=... height=N /> wrapper with 'bow' theme (handles init/dispose/resize/styling — supports ALL ECharts chart types including radar, gauge, treemap, funnel, sankey, etc.), "
+    "Pre-built globals (prefer for speed, but build custom React components when the design requires it): LoadingSpinner, KPICard, SectionCard, FilterSelect (with built-in search at 8+ options), FilterSearch, FilterDateRange, fmt(). "
+    "Full React 18 + Tailwind + ECharts available for custom components when needed. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
     "All globals (React, echarts, EChart, LoadingSpinner, useArtifactData, useFilters, useState, useEffect, useRef, useMemo, useCallback) are always available at runtime. "
     "NEVER destructure hooks from React (e.g. 'const { useState } = React') — Babel standalone cannot parse it. Use hooks directly as globals."
