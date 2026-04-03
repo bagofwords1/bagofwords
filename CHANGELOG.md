@@ -5,6 +5,7 @@
 - Improved dashboard generation speed and performance
 - Add to dashboard button to instantly add widgets to artifact
 - Added "Polish" dashboard for a quick update
+- Added sandbox md for better agentic coding development
 
 ## Version 0.0.353 (March 30, 2026)
 - feat: new a2a integration for timbr

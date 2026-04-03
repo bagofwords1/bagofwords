@@ -793,8 +793,22 @@ async function fetchData(artifactId?: string) {
       }
     }
 
-    visualizationsData.value = vizData;
-    console.log('[ArtifactFrame] Fetched', vizData.length, 'visualizations');
+    // Reorder vizData to match artifact's visualization_ids order
+    // (artifact code references viz[0], viz[1], etc. by index)
+    const vizIds = selectedArtifact.value?.content?.visualization_ids;
+    if (vizIds && vizIds.length > 0) {
+      const vizMap = new Map(vizData.map(v => [v.id, v]));
+      const ordered = vizIds.map((id: string) => vizMap.get(id)).filter(Boolean);
+      // Append any extras not in visualization_ids
+      const orderedIds = new Set(vizIds);
+      for (const v of vizData) {
+        if (!orderedIds.has(v.id)) ordered.push(v);
+      }
+      visualizationsData.value = ordered;
+    } else {
+      visualizationsData.value = vizData;
+    }
+    console.log('[ArtifactFrame] Fetched', visualizationsData.value.length, 'visualizations');
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
     dataReady.value = true;
