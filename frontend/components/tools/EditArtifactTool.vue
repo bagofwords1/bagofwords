@@ -36,6 +36,16 @@
       </span>
 
       <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
+
+      <!-- View button (always visible in header) -->
+      <button
+        v-if="createdArtifact || status === 'running'"
+        class="ml-auto flex items-center gap-0.5 text-[10px] text-blue-500 hover:text-blue-700 transition-colors"
+        @click.stop="openArtifact"
+      >
+        <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
+        View
+      </button>
     </div>
 
     <!-- Stopped/Error message -->
@@ -44,15 +54,57 @@
       {{ errorMessage }}
     </div>
 
-    <!-- Edit instruction summary (always visible, truncated) -->
-    <div v-if="editInstruction" class="mt-0.5 ml-[18px] text-[11px] text-gray-400 truncate max-w-md" :title="editInstruction">
-      {{ editInstruction }}
+    <!-- Plan prompt (always visible, expandable) -->
+    <div v-if="editInstruction" class="mt-1 ml-[18px] text-xs text-gray-500 max-w-lg">
+      <span class="font-medium text-gray-600">Plan:</span>
+      <span :class="{ 'line-clamp-2': !promptExpanded }" class="ml-1">{{ editInstruction }}</span>
+      <button
+        v-if="editInstruction.length > 120"
+        class="ml-1 text-blue-500 hover:text-blue-700 text-[11px] font-medium"
+        @click="promptExpanded = !promptExpanded"
+      >
+        {{ promptExpanded ? 'less' : 'more' }}
+      </button>
+    </div>
+
+    <!-- Preview Card with thumbnail (always visible) -->
+    <div
+      v-if="(status === 'success' && createdArtifact) || status === 'running'"
+      class="mt-2 ml-[18px] cursor-pointer group max-w-sm"
+      @click="openArtifact"
+    >
+      <div class="rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all overflow-hidden">
+        <!-- Thumbnail -->
+        <div class="aspect-[16/9] bg-gray-50 relative overflow-hidden">
+          <img
+            v-if="thumbnailUrl && !thumbnailError"
+            :src="thumbnailUrl"
+            :alt="artifactTitle || 'Dashboard preview'"
+            class="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
+            @error="thumbnailError = true"
+          />
+          <div v-else class="w-full h-full flex items-center justify-center">
+            <Spinner v-if="status === 'running'" class="w-6 h-6 text-blue-400" />
+            <Icon v-else name="heroicons:pencil-square" class="w-8 h-8 text-gray-300" />
+          </div>
+        </div>
+        <!-- Card footer -->
+        <div class="px-3 py-2 flex items-center gap-2">
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-gray-800 truncate">{{ artifactTitle || 'Untitled' }}</div>
+            <div class="text-xs text-gray-400">
+              <span v-if="status === 'running'">Editing...</span>
+              <span v-else>Dashboard edited</span>
+            </div>
+          </div>
+          <Icon name="heroicons:arrow-top-right-on-square" class="w-4 h-4 text-gray-400 group-hover:text-blue-500 flex-shrink-0 transition-colors" />
+        </div>
+      </div>
     </div>
 
     <!-- Confirmation card (outside collapsible, always visible) -->
-    <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ml-4 rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+    <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ml-[18px] rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
       <div class="text-xs font-medium text-gray-700">Confirm artifact edit</div>
-      <!-- Viz badges -->
       <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
         <span
           v-for="viz in confirmation.visualizations"
@@ -62,13 +114,11 @@
           {{ viz.title }}
         </span>
       </div>
-      <!-- Editable title input -->
       <input
         v-model="editableTitle"
         class="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:border-blue-400"
         placeholder="Artifact title"
       />
-      <!-- Actions -->
       <div class="flex items-center gap-2">
         <button
           class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
@@ -88,7 +138,7 @@
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed" class="mt-2 ml-4 space-y-2">
+      <div v-if="!isCollapsed" class="mt-2 ml-[18px] space-y-2">
         <!-- Resolved viz badges -->
         <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="flex flex-wrap gap-1">
           <span
@@ -122,37 +172,6 @@
             <span>Processing...</span>
           </div>
         </div>
-
-        <!-- Preview Card (on success or running) -->
-        <div
-          v-if="(status === 'success' && createdArtifact) || status === 'running'"
-          class="mt-1 cursor-pointer group"
-          @click="openArtifact"
-        >
-          <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all max-w-xs">
-            <div class="w-8 h-8 rounded flex-shrink-0 flex items-center justify-center bg-blue-50">
-              <Spinner v-if="status === 'running'" class="w-4 h-4 text-blue-500" />
-              <Icon v-else name="heroicons:pencil-square" class="w-4 h-4 text-blue-500" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-xs font-medium text-gray-700 truncate">{{ artifactTitle || 'Untitled' }}</div>
-              <div class="text-[10px] text-gray-400">
-                <span v-if="status === 'running'">Editing...</span>
-                <span v-else>Dashboard edited</span>
-              </div>
-              <button
-                v-if="createdArtifact"
-                @click.stop="copyArtifactId"
-                class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 font-mono mt-0.5"
-                title="Click to copy ID"
-              >
-                <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
-                {{ createdArtifact.slice(0, 8) }}
-              </button>
-            </div>
-            <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 flex-shrink-0" />
-          </div>
-        </div>
       </div>
     </Transition>
   </div>
@@ -170,6 +189,7 @@ interface Props {
     arguments_json?: {
       artifact_id?: string
       edit_instruction?: string
+      edit_prompt?: string
       title?: string
     }
     result_json?: {
@@ -194,6 +214,8 @@ const emit = defineEmits(['openArtifact', 'toggleSplitScreen'])
 const toast = useToast()
 
 const isCollapsed = ref(true)
+const promptExpanded = ref(false)
+const thumbnailError = ref(false)
 
 // Basic computed values
 const status = computed(() => props.toolExecution.status)
@@ -208,9 +230,17 @@ const artifactTitle = computed(() =>
   ''
 )
 const createdArtifact = computed(() => props.toolExecution.result_json?.artifact_id)
+
+const config = useRuntimeConfig()
+const thumbnailUrl = computed(() => {
+  const id = createdArtifact.value
+  if (!id) return null
+  return `${config.public.baseURL}/thumbnails/${id}.png`
+})
+
 const artifactVersion = computed(() => props.toolExecution.result_json?.version)
 const diffApplied = computed(() => props.toolExecution.result_json?.diff_applied ?? null)
-const editInstruction = computed(() => props.toolExecution.arguments_json?.edit_instruction || '')
+const editInstruction = computed(() => props.toolExecution.arguments_json?.edit_prompt || props.toolExecution.arguments_json?.edit_instruction || '')
 
 // Confirmation state
 const confirmation = computed(() => (props.toolExecution as any).confirmation || null)

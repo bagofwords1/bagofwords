@@ -198,19 +198,18 @@
         v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError"
         class="absolute bottom-4 left-4 z-20"
       >
-        <UTooltip text="Polish dashboard" :popper="{ placement: 'right' }">
-          <button
-            @click="togglePolishMode"
-            :class="[
-              'w-10 h-10 flex items-center justify-center rounded-full shadow-lg transition-all',
-              isPolishMode
-                ? 'bg-indigo-600 text-white hover:bg-indigo-700 ring-2 ring-indigo-300'
-                : 'bg-gray-800 text-gray-100 hover:bg-gray-700'
-            ]"
-          >
-            <Icon name="heroicons:paint-brush" class="w-5 h-5" />
-          </button>
-        </UTooltip>
+        <button
+          @click="togglePolishMode"
+          :class="[
+            'flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all',
+            isPolishMode
+              ? 'bg-indigo-600 text-white hover:bg-indigo-700 ring-2 ring-indigo-300'
+              : 'bg-gray-800 text-gray-100 hover:bg-gray-700'
+          ]"
+        >
+          <Icon name="heroicons:paint-brush" class="w-4 h-4" />
+          <span class="text-xs font-medium">Polish Dashboard</span>
+        </button>
       </div>
 
       <!-- Polish Prompt Box -->
