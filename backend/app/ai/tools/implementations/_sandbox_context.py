@@ -59,7 +59,7 @@ references to any of them:
     - `{ from, to }` values (from FilterDateRange): string comparison range — row passes if `from <= value <= to`
   - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
   - Cross-viz safe: if a row does not have the filtered column (after mapping), it passes through unaffected
-  - No automatic column detection — YOU choose which columns to filter by inspecting `visualizations[N].columns` and `visualizations[N].rows`
+  - No automatic column detection — YOU choose which columns to filter using `dtype` and `unique_count` from `visualizations[N].columns`
 
 • **Pre-built UI components** — all global, do NOT redefine:
   - `<LoadingSpinner size={24} className="" />` — animated spinner
@@ -95,7 +95,9 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "useArtifactData() hook (returns { report, visualizations } or null while loading), "
     "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } "
     "for cross-visualization filtering — no auto column detection, LLM chooses which columns to filter "
-    "by inspecting viz.columns/rows. filterRows(rows, fieldMap?) supports optional field mapping "
+    "using dtype and unique_count from viz.columns (e.g. dtype 'object' + unique_count < 50 → FilterSelect, "
+    "dtype 'datetime64[ns]' → FilterDateRange, high unique_count → FilterSearch). "
+    "filterRows(rows, fieldMap?) supports optional field mapping "
     "for cross-viz column name differences e.g. filterRows(rows, { country: 'CountryName' }). "
     "Array filter values = exact match (FilterSelect), string values = substring search (FilterSearch), "
     "{from,to} values = date range (FilterDateRange)), "

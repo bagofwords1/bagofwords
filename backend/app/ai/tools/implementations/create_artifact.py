@@ -523,12 +523,29 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
         """Build a privacy-aware profile of a visualization's data."""
+        # Enrich columns with dtype/unique_count/min/max from column_info (always — not sensitive)
+        column_info = viz.get("column_info") or {}
+        raw_columns = viz.get("columns", [])
+        enriched_columns = []
+        for c in raw_columns:
+            col = dict(c) if isinstance(c, dict) else {"field": c}
+            field = col.get("field") or col.get("headerName") or col.get("name")
+            if field and field in column_info:
+                meta = column_info[field]
+                col["dtype"] = meta.get("dtype")
+                col["unique_count"] = meta.get("unique_count")
+                if meta.get("min") is not None:
+                    col["min"] = meta["min"]
+                if meta.get("max") is not None:
+                    col["max"] = meta["max"]
+            enriched_columns.append(col)
+
         profile: Dict[str, Any] = {
             "id": viz.get("id"),
             "title": viz.get("title"),
             "chart_type": viz.get("data_model_type") or "table",
             "row_count": viz.get("row_count", 0),
-            "columns": viz.get("columns", []),
+            "columns": enriched_columns,
         }
 
         # Include data model hints
@@ -725,6 +742,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
             rows = (step_data.get("rows") or [])[:100] if step_data else []
             raw_columns = step_data.get("columns") or [] if step_data else []
             data_model = step.data_model if step else {}
+            step_info = step_data.get("info") or {} if step_data else {}
+            column_info = step_info.get("column_info") or {}
 
             # Keep raw column objects (with field/headerName) — matches the prompt contract
             columns = raw_columns
@@ -750,6 +769,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 "view": self._trim_none(view_dict),
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": columns,
+                "column_info": column_info,
                 "row_count": len(rows),
                 "rows": rows,
                 "dataModel": data_model or {},
@@ -1552,7 +1572,7 @@ Each visualization:
 {{
   id: "uuid",
   title: "Visualization Title",
-  columns: [{{ "headerName": "Album Title", "field": "AlbumTitle" }}, ...],
+  columns: [{{ "headerName": "Album Title", "field": "AlbumTitle", "dtype": "object", "unique_count": 150 }}, ...],
   rows: [{{ "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }}, ...],
   view: {{ /* chart config hints */ }},
   dataModel: {{ /* series/axis config */ }}
@@ -1561,6 +1581,7 @@ Each visualization:
 
 - Use `column.field` to access row values: `row[column.field]`
 - Use `column.headerName` for display labels
+- Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **NEVER hardcode data** — ALL values must come from `data.visualizations[N].rows`
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1590,10 +1611,10 @@ DESIGN PRINCIPLES
 - Show data from different angles without redundancy. Narrative > decoration.
 - Use globals: `<EChart>` for charts, `<KPICard>` for metrics, `<SectionCard>` for wrappers, `<FilterSelect>`/`<FilterSearch>`/`<FilterDateRange>` for filters, `fmt()` for numbers
 - Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
-- YOU choose which columns to filter — inspect each viz's `columns` and `rows` to decide:
-  - `<FilterSelect>` for columns with repeating values (country, genre, status)
-  - `<FilterSearch>` for mostly-unique columns (titles, names)
-  - `<FilterDateRange>` for date/time columns (YYYY-MM, YYYY-MM-DD, timestamps)
+- YOU choose which columns to filter — use `dtype` and `unique_count` from the column metadata:
+  - `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, dtype "object"/"int64" with few values)
+  - `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
+  - `<FilterDateRange>` for date/time columns (dtype contains "datetime" or values are date strings)
 - Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
 - Call `filterRows(viz[N].rows)` on each visualization's rows to apply active filters
 - If two vizs have semantically the same column but different field names, use field mapping: `filterRows(viz[1].rows, {{ country: 'CountryName' }})`
