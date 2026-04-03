@@ -1622,8 +1622,32 @@ DESIGN PRINCIPLES
   - `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
   - `<FilterDateRange>` for date/time columns (dtype contains "datetime" or values are date strings)
 - Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
-- Call `filterRows(viz[N].rows)` on each visualization's rows to apply active filters
+
+FILTER DECISION PER VISUALIZATION:
+- For each viz, check if its rows contain the filter column. If yes → use `filterRows(viz[N].rows)` as the data source for ALL downstream derivations (useMemo, .map(), chart options, etc.)
 - If two vizs have semantically the same column but different field names, use field mapping: `filterRows(viz[1].rows, {{ country: 'CountryName' }})`
+- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard experience.
+
+EXAMPLE 1 — Dashboard with KPI, bar chart, and detail table sharing a "region" filter:
+  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
+  const regions = useMemo(() => [...new Set(vizSales.rows.map(r => r.region))], [vizSales]);
+  // KPI: recalculate from filtered rows
+  const filteredSales = filterRows(vizSales.rows);
+  const totalRevenue = useMemo(() => filteredSales.reduce((s, r) => s + r.revenue, 0), [filteredSales]);
+  // Bar chart: derive labels/values from filtered rows
+  const chartData = useMemo(() => ({{
+    labels: filteredSales.map(r => r.month),
+    values: filteredSales.map(r => r.revenue)
+  }}), [filteredSales]);
+  // Detail table
+  const filteredDetails = filterRows(vizDetails.rows);
+
+EXAMPLE 2 — Simple table + chart with category filter:
+  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
+  const categories = useMemo(() => [...new Set(vizProducts.rows.map(r => r.category))], [vizProducts]);
+  const filtered = filterRows(vizProducts.rows);
+  // Both the table and chart use filtered as their data source
+
 - Include a Reset button when any filters are active (`Object.keys(filters).length > 0`)
 - After filtering, if a visualization has zero matching rows, display "No data matches current filters"
 - Custom overlays/dropdowns: use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, and a `mousedown` click-outside listener. Use `useFilters()` for state — do NOT duplicate filter state locally.

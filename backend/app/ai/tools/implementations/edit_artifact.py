@@ -467,8 +467,14 @@ Use the built-in `useFilters()` hook — do NOT reimplement filter logic manuall
 - Use `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, has built-in search at 8+ options)
 - Use `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
 - Use `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} />` for date/time columns (dtype contains "datetime")
-- Charts that should NOT be filtered can use `viz.rows` directly without `filterRows`
+
+FILTER DECISION PER VISUALIZATION:
+- For each viz, check if its rows contain the filter column. If yes → use `filterRows(viz[N].rows)` as the data source for ALL downstream derivations (useMemo, .map(), chart options, etc.)
+- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
 - If a viz does not have the filtered column (after mapping), its rows pass through unaffected
+
+WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders). If it reads from viz[N].rows and the viz should be filtered, switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
+
 - Custom overlays: always use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, `mousedown` click-outside. Use `useFilters()` for state — never duplicate locally.
 
 Apply the user's edit now:"""

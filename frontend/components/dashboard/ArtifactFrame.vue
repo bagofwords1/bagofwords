@@ -1490,6 +1490,15 @@ const iframeSrcdoc = computed(() => {
       }
     });
 
+    // Wrap tooltip formatters with try/catch to prevent crashes (e.g. hovering visualMap)
+    function safeOption(opt) {
+      if (opt && opt.tooltip && typeof opt.tooltip.formatter === 'function') {
+        var orig = opt.tooltip.formatter;
+        opt.tooltip.formatter = function() { try { return orig.apply(this, arguments); } catch(e) { return ''; } };
+      }
+      return opt;
+    }
+
     // Global EChart React wrapper — handles init/dispose/resize automatically
     window.EChart = function(props) {
       var ref = React.useRef(null);
@@ -1499,14 +1508,14 @@ const iframeSrcdoc = computed(() => {
         if (!ref.current) return;
         var chart = echarts.init(ref.current, 'bow');
         chartRef.current = chart;
-        if (props.option) chart.setOption(props.option);
+        if (props.option) chart.setOption(safeOption(props.option));
         var ro = new ResizeObserver(function() { chart.resize(); });
         ro.observe(ref.current);
         return function() { ro.disconnect(); chart.dispose(); };
       }, []);
       React.useEffect(function() {
         if (chartRef.current && props.option) {
-          chartRef.current.setOption(props.option, true);
+          chartRef.current.setOption(safeOption(props.option), true);
         }
       }, [props.option]);
       return React.createElement('div', {
