@@ -17,6 +17,65 @@ Claude edits code
       Not sure?        → curl the API and check the response
 ```
 
+## Environment Setup
+
+### Prerequisites
+
+Requires Python 3.12+ (the codebase uses PEP 701 f-string syntax), Node 22, and yarn.
+
+### System Dependencies
+
+```bash
+# Needed for psycopg2 build
+apt-get install -y libpq-dev
+
+# Upgrade setuptools (needed for thrift transitive dep)
+pip install --upgrade setuptools
+```
+
+### Backend
+
+```bash
+cd backend
+
+# Use Python 3.12 venv (system python may be 3.11)
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# Install deps
+pip install -r requirements_versioned.txt
+
+# Required env vars (dev config references these)
+export BOW_DATABASE_URL="sqlite:///db/app.db"
+export BOW_SMTP_PASSWORD="dummy"
+
+# Create directories and run migrations
+mkdir -p db uploads/files uploads/branding
+alembic upgrade head
+
+# Start server (auto-reloads on .py changes)
+python main.py &
+```
+
+### Frontend
+
+```bash
+cd frontend
+yarn install
+
+# Start dev server (HMR on .vue/.ts changes)
+yarn dev &
+```
+
+### Playwright (for frontend screenshots)
+
+```bash
+cd frontend
+npx playwright install --with-deps chromium
+```
+
+Note: The dev config is loaded from `configs/bow-config.dev.yaml` (not the root `bow-config.yaml`).
+
 ## Sandbox Setup
 
 ### First-Time Setup
@@ -261,14 +320,21 @@ For LLM-generated UI (non-deterministic — can't assert, must look):
 4. If wrong → edit code → servers hot-reload → re-trigger → re-screenshot
 ```
 
-## State Inspection: sqlite3
+## State Inspection: SQLite
 
 ```bash
-# Check what's in the DB
+# If sqlite3 CLI is available:
 sqlite3 backend/db/app.db "SELECT id, title, status FROM reports"
-sqlite3 backend/db/app.db "SELECT id, mode, version FROM artifacts"
 sqlite3 backend/db/app.db ".tables"
-sqlite3 backend/db/app.db ".schema reports"
+
+# If not (common in sandboxes), use Python:
+python -c "
+import sqlite3
+conn = sqlite3.connect('backend/db/app.db')
+for row in conn.execute('SELECT id, title, status FROM reports'):
+    print(row)
+conn.close()
+"
 ```
 
 ## Decision Matrix
