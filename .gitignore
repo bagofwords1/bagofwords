@@ -37,3 +37,6 @@ backend/logs
 *.pyc
 backend/alembic.ini
 backend/app.db
+
+# Sandbox session state (credentials, tokens, IDs)
+backend/sandbox_state.json

@@ -76,11 +76,34 @@ npx playwright install --with-deps chromium
 
 Note: The dev config is loaded from `configs/bow-config.dev.yaml` (not the root `bow-config.yaml`).
 
+## Session State: `backend/sandbox_state.json`
+
+All session data (credentials, tokens, IDs) is stored in `backend/sandbox_state.json`. This file is **gitignored** — it never gets committed. Claude reads it at session start and updates it after setup/login.
+
+```json
+{
+  "credentials": {
+    "email": "sandbox@bow.dev",
+    "password": "Sandbox123!"
+  },
+  "session": {
+    "token": "eyJ...",
+    "org_id": "...",
+    "ds_id": "..."
+  },
+  "endpoints": {
+    "backend": "http://localhost:8000",
+    "frontend": "http://localhost:3000"
+  },
+  "db_path": "backend/db/app.db"
+}
+```
+
 ## Sandbox Setup
 
 ### First-Time Setup
 
-If the sandbox user doesn't exist yet, create it:
+If the sandbox user doesn't exist yet (or `sandbox_state.json` has null session values):
 
 ```bash
 # 1. Register sandbox user
@@ -109,27 +132,20 @@ curl -X POST http://localhost:8000/api/data_sources/demos/$DEMO_ID \
   -H "Authorization: Bearer $TOKEN" \
   -H "X-Organization-Id: $ORG_ID"
 # → {"id": "...", "data_source_id": "..."}  — save data source id
+
+# 5. Update sandbox_state.json with token, org_id, ds_id
 ```
 
 ### Returning Session
 
-If the sandbox user already exists, just login:
+If `sandbox_state.json` already has session values, just re-login to refresh the token:
 
 ```bash
 curl -X POST http://localhost:8000/api/auth/jwt/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d 'username=sandbox@bow.dev&password=Sandbox123!'
+# Update token in sandbox_state.json
 ```
-
-### Known Credentials
-
-| | Value |
-|---|---|
-| Email | `sandbox@bow.dev` |
-| Password | `Sandbox123!` |
-| DB path | `backend/db/app.db` |
-| Backend | `http://localhost:8000` |
-| Frontend | `http://localhost:3000` |
 
 ## Auth Pattern
 
