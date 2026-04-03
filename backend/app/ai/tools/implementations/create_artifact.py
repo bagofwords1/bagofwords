@@ -4,7 +4,6 @@ import json
 import logging
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Type, List, Optional
-from uuid import uuid4
 
 import aiofiles
 from pydantic import BaseModel
@@ -24,9 +23,7 @@ from app.ai.tools.schemas import (
     ToolStartEvent,
     ToolProgressEvent,
     ToolEndEvent,
-    ToolConfirmationEvent,
 )
-from app.ai.tools.confirmation import wait_for_confirmation
 from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArtifactOutput
 from app.ai.llm import LLM
 from app.ai.llm.types import ImageInput
@@ -809,30 +806,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_profiles"})
         viz_profiles = [self._build_viz_profile(v, allow_llm_see_data) for v in visualizations]
 
-        # Emit confirmation request and wait for user approval
-        confirmation_id = str(uuid4())
-        yield ToolConfirmationEvent(type="tool.confirmation", payload={
-            "stage": "awaiting_confirmation",
-            "confirmation_id": confirmation_id,
-            "title": data.title or "Untitled Artifact",
-            "mode": data.mode,
-            "visualizations": [
-                {"id": v["id"], "title": v["title"], "type": v.get("data_model_type", "")}
-                for v in visualizations
-            ],
-        })
-        confirmation = await wait_for_confirmation(confirmation_id, timeout=5.0)
-        if not confirmation.get("approved", True):
-            yield ToolEndEvent(type="tool.end", payload={
-                "output": {"error": "User cancelled"},
-                "observation": {"error": "User cancelled artifact creation"},
-            })
-            return
-        # Apply any user edits (e.g., updated title)
-        if confirmation.get("title"):
-            data.title = confirmation["title"]
-
-        # Emit visualizations_resolved so badges persist after confirmation
+        # Emit visualizations_resolved
         yield ToolProgressEvent(type="tool.progress", payload={
             "stage": "visualizations_resolved",
             "tool_name": "create_artifact",

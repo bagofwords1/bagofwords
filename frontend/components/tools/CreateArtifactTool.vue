@@ -30,15 +30,15 @@
       <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
-    <!-- Expanded content: Plan, viz badges, errors -->
+    <!-- Expanded content -->
     <template v-if="!isCollapsed">
       <!-- Plan prompt -->
-      <div v-if="artifactPrompt" class="mt-1 ml-[18px] text-xs text-gray-500 max-w-lg">
-        <span class="font-medium text-gray-600">Plan:</span>
-        <span :class="{ 'line-clamp-2': !promptExpanded }" class="ml-1">{{ artifactPrompt }}</span>
+      <div v-if="artifactPrompt" class="mt-0.5 ml-[18px] text-xs text-gray-400 max-w-lg">
+        <span>Plan: </span>
+        <span :class="{ 'line-clamp-1': !promptExpanded }">{{ artifactPrompt }}</span>
         <button
-          v-if="artifactPrompt.length > 120"
-          class="ml-1 text-blue-500 hover:text-blue-700 text-[11px] font-medium"
+          v-if="artifactPrompt.length > 80"
+          class="ml-1 text-blue-400 hover:text-blue-600 text-[11px]"
           @click="promptExpanded = !promptExpanded"
         >
           {{ promptExpanded ? 'less' : 'more' }}
@@ -80,7 +80,7 @@
                     : 'bg-gray-100 text-gray-400'
               ]"
             >
-              {{ idx + 1 }}
+              {{ Number(idx) + 1 }}
             </div>
           </div>
         </div>
@@ -132,14 +132,12 @@
           <span class="text-[10px] text-gray-400">Auto-approving in {{ confirmationCountdown }}s</span>
         </div>
       </div>
-    </template>
-
-    <!-- Preview Card (always visible) -->
-    <div
-      v-if="(status === 'success' && createdArtifact) || status === 'running'"
-      class="mt-1.5 ml-[18px] cursor-pointer group"
-      @click="openArtifact"
-    >
+      <!-- Preview Card -->
+      <div
+        v-if="(status === 'success' && createdArtifact) || status === 'running'"
+        class="mt-1.5 ml-[18px] cursor-pointer group"
+        @click="openArtifact"
+      >
       <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all max-w-xs">
         <!-- Thumbnail -->
         <div
@@ -184,6 +182,7 @@
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 flex-shrink-0" />
       </div>
     </div>
+    </template>
   </div>
 </template>
 
