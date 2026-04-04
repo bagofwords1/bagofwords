@@ -5,7 +5,8 @@
       "Bash(ls:*)",
       "Bash(grep:*)",
       "Grep",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(cat:*)"
     ]
   }
 }

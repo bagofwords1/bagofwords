@@ -1482,9 +1482,10 @@ DESIGN PRINCIPLES
 - Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
 
 FILTER PLACEMENT — global vs local:
-- **Global filter** (column exists in 2+ visualizations): place in a top-level filter bar above all content. Prefer one shared filter over duplicates — if two vizs have the same column with different names, use one filter + `fieldMap`.
+- **Global filter** (filter is important and affects multiple visualizations): place in a top-level filter bar above all content. Prefer one shared filter over duplicates — if two vizs have the same column with different names, use one filter + `fieldMap`.
 - **Local filter** (column only in 1 visualization): place INSIDE that visualization's `<SectionCard>`, visually next to the chart/table it affects.
-- When in doubt, prefer global — one filter controlling multiple vizs is better UX than many local filters.
+- If possible, prefer global — one filter controlling multiple vizs is better UX than many local filters.
+- When adding filters that affect multiple visualizations, add some indication in the UI that they are linked and filtered.
 
 FILTER DATA FLOW — CRITICAL:
 - Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
