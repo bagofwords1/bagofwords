@@ -71,6 +71,43 @@
 							<div class="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
 						</div>
 
+						<!-- Scheduled prompt: collapsible header + user bubble when expanded -->
+						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
+							<button
+								@click="toggleScheduledExpand(m.id)"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors mb-2"
+							>
+								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
+								<span class="font-medium text-gray-500">Scheduled run</span>
+								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
+								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
+								<span v-if="getScheduledStats(m)" class="text-gray-400">{{ getScheduledStats(m) }}</span>
+								<Icon :name="isScheduledExpanded(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 ml-auto flex-shrink-0" />
+							</button>
+							<!-- User bubble shown inside the collapsible area -->
+							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
+								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
+									<div class="flex-1 flex justify-end">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left" dir="auto">
+											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
+												<MDC :value="m.prompt.content" class="markdown-content" />
+											</div>
+										</div>
+									</div>
+									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
+										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+											{{ report.user.name.charAt(0) }}
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Scheduled system message: hide when user header is collapsed -->
+						<template v-else-if="m.scheduled_prompt_id && m.role === 'system' && !isScheduledSystemExpanded(m)">
+							<!-- collapsed -->
+						</template>
+
 						<!-- Regular message rendering -->
 						<div
 							v-else
@@ -330,15 +367,28 @@
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
 					:queryList="queryList"
+					:scheduledPrompts="scheduledPrompts"
 					:hasArtifacts="hasArtifacts"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
 					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
 					@scrollToMessage="scrollToMessage"
+					@editScheduledPrompt="editScheduledPrompt"
+					@deleteScheduledPrompt="deleteScheduledPrompt"
+					@toggleScheduledPrompt="toggleScheduledPromptActive"
+					@scheduledPromptSaved="loadScheduledPrompts"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
 		</div>
+		<!-- Edit scheduled prompt modal -->
+		<ScheduledPromptModal
+			v-model="showEditScheduledPromptModal"
+			:reportId="report_id"
+			:scheduledPrompt="editingScheduledPrompt"
+			:initialDataSources="report?.data_sources || []"
+			@saved="loadScheduledPrompts"
+		/>
 	</div>
 		</template>
 		<template #right>
@@ -515,6 +565,8 @@ interface ChatMessage {
 	instruction_suggestions?: Array<{ text: string; category: string }>
 	// Loading state for feedback-triggered suggestions
 	instruction_suggestions_loading?: boolean
+	// Scheduled prompt tag
+	scheduled_prompt_id?: string | null
 }
 
 const route = useRoute()
@@ -591,6 +643,97 @@ const report = ref<any | null>(null)
 const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
+
+// Scheduled prompts state
+const scheduledPrompts = ref<any[]>([])
+const editingScheduledPrompt = ref<any>(null)
+const showEditScheduledPromptModal = ref(false)
+const expandedScheduledIds = ref<Set<string>>(new Set())
+
+function toggleScheduledExpand(messageId: string) {
+	if (expandedScheduledIds.value.has(messageId)) {
+		expandedScheduledIds.value.delete(messageId)
+	} else {
+		expandedScheduledIds.value.add(messageId)
+	}
+}
+
+function isScheduledExpanded(messageId: string): boolean {
+	return expandedScheduledIds.value.has(messageId)
+}
+
+function isScheduledSystemExpanded(msg: ChatMessage): boolean {
+	// Find the preceding user message with the same scheduled_prompt_id
+	const idx = messages.value.indexOf(msg)
+	if (idx > 0) {
+		const prev = messages.value[idx - 1]
+		if (prev.scheduled_prompt_id === msg.scheduled_prompt_id && prev.role === 'user') {
+			return expandedScheduledIds.value.has(prev.id)
+		}
+	}
+	return true
+}
+
+function formatScheduledDate(date?: string) {
+	if (!date) return ''
+	return new Date(date).toLocaleString()
+}
+
+function getScheduledStats(userMsg: ChatMessage): string | null {
+	// Find the paired system message
+	const idx = messages.value.indexOf(userMsg)
+	if (idx < 0 || idx >= messages.value.length - 1) return null
+	const sysMsg = messages.value[idx + 1]
+	if (!sysMsg || sysMsg.scheduled_prompt_id !== userMsg.scheduled_prompt_id || sysMsg.role !== 'system') return null
+	const blocks = sysMsg.completion_blocks || []
+	if (!blocks.length) return null
+
+	let queries = 0
+	let artifacts = 0
+	for (const b of blocks) {
+		const te = b.tool_execution
+		if (!te || te.status !== 'success') continue
+		if (te.tool_name === 'create_data' && te.created_step_id) queries++
+		if (te.tool_name === 'create_artifact' || te.tool_name === 'edit_artifact') artifacts++
+	}
+
+	const parts: string[] = []
+	parts.push(`${blocks.length} step${blocks.length !== 1 ? 's' : ''}`)
+	if (queries) parts.push(`${queries} quer${queries !== 1 ? 'ies' : 'y'}`)
+	if (artifacts) parts.push(`${artifacts} artifact${artifacts !== 1 ? 's' : ''}`)
+	return parts.join(', ')
+}
+
+async function loadScheduledPrompts() {
+    try {
+        const { data } = await useMyFetch(`/reports/${report_id}/scheduled-prompts`)
+        scheduledPrompts.value = (data.value as any[]) || []
+    } catch {
+        scheduledPrompts.value = []
+    }
+}
+
+async function deleteScheduledPrompt(sp: any) {
+    try {
+        await useMyFetch(`/reports/${report_id}/scheduled-prompts/${sp.id}`, { method: 'DELETE' })
+        await loadScheduledPrompts()
+    } catch {}
+}
+
+async function toggleScheduledPromptActive(sp: any) {
+    try {
+        await useMyFetch(`/reports/${report_id}/scheduled-prompts/${sp.id}`, {
+            method: 'PUT',
+            body: { is_active: !sp.is_active },
+        })
+        await loadScheduledPrompts()
+    } catch {}
+}
+
+function editScheduledPrompt(sp: any) {
+    editingScheduledPrompt.value = sp
+    showEditScheduledPromptModal.value = true
+}
 
 // Fork state — extract forked queries and artifact ref from the fork summary completion
 const forkedQueries = ref<any[]>([])
@@ -1675,6 +1818,8 @@ async function loadCompletions() {
 				is_fork_summary: c.is_fork_summary,
 				source_report_id: c.source_report_id,
 				fork_asset_refs: c.fork_asset_refs,
+				// Scheduled prompt tag
+				scheduled_prompt_id: c.scheduled_prompt_id || null,
 			}
 		})
 		// Update cursors
@@ -1684,6 +1829,11 @@ async function loadCompletions() {
         safeScrollToBottom()
 		await promptBoxRef.value?.refreshContextEstimate?.()
 		await enrichForkedQueries()
+		// Auto-expand the latest scheduled completion
+		const lastScheduledUser = [...messages.value].reverse().find(m => m.scheduled_prompt_id && m.role === 'user')
+		if (lastScheduledUser) {
+			expandedScheduledIds.value.add(lastScheduledUser.id)
+		}
 	} catch (e) {
 		console.error('Error loading completions:', e)
 	} finally {
@@ -1747,7 +1897,8 @@ async function loadPreviousCompletions() {
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
                 instruction_suggestions: c.instruction_suggestions,
-                files: c.files || []
+                files: c.files || [],
+                scheduled_prompt_id: c.scheduled_prompt_id || null,
             }
         })
         // Dedupe by id and prepend
@@ -1953,6 +2104,7 @@ onUnmounted(() => {
 	}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
+	stopScheduledCompletionsPoll()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 })
@@ -2350,13 +2502,48 @@ async function startPollingInProgressCompletion() {
 	pollHandle = window.setTimeout(tick, pollIntervalMs)
 }
 
+// === Background poll to detect new scheduled completions ===
+let scheduledPollHandle: number | null = null
+const scheduledPollIntervalMs = 15_000
+
+function startScheduledCompletionsPoll() {
+	if (scheduledPollHandle !== null) return
+	const tick = async () => {
+		if (isStreaming.value) {
+			scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+			return
+		}
+		try {
+			const lastId = messages.value.length > 0 ? messages.value[messages.value.length - 1].id : null
+			const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+			const response = data.value as any
+			const list: any[] = response?.completions || []
+			const newLastId = list.length > 0 ? list[list.length - 1].id : null
+			if (newLastId && newLastId !== lastId) {
+				await loadCompletions()
+				autoScrollIfNearBottom()
+			}
+		} catch {}
+		scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+	}
+	scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+}
+
+function stopScheduledCompletionsPoll() {
+	if (scheduledPollHandle !== null) {
+		clearTimeout(scheduledPollHandle)
+		scheduledPollHandle = null
+	}
+}
+
 onMounted(async () => {
 	await Promise.all([
 		loadReport(),
 		loadVisualizations(),
 		loadCompletions(),
 		checkHasArtifacts(),
-		loadActiveLayoutHasBlocks()
+		loadActiveLayoutHasBlocks(),
+		loadScheduledPrompts()
 	])
 
 	// Open split screen if report has artifacts or legacy layout
@@ -2380,6 +2567,9 @@ onMounted(async () => {
 	if (!isStreaming.value && getLastInProgressSystem()) {
 		startPollingInProgressCompletion()
 	}
+
+	// Start background poll for new scheduled completions
+	startScheduledCompletionsPoll()
 	
 	// Open dashboard pane if there are any published widgets
 	if (visualizations.value.some(viz => viz.status === 'published')) {

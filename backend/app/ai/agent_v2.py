@@ -186,6 +186,44 @@ class AgentV2:
             pass
         return None
 
+    async def _build_scheduled_context(self) -> Optional[dict]:
+        """Build scheduled execution context if this completion is from a scheduled prompt."""
+        sp_id = getattr(self.head_completion, 'scheduled_prompt_id', None)
+        if not sp_id:
+            return None
+        try:
+            from app.models.scheduled_prompt import ScheduledPrompt
+            from sqlalchemy import func as sa_func
+
+            sp = await self.db.get(ScheduledPrompt, sp_id)
+            if not sp:
+                return None
+
+            past_run_count = await self.db.scalar(
+                select(sa_func.count(Completion.id))
+                .where(Completion.scheduled_prompt_id == sp_id)
+                .where(Completion.id != self.head_completion.id)
+            )
+
+            cron_labels = {
+                '*/15 * * * *': 'Every 15 minutes',
+                '0 * * * *': 'Hourly',
+                '0 8 * * *': 'Daily at 8 AM',
+                '0 0 * * *': 'Daily at midnight',
+                '0 8 * * 1': 'Weekly on Monday at 8 AM',
+                '0 0 * * 1': 'Weekly on Monday at midnight',
+            }
+
+            return {
+                "cron_schedule": sp.cron_schedule,
+                "cron_label": cron_labels.get(sp.cron_schedule, sp.cron_schedule),
+                "total_past_runs": past_run_count or 0,
+                "last_run_at": sp.last_run_at.isoformat() if sp.last_run_at else None,
+                "created_at": sp.created_at.isoformat() if sp.created_at else None,
+            }
+        except Exception:
+            return None
+
     async def _load_images_as_input(self) -> list[ImageInput]:
         """Load image files as base64-encoded ImageInput objects for vision models.
 
@@ -861,6 +899,7 @@ class AgentV2:
                         active_artifact=active_artifact,
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
+                        scheduled_context=await self._build_scheduled_context(),
                     )
                     # Trim context if it exceeds the model's token budget
                     from app.ai.context.context_hub import trim_context_to_budget
@@ -1903,6 +1942,7 @@ class AgentV2:
             active_artifact=active_artifact,
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
+            scheduled_context=await self._build_scheduled_context(),
         )
 
         from app.ai.context.context_hub import trim_context_to_budget

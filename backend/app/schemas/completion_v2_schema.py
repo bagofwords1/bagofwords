@@ -147,6 +147,9 @@ class CompletionV2Schema(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Scheduled prompt
+    scheduled_prompt_id: Optional[str] = None
+
     # Fork summary fields
     is_fork_summary: Optional[str] = None
     source_report_id: Optional[str] = None

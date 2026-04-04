@@ -714,11 +714,31 @@ class ReportService:
                     )
                 )
 
-            # Optional filter by scheduled status
+            # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
             if scheduled is True:
-                base_conditions.append(Report.cron_schedule.isnot(None))
+                from app.models.scheduled_prompt import ScheduledPrompt
+                base_conditions.append(
+                    or_(
+                        Report.cron_schedule.isnot(None),
+                        Report.id.in_(
+                            select(ScheduledPrompt.report_id).where(
+                                ScheduledPrompt.is_active == True,
+                                ScheduledPrompt.deleted_at == None,
+                            )
+                        ),
+                    )
+                )
             elif scheduled is False:
+                from app.models.scheduled_prompt import ScheduledPrompt
                 base_conditions.append(Report.cron_schedule.is_(None))
+                base_conditions.append(
+                    ~Report.id.in_(
+                        select(ScheduledPrompt.report_id).where(
+                            ScheduledPrompt.is_active == True,
+                            ScheduledPrompt.deleted_at == None,
+                        )
+                    )
+                )
 
             # Optional filter by report status (draft/published)
             if status in ('draft', 'published'):
@@ -802,6 +822,14 @@ class ReportService:
                 # Summary counts
                 report_schema.query_count = len(report.queries or [])
                 report_schema.artifact_count = len(report.artifacts or [])
+
+                # Check for active scheduled prompts
+                active_sps = [
+                    sp for sp in (report.scheduled_prompts or [])
+                    if sp.is_active and sp.deleted_at is None
+                ]
+                report_schema.has_scheduled_prompts = len(active_sps) > 0
+                report_schema.scheduled_prompt_count = len(active_sps)
 
                 # Compute unique artifact modes for this report
                 report_schema.artifact_modes = list(set(

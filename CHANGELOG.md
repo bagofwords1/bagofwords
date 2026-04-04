@@ -1,13 +1,14 @@
 # Release Notes
 
 ## Version 0.0.354 (March 30, 2026)
-- Show abort status in tool execution
+- New Scheduled Tasks: set up recurring or scheduled tasks within reports
+- New "Add to Dashboard" button to instantly add widgets to an artifact
+- New "Polish" action for quick dashboard refinements
+- Show recent queries and artifact shortcuts above the prompt box
 - Improved dashboard generation speed and performance
-- Add to dashboard button to instantly add widgets to artifact
-- Added "Polish" dashboard for a quick update
-- Improve agent prompt to bias for master table for reliable filters
-- Add last queries/artifact pills above prompt box
-- Added sandbox md for better agentic coding development
+- Improved agent filtering by prioritizing master tables for more reliable results
+- Added sandbox support for better agentic code development
+- Display abort status during tool execution
 
 ## Version 0.0.353 (March 30, 2026)
 - feat: new a2a integration for timbr

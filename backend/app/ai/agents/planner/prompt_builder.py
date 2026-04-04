@@ -291,13 +291,31 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         active instruction. On subsequent iterations it becomes context —
         the real driver is the observation.
         """
+        sc = planner_input.scheduled_context
+        scheduled_preamble = ""
+        if sc:
+            scheduled_preamble = (
+                f"<scheduled_execution>\n"
+                f"This prompt is running as a SCHEDULED TASK ({sc['cron_label']}, cron: {sc['cron_schedule']}).\n"
+                f"Schedule created: {sc.get('created_at', 'unknown')}. Past runs: {sc.get('total_past_runs', 0)}."
+                f"{' Last run: ' + sc['last_run_at'] + '.' if sc.get('last_run_at') else ''}\n\n"
+                f"AUTONOMOUS EXECUTION RULES:\n"
+                f"- There is no user present to answer questions. Do NOT use the clarify tool.\n"
+                f"- If schemas or context are ambiguous, make your best judgment and note assumptions in final_answer.\n"
+                f"- Re-run queries against live data — do not rely on cached/stale results from past runs.\n"
+                f"- Focus on what changed since the last run if past runs exist.\n"
+                f"- Keep final_answer concise and actionable — highlight deltas, anomalies, and key metrics.\n"
+                f"</scheduled_execution>\n"
+            )
+
         if planner_input.last_observation:
             return (
+                f"{scheduled_preamble}"
                 f"<original_user_prompt>{planner_input.user_message}</original_user_prompt>\n"
                 f"You have already taken action. Review <last_observation> and decide: "
                 f"is the original request fulfilled, or what is the single next step?"
             )
-        return f"<user_prompt>{planner_input.user_message}</user_prompt>"
+        return f"{scheduled_preamble}<user_prompt>{planner_input.user_message}</user_prompt>"
 
     @staticmethod
     def _extract_research_step_count(history_summary: str) -> int:
