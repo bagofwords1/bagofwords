@@ -166,7 +166,7 @@
 											</div>
 
 											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-											<div v-if="block.tool_execution" class="tool-execution-container">
+											<div v-if="block.tool_execution" class="tool-execution-container" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
@@ -528,17 +528,22 @@ const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 
 // List of queries for the summary pills — derived from created_steps in completions
 const queryList = computed(() => {
-	const list: { id: string; label: string; rowCount?: number; messageId: string }[] = []
+	const list: { id: string; label: string; rowCount?: number; messageId: string; stepId: string }[] = []
+	const seen = new Set<string>()
 	for (const m of messages.value) {
 		if (!m.completion_blocks) continue
 		for (const b of m.completion_blocks) {
 			const step = b.tool_execution?.created_step as any
 			if (step && b.tool_execution?.status === 'success') {
+				const stepId = step.id || step.query_id || ''
+				if (stepId && seen.has(stepId)) continue
+				if (stepId) seen.add(stepId)
 				list.push({
-					id: step.id || step.query_id || '',
+					id: stepId,
 					label: step.title || 'Query',
 					rowCount: step.data?.info?.total_rows ?? undefined,
-					messageId: m.id
+					messageId: m.id,
+					stepId
 				})
 			}
 		}
@@ -953,9 +958,17 @@ function openImagePreview(file: any) {
 	imagePreviewModalRef.value?.open(file)
 }
 
-function scrollToMessage(messageId: string) {
+function scrollToMessage(messageId: string, stepId?: string) {
 	const container = scrollContainer.value
 	if (!container) return
+	// If a stepId is provided, try to scroll to the specific tool execution block first
+	if (stepId) {
+		const stepEl = container.querySelector(`[data-step-id="${stepId}"]`) as HTMLElement
+		if (stepEl) {
+			stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+			return
+		}
+	}
 	const el = container.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement
 	if (el) {
 		el.scrollIntoView({ behavior: 'smooth', block: 'center' })

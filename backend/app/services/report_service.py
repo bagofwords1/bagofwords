@@ -799,6 +799,10 @@ class ReportService:
                     for ds in (report.data_sources or [])
                 ]
 
+                # Summary counts
+                report_schema.query_count = len(report.queries or [])
+                report_schema.artifact_count = len(report.artifacts or [])
+
                 # Compute unique artifact modes for this report
                 report_schema.artifact_modes = list(set(
                     a.mode for a in (report.artifacts or []) if a.mode

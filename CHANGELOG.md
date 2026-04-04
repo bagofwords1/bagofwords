@@ -5,6 +5,8 @@
 - Improved dashboard generation speed and performance
 - Add to dashboard button to instantly add widgets to artifact
 - Added "Polish" dashboard for a quick update
+- Improve agent prompt to bias for master table for reliable filters
+- Add last queries/artifact pills above prompt box
 - Added sandbox md for better agentic coding development
 
 ## Version 0.0.353 (March 30, 2026)

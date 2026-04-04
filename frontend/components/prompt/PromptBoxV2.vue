@@ -25,7 +25,7 @@
                                 v-for="(q, i) in props.queryList"
                                 :key="i"
                                 class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
-                                @click="q.messageId && emit('scrollToMessage', q.messageId); showQueryDropdown = false"
+                                @click="q.messageId && emit('scrollToMessage', q.messageId, q.stepId); showQueryDropdown = false"
                             >
                                 <div class="text-xs text-gray-700 truncate">{{ q.label }}</div>
                                 <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 mt-0.5">{{ q.rowCount.toLocaleString() }} rows</div>
@@ -324,7 +324,7 @@ const props = defineProps({
     },
     // Query list for summary pills above input
     queryList: {
-        type: Array as () => { id: string; label: string; rowCount?: number; messageId: string }[],
+        type: Array as () => { id: string; label: string; rowCount?: number; messageId: string; stepId?: string }[],
         default: () => []
     },
     // Whether the report has artifacts (for "View dashboard" pill)

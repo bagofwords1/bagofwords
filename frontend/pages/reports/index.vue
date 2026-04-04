@@ -212,12 +212,18 @@
                                             </UTooltip>
                                             <UTooltip v-else-if="report.artifact_modes.length == 0" text="Chat">
                                                 <Icon name="heroicons:chat-bubble-left-right" class="h-4 w-4 text-gray-400 inline mr-1.5" />
-                                            </UTooltip>                                            <NuxtLink
+                                            </UTooltip>
+                                            <NuxtLink
                                                 :to="`/reports/${report.id}`"
                                                 class="text-blue-500 hover:underline"
                                             >
                                                 {{ report.title }}
                                             </NuxtLink>
+                                            <div v-if="report.query_count || report.artifact_count" class="text-[11px] text-gray-400 mt-0.5">
+                                                <span v-if="report.query_count">{{ report.query_count }} {{ report.query_count === 1 ? 'query' : 'queries' }}</span>
+                                                <span v-if="report.query_count && report.artifact_count"> | </span>
+                                                <span v-if="report.artifact_count">{{ report.artifact_count }} {{ report.artifact_count === 1 ? 'artifact' : 'artifacts' }}</span>
+                                            </div>
                                             <div
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'slack'"
                                                 class="ml-2 h-3 inline mr-2"
