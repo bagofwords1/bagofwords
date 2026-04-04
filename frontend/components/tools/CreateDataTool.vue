@@ -84,8 +84,10 @@
             <Icon v-else-if="executionDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
             <Icon v-else name="heroicons-minus" class="w-3 h-3 mr-1.5 text-gray-300" />
             <span v-if="isExecuting && status !== 'stopped'" class="tool-shimmer">Executing</span>
-            <span v-else-if="executionFailed && !isRetrying" class="text-gray-700">Execution Failed</span>
-            <span v-else class="text-gray-700">Executed</span>
+            <span v-else-if="executionFailed" class="text-gray-700">Execution failed</span>
+            <span v-else class="text-gray-700">Execution succeeded</span>
+            <span v-if="executionDone && executionRowCount != null" class="ml-1.5 text-gray-400">· {{ executionRowCount }} rows</span>
+            <span v-if="executionDone && formatExecutionDuration" class="ml-1.5 text-gray-400">· {{ formatExecutionDuration }}</span>
           </div>
           <!-- Execution error from stdout (live only, before it gets captured in result_json.errors) -->
           <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ml-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1 max-h-16 overflow-y-auto">
@@ -134,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive, watch } from 'vue'
+import { computed, ref, reactive } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -169,7 +171,7 @@ interface Props {
 const props = defineProps<Props & { readonly?: boolean }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
-const codeCollapsed = ref(false)
+const codeCollapsed = ref(true)
 const createDataCollapsed = ref(true) // Collapsed by default
 const attemptCodeExpanded = reactive<Record<number, boolean>>({})
 const dataTitle = computed(() => props.toolExecution.arguments_json?.title || 'Data')
@@ -228,13 +230,13 @@ const executionDone = computed(() => {
 })
 const executionFailed = computed(() => {
   if (status.value === 'error') return true
-  if (isRetrying.value) return true
   return false
 })
 
 // Show executing section once code generation is done
 const showExecutingSection = computed(() => {
   if (status.value === 'stopped') return false
+  if (isRetrying.value) return false
   // After refresh: show if we have code (success or error with code)
   if (status.value !== 'running' && codeContent.value) return true
   // During streaming: show once past code generation
@@ -297,17 +299,27 @@ const vizSummary = computed(() => {
   return ''
 })
 
+const executionRowCount = computed(() => {
+  const stats = props.toolExecution.result_json?.stats
+  if (stats?.total_rows != null) return stats.total_rows
+  const rows = (props.toolExecution.result_json as any)?.data?.rows
+  if (Array.isArray(rows)) return rows.length
+  return null
+})
+
+const formatExecutionDuration = computed(() => {
+  const ms = (props.toolExecution.result_json as any)?.execution_ms
+  if (!ms) return ''
+  const seconds = (ms / 1000).toFixed(1)
+  return `${seconds}s`
+})
+
 const formatDuration = computed(() => {
   if (!props.toolExecution.duration_ms) return ''
   const seconds = (props.toolExecution.duration_ms / 1000).toFixed(1)
   return `${seconds}s`
 })
 
-watch([codeGenDone, status], ([codeNow, st]) => {
-  if (st === 'error' || st === 'success') {
-    codeCollapsed.value = true
-  }
-}, { immediate: true })
 
 function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
 function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }

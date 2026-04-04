@@ -61,7 +61,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline mr-2" /> Loading older messages…
 					</li>
-					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
+					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 mb-2 text-sm">
 						<!-- Fork summary card (special rendering) -->
 						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
@@ -329,8 +329,12 @@
 					:initialMode="report?.mode || 'chat'"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
+					:queryList="queryList"
+					:hasArtifacts="hasArtifacts"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
+					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
+					@scrollToMessage="scrollToMessage"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
@@ -521,6 +525,27 @@ const canViewConsole = computed(() => useCan('view_console'))
 
 const messages = ref<ChatMessage[]>([])
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
+
+// List of queries for the summary pills — derived from created_steps in completions
+const queryList = computed(() => {
+	const list: { id: string; label: string; rowCount?: number; messageId: string }[] = []
+	for (const m of messages.value) {
+		if (!m.completion_blocks) continue
+		for (const b of m.completion_blocks) {
+			const step = b.tool_execution?.created_step as any
+			if (step && b.tool_execution?.status === 'success') {
+				list.push({
+					id: step.id || step.query_id || '',
+					label: step.title || 'Query',
+					rowCount: step.data?.info?.total_rows ?? undefined,
+					messageId: m.id
+				})
+			}
+		}
+	}
+	return list
+})
+
 const showContextIndicator = computed(() => {
 	const completedSystem = messages.value.some(
 		(m) => m.role === 'system' && ['success', 'error', 'stopped'].includes(m.status || '')
@@ -926,6 +951,15 @@ const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(
 
 function openImagePreview(file: any) {
 	imagePreviewModalRef.value?.open(file)
+}
+
+function scrollToMessage(messageId: string) {
+	const container = scrollContainer.value
+	if (!container) return
+	const el = container.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement
+	if (el) {
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+	}
 }
 
 function scrollToBottom() {

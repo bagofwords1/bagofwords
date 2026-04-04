@@ -1,14 +1,51 @@
 <template>
     <div class="flex-shrink-0 p-4 pb-8 bg-white">
-        <!-- Instructions button + Excel selection hint -->
-        <div class="mb-2 flex items-center justify-between">
-            <button
-                class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 text-xs flex items-center"
-                @click="openInstructions"
-            >
-                <Icon name="heroicons-cube" class="w-4 h-4 mr-1" />
-                Instructions
-            </button>
+        <!-- Query pills + Excel hint (above container) -->
+        <div v-if="props.queryList.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)" class="mb-2 flex items-center justify-between">
+            <div v-if="props.queryList.length > 0" class="flex items-center gap-2">
+                <!-- Query pill with hover dropdown -->
+                <div
+                    class="relative"
+                    @mouseenter="showQueryDropdown = true"
+                    @mouseleave="showQueryDropdown = false"
+                >
+                    <button
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                        <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />
+                        {{ props.queryList.length }} {{ props.queryList.length === 1 ? 'Query' : 'Queries' }}
+                    </button>
+                    <!-- Query dropdown on hover — pad-bridge eliminates the gap -->
+                    <div
+                        v-if="showQueryDropdown"
+                        class="absolute left-0 bottom-full w-72 z-20"
+                    >
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
+                            <div
+                                v-for="(q, i) in props.queryList"
+                                :key="i"
+                                class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                                @click="q.messageId && emit('scrollToMessage', q.messageId); showQueryDropdown = false"
+                            >
+                                <div class="text-xs text-gray-700 truncate">{{ q.label }}</div>
+                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 mt-0.5">{{ q.rowCount.toLocaleString() }} rows</div>
+                            </div>
+                        </div>
+                        <!-- Invisible bridge to cover gap between dropdown and pill -->
+                        <div class="h-1"></div>
+                    </div>
+                </div>
+                <!-- View dashboard pill (only if artifacts exist) -->
+                <button
+                    v-if="props.hasArtifacts"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-blue-600 hover:bg-blue-50 transition-colors"
+                    @click="emit('viewDashboard')"
+                >
+                    View dashboard
+                    <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
+                </button>
+            </div>
+            <div v-else></div>
             <button
                 v-if="isExcel && excelSelection && !excelSelectionDismissed"
                 class="text-gray-400 hover:text-gray-600 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-50 transition-colors"
@@ -42,8 +79,16 @@
                 </div>
             </div>
 
-            <!-- Input -->
-            <div class="p-3">
+            <!-- Input area -->
+            <div class="px-3 pt-2.5 pb-3">
+                <!-- Instructions -->
+                <button
+                    class="text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2"
+                    @click="openInstructions"
+                >
+                    <Icon name="heroicons-cube" class="w-4 h-4 mr-1.5" />
+                    Instructions
+                </button>
                 <div
                     v-if="isHydratingDataSources"
                     class="flex items-center justify-center py-6 space-x-2 text-xs text-gray-500"
@@ -276,10 +321,17 @@ const props = defineProps({
     initialMode: {
         type: String as () => 'chat' | 'deep' | 'training',
         default: 'chat'
-    }
+    },
+    // Query list for summary pills above input
+    queryList: {
+        type: Array as () => { id: string; label: string; rowCount?: number; messageId: string }[],
+        default: () => []
+    },
+    // Whether the report has artifacts (for "View dashboard" pill)
+    hasArtifacts: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage'])
 
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
@@ -291,6 +343,7 @@ const isCompactPrompt = ref(false)
 const inlineMentions = ref<any[]>([])
 const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
 const isDraggingFiles = ref(false)
+const showQueryDropdown = ref(false)
 let dragCounter = 0 // Track enter/leave for nested elements
 
 // Excel selection hint
