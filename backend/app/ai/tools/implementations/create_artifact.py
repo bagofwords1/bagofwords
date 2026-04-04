@@ -257,8 +257,8 @@ class CreateArtifactTool(Tool):
             return slides_template.replace("__SLIDES_SCRIPTS__", slides_scripts).replace("__ARTIFACT_DATA_JSON__", data_json).replace("__LLM_GENERATED_CODE__", code)
 
         # Page mode: Build self-contained HTML mirroring ArtifactFrame.vue's approach.
-        # Uses inline scripts and injects LLM code directly (not inside a <script> tag)
-        # to avoid HTML parser issues with </script> in LLM-generated code.
+        # get_inline_scripts("page") already includes all vendored libs + artifact-globals.js
+        # so we only need to inject ARTIFACT_DATA, the LLM code, and render-complete detection.
         page_scripts = get_inline_scripts(mode="page")
         SC = '</' + 'script>'  # Avoid parser issues in this Python string too
 
@@ -279,122 +279,6 @@ class CreateArtifactTool(Tool):
   <script>
     window.ARTIFACT_DATA = {data_json};
     window.__ARTIFACT_RENDER_COMPLETE__ = false;
-
-    window.useArtifactData = function() {{
-      return window.ARTIFACT_DATA;
-    }};
-
-    // Expose React hooks as globals so generated code can use them directly
-    window.useState = React.useState;
-    window.useEffect = React.useEffect;
-    window.useRef = React.useRef;
-    window.useMemo = React.useMemo;
-    window.useCallback = React.useCallback;
-
-    window.LoadingSpinner = function(props) {{
-      var size = props && props.size ? props.size : 24;
-      return React.createElement('svg', {{
-        xmlns: 'http://www.w3.org/2000/svg', width: size, height: size, viewBox: '0 0 24 24',
-        className: props && props.className ? props.className : ''
-      }},
-        React.createElement('path', {{ fill: 'currentColor',
-          d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z', opacity: '0.5' }}),
-        React.createElement('path', {{ fill: 'currentColor',
-          d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z' }},
-          React.createElement('animateTransform', {{
-            attributeName: 'transform', dur: '1s', from: '0 12 12',
-            repeatCount: 'indefinite', to: '360 12 12', type: 'rotate' }}))
-      );
-    }};
-
-    window.resizeAllCharts = function() {{
-      if (typeof echarts !== 'undefined') {{
-        var charts = document.querySelectorAll('[_echarts_instance_]');
-        charts.forEach(function(el) {{
-          var chart = echarts.getInstanceByDom(el);
-          if (chart) chart.resize();
-        }});
-      }}
-    }};
-    setTimeout(window.resizeAllCharts, 100);
-    setTimeout(window.resizeAllCharts, 500);
-    window.addEventListener('resize', window.resizeAllCharts);
-
-    // ── Global filter store (shared state for useFilters hook) ──
-    window.__filterStore = (function() {{
-      var filters = {{}};
-      var listeners = [];
-      return {{
-        get: function() {{ return filters; }},
-        set: function(field, value) {{
-          var next = {{}};
-          for (var k in filters) next[k] = filters[k];
-          if (value == null || value === '') delete next[field];
-          else next[field] = value;
-          filters = next;
-          for (var i = 0; i < listeners.length; i++) listeners[i]();
-        }},
-        reset: function() {{
-          filters = {{}};
-          for (var i = 0; i < listeners.length; i++) listeners[i]();
-        }},
-        sub: function(fn) {{
-          listeners.push(fn);
-          return function() {{
-            var idx = listeners.indexOf(fn);
-            if (idx >= 0) listeners.splice(idx, 1);
-          }};
-        }}
-      }};
-    }})();
-
-    // ── useFilters() hook — cross-visualization filtering ──
-    // No magic column detection — LLM explicitly chooses which columns to filter.
-    // filterRows(rows, fieldMap?) applies active filters; optional fieldMap
-    // remaps canonical filter keys to viz-specific column names,
-    // e.g. filterRows(rows, {{ country: 'CountryName' }})
-    window.useFilters = function() {{
-      var _s = React.useState(0);
-      var forceUpdate = _s[1];
-
-      React.useEffect(function() {{
-        return window.__filterStore.sub(function() {{
-          forceUpdate(function(c) {{ return c + 1; }});
-        }});
-      }}, []);
-
-      var filters = window.__filterStore.get();
-
-      var filterRows = React.useCallback(function(rows, fieldMap) {{
-        var entries = Object.entries(filters);
-        if (!entries.length) return rows;
-        return rows.filter(function(row) {{
-          for (var i = 0; i < entries.length; i++) {{
-            var key = entries[i][0], val = entries[i][1];
-            var col = (fieldMap && fieldMap[key]) ? fieldMap[key] : key;
-            if (!Object.prototype.hasOwnProperty.call(row, col)) continue;
-            var rv = row[col];
-            if (val && typeof val === 'object' && !Array.isArray(val) && (val.from || val.to)) {{
-              var s = String(rv);
-              if (val.from && s < val.from) return false;
-              if (val.to && s > val.to) return false;
-            }} else if (Array.isArray(val)) {{
-              if (val.length > 0 && val.indexOf(String(rv)) === -1) return false;
-            }} else {{
-              if (val && String(rv).toLowerCase().indexOf(String(val).toLowerCase()) === -1) return false;
-            }}
-          }}
-          return true;
-        }});
-      }}, [filters]);
-
-      return {{
-        filters: filters,
-        setFilter: window.__filterStore.set,
-        resetFilters: window.__filterStore.reset,
-        filterRows: filterRows
-      }};
-    }};
   {SC}
 
   {code}
@@ -1522,9 +1406,9 @@ For advanced charts (radar, gauge, treemap, sunburst, funnel, sankey, calendar h
 ```
 
 **Pre-built globals** (prefer for speed, build custom React components when the design calls for it):
-- `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" />` — omit className for light mode, pass className to override theme
-- `<SectionCard title="" subtitle="">...children...</SectionCard>` — omit className for light mode
-- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} />` — multi-select dropdown with checkboxes + built-in search (auto at 8+ options). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
+- `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" className="" style={{{{}}}} />` — className adds to defaults (bg-white, border, text-slate-900). Use `style` for reliable overrides (e.g. `style={{{{ backgroundColor: '#1e293b', color: '#fff' }}}}`)
+- `<SectionCard title="" subtitle="" className="" style={{{{}}}}>...children...</SectionCard>` — className adds to defaults. Use `style` for reliable overrides
+- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} />` — multi-select dropdown (portaled — always renders above other content). Built-in search auto at 8+ options. `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
 - `<FilterSearch label="" value={{str}} onChange={{e => setFilter(field, e.target.value)}} placeholder="Search..." />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names).
 - `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} type="date" />` — from/to date range picker. Value: `{{ from, to }}`. Type: "date" (default), "month", "datetime-local".
 - `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
@@ -1532,7 +1416,7 @@ For advanced charts (radar, gauge, treemap, sunburst, funnel, sankey, calendar h
 
 ⚠️ **KEEP OUTPUT COMPACT:**
 - Target **under 8K characters** of code. Be concise — but don't sacrifice UX quality for brevity.
-- Omit className/titleClassName on globals when using light mode — defaults handle it.
+- className on KPICard/SectionCard is additive (adds to defaults). Use `style` prop for reliable overrides.
 - Don't repeat theme styling (axes, grid, tooltip, colors) — the 'bow' theme provides it.
 - Prefer inline expressions over separate variables when used once.
 - Keep helper functions short. Custom components are fine when the design needs them — just keep them focused.
@@ -1597,34 +1481,35 @@ DESIGN PRINCIPLES
   - `<FilterDateRange>` for date/time columns (dtype contains "datetime" or values are date strings)
 - Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
 
-FILTER DECISION PER VISUALIZATION:
-- For each viz, check if its rows contain the filter column. If yes → use `filterRows(viz[N].rows)` as the data source for ALL downstream derivations (useMemo, .map(), chart options, etc.)
-- If two vizs have semantically the same column but different field names, use field mapping: `filterRows(viz[1].rows, {{ country: 'CountryName' }})`
-- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard experience.
+FILTER PLACEMENT — global vs local:
+- **Global filter** (column exists in 2+ visualizations): place in a top-level filter bar above all content. Prefer one shared filter over duplicates — if two vizs have the same column with different names, use one filter + `fieldMap`.
+- **Local filter** (column only in 1 visualization): place INSIDE that visualization's `<SectionCard>`, visually next to the chart/table it affects.
+- When in doubt, prefer global — one filter controlling multiple vizs is better UX than many local filters.
 
-EXAMPLE 1 — Dashboard with KPI, bar chart, and detail table sharing a "region" filter:
+FILTER DATA FLOW — CRITICAL:
+- Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
+- KPI cards that summarize filtered data (sum, count, avg) MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
+- If a viz does NOT have the filter column, use its raw rows — `filterRows` will pass them through unchanged, so filtering is always safe.
+- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
+
+EXAMPLE 1 — Global "region" filter affecting KPIs + bar chart + table:
   const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
   const regions = useMemo(() => [...new Set(vizSales.rows.map(r => r.region))], [vizSales]);
-  // KPI: recalculate from filtered rows
+  // ALL downstream from vizSales uses filtered:
   const filteredSales = filterRows(vizSales.rows);
   const totalRevenue = useMemo(() => filteredSales.reduce((s, r) => s + r.revenue, 0), [filteredSales]);
-  // Bar chart: derive labels/values from filtered rows
-  const chartData = useMemo(() => ({{
-    labels: filteredSales.map(r => r.month),
-    values: filteredSales.map(r => r.revenue)
-  }}), [filteredSales]);
-  // Detail table
-  const filteredDetails = filterRows(vizDetails.rows);
+  const chartData = useMemo(() => ({{ labels: filteredSales.map(r => r.month), values: filteredSales.map(r => r.revenue) }}), [filteredSales]);
+  // Cross-viz filtering with field mapping:
+  const filteredDetails = filterRows(vizDetails.rows, {{ region: 'RegionName' }});
+  // Layout: <FilterSelect> in top bar, KPIs below, charts below that
 
-EXAMPLE 2 — Simple table + chart with category filter:
-  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
-  const categories = useMemo(() => [...new Set(vizProducts.rows.map(r => r.category))], [vizProducts]);
+EXAMPLE 2 — Local filter inside a SectionCard:
+  const {{ filters, setFilter, filterRows }} = useFilters();
   const filtered = filterRows(vizProducts.rows);
-  // Both the table and chart use filtered as their data source
+  // Layout: <SectionCard title="Products"><FilterSelect .../><EChart ... /></SectionCard>
 
 - Include a Reset button when any filters are active (`Object.keys(filters).length > 0`)
 - After filtering, if a visualization has zero matching rows, display "No data matches current filters"
-- Custom overlays/dropdowns: use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, and a `mousedown` click-outside listener. Use `useFilters()` for state — do NOT duplicate filter state locally.
 - User's explicit requests override all defaults — if they ask for creative, unique, or advanced visualizations, prioritize that over compactness
 
 ═══════════════════════════════════════════════════════════════════════════════

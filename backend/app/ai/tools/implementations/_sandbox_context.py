@@ -65,11 +65,11 @@ references to any of them:
 • **Pre-built UI components** — all global, prefer these for speed but build custom components when the design requires it:
   - `<LoadingSpinner size={24} className="" />` — animated spinner
   - `<CustomTooltip />` — dark styled tooltip component (props: active, payload, label)
-  - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="bg-white border-slate-200 text-slate-900" titleClassName="text-slate-500" />` — stat card. className replaces default theme colors (no className = light mode)
-  - `<SectionCard title="" subtitle="" className="bg-white border-slate-200" titleClassName="text-slate-800">...children...</SectionCard>` — card wrapper. className replaces default theme (no className = light mode)
-  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} searchable={bool} />` — multi-select dropdown with checkboxes. Built-in search auto-enabled at 8+ options (override with `searchable` prop). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
-  - `<FilterSearch label="" value="" onChange={e => setFilter(field, e.target.value)} placeholder="Search..." />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names).
-  - `<FilterDateRange label="" value={filters[field] || {}} onChange={val => setFilter(field, val)} type="date" />` — from/to date range picker. `value`/`onChange` use `{ from, to }` object. `type`: "date" (default), "month", or "datetime-local".
+  - `<KPICard title="" value="" subtitle="" color="#3B82F6" className="" style={{}} />` — stat card. className adds to defaults (bg-white, border, text-slate-900). Use style={{}} for reliable overrides (e.g. style={{ backgroundColor: '#1e293b', color: '#fff' }})
+  - `<SectionCard title="" subtitle="" className="" style={{}}>...children...</SectionCard>` — card wrapper. className adds to defaults (bg-white, border, shadow). Use style={{}} for reliable overrides
+  - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} searchable={bool} className="" style={{}} />` — multi-select dropdown with checkboxes, portaled to document.body (always renders above other content). Built-in search auto-enabled at 8+ options (override with `searchable` prop). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`. className adds to defaults (bg-white, border-slate-200, text-slate-900). Use style={{}} for reliable overrides (e.g. dark theme: style={{ backgroundColor: '#1e293b', color: '#fff', borderColor: '#334155' }}).
+  - `<FilterSearch label="" value="" onChange={e => setFilter(field, e.target.value)} placeholder="Search..." className="" style={{}} />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names). className adds to defaults. Use style={{}} for reliable overrides.
+  - `<FilterDateRange label="" value={filters[field] || {}} onChange={val => setFilter(field, val)} type="date" className="" style={{}} />` — from/to date range picker. `value`/`onChange` use `{ from, to }` object. `type`: "date" (default), "month", or "datetime-local". className adds to defaults. Use style={{}} for reliable overrides.
   - `fmt(n, {currency: true})` — number formatter (currency, pct, auto K/M/B)
 
 • **window.ARTIFACT_DATA** — Raw data object (same shape as useArtifactData return)
@@ -101,7 +101,7 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "Array filter values = exact match (FilterSelect), string values = substring search (FilterSearch), "
     "{from,to} values = date range (FilterDateRange)), "
     "<EChart option=... height=N /> wrapper with 'bow' theme (handles init/dispose/resize/styling — supports ALL ECharts chart types including radar, gauge, treemap, funnel, sankey, etc.), "
-    "Pre-built globals (prefer for speed, but build custom React components when the design requires it): LoadingSpinner, KPICard, SectionCard, FilterSelect (with built-in search at 8+ options), FilterSearch, FilterDateRange, fmt(). "
+    "Pre-built globals (prefer for speed, but build custom React components when the design requires it): LoadingSpinner, KPICard (className additive, style prop for overrides), SectionCard (className additive, style prop for overrides), FilterSelect (className additive, style prop for overrides, portaled dropdown, built-in search at 8+ options), FilterSearch (className additive, style prop for overrides), FilterDateRange (className additive, style prop for overrides), fmt(). All filter components default to bg-white — for dark themes pass style={{ backgroundColor, color, borderColor }}. "
     "Full React 18 + Tailwind + ECharts available for custom components when needed. "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
     "All globals (React, echarts, EChart, LoadingSpinner, useArtifactData, useFilters, useState, useEffect, useRef, useMemo, useCallback) are always available at runtime. "

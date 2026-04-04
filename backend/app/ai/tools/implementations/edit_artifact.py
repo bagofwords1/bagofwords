@@ -430,7 +430,8 @@ Rules:
 - Preserve existing code unless the user asked to change it.
 - For NEW charts, prefer `<EChart option={{...}} height={{N}} />` — supports ALL ECharts types (bar, pie, radar, gauge, treemap, funnel, sankey, etc.). 'bow' theme handles base styling.
 - Do NOT output full code. Only SEARCH/REPLACE blocks. If the change feels too large for diffs, output nothing — the planner will use create_artifact instead.
-- Omit className on globals (KPICard, SectionCard, FilterSelect, FilterSearch, FilterDateRange) when using light mode — defaults handle it.
+- className on KPICard/SectionCard is additive (adds to defaults). Use `style` prop for reliable overrides (e.g. `style={{ backgroundColor: '#1e293b', color: '#fff' }}`).
+- FilterSelect dropdown is portaled to document.body — always renders above other content.
 
 ⚠️ **KEEP EDITS MINIMAL.** Do not rewrite code that doesn't need to change. Do not add verbose comments or unnecessary variables.
 
@@ -465,14 +466,16 @@ Use the built-in `useFilters()` hook — do NOT reimplement filter logic manuall
 - Use `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
 - Use `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} />` for date/time columns (dtype contains "datetime")
 
-FILTER DECISION PER VISUALIZATION:
-- For each viz, check if its rows contain the filter column. If yes → use `filterRows(viz[N].rows)` as the data source for ALL downstream derivations (useMemo, .map(), chart options, etc.)
+FILTER PLACEMENT — global vs local:
+- **Global filter** (column in 2+ vizs): place in a top-level filter bar. Prefer one shared filter over duplicates — use `fieldMap` if column names differ across vizs.
+- **Local filter** (column in only 1 viz): place INSIDE that viz's `<SectionCard>`, next to the chart/table it affects.
+
+FILTER DATA FLOW — CRITICAL:
+- Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
+- KPI cards that summarize filtered data (sum, count, avg) MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
 - If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
-- If a viz does not have the filtered column (after mapping), its rows pass through unaffected
 
-WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders). If it reads from viz[N].rows and the viz should be filtered, switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
-
-- Custom overlays: always use inline `style={{{{ backgroundColor: '#fff' }}}}`, `z-50`, `absolute`, `mousedown` click-outside. Use `useFilters()` for state — never duplicate locally.
+WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders, KPI computations). If it reads from viz[N].rows and the viz should be filtered, switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
 
 Apply the user's edit now:"""
 
