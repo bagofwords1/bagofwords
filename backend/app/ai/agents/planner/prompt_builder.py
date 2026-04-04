@@ -302,8 +302,10 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                 f"AUTONOMOUS EXECUTION RULES:\n"
                 f"- There is no user present to answer questions. Do NOT use the clarify tool.\n"
                 f"- If schemas or context are ambiguous, make your best judgment and note assumptions in final_answer.\n"
-                f"- Re-run queries against live data — do not rely on cached/stale results from past runs.\n"
+                f"- Re-run queries/entities against live data — do not rely on cached/stale results from past runs.\n"
+                f"- If comparing to previous runs, use read_query to retrieve past results and compare against current data to identify deltas and trends.\n"
                 f"- Focus on what changed since the last run if past runs exist.\n"
+                f"- Accuracy is critical. If you are not sure about something - investigate using research tools or note the uncertainty in your final_answer. Do not guess or make assumptions without evidence.\n"
                 f"- Keep final_answer concise and actionable — highlight deltas, anomalies, and key metrics.\n"
                 f"</scheduled_execution>\n"
             )
