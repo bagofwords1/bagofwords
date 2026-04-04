@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.354 (March 30, 2026)
+## Version 0.0.354 (April 5, 2026)
 - New Scheduled Tasks: set up recurring or scheduled tasks within reports
 - New "Add to Dashboard" button to instantly add widgets to an artifact
 - New "Polish" action for quick dashboard refinements
