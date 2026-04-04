@@ -16,6 +16,7 @@ class CreateDataInput(BaseModel):
     user_prompt: str = Field(..., description="Original user instruction")
     interpreted_prompt: str = Field(..., description="LLM-interpreted, clarified version of the user prompt. "
     "Be prescriptive: name specific tables, target columns, and additional columns for filtering. "
+    "Prefer a single wide master table with multiple metrics and dimensions over many narrow queries. "
     "Specify whether to return granular rows or pre-aggregate. "
     "Reuse additional columns from previous queries when the data is related, to enable cross-filtering.")
 
