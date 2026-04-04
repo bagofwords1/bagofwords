@@ -1759,7 +1759,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 	}
 }
 
-async function loadCompletions() {
+async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
 		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
 		const response = data.value as any
@@ -1827,7 +1827,9 @@ async function loadCompletions() {
 		cursorBefore.value = response?.next_before || null
         await nextTick()
         safeScrollToBottom()
-		await promptBoxRef.value?.refreshContextEstimate?.()
+		if (!skipEstimate) {
+			await promptBoxRef.value?.refreshContextEstimate?.()
+		}
 		await enrichForkedQueries()
 		// Auto-expand the latest scheduled completion
 		const lastScheduledUser = [...messages.value].reverse().find(m => m.scheduled_prompt_id && m.role === 'user')
@@ -2480,11 +2482,12 @@ async function startPollingInProgressCompletion() {
 
 	const tick = async () => {
 		try {
-			await loadCompletions()
+			await loadCompletions({ skipEstimate: true })
 			autoScrollIfNearBottom()
 			const still = getLastInProgressSystem()
 			if (!still) {
 				stopPollingInProgressCompletion()
+				promptBoxRef.value?.refreshContextEstimate?.()
 				return
 			}
 			if (Date.now() - startTs > maxDurationMs) {

@@ -307,6 +307,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                 f"- Focus on what changed since the last run if past runs exist.\n"
                 f"- Accuracy is critical. If you are not sure about something - investigate using research tools or note the uncertainty in your final_answer. Do not guess or make assumptions without evidence.\n"
                 f"- Keep final_answer concise and actionable — highlight deltas, anomalies, and key metrics.\n"
+                f"- If artifact existed, edit or recreate it based on the new data and requirements. Do not leave outdated artifacts in place.\n"
                 f"</scheduled_execution>\n"
             )
 
