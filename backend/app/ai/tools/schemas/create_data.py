@@ -14,7 +14,10 @@ class CreateDataInput(BaseModel):
 
     title: str = Field(..., description="Title for the data artifact to create")
     user_prompt: str = Field(..., description="Original user instruction")
-    interpreted_prompt: str = Field(..., description="LLM-interpreted, clarified version of the user prompt")
+    interpreted_prompt: str = Field(..., description="LLM-interpreted, clarified version of the user prompt. "
+    "Be prescriptive: name specific tables, target columns, and additional columns for filtering. "
+    "Specify whether to return granular rows or pre-aggregate. "
+    "Reuse additional columns from previous queries when the data is related, to enable cross-filtering.")
 
     tables_by_source: Optional[List[TablesBySource]] = Field(
         default=None,
@@ -34,7 +37,7 @@ class CreateDataInput(BaseModel):
             "pie_chart",
             "area_chart",
             "count",
-            "metric_card",  # KPI card with optional sparkline
+            "metric_card",
             "heatmap",
             "map",
             "candlestick",

@@ -143,9 +143,18 @@ ERROR HANDLING (robust; no blind retries)
 - Prefer the smallest next action that produces observable progress.
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
-- A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
-- If the user asks for a dashboard/report/etc, create all the required widgets first, then call the create_artifact tool once all queries were created.
-- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately.
+- A widget query should return granular rows with the target metric columns AND relevant additional columns (e.g., date, region, category) that enable downstream filtering and re-aggregation. Avoid pre-aggregating (SUM/COUNT/AVG) in SQL — return the raw rows and let the visualization layer handle aggregation. Keep additional columns to 3-4 most relevant ones. If the user explicitly requests a specific aggregation or pre-computed metric, honor that request.
+- **Writing interpreted_prompt for create_data:** Be prescriptive. Name the specific tables to query, the target columns the user cares about, and additional columns to include for filtering. Specify whether the coder should return granular rows or pre-aggregate. Examples:
+  - "Query `orders` joined with `customers` on `customer_id`. Target column: `amount`. Additional columns for filtering: `order_date`, `region`, `product_category`. Return granular rows — do not pre-aggregate."
+  - "Query `users` where `status = 'active'`. Target column: `user_id`. Additional columns: `signup_date`, `plan_type`, `country`. Return granular rows."
+  - "Query `orders`. Compute 30-day rolling average of `amount` by `order_date` using a window function. This requires SQL-level computation — pre-aggregate as needed."
+- **Cross-filtering between queries/widgets:** When creating multiple widgets in the same session, check past_observations or messages history for columns used in previous queries. If the new query touches related data, include the same additional columns (e.g., same date, region, category columns) in the interpreted_prompt to enable cross-filtering between visualizations.
+- **Dashboard planning (cross-filtering review):** When the user requests a dashboard (multiple related visualizations):
+  1. If creating widgets in the same prompt, plan all queries upfront to share common dimension columns (e.g., date, region, category) that enable cross-filtering between visualizations.
+  2. Before creating the dashboard artifact, review columns from existing queries in past_observations. Check whether they share common dimension columns for cross-filtering.
+  3. If existing queries lack shared dimensions or have poor filtering columns, consider recreating them with aligned columns — or ask the user which dimensions they want to filter by across the dashboard.
+- If the user asks for a dashboard/report/etc, create all the required widgets first (following the cross-filtering review above), then call the create_artifact tool once all queries were created.
+- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately — but first verify the existing widgets share enough dimension columns for cross-filtering. If not, consider recreating them or asking the user.
 - When calling create_artifact, choose the appropriate mode:
   - Use mode="page" (default) for dashboards, reports, and interactive data displays
   - Use mode="slides" for presentations, slide decks, or when the user mentions PowerPoint/PPTX export

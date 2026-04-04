@@ -11,7 +11,19 @@ class CreateArtifactInput(BaseModel):
     - visualization_ids: ordered list of visualization IDs to include
     """
 
-    prompt: str = Field(..., description="Detailed instructions for building the artifact from scratch. Describe the desired layout, which visualizations go where, chart types, KPI cards, filters, color scheme, and any specific design preferences. Be specific — this prompt drives the entire generation. Do NOT use this tool to modify an existing artifact; use edit_artifact instead.")
+    prompt: str = Field(..., description=(
+        "Detailed build plan for the dashboard. This prompt drives the entire code generation — be specific and structured. "
+        "Include:\n"
+        "1. LAYOUT & VISUALIZATIONS: Overall structure (e.g. KPI row at top, 2-col grid, full-width section). "
+        "For each visualization, specify: which viz (by title), chart type to render it as, "
+        "position in the layout, and whether it should have a local filter (yes/no).\n"
+        "2. GLOBAL FILTERS (if applicable): If 2+ visualizations share a filterable column "
+        "(same column name or same concept under different names), define a global filter bar. "
+        "Specify which columns to filter on and which vizs they affect. "
+        "If column names differ across vizs, note the mapping.\n"
+        "3. THEME & STYLE: Color scheme, dark/light mode, any design preferences.\n"
+        "Do NOT use this tool to modify an existing artifact; use edit_artifact instead."
+    ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
     visualization_ids: List[str] = Field(..., min_length=1, description="Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. Include only visualizations important to the dashboard goal.")
