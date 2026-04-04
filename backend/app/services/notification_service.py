@@ -365,8 +365,7 @@ class NotificationService:
             content = exec_summary["last_content"]
             if len(content) > 2000:
                 content = content[:2000] + "..."
-            summary_html = f"""<br><br>
-{self._md_to_html(content)}"""
+            summary_html = f"""{self._md_to_html(content)}"""
 
         return f"""<!DOCTYPE html>
 <html>
