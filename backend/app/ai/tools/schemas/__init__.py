@@ -26,6 +26,7 @@ from .events import (
     ToolStdoutEvent,
     ToolEndEvent,
     ToolErrorEvent,
+    ToolConfirmationEvent,
 )
 
 __all__ = [
@@ -73,4 +74,5 @@ __all__ = [
     "ToolStdoutEvent",
     "ToolEndEvent",
     "ToolErrorEvent",
+    "ToolConfirmationEvent",
 ]

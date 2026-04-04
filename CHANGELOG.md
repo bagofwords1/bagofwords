@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.0.354 (April 5, 2026)
+- New Scheduled Tasks: set up recurring or scheduled tasks within reports
+- New "Add to Dashboard" button to instantly add widgets to an artifact
+- New "Polish" action for quick dashboard refinements
+- Show recent queries and artifact shortcuts above the prompt box
+- Improved dashboard generation speed and performance
+- Improved agent filtering by prioritizing master tables for more reliable results
+- Added sandbox support for better agentic code development
+- Display abort status during tool execution
+
 ## Version 0.0.353 (March 30, 2026)
 - feat: new a2a integration for timbr
 - increase timeout in agent harness

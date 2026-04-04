@@ -4,10 +4,12 @@ read_artifact tool - Read an existing artifact's code and metadata.
 Use this to load previous artifact code into context before modifying with create_artifact.
 """
 
+import logging
 from typing import AsyncIterator, Dict, Any, Type, List
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -19,7 +21,12 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.read_artifact import ReadArtifactInput, ReadArtifactOutput
 from app.models.artifact import Artifact
+from app.models.visualization import Visualization
+from app.models.query import Query
+from app.dependencies import async_session_maker
 from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_OBSERVATION
+
+logger = logging.getLogger(__name__)
 
 
 class ReadArtifactTool(Tool):
@@ -32,8 +39,10 @@ class ReadArtifactTool(Tool):
             description=(
                 "Read an existing dashboard, slides, and artifact's code and metadata from the current report. "
                 "Use this to load previous artifact code into context before modifying with edit_artifact (or create_artifact) or when the user wants to inspect or analyze an existing artifact. "
+                "Use this also if the user is saying something is not working like filters or UI elements are not showing up - to check the existing code and visualizations for debugging. "
                 "ALWAYS use this before editing an artifact (edit_artifact) to have a full view of the existing code, visualizations, and layout. "
                 "If the user refers to a specific version of an artifact, ALWAYS load that version with this tool to have the correct code context for the edit. "
+                "Pass load_screenshot=true to include the last rendered preview screenshot in the observation — use this when debugging visual issues or when you need to see the current state before deciding how to edit. "
                 "IMPORTANT: The artifact_id is found in previous create_artifact results shown as 'artifact_id: <uuid>' in the conversation. "
                 "Do NOT ask the user for URLs or artifact IDs - extract the artifact_id from the conversation context."
             ),
@@ -148,6 +157,75 @@ class ReadArtifactTool(Tool):
         # Extract visualization_ids if stored
         visualization_ids: List[str] = content.get("visualization_ids", [])
 
+        # Check allow_llm_see_data privacy setting
+        organization_settings = runtime_ctx.get("settings")
+        allow_llm_see_data = True
+        if organization_settings:
+            try:
+                allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
+            except Exception:
+                allow_llm_see_data = True
+
+        # Fetch associated visualizations and build profiles
+        viz_profiles: List[Dict[str, Any]] = []
+        if visualization_ids:
+            yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
+            try:
+                from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+                create_tool = CreateArtifactTool()
+                report_id = str(report.id) if report else None
+
+                async with async_session_maker() as fresh_db:
+                    result = await fresh_db.execute(
+                        select(Visualization)
+                        .options(
+                            selectinload(Visualization.query).selectinload(Query.default_step),
+                            selectinload(Visualization.query).selectinload(Query.steps),
+                        )
+                        .where(Visualization.id.in_(visualization_ids))
+                    )
+                    fetched_vizs = {str(v.id): v for v in result.scalars().all()}
+
+                for viz_id in visualization_ids:
+                    viz = fetched_vizs.get(viz_id)
+                    if viz is None:
+                        continue
+                    if report_id and str(viz.report_id) != report_id:
+                        continue
+
+                    step = None
+                    if viz.query and viz.query.default_step:
+                        step = viz.query.default_step
+                    elif viz.query and viz.query.steps:
+                        step = viz.query.steps[-1] if viz.query.steps else None
+
+                    if not step or step.status != "success":
+                        continue
+
+                    step_data = step.data if step else {}
+                    rows = (step_data.get("rows") or [])[:100] if step_data else []
+                    raw_columns = step_data.get("columns") or [] if step_data else []
+                    data_model = step.data_model if step else {}
+                    step_info = step_data.get("info") or {} if step_data else {}
+                    column_info = step_info.get("column_info") or {}
+                    view_dict = viz.view or {}
+
+                    ventry = {
+                        "id": str(viz.id),
+                        "title": viz.title,
+                        "query_id": str(viz.query_id) if viz.query_id else None,
+                        "view": create_tool._trim_none(view_dict),
+                        "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
+                        "columns": raw_columns,
+                        "column_info": column_info,
+                        "row_count": len(rows),
+                        "rows": rows,
+                        "dataModel": data_model or {},
+                    }
+                    viz_profiles.append(create_tool._build_viz_profile(ventry, allow_llm_see_data))
+            except Exception as e:
+                logger.warning(f"read_artifact: failed to fetch visualization profiles: {e}")
+
         # Build output
         output = ReadArtifactOutput(
             artifact_id=str(artifact.id),
@@ -189,9 +267,28 @@ class ReadArtifactTool(Tool):
             "mode": artifact.mode,
             "code": code,  # Available for 1 iteration; compacted by observation builder on next tool call
             "visualization_ids": visualization_ids,
+            "visualization_profiles": viz_profiles,  # columns, sample rows (gated by allow_llm_see_data), data model
             "version": artifact.version,
             "runtime_environment": SANDBOX_RUNTIME_OBSERVATION,
         }
+
+        # Include stored screenshot if requested, gated by privacy and vision support
+        if data.load_screenshot:
+            # Check model supports vision
+            model = runtime_ctx.get("model")
+            supports_vision = model and getattr(model, "supports_vision", False)
+
+            if allow_llm_see_data and supports_vision and artifact.screenshot_base64:
+                observation["images"] = [{
+                    "data": artifact.screenshot_base64,
+                    "media_type": "image/png",
+                    "source_type": "base64",
+                }]
+                observation["summary"] += " (screenshot included)"
+
+            # Include render errors if stored (useful even without screenshot)
+            if artifact.render_errors:
+                observation["render_errors"] = artifact.render_errors
 
         yield ToolEndEvent(
             type="tool.end",

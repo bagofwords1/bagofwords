@@ -61,7 +61,15 @@
                 
                 <ul class="max-w-2xl mx-auto space-y-4">
                     <li v-for="m in conversation.completions" :key="m.id" class="text-gray-700 text-sm">
-                        <div class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
+                        <!-- Scheduled prompt indicator -->
+                        <div v-if="m.scheduled_prompt_id && m.role === 'user'" class="mb-2">
+                            <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 bg-gray-50/50">
+                                <Icon name="heroicons-clock" class="w-3.5 h-3.5" />
+                                <span class="font-medium text-gray-500">Scheduled run</span>
+                                <span class="text-gray-300">{{ new Date(m.created_at).toLocaleString() }}</span>
+                            </div>
+                        </div>
+                        <div v-else class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
                             <!-- User message (right-aligned bubble) -->
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">

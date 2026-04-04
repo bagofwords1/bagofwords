@@ -68,6 +68,10 @@ class Completion(BaseSchema):
     source_report_id = Column(String(36), nullable=True, default=None)  # original report this was forked from
     fork_asset_refs = Column(JSON, nullable=True, default=None)  # [{type, id, title}] for queries/viz/artifacts
 
+    # Scheduled prompt
+    scheduled_prompt_id = Column(String(36), ForeignKey('scheduled_prompts.id'), nullable=True, index=True)
+    scheduled_prompt = relationship("ScheduledPrompt", back_populates="completions", lazy='select')
+
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID

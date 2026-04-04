@@ -35,6 +35,21 @@ _SLIDES_LIBS = [
 ]
 
 
+_GLOBALS_FILENAME = "artifact-globals.js"
+
+
+@lru_cache(maxsize=1)
+def _read_globals() -> str:
+    """Read the shared artifact-globals.js from the vendored libs directory."""
+    libs_dir = _find_libs_dir()
+    if libs_dir is None:
+        raise FileNotFoundError(
+            "Vendored JS libs directory not found. "
+            "Run scripts/download-vendor-libs.sh during Docker build."
+        )
+    return (libs_dir / _GLOBALS_FILENAME).read_text(encoding="utf-8")
+
+
 def _find_libs_dir() -> Path | None:
     """Find the directory containing vendored JS libraries."""
     for d in _CANDIDATE_DIRS:
@@ -78,5 +93,9 @@ def get_inline_scripts(mode: str = "page") -> str:
     for filename in lib_files:
         content = _read_lib(libs_dir, filename)  # raises FileNotFoundError if missing
         parts.append(f"<script>{content}</script>")
+
+    # Add global setup for page mode (hooks, EChart wrapper, filters, etc.)
+    if mode == "page":
+        parts.append(f"<script>{_read_globals()}</script>")
 
     return "\n".join(parts)

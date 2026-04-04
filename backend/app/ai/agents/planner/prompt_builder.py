@@ -143,20 +143,33 @@ ERROR HANDLING (robust; no blind retries)
 - Prefer the smallest next action that produces observable progress.
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
-- A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
-- If the user asks for a dashboard/report/etc, create all the required widgets first, then call the create_artifact tool once all queries were created.
-- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately.
+- **Master table over many small queries:** Prefer creating a single wide master table that covers the user's prompt rather than splitting into many narrow single-metric queries. A master table with multiple metric and dimension columns is more efficient (fewer queries) and enables cross-filtering between visualizations built from the same data. Only split into separate queries when the data comes from unrelated sources that don't join naturally, or the user explicitly asks for independent analyses.
+- A widget query should return granular rows with the target metric columns AND relevant additional columns (e.g., date, region, category) that enable downstream filtering and re-aggregation. Avoid pre-aggregating (SUM/COUNT/AVG) in SQL — return the raw rows and let the visualization layer handle aggregation. Keep additional columns to 3-4 most relevant ones. If the user explicitly requests a specific aggregation or pre-computed metric, honor that request.
+- **Writing interpreted_prompt for create_data:** Be prescriptive. Name the specific tables to query, the target columns the user cares about, and additional columns to include for filtering. Specify whether the coder should return granular rows or pre-aggregate. Examples:
+  - "Query `orders` joined with `customers` on `customer_id`. Target column: `amount`. Additional columns for filtering: `order_date`, `region`, `product_category`. Return granular rows — do not pre-aggregate."
+  - "Query `users` where `status = 'active'`. Target column: `user_id`. Additional columns: `signup_date`, `plan_type`, `country`. Return granular rows."
+  - "Query `orders`. Compute 30-day rolling average of `amount` by `order_date` using a window function. This requires SQL-level computation — pre-aggregate as needed."
+- **Cross-filtering between queries/widgets:** When creating multiple widgets in the same session, check past_observations or messages history for columns used in previous queries. If the new query touches related data, include the same additional columns (e.g., same date, region, category columns) in the interpreted_prompt to enable cross-filtering between visualizations.
+- **Dashboard planning (cross-filtering review):** When the user requests a dashboard (multiple related visualizations):
+  1. If creating widgets in the same prompt, plan all queries upfront to share common dimension columns (e.g., date, region, category) that enable cross-filtering between visualizations.
+  2. Before creating the dashboard artifact, review columns from existing queries in past_observations. Check whether they share common dimension columns for cross-filtering.
+  3. If existing queries lack shared dimensions or have poor filtering columns, consider recreating them with aligned columns — or ask the user which dimensions they want to filter by across the dashboard.
+- If the user asks for a dashboard/report/etc, create all the required widgets first (following the cross-filtering review above), then call the create_artifact tool once all queries were created.
+- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately — but first verify the existing widgets share enough dimension columns for cross-filtering. If not, consider recreating them or asking the user.
 - When calling create_artifact, choose the appropriate mode:
   - Use mode="page" (default) for dashboards, reports, and interactive data displays
   - Use mode="slides" for presentations, slide decks, or when the user mentions PowerPoint/PPTX export
+- **Writing artifact prompts:** When calling `create_artifact` (prompt) or `edit_artifact` (edit_prompt), write a DETAILED description that includes ALL user requirements accumulated across the conversation — not just the latest message. Include: layout structure, theme/colors/style, which visualizations go where, filters, KPI cards, and any design preferences the user mentioned in any previous turn. Missing details = missing features in the output.
 - **Create vs Edit artifacts:**
-  - Use `create_artifact` when building a brand new dashboard from scratch, or when the user explicitly asks to start over / rebuild.
-  - Use `edit_artifact` when the user asks to modify, adjust, fix, or tweak an existing dashboard (e.g., "remove the filter", "change colors", "add a KPI card", "make the chart bigger"). The `edit_artifact` tool preserves the existing design and applies only the requested change surgically.
+  - Use `create_artifact` when building a brand new dashboard, when the user asks to rebuild/redesign, or when the requested change is large (e.g., "completely change the layout", "make it dark theme with gradients", "add filters to all charts"). Large changes lose context through surgical diffs — a full regeneration via `create_artifact` produces better results.
+  - Use `edit_artifact` for small, focused changes to an existing dashboard (e.g., "change the chart color", "fix the title", "remove the KPI card", "make the chart taller"). The `edit_artifact` tool applies surgical search/replace diffs — it works best when the change touches a small portion of the code.
+  - **If unsure whether the change is small or large:** call `read_artifact` first to inspect the current code, then decide. If the change would require modifying more than ~30% of the code, use `create_artifact`.
   - To use `edit_artifact`, you need an `artifact_id`. Use the `active_artifact` from context (the most recent artifact in this report) when available — its `artifact_id` is always the latest version. If `active_artifact` is not set, fall back to the most recently created or edited artifact_id from the conversation history. Do NOT ask the user which artifact to edit unless there is genuine ambiguity (e.g., the user explicitly names a different artifact). If you still cannot find an artifact_id, call `read_artifact` to load it.
-  - When `edit_artifact` returns `diff_applied: false` in the observation, it fell back to a full rewrite — this is acceptable but note it for context.
   - **Edit that requires new data:** If the user asks to ADD a new chart/visualization to an existing dashboard (e.g., "add a revenue-by-country chart"), you must first call `create_data` to produce the new visualization, then call `edit_artifact` with BOTH the `artifact_id` AND `visualization_ids: [<new_viz_id>]`. The edit tool will merge the new visualization data with the existing ones automatically. Do NOT call `create_artifact` from scratch just because the edit needs new data — use the create_data → edit_artifact flow instead.
   - **Artifact reflection:** If a `create_artifact` observation includes a screenshot and the result looks wrong (bad layout, missing charts, broken rendering, misaligned elements), use `edit_artifact` to fix it — do NOT call `create_artifact` again. The existing code is a better starting point than regenerating from scratch. Describe the specific visual issues in the `edit_instruction` (e.g., "the bar chart is cut off on the right side", "the KPI cards are overlapping").
   - **After successful artifact create/edit:** When a `create_artifact` or `edit_artifact` observation shows success (no errors), set `analysis_complete=true` and provide a brief `final_answer` summarizing what was created or changed. Do NOT loop again unless the screenshot clearly shows visual issues that need fixing. The artifact is already saved and visible to the user — there is nothing left to do.
+  - **User reports visual issue after edit:** When the user says something is missing or wrong after an artifact edit (e.g., "I don't see filters", "no gradient"), call `read_artifact` with `load_screenshot=true` first to inspect BOTH the current code AND the last rendered screenshot, then call `edit_artifact` with specific, code-level instructions based on what you found (e.g., "add a FilterSelect component above the grid" rather than "add filters"). Vague edit prompts are the #1 cause of failed edits.
+  - **User asks to fix/add a filter:** Make sure the data and query allow setting such filter (e.g., the relevant column is present in the data). If not, clarify with the user or create the required data first.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), output your clarifying questions in assistant_message and call the clarify tool.
 - If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.
@@ -223,7 +236,7 @@ TOOL SCHEMAS (follow exactly)
 {format_tool_schemas(planner_input.tool_catalog)}
 
 INPUT ENVELOPE
-<user_prompt>{planner_input.user_message}</user_prompt>
+{PromptBuilder._format_user_prompt(planner_input)}
 {images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
@@ -270,6 +283,43 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
 """
         return prompt
     
+    @staticmethod
+    def _format_user_prompt(planner_input: PlannerInput) -> str:
+        """Format user prompt based on loop iteration.
+
+        On the first iteration (no last_observation), the user message is the
+        active instruction. On subsequent iterations it becomes context —
+        the real driver is the observation.
+        """
+        sc = planner_input.scheduled_context
+        scheduled_preamble = ""
+        if sc:
+            scheduled_preamble = (
+                f"<scheduled_execution>\n"
+                f"This prompt is running as a SCHEDULED TASK ({sc['cron_label']}, cron: {sc['cron_schedule']}).\n"
+                f"Schedule created: {sc.get('created_at', 'unknown')}. Past runs: {sc.get('total_past_runs', 0)}."
+                f"{' Last run: ' + sc['last_run_at'] + '.' if sc.get('last_run_at') else ''}\n\n"
+                f"AUTONOMOUS EXECUTION RULES:\n"
+                f"- There is no user present to answer questions. Do NOT use the clarify tool.\n"
+                f"- If schemas or context are ambiguous, make your best judgment and note assumptions in final_answer.\n"
+                f"- Re-run queries/entities against live data — do not rely on cached/stale results from past runs.\n"
+                f"- If comparing to previous runs, use read_query to retrieve past results and compare against current data to identify deltas and trends.\n"
+                f"- Focus on what changed since the last run if past runs exist.\n"
+                f"- Accuracy is critical. If you are not sure about something - investigate using research tools or note the uncertainty in your final_answer. Do not guess or make assumptions without evidence.\n"
+                f"- Keep final_answer concise and actionable — highlight deltas, anomalies, and key metrics.\n"
+                f"- If artifact existed, edit or recreate it based on the new data and requirements. Do not leave outdated artifacts in place.\n"
+                f"</scheduled_execution>\n"
+            )
+
+        if planner_input.last_observation:
+            return (
+                f"{scheduled_preamble}"
+                f"<original_user_prompt>{planner_input.user_message}</original_user_prompt>\n"
+                f"You have already taken action. Review <last_observation> and decide: "
+                f"is the original request fulfilled, or what is the single next step?"
+            )
+        return f"{scheduled_preamble}<user_prompt>{planner_input.user_message}</user_prompt>"
+
     @staticmethod
     def _extract_research_step_count(history_summary: str) -> int:
         """Extract research step count from history for loop prevention."""
@@ -550,7 +600,7 @@ TOOL SCHEMAS (follow exactly)
 {format_tool_schemas(planner_input.tool_catalog)}
 
 INPUT ENVELOPE
-<user_prompt>{planner_input.user_message}</user_prompt>
+{PromptBuilder._format_user_prompt(planner_input)}
 {images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>

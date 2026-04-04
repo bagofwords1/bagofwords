@@ -180,10 +180,49 @@ class AgentV2:
                     "title": artifact.title,
                     "mode": artifact.mode,
                     "version": artifact.version,
+                    "generation_prompt": artifact.generation_prompt,
                 }
         except Exception:
             pass
         return None
+
+    async def _build_scheduled_context(self) -> Optional[dict]:
+        """Build scheduled execution context if this completion is from a scheduled prompt."""
+        sp_id = getattr(self.head_completion, 'scheduled_prompt_id', None)
+        if not sp_id:
+            return None
+        try:
+            from app.models.scheduled_prompt import ScheduledPrompt
+            from sqlalchemy import func as sa_func
+
+            sp = await self.db.get(ScheduledPrompt, sp_id)
+            if not sp:
+                return None
+
+            past_run_count = await self.db.scalar(
+                select(sa_func.count(Completion.id))
+                .where(Completion.scheduled_prompt_id == sp_id)
+                .where(Completion.id != self.head_completion.id)
+            )
+
+            cron_labels = {
+                '*/15 * * * *': 'Every 15 minutes',
+                '0 * * * *': 'Hourly',
+                '0 8 * * *': 'Daily at 8 AM',
+                '0 0 * * *': 'Daily at midnight',
+                '0 8 * * 1': 'Weekly on Monday at 8 AM',
+                '0 0 * * 1': 'Weekly on Monday at midnight',
+            }
+
+            return {
+                "cron_schedule": sp.cron_schedule,
+                "cron_label": cron_labels.get(sp.cron_schedule, sp.cron_schedule),
+                "total_past_runs": past_run_count or 0,
+                "last_run_at": sp.last_run_at.isoformat() if sp.last_run_at else None,
+                "created_at": sp.created_at.isoformat() if sp.created_at else None,
+            }
+        except Exception:
+            return None
 
     async def _load_images_as_input(self) -> list[ImageInput]:
         """Load image files as base64-encoded ImageInput objects for vision models.
@@ -762,6 +801,10 @@ class AgentV2:
             consecutive_artifact_tool_count = 0
             last_artifact_tool_name = None
             max_consecutive_artifact_calls = 1
+
+            # Circuit breaker for total artifact calls across the entire execution
+            total_artifact_calls = 0
+            max_total_artifact_calls = 2
             
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
@@ -856,6 +899,7 @@ class AgentV2:
                         active_artifact=active_artifact,
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
+                        scheduled_context=await self._build_scheduled_context(),
                     )
                     # Trim context if it exceeds the model's token budget
                     from app.ai.context.context_hub import trim_context_to_budget
@@ -1363,7 +1407,7 @@ class AgentV2:
                             # Handle streaming side-effects
                             await self._handle_streaming_event(tool_name, ev, tool_input)
                             # Forward events to UI
-                            if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout"]:
+                            if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"]:
                                 seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event=ev.get("type", "tool.progress"),
@@ -1420,12 +1464,13 @@ class AgentV2:
 
                             # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
                             if tool_name in ("create_artifact", "edit_artifact"):
+                                total_artifact_calls += 1
                                 if tool_name == last_artifact_tool_name:
                                     consecutive_artifact_tool_count += 1
                                 else:
                                     consecutive_artifact_tool_count = 1
                                     last_artifact_tool_name = tool_name
-                                if consecutive_artifact_tool_count > max_consecutive_artifact_calls:
+                                if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
                                     analysis_done = True
                                     observation.update({
                                         "analysis_complete": True,
@@ -1897,6 +1942,7 @@ class AgentV2:
             active_artifact=active_artifact,
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
+            scheduled_context=await self._build_scheduled_context(),
         )
 
         from app.ai.context.context_hub import trim_context_to_budget

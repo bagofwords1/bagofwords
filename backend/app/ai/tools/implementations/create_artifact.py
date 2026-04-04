@@ -52,7 +52,8 @@ class CreateArtifactTool(Tool):
         return ToolMetadata(
             name="create_artifact",
             description=(
-                "Create artifacts (dashboards, pages, slide presentations) from visualizations in the current report. "
+                "Create or fully rebuild artifacts (dashboards, pages, slide presentations) from visualizations. "
+                "Use for: new dashboards, full redesigns, large layout changes, or when edit_artifact cannot handle the scope. "
                 "Modes: 'page' for interactive dashboards with KPI cards, charts, and responsive grids; "
                 "'slides' for presentation decks (exportable to PPTX). "
                 "IMPORTANT: visualization_ids are required - find them in previous create_data tool results "
@@ -88,21 +89,26 @@ class CreateArtifactTool(Tool):
     async def _take_preview_screenshot(
         self,
         html_content: str,
-    ) -> Optional[str]:
-        """Take a quick screenshot for planner reflection. Non-blocking, best-effort.
+    ) -> tuple[Optional[str], list[str]]:
+        """Take a quick screenshot for planner reflection and capture JS errors.
 
-        Returns base64-encoded PNG string, or None on failure.
+        Returns (base64-encoded PNG string or None, list of JS error messages).
         """
         try:
             from playwright.async_api import async_playwright
         except ImportError:
-            return None
+            return None, []
+
+        js_errors: list[str] = []
 
         try:
             import tempfile, os
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page(viewport={"width": 1280, "height": 720})
+
+                # Capture JS errors during render
+                page.on("pageerror", lambda err: js_errors.append(str(err)))
 
                 # Write HTML to a temp file and navigate via file:// URL.
                 # This allows vendored scripts (e.g. Tailwind runtime) that use
@@ -126,12 +132,12 @@ class CreateArtifactTool(Tool):
                     await asyncio.sleep(0.3)
                     screenshot_bytes = await page.screenshot(type="png", full_page=False)
                     await browser.close()
-                    return base64.b64encode(screenshot_bytes).decode("utf-8")
+                    return base64.b64encode(screenshot_bytes).decode("utf-8"), js_errors
                 finally:
                     os.unlink(tmp.name)
         except Exception as e:
             logger.warning(f"Preview screenshot failed: {e}")
-            return None
+            return None, js_errors
 
     async def _generate_thumbnail_background(
         self,
@@ -251,8 +257,8 @@ class CreateArtifactTool(Tool):
             return slides_template.replace("__SLIDES_SCRIPTS__", slides_scripts).replace("__ARTIFACT_DATA_JSON__", data_json).replace("__LLM_GENERATED_CODE__", code)
 
         # Page mode: Build self-contained HTML mirroring ArtifactFrame.vue's approach.
-        # Uses inline scripts and injects LLM code directly (not inside a <script> tag)
-        # to avoid HTML parser issues with </script> in LLM-generated code.
+        # get_inline_scripts("page") already includes all vendored libs + artifact-globals.js
+        # so we only need to inject ARTIFACT_DATA, the LLM code, and render-complete detection.
         page_scripts = get_inline_scripts(mode="page")
         SC = '</' + 'script>'  # Avoid parser issues in this Python string too
 
@@ -273,39 +279,6 @@ class CreateArtifactTool(Tool):
   <script>
     window.ARTIFACT_DATA = {data_json};
     window.__ARTIFACT_RENDER_COMPLETE__ = false;
-
-    window.useArtifactData = function() {{
-      return window.ARTIFACT_DATA;
-    }};
-
-    window.LoadingSpinner = function(props) {{
-      var size = props && props.size ? props.size : 24;
-      return React.createElement('svg', {{
-        xmlns: 'http://www.w3.org/2000/svg', width: size, height: size, viewBox: '0 0 24 24',
-        className: props && props.className ? props.className : ''
-      }},
-        React.createElement('path', {{ fill: 'currentColor',
-          d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z', opacity: '0.5' }}),
-        React.createElement('path', {{ fill: 'currentColor',
-          d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z' }},
-          React.createElement('animateTransform', {{
-            attributeName: 'transform', dur: '1s', from: '0 12 12',
-            repeatCount: 'indefinite', to: '360 12 12', type: 'rotate' }}))
-      );
-    }};
-
-    window.resizeAllCharts = function() {{
-      if (typeof echarts !== 'undefined') {{
-        var charts = document.querySelectorAll('[_echarts_instance_]');
-        charts.forEach(function(el) {{
-          var chart = echarts.getInstanceByDom(el);
-          if (chart) chart.resize();
-        }});
-      }}
-    }};
-    setTimeout(window.resizeAllCharts, 100);
-    setTimeout(window.resizeAllCharts, 500);
-    window.addEventListener('resize', window.resizeAllCharts);
   {SC}
 
   {code}
@@ -431,12 +404,29 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
         """Build a privacy-aware profile of a visualization's data."""
+        # Enrich columns with dtype/unique_count/min/max from column_info (always — not sensitive)
+        column_info = viz.get("column_info") or {}
+        raw_columns = viz.get("columns", [])
+        enriched_columns = []
+        for c in raw_columns:
+            col = dict(c) if isinstance(c, dict) else {"field": c}
+            field = col.get("field") or col.get("headerName") or col.get("name")
+            if field and field in column_info:
+                meta = column_info[field]
+                col["dtype"] = meta.get("dtype")
+                col["unique_count"] = meta.get("unique_count")
+                if meta.get("min") is not None:
+                    col["min"] = meta["min"]
+                if meta.get("max") is not None:
+                    col["max"] = meta["max"]
+            enriched_columns.append(col)
+
         profile: Dict[str, Any] = {
             "id": viz.get("id"),
             "title": viz.get("title"),
             "chart_type": viz.get("data_model_type") or "table",
             "row_count": viz.get("row_count", 0),
-            "columns": viz.get("columns", []),
+            "columns": enriched_columns,
         }
 
         # Include data model hints
@@ -491,28 +481,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
                                 }
                     if stats:
                         profile["column_stats"] = stats
-
-                    # Identify filterable columns: categorical with reasonable cardinality
-                    filterable = []
-                    for col in viz.get("columns", []):
-                        col_name = col if isinstance(col, str) else col.get("field", col.get("name"))
-                        if not col_name:
-                            continue
-                        values = [r.get(col_name) for r in rows if r.get(col_name) is not None]
-                        if not values:
-                            continue
-                        # Skip numeric-only columns (metrics, not dimensions)
-                        if all(isinstance(v, (int, float)) for v in values):
-                            continue
-                        unique = list(set(str(v) for v in values))
-                        # Filterable: has repeating values (not all unique) and reasonable cardinality
-                        if 2 <= len(unique) <= 30 and len(unique) < len(values):
-                            filterable.append({
-                                "field": col_name,
-                                "unique_values": sorted(unique),
-                            })
-                    if filterable:
-                        profile["filterable_columns"] = filterable
 
         return profile
 
@@ -655,6 +623,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
             rows = (step_data.get("rows") or [])[:100] if step_data else []
             raw_columns = step_data.get("columns") or [] if step_data else []
             data_model = step.data_model if step else {}
+            step_info = step_data.get("info") or {} if step_data else {}
+            column_info = step_info.get("column_info") or {}
 
             # Keep raw column objects (with field/headerName) — matches the prompt contract
             columns = raw_columns
@@ -673,22 +643,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
             view_dict = viz.view or {}
             query_id = str(viz.query_id) if viz.query_id else None
 
-            # Compute filterable columns for this visualization
-            filterable_columns = []
-            if rows and isinstance(rows[0], dict):
-                for col_name in column_fields:
-                    values = [r.get(col_name) for r in rows if r.get(col_name) is not None]
-                    if not values:
-                        continue
-                    if all(isinstance(v, (int, float)) for v in values):
-                        continue
-                    unique = sorted(set(str(v) for v in values))
-                    if 2 <= len(unique) <= 30 and len(unique) < len(values):
-                        filterable_columns.append({
-                            "field": col_name,
-                            "unique_values": unique,
-                        })
-
             ventry = {
                 "id": str(viz.id),
                 "title": viz.title,
@@ -696,12 +650,11 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 "view": self._trim_none(view_dict),
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": columns,
+                "column_info": column_info,
                 "row_count": len(rows),
                 "rows": rows,
                 "dataModel": data_model or {},
             }
-            if filterable_columns:
-                ventry["filterable_columns"] = filterable_columns
 
             # Debug logging
             logger.info(f"Visualization {viz.title}: {len(rows)} rows, {len(column_fields)} columns: {column_fields[:5] if column_fields else 'none'}")
@@ -736,6 +689,16 @@ Fix these errors while keeping the same design and functionality. Output the cor
         # Build visualization profiles (privacy-aware)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_profiles"})
         viz_profiles = [self._build_viz_profile(v, allow_llm_see_data) for v in visualizations]
+
+        # Emit visualizations_resolved
+        yield ToolProgressEvent(type="tool.progress", payload={
+            "stage": "visualizations_resolved",
+            "tool_name": "create_artifact",
+            "visualizations": [
+                {"id": v["id"], "title": v["title"], "type": v.get("data_model_type", "")}
+                for v in visualizations
+            ],
+        })
 
         # Build instruction context
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
@@ -925,6 +888,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
         # Page mode: take preview screenshot for planner reflection + generate thumbnail
         screenshot_base64: Optional[str] = None
+        render_errors: list[str] = []
         if data.mode == "page":
             artifact_data = {
                 "report": {
@@ -940,7 +904,13 @@ Fix these errors while keeping the same design and functionality. Output the cor
             model = runtime_ctx.get("model")
             if allow_llm_see_data and model and getattr(model, "supports_vision", False):
                 yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
-                screenshot_base64 = await self._take_preview_screenshot(thumbnail_html)
+                screenshot_base64, render_errors = await self._take_preview_screenshot(thumbnail_html)
+
+            # Persist screenshot and render errors on artifact for later retrieval (read_artifact)
+            if screenshot_base64 or render_errors:
+                artifact.screenshot_base64 = screenshot_base64
+                artifact.render_errors = render_errors or None
+                await db.commit()
 
             # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
@@ -990,6 +960,11 @@ Fix these errors while keeping the same design and functionality. Output the cor
         summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
         if data.mode == "slides" and preview_images:
             summary_msg += f". Generated {len(preview_images)} slide preview images."
+        elif render_errors:
+            summary_msg += f". RENDER FAILED with {len(render_errors)} error(s): {render_errors[0]}"
+            if len(render_errors) > 1:
+                summary_msg += f" (and {len(render_errors) - 1} more)"
+            summary_msg += ". The dashboard code has a bug — use edit_artifact to fix the specific error."
         elif screenshot_base64:
             summary_msg += ". Screenshot of the rendered dashboard is attached — review it for visual correctness."
 
@@ -1000,6 +975,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }
+        if render_errors:
+            observation["render_errors"] = render_errors
 
         # Add preview screenshot for planner reflection (page mode)
         if screenshot_base64:
@@ -1412,46 +1389,63 @@ Create a beautiful, varied presentation following these design principles. Each 
 {SANDBOX_RUNTIME_PROMPT}
 
 ═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS - CRITICAL RULES
+CHARTING & COMPONENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
-Data is available via `window.ARTIFACT_DATA`:
-```javascript
-const data = useArtifactData(); // React hook - returns null while loading
-// data = {{ report: {{id, title, theme}}, visualizations: [...] }}
+**`<EChart height={{N}} option={{{{...}}}} />`** — chart wrapper. Supports ALL ECharts chart types. 'bow' theme pre-configures colors, tooltip, grid, axes. For standard charts, only write data mapping:
+```jsx
+<EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.name) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'bar', data: rows.map(r => r.val) }}] }}}} />
+<EChart height={{300}} option={{{{ tooltip: {{ trigger: 'item' }}, series: [{{ type: 'pie', radius: ['45%','75%'], data: rows.map(r => ({{ value: r.amt, name: r.lbl }})) }}] }}}} />
+<EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.date) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'line', data: rows.map(r => r.val), areaStyle: {{ opacity: 0.15 }} }}] }}}} />
+```
+For advanced charts (radar, gauge, treemap, sunburst, funnel, sankey, calendar heatmap, parallel coordinates, graph), pass the full ECharts option — the theme still provides colors and tooltip:
+```jsx
+<EChart height={{300}} option={{{{ radar: {{ indicator: indicators }}, series: [{{ type: 'radar', data: radarData }}] }}}} />
+<EChart height={{250}} option={{{{ series: [{{ type: 'gauge', data: [{{ value: 72 }}], detail: {{ formatter: '{{value}}%' }} }}] }}}} />
+<EChart height={{400}} option={{{{ series: [{{ type: 'treemap', data: treeData }}] }}}} />
 ```
 
-Each visualization object has this EXACT structure:
+**Pre-built globals** (prefer for speed, build custom React components when the design calls for it):
+- `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" className="" style={{{{}}}} />` — className adds to defaults (bg-white, border, text-slate-900). Use `style` for reliable overrides (e.g. `style={{{{ backgroundColor: '#1e293b', color: '#fff' }}}}`)
+- `<SectionCard title="" subtitle="" className="" style={{{{}}}}>...children...</SectionCard>` — className adds to defaults. Use `style` for reliable overrides
+- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} />` — multi-select dropdown (portaled — always renders above other content). Built-in search auto at 8+ options. `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
+- `<FilterSearch label="" value={{str}} onChange={{e => setFilter(field, e.target.value)}} placeholder="Search..." />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names).
+- `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} type="date" />` — from/to date range picker. Value: `{{ from, to }}`. Type: "date" (default), "month", "datetime-local".
+- `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
+- `<LoadingSpinner size={{32}} />`
+
+⚠️ **KEEP OUTPUT COMPACT:**
+- Target **under 8K characters** of code. Be concise — but don't sacrifice UX quality for brevity.
+- className on KPICard/SectionCard is additive (adds to defaults). Use `style` prop for reliable overrides.
+- Don't repeat theme styling (axes, grid, tooltip, colors) — the 'bow' theme provides it.
+- Prefer inline expressions over separate variables when used once.
+- Keep helper functions short. Custom components are fine when the design needs them — just keep them focused.
+
+═══════════════════════════════════════════════════════════════════════════════
+DATA ACCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+```javascript
+const data = useArtifactData(); // Returns null while loading
+// data = {{ report: {{id, title}}, visualizations: [...] }}
+```
+
+Each visualization:
 ```js
 {{
-  id: "uuid-string",
+  id: "uuid",
   title: "Visualization Title",
-  columns: [
-    {{ "headerName": "AlbumId", "field": "AlbumId" }},
-    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
-    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
-  ],
-  rows: [
-    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
-    {{ "AlbumId": 251, "AlbumTitle": "The Office", "total_revenue": 31.84 }},
-    // ... more rows
-  ],
+  columns: [{{ "headerName": "Album Title", "field": "AlbumTitle", "dtype": "object", "unique_count": 150 }}, ...],
+  rows: [{{ "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }}, ...],
   view: {{ /* chart config hints */ }},
   dataModel: {{ /* series/axis config */ }}
 }}
 ```
 
-**CRITICAL - How to access data:**
-- Use `column.field` to get the key for accessing row data: `row[column.field]`
-- Use `column.headerName` for display labels in table headers
-- Example: `rows.map(row => row[columns[0].field])` to get values for first column
-
-**⚠️ CRITICAL: NEVER HARDCODE DATA**
-- You MUST use `useArtifactData()` to access ALL data
-- NEVER write literal/hardcoded values like `const data = [{{name: "Product A", value: 100}}]`
-- NEVER use placeholder or example data in the output code
-- ALL chart data, KPI values, labels, and metrics MUST come from `data.visualizations[N].rows`
-- If the data structure is unclear, access it dynamically from the visualization objects
+- Use `column.field` to access row values: `row[column.field]`
+- Use `column.headerName` for display labels
+- Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
+- **NEVER hardcode data** — ALL values must come from `data.visualizations[N].rows`
 
 ═══════════════════════════════════════════════════════════════════════════════
 YOUR VISUALIZATIONS
@@ -1466,7 +1460,6 @@ DESIGN REQUEST
 ═══════════════════════════════════════════════════════════════════════════════
 
 **Report Title:** {report_title or title or 'Dashboard'}
-**Artifact Mode:** page
 **User Request:** {user_prompt}
 {images_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
@@ -1477,100 +1470,48 @@ DESIGN REQUEST
 DESIGN PRINCIPLES
 ═══════════════════════════════════════════════════════════════════════════════
 
-**Style: Minimalist, Clean, Professional**
+- Polished, executive-ready. Minimalist — whitespace, clean typography. Light mode default.
+- Show data from different angles without redundancy. Narrative > decoration.
+- Choose the best visualization for the data: standard charts (bar, line, pie) for simple data; advanced charts (radar, gauge, treemap, funnel, sankey, etc.) when the data structure or user request calls for it
+- Prefer globals (`<EChart>`, `<KPICard>`, `<SectionCard>`, `<FilterSelect>`, `fmt()`) for speed — but build custom React components with Tailwind when the design requires something the globals don't cover
+- Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
+- YOU choose which columns to filter — use `dtype` and `unique_count` from the column metadata:
+  - `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, dtype "object"/"int64" with few values)
+  - `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
+  - `<FilterDateRange>` for date/time columns (dtype contains "datetime" or values are date strings)
+- Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
 
-Create a polished, executive-ready dashboard. Think:
-- Narrative is key. Use context (messages history, instructions) to create the outline/layut of the report
-- You can show data in different angles, but don't make it redundant and noisy
-- **Minimalism first** - Less is more. Remove visual clutter, no unnecessary decorations
-- **Generous whitespace** - Let elements breathe, use padding liberally
-- **Clean typography** - Simple, readable fonts. No fancy headers or badges
-- **Subtle containers** - Light borders or shadows, not heavy cards
-- **Beautiful, colorful charts** - Use vibrant but harmonious color palettes for data visualization. By default use light mode unless the user/instructions indicate dark theme
-- **Professional feel** - Like a Bloomberg terminal or modern analytics platform
-- **Data-focused** - The data is the star, UI should support not distract
-**Color Guidelines for Charts:**
-- Use rich, vibrant colors: blues (#3B82F6, #60A5FA), greens (#10B981, #34D399), purples (#8B5CF6), oranges (#F59E0B)
-- Apply smooth gradients for area charts and backgrounds
-- Ensure sufficient contrast for readability
-- Use color consistently across related metrics
+FILTER PLACEMENT — global vs local:
+- **Global filter** (filter is important and affects multiple visualizations): place in a top-level filter bar above all content. Prefer one shared filter over duplicates — if two vizs have the same column with different names, use one filter + `fieldMap`.
+- **Local filter** (column only in 1 visualization): place INSIDE that visualization's `<SectionCard>`, visually next to the chart/table it affects.
+- If possible, prefer global — one filter controlling multiple vizs is better UX than many local filters.
+- When adding filters that affect multiple visualizations, add some indication in the UI that they are linked and filtered.
 
-═══════════════════════════════════════════════════════════════════════════════
-CROSS-VISUALIZATION FILTERS
-═══════════════════════════════════════════════════════════════════════════════
+FILTER DATA FLOW — CRITICAL:
+- Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
+- KPI cards that summarize filtered data (sum, count, avg) MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
+- If a viz does NOT have the filter column, use its raw rows — `filterRows` will pass them through unchanged, so filtering is always safe.
+- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
 
-If visualizations have `filterable_columns` in their profile, implement cross-visualization filters.
+EXAMPLE 1 — Global "region" filter affecting KPIs + bar chart + table:
+  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
+  const regions = useMemo(() => [...new Set(vizSales.rows.map(r => r.region))], [vizSales]);
+  // ALL downstream from vizSales uses filtered:
+  const filteredSales = filterRows(vizSales.rows);
+  const totalRevenue = useMemo(() => filteredSales.reduce((s, r) => s + r.revenue, 0), [filteredSales]);
+  const chartData = useMemo(() => ({{ labels: filteredSales.map(r => r.month), values: filteredSales.map(r => r.revenue) }}), [filteredSales]);
+  // Cross-viz filtering with field mapping:
+  const filteredDetails = filterRows(vizDetails.rows, {{ region: 'RegionName' }});
+  // Layout: <FilterSelect> in top bar, KPIs below, charts below that
 
-**Architecture:**
-- Store filter state in App with `useState` — one object mapping field names to selected values (or `null` for "All")
-- Pass filters down to every chart/table component. Each component filters its own `rows` before rendering.
-- Render the filter bar as a **sticky/fixed row at the top** with `z-50` so it stays above all charts.
+EXAMPLE 2 — Local filter inside a SectionCard:
+  const {{ filters, setFilter, filterRows }} = useFilters();
+  const filtered = filterRows(vizProducts.rows);
+  // Layout: <SectionCard title="Products"><FilterSelect .../><EChart ... /></SectionCard>
 
-**Implementation pattern:**
-```jsx
-// In App:
-const [filters, setFilters] = React.useState({{}});
-
-// Collect filterable columns across all visualizations
-const filterableColumns = React.useMemo(() => {{
-  const seen = new Set();
-  const cols = [];
-  data.visualizations.forEach(viz => {{
-    (viz.filterable_columns || []).forEach(fc => {{
-      if (!seen.has(fc.field)) {{
-        seen.add(fc.field);
-        cols.push(fc);
-      }}
-    }});
-  }});
-  return cols;
-}}, [data]);
-
-// Filter function — reuse in every chart component
-const filterRows = (rows) => {{
-  return rows.filter(row =>
-    Object.entries(filters).every(([field, value]) =>
-      value == null || String(row[field]) === value
-    )
-  );
-}};
-
-// Filter bar UI (sticky, above charts)
-<div className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b px-6 py-3 flex gap-4 flex-wrap">
-  {{filterableColumns.map(fc => (
-    <select key={{fc.field}} value={{filters[fc.field] || ""}}
-      onChange={{e => setFilters(f => ({{...f, [fc.field]: e.target.value || null}}))}}
-      className="px-3 py-1.5 rounded-lg border text-sm">
-      <option value="">{{fc.field}}: All</option>
-      {{fc.unique_values.map(v => <option key={{v}} value={{v}}>{{v}}</option>)}}
-    </select>
-  ))}}
-</div>
-
-// In each chart component, always use filterRows(viz.rows) instead of viz.rows directly
-```
-
-**Rules:**
-- Only show filters if `filterable_columns` exist in the data
-- Filter bar must be `sticky top-0 z-50` — always visible above chart canvases
-- Every chart/table must respect active filters
-- Include a visual indicator of active filters and a "Reset" option
-- When multiple visualizations share a filterable column with the same field name, that filter MUST operate across ALL visualizations simultaneously. A filter for "Country" should filter every chart and table that has a "Country" column, not just one. If a visualization does not have the filtered column, it should remain unaffected (show all its data).
-- After filtering, if a visualization has zero matching rows, display a friendly "No data matches current filters" message instead of rendering a broken or empty chart.
-
-**DO NOT include:**
-- Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
-- Branding badges or watermarks (e.g., "Built with ECharts", "Powered by React")
-- Decorative headers like "Light, minimal dashboard • ECharts + React"
-- Unnecessary icons or emoji
-- Footer credits or attribution text
-- Theme metadata or configuration blocks
-
-Example design patterns:
-- Clean KPI cards with large numbers and subtle trend indicators
-- Full-width charts with minimal chrome
-- Responsive grid with consistent spacing
-- Smooth, subtle animations on load
+- Include a Reset button when any filters are active (`Object.keys(filters).length > 0`)
+- After filtering, if a visualization has zero matching rows, display "No data matches current filters"
+- User's explicit requests override all defaults — if they ask for creative, unique, or advanced visualizations, prioritize that over compactness
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -1578,51 +1519,21 @@ OUTPUT FORMAT
 
 ```
 <script type="text/babel">
-// Your React code here
-
 function App() {{
   const data = useArtifactData();
-
-  if (!data) {{
-    return <LoadingState />;
-  }}
-
-  return (
-    // Your gorgeous dashboard
-  );
+  if (!data) return <div className="flex items-center justify-center h-screen text-gray-400"><LoadingSpinner size={{32}} /></div>;
+  const viz = data.visualizations;
+  // ... concise dashboard code
 }}
-
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 ```
 
-REQUIREMENTS:
-1. Start with `<script type="text/babel">` and end with `</script>`
-2. Use the `useArtifactData()` hook for reactive data access - NEVER hardcode any data values
-3. Use `<LoadingSpinner size={{32}} />` for loading state (do NOT build your own spinner)
-4. Initialize ECharts in useEffect, dispose on cleanup, handle resize
-5. Make it responsive (works on mobile and desktop)
-6. Style: Minimalist, clean, professional - no branding badges or decorative headers -- BUT NOT BORING AND TEMPLATE LIKE!
-7. Charts must be beautiful with vibrant, harmonious colors, gradients, and smooth animations
-8. ALL displayed values must come from data.visualizations[N].rows - no placeholder data
-9. Handle edge cases gracefully: if a visualization has zero rows after filtering, show "No data matches the current filters" instead of a broken chart. If a column value is null or undefined, skip it rather than crashing. Wrap ECharts initialization in try/catch so a single broken chart does not take down the entire dashboard.
+CRITICAL: ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. NEVER put return statements outside a function.
 
-Example loading state:
-```jsx
-if (!data) {{
-  return (
-    <div className="flex items-center justify-center h-screen text-gray-400">
-      <LoadingSpinner size={{32}} />
-    </div>
-  );
-}}
-```
+RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji.
 
-**FINAL REMINDERS:**
-- Extract ALL values from `data.visualizations` - never write literal numbers or strings
-- Keep it minimal and professional - no decorative text, badges, or branding
-- Use beautiful, colorful charts with vibrant palettes
-- Pay close attention to the user's specific requests in the conversation history and the prompt. If they mention specific colors, layouts, chart types, or data points to highlight, follow those instructions precisely. The user's explicit request takes priority over default design choices. Do not override user preferences with your own aesthetic judgment.
+⚠️ **OUTPUT MUST BE UNDER 8K CHARACTERS.** Write compact code. No unnecessary variables, comments, or verbose JSX. Omit default props.
 
 Now create the dashboard:"""
 
@@ -1683,14 +1594,76 @@ Now create the dashboard:"""
         if start_idx != -1:
             end_idx = response.find(end_marker, start_idx)
             if end_idx != -1:
-                return response[start_idx:end_idx + len(end_marker)]
+                code = response[start_idx:end_idx + len(end_marker)]
+                return self._sanitize_code(self._ensure_app_wrapper(code))
 
         # If no script tags found, wrap the response
         code = response.strip()
         if not code.startswith("<script"):
             code = f'<script type="text/babel">\n{code}\n</script>'
 
+        return self._sanitize_code(self._ensure_app_wrapper(code))
+
+    @staticmethod
+    def _sanitize_code(code: str) -> str:
+        """Fix common LLM code generation artifacts deterministically."""
+        import re
+
+        # Fix double-brace pattern: function App() {\n{ ... }\n}
+        # The LLM sometimes wraps the function body in an extra block scope.
+        # Match: function App() {\n{ at the start, and }\n} at the end (before render call)
+        code = re.sub(
+            r'(function\s+\w+\s*\([^)]*\)\s*\{)\s*\n\s*\{',
+            r'\1',
+            code,
+        )
+        # Remove the matching trailing extra }
+        # Look for }\n}\n before ReactDOM.createRoot
+        code = re.sub(
+            r'\}\s*\n\s*\}\s*\n(\s*ReactDOM\.createRoot)',
+            r'}\n\1',
+            code,
+        )
+
         return code
+
+    @staticmethod
+    def _ensure_app_wrapper(code: str) -> str:
+        """Ensure code has a proper App component wrapper.
+
+        LLM sometimes outputs bare return statements outside a function.
+        Detect and fix by wrapping the inner code in function App() + ReactDOM.createRoot.
+        """
+        import re
+
+        # Check if code already has an App function/component
+        if re.search(r'function\s+App\s*\(', code) or re.search(r'(?:const|let|var)\s+App\s*=', code):
+            return code
+
+        # Extract inner code between script tags
+        inner_match = re.search(
+            r'<script\s+type=["\']text/babel["\']>\s*([\s\S]*?)\s*</script>',
+            code
+        )
+        if not inner_match:
+            return code
+
+        inner = inner_match.group(1).strip()
+
+        # Strip any existing broken ReactDOM.createRoot/render calls
+        inner = re.sub(r'ReactDOM\.createRoot\(.*?\)\.render\(.*?\);?\s*$', '', inner, flags=re.DOTALL).strip()
+
+        logger.warning("_ensure_app_wrapper: LLM output missing function App() wrapper — auto-wrapping")
+
+        wrapped = (
+            '<script type="text/babel">\n'
+            'function App() {\n'
+            f'{inner}\n'
+            '}\n'
+            "ReactDOM.createRoot(document.getElementById('root')).render(<App />);\n"
+            '</script>'
+        )
+        return wrapped
 
     def _extract_slides_python(self, response: str) -> str:
         """Extract python-pptx code for slides mode."""

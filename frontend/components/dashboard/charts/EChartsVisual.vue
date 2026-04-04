@@ -788,6 +788,13 @@ function buildOptions() {
     else specific = { title: { ...base.title, text: 'Unsupported Chart Type' } }
     
     chartOptions.value = { ...base, ...specific }
+    const merged = chartOptions.value as any
+    if (typeof merged.tooltip?.formatter === 'function') {
+      const original = merged.tooltip.formatter
+      merged.tooltip.formatter = (params: any, ...rest: any[]) => {
+        try { return original(params, ...rest) } catch { return '' }
+      }
+    }
   } catch (e) {
     chartOptions.value = { title: { text: 'Error Building Chart' } }
   } finally {

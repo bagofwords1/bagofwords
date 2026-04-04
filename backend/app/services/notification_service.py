@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import List, Optional
 from logging import getLogger
 
@@ -237,6 +238,26 @@ class NotificationService:
         Called as a fire-and-forget task after rerun_report_steps completes.
         subscribers: [{"type": "user", "id": "..."}, {"type": "email", "address": "..."}]
         """
+        await self.send_scheduled_prompt_results(
+            report_id=report_id,
+            report_title=report_title,
+            subscribers=subscribers,
+            report_url=report_url,
+            exec_summary=None,
+        )
+
+    async def send_scheduled_prompt_results(
+        self,
+        report_id: str,
+        report_title: str,
+        subscribers: list,
+        report_url: str,
+        exec_summary: Optional[dict] = None,
+    ):
+        """Send notification after a scheduled prompt execution completes.
+
+        exec_summary: {"iterations": N, "queries": N, "artifacts": N, "last_content": "..."}
+        """
         fm = settings.email_client
         if not fm or not subscribers:
             return
@@ -262,33 +283,29 @@ class NotificationService:
         if not recipient_emails:
             return
 
-        # Generate PDF attachment
-        pdf_path = None
-        try:
-            from app.services.report_pdf_service import ReportPdfService
-            pdf_service = ReportPdfService()
-            pdf_path = await pdf_service.generate_for_report(report_id)
-        except Exception as e:
-            logger.warning("PDF generation failed for report %s: %s", report_id, e)
+        subject = f"{report_title} - Scheduled prompt results"
+        html = self._build_scheduled_prompt_html(report_title, report_url, exec_summary)
 
-        subject = f"{report_title} - Scheduled report results"
-        html = self._build_results_html(report_title, report_url)
-
-        # Build message with optional attachment
+        # Attach artifact PDF if artifacts were created in this execution
         attachments = []
-        if pdf_path:
+        if exec_summary and exec_summary.get("artifacts", 0) > 0:
             try:
+                from app.services.report_pdf_service import ReportPdfService
                 from pathlib import Path
-                pdf_file = Path(pdf_path)
-                if pdf_file.exists():
-                    attachments.append({
-                        "file": str(pdf_file),
-                        "filename": f"{report_title or 'report'}.pdf",
-                        "type": "application",
-                        "subtype": "pdf",
-                    })
+
+                pdf_service = ReportPdfService()
+                pdf_path = await pdf_service.generate_for_report(report_id)
+                if pdf_path:
+                    pdf_file = Path(pdf_path)
+                    if pdf_file.exists():
+                        attachments.append({
+                            "file": str(pdf_file),
+                            "filename": f"{report_title or 'report'}.pdf",
+                            "type": "application",
+                            "subtype": "pdf",
+                        })
             except Exception as e:
-                logger.warning("Failed to attach PDF: %s", e)
+                logger.warning("PDF generation failed for scheduled prompt report %s: %s", report_id, e)
 
         if attachments:
             message = MessageSchema(
@@ -308,45 +325,59 @@ class NotificationService:
 
         try:
             await fm.send_message(message)
-            logger.info("Scheduled report results sent to %s for report %s", recipient_emails, report_id)
+            logger.info("Scheduled prompt results sent to %s for report %s", recipient_emails, report_id)
         except Exception as e:
-            logger.error("Failed to send scheduled report results: %s", e)
+            logger.error("Failed to send scheduled prompt results: %s", e)
 
-    def _build_results_html(self, report_title: str, report_url: str) -> str:
-        return f"""
-<!DOCTYPE html>
+    @staticmethod
+    def _md_to_html(text: str) -> str:
+        """Minimal markdown-to-HTML: bold, bullet lists, and line breaks."""
+        safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        # bold: **text**
+        safe = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', safe)
+        # bullet lists: lines starting with "- "
+        def _replace_list(m):
+            items = m.group(0).strip().split("\n")
+            li = "".join(f"<li>{item.lstrip('- ').strip()}</li>" for item in items if item.strip())
+            return f"<ul style=\"margin:8px 0;padding-left:20px;\">{li}</ul>"
+        safe = re.sub(r'(^- .+(?:\n- .+)*)', _replace_list, safe, flags=re.MULTILINE)
+        # remaining newlines → <br>
+        safe = safe.replace("\n", "<br>")
+        return safe
+
+    def _build_scheduled_prompt_html(self, report_title: str, report_url: str, exec_summary: Optional[dict] = None) -> str:
+        # Build natural stats sentence
+        stats_sentence = ""
+        if exec_summary:
+            iters = exec_summary.get("iterations", 0)
+            queries = exec_summary.get("queries", 0)
+            parts = []
+            if iters:
+                parts.append(f"{iters} iteration{'s' if iters != 1 else ''}")
+            if queries:
+                parts.append(f"{queries} quer{'ies' if queries != 1 else 'y'}")
+            if parts:
+                stats_sentence = f" It completed {' and '.join(parts)}."
+
+        # Build summary content
+        summary_html = ""
+        if exec_summary and exec_summary.get("last_content"):
+            content = exec_summary["last_content"]
+            if len(content) > 2000:
+                content = content[:2000] + "..."
+            summary_html = f"""{self._md_to_html(content)}"""
+
+        return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
-<body style="margin:0; padding:0; background:#f3f4f6; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6; padding:40px 0;">
-    <tr>
-      <td align="center">
-        <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
-          <tr>
-            <td style="padding:32px 40px 24px;">
-              <h2 style="margin:0 0 8px; font-size:18px; color:#111827;">Scheduled report completed</h2>
-              <p style="margin:0; font-size:14px; color:#6b7280; line-height:1.5;">
-                <strong>{report_title}</strong> has finished its scheduled run. The latest results are ready for review.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:0 40px 32px;">
-              <a href="{report_url}"
-                 style="display:inline-block; background:#2563eb; color:#ffffff; text-decoration:none; padding:10px 24px; border-radius:6px; font-size:14px; font-weight:500;">
-                View Report
-              </a>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:16px 40px; border-top:1px solid #e5e7eb;">
-              <p style="margin:0; font-size:12px; color:#9ca3af;">Sent via Bag of Words</p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+<body style="margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color:#222; font-size:14px; line-height:1.6;">
+  <div style="max-width:600px; padding:20px;">
+    <p>Hi,</p>
+    <p>Your scheduled report &ldquo;{report_title}&rdquo; has finished running.{stats_sentence}</p>
+    {summary_html}
+    <p><a href="{report_url}">View the full report</a></p>
+    <p style="color:#999;">&mdash; Bag of Words</p>
+  </div>
 </body>
 </html>"""
 

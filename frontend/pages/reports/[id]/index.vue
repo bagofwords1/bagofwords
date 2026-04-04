@@ -61,7 +61,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline mr-2" /> Loading older messages…
 					</li>
-					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
+					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 mb-2 text-sm">
 						<!-- Fork summary card (special rendering) -->
 						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
@@ -70,6 +70,43 @@
 							</div>
 							<div class="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
 						</div>
+
+						<!-- Scheduled prompt: collapsible header + user bubble when expanded -->
+						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
+							<button
+								@click="toggleScheduledExpand(m.id)"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors mb-2"
+							>
+								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
+								<span class="font-medium text-gray-500">Scheduled run</span>
+								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
+								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
+								<span v-if="getScheduledStats(m)" class="text-gray-400">{{ getScheduledStats(m) }}</span>
+								<Icon :name="isScheduledExpanded(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 ml-auto flex-shrink-0" />
+							</button>
+							<!-- User bubble shown inside the collapsible area -->
+							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
+								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
+									<div class="flex-1 flex justify-end">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left" dir="auto">
+											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
+												<MDC :value="m.prompt.content" class="markdown-content" />
+											</div>
+										</div>
+									</div>
+									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
+										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+											{{ report.user.name.charAt(0) }}
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Scheduled system message: hide when user header is collapsed -->
+						<template v-else-if="m.scheduled_prompt_id && m.role === 'system' && !isScheduledSystemExpanded(m)">
+							<!-- collapsed -->
+						</template>
 
 						<!-- Regular message rendering -->
 						<div
@@ -166,7 +203,7 @@
 											</div>
 
 											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-											<div v-if="block.tool_execution" class="tool-execution-container">
+											<div v-if="block.tool_execution" class="tool-execution-container" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
@@ -329,12 +366,29 @@
 					:initialMode="report?.mode || 'chat'"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
+					:queryList="queryList"
+					:scheduledPrompts="scheduledPrompts"
+					:hasArtifacts="hasArtifacts"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
+					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
+					@scrollToMessage="scrollToMessage"
+					@editScheduledPrompt="editScheduledPrompt"
+					@deleteScheduledPrompt="deleteScheduledPrompt"
+					@toggleScheduledPrompt="toggleScheduledPromptActive"
+					@scheduledPromptSaved="loadScheduledPrompts"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
 		</div>
+		<!-- Edit scheduled prompt modal -->
+		<ScheduledPromptModal
+			v-model="showEditScheduledPromptModal"
+			:reportId="report_id"
+			:scheduledPrompt="editingScheduledPrompt"
+			:initialDataSources="report?.data_sources || []"
+			@saved="loadScheduledPrompts"
+		/>
 	</div>
 		</template>
 		<template #right>
@@ -511,6 +565,8 @@ interface ChatMessage {
 	instruction_suggestions?: Array<{ text: string; category: string }>
 	// Loading state for feedback-triggered suggestions
 	instruction_suggestions_loading?: boolean
+	// Scheduled prompt tag
+	scheduled_prompt_id?: string | null
 }
 
 const route = useRoute()
@@ -521,6 +577,32 @@ const canViewConsole = computed(() => useCan('view_console'))
 
 const messages = ref<ChatMessage[]>([])
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
+
+// List of queries for the summary pills — derived from created_steps in completions
+const queryList = computed(() => {
+	const list: { id: string; label: string; rowCount?: number; messageId: string; stepId: string }[] = []
+	const seen = new Set<string>()
+	for (const m of messages.value) {
+		if (!m.completion_blocks) continue
+		for (const b of m.completion_blocks) {
+			const step = b.tool_execution?.created_step as any
+			if (step && b.tool_execution?.status === 'success') {
+				const stepId = step.id || step.query_id || ''
+				if (stepId && seen.has(stepId)) continue
+				if (stepId) seen.add(stepId)
+				list.push({
+					id: stepId,
+					label: step.title || 'Query',
+					rowCount: step.data?.info?.total_rows ?? undefined,
+					messageId: m.id,
+					stepId
+				})
+			}
+		}
+	}
+	return list
+})
+
 const showContextIndicator = computed(() => {
 	const completedSystem = messages.value.some(
 		(m) => m.role === 'system' && ['success', 'error', 'stopped'].includes(m.status || '')
@@ -561,6 +643,97 @@ const report = ref<any | null>(null)
 const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
+
+// Scheduled prompts state
+const scheduledPrompts = ref<any[]>([])
+const editingScheduledPrompt = ref<any>(null)
+const showEditScheduledPromptModal = ref(false)
+const expandedScheduledIds = ref<Set<string>>(new Set())
+
+function toggleScheduledExpand(messageId: string) {
+	if (expandedScheduledIds.value.has(messageId)) {
+		expandedScheduledIds.value.delete(messageId)
+	} else {
+		expandedScheduledIds.value.add(messageId)
+	}
+}
+
+function isScheduledExpanded(messageId: string): boolean {
+	return expandedScheduledIds.value.has(messageId)
+}
+
+function isScheduledSystemExpanded(msg: ChatMessage): boolean {
+	// Find the preceding user message with the same scheduled_prompt_id
+	const idx = messages.value.indexOf(msg)
+	if (idx > 0) {
+		const prev = messages.value[idx - 1]
+		if (prev.scheduled_prompt_id === msg.scheduled_prompt_id && prev.role === 'user') {
+			return expandedScheduledIds.value.has(prev.id)
+		}
+	}
+	return true
+}
+
+function formatScheduledDate(date?: string) {
+	if (!date) return ''
+	return new Date(date).toLocaleString()
+}
+
+function getScheduledStats(userMsg: ChatMessage): string | null {
+	// Find the paired system message
+	const idx = messages.value.indexOf(userMsg)
+	if (idx < 0 || idx >= messages.value.length - 1) return null
+	const sysMsg = messages.value[idx + 1]
+	if (!sysMsg || sysMsg.scheduled_prompt_id !== userMsg.scheduled_prompt_id || sysMsg.role !== 'system') return null
+	const blocks = sysMsg.completion_blocks || []
+	if (!blocks.length) return null
+
+	let queries = 0
+	let artifacts = 0
+	for (const b of blocks) {
+		const te = b.tool_execution
+		if (!te || te.status !== 'success') continue
+		if (te.tool_name === 'create_data' && te.created_step_id) queries++
+		if (te.tool_name === 'create_artifact' || te.tool_name === 'edit_artifact') artifacts++
+	}
+
+	const parts: string[] = []
+	parts.push(`${blocks.length} step${blocks.length !== 1 ? 's' : ''}`)
+	if (queries) parts.push(`${queries} quer${queries !== 1 ? 'ies' : 'y'}`)
+	if (artifacts) parts.push(`${artifacts} artifact${artifacts !== 1 ? 's' : ''}`)
+	return parts.join(', ')
+}
+
+async function loadScheduledPrompts() {
+    try {
+        const { data } = await useMyFetch(`/reports/${report_id}/scheduled-prompts`)
+        scheduledPrompts.value = (data.value as any[]) || []
+    } catch {
+        scheduledPrompts.value = []
+    }
+}
+
+async function deleteScheduledPrompt(sp: any) {
+    try {
+        await useMyFetch(`/reports/${report_id}/scheduled-prompts/${sp.id}`, { method: 'DELETE' })
+        await loadScheduledPrompts()
+    } catch {}
+}
+
+async function toggleScheduledPromptActive(sp: any) {
+    try {
+        await useMyFetch(`/reports/${report_id}/scheduled-prompts/${sp.id}`, {
+            method: 'PUT',
+            body: { is_active: !sp.is_active },
+        })
+        await loadScheduledPrompts()
+    } catch {}
+}
+
+function editScheduledPrompt(sp: any) {
+    editingScheduledPrompt.value = sp
+    showEditScheduledPromptModal.value = true
+}
 
 // Fork state — extract forked queries and artifact ref from the fork summary completion
 const forkedQueries = ref<any[]>([])
@@ -928,6 +1101,23 @@ function openImagePreview(file: any) {
 	imagePreviewModalRef.value?.open(file)
 }
 
+function scrollToMessage(messageId: string, stepId?: string) {
+	const container = scrollContainer.value
+	if (!container) return
+	// If a stepId is provided, try to scroll to the specific tool execution block first
+	if (stepId) {
+		const stepEl = container.querySelector(`[data-step-id="${stepId}"]`) as HTMLElement
+		if (stepEl) {
+			stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+			return
+		}
+	}
+	const el = container.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement
+	if (el) {
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+	}
+}
+
 function scrollToBottom() {
   // Single-pass scroll: go to max scroll position
   nextTick(() => {
@@ -1225,6 +1415,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
 						}
+
+						// Capture code, attempt, and errors for create_data / inspect_data
+						if ((payload.tool_name === 'create_data' || payload.tool_name === 'inspect_data') && payload.payload) {
+							const p = payload.payload
+							const te = lastBlock.tool_execution as any
+							// Stream generated code from code_generated stage
+							if (p.stage === 'generated_code' && p.code) {
+								te.progress_code = p.code
+							}
+							// Track current attempt number
+							if (typeof p.attempt === 'number') {
+								te.progress_attempt = p.attempt
+							}
+							// On retry, capture the error that triggered it
+							if (p.stage === 'retry') {
+								te.progress_errors = te.progress_errors || []
+								// The error was already emitted via stdout before the retry event
+							}
+						}
 					}
 
           // Progressive data model updates for create_widget tool
@@ -1288,6 +1497,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						} catch {}
 					}
 
+					// Visualizations resolved for create_artifact / edit_artifact
+					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact') && payload.payload) {
+						if (payload.payload.stage === 'visualizations_resolved' && Array.isArray(payload.payload.visualizations)) {
+							;(lastBlock.tool_execution as any).progress_visualizations = payload.payload.visualizations
+						}
+					}
+
 					// Progressive slide tracking for create_artifact tool
 					if (payload.tool_name === 'create_artifact' && payload.payload) {
 						const p = payload.payload
@@ -1333,6 +1549,32 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 
 					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'tool.stdout':
+			// Capture stdout messages (errors, execution logs) for create_data / inspect_data
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					const te = lastBlock.tool_execution as any
+					te.progress_stdout = te.progress_stdout || []
+					const msg = typeof payload.payload === 'string' ? payload.payload : (payload.payload?.message || '')
+					if (msg) {
+						te.progress_stdout.push(msg)
+					}
+				}
+			}
+			break
+
+		case 'tool.confirmation':
+			// Confirmation request from create_artifact / edit_artifact
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					;(lastBlock.tool_execution as any).confirmation = payload.payload
+					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
 				}
 			}
 			break
@@ -1517,7 +1759,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 	}
 }
 
-async function loadCompletions() {
+async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
 		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
 		const response = data.value as any
@@ -1541,7 +1783,7 @@ async function loadCompletions() {
 					id: b.tool_execution.id,
 					tool_name: b.tool_execution.tool_name,
 					tool_action: b.tool_execution.tool_action,
-					status: b.tool_execution.status,
+					status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
 					result_summary: b.tool_execution.result_summary,
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
@@ -1552,7 +1794,7 @@ async function loadCompletions() {
 					created_step: b.tool_execution.created_step
 				} : undefined
 			})) || []
-			
+
 			// Auto-collapse reasoning for blocks that have content or tool execution
 			for (const b of blocks) {
 				if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1576,6 +1818,8 @@ async function loadCompletions() {
 				is_fork_summary: c.is_fork_summary,
 				source_report_id: c.source_report_id,
 				fork_asset_refs: c.fork_asset_refs,
+				// Scheduled prompt tag
+				scheduled_prompt_id: c.scheduled_prompt_id || null,
 			}
 		})
 		// Update cursors
@@ -1583,8 +1827,15 @@ async function loadCompletions() {
 		cursorBefore.value = response?.next_before || null
         await nextTick()
         safeScrollToBottom()
-		await promptBoxRef.value?.refreshContextEstimate?.()
+		if (!skipEstimate) {
+			await promptBoxRef.value?.refreshContextEstimate?.()
+		}
 		await enrichForkedQueries()
+		// Auto-expand the latest scheduled completion
+		const lastScheduledUser = [...messages.value].reverse().find(m => m.scheduled_prompt_id && m.role === 'user')
+		if (lastScheduledUser) {
+			expandedScheduledIds.value.add(lastScheduledUser.id)
+		}
 	} catch (e) {
 		console.error('Error loading completions:', e)
 	} finally {
@@ -1620,7 +1871,7 @@ async function loadPreviousCompletions() {
                     id: b.tool_execution.id,
                     tool_name: b.tool_execution.tool_name,
                     tool_action: b.tool_execution.tool_action,
-                    status: b.tool_execution.status,
+                    status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
                     result_summary: b.tool_execution.result_summary,
                     result_json: b.tool_execution.result_json,
                     duration_ms: b.tool_execution.duration_ms,
@@ -1630,7 +1881,7 @@ async function loadPreviousCompletions() {
                     created_step: b.tool_execution.created_step
                 } : undefined
             })) || []
-            
+
             // Auto-collapse reasoning for blocks that have content or tool execution
             for (const b of blocks) {
                 if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1648,7 +1899,8 @@ async function loadPreviousCompletions() {
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
                 instruction_suggestions: c.instruction_suggestions,
-                files: c.files || []
+                files: c.files || [],
+                scheduled_prompt_id: c.scheduled_prompt_id || null,
             }
         })
         // Dedupe by id and prepend
@@ -1742,6 +1994,9 @@ onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
     })
+    window.addEventListener('artifact:open', ((ev: CustomEvent) => {
+        handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
+    }) as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -1851,6 +2106,7 @@ onUnmounted(() => {
 	}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
+	stopScheduledCompletionsPoll()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 })
@@ -1939,12 +2195,13 @@ function abortStream() {
 				const newMessages = [...messages.value]
 				const updatedMessage = { ...newMessages[msgIndex], status: 'stopped' as ChatStatus }
 				
-				// Also update all completion blocks to stopped status
+				// Also update all completion blocks and their tool executions to stopped status
 				if (updatedMessage.completion_blocks) {
 					updatedMessage.completion_blocks = updatedMessage.completion_blocks.map(block => ({
 						...block,
 						status: block.status === 'in_progress' ? 'stopped' as ChatStatus : block.status,
-						completed_at: block.completed_at || new Date().toISOString()
+						completed_at: block.completed_at || new Date().toISOString(),
+						tool_execution: block.tool_execution?.status === 'running' ? { ...block.tool_execution, status: 'stopped' } : block.tool_execution
 					}))
 				}
 				
@@ -2225,11 +2482,12 @@ async function startPollingInProgressCompletion() {
 
 	const tick = async () => {
 		try {
-			await loadCompletions()
+			await loadCompletions({ skipEstimate: true })
 			autoScrollIfNearBottom()
 			const still = getLastInProgressSystem()
 			if (!still) {
 				stopPollingInProgressCompletion()
+				promptBoxRef.value?.refreshContextEstimate?.()
 				return
 			}
 			if (Date.now() - startTs > maxDurationMs) {
@@ -2247,13 +2505,48 @@ async function startPollingInProgressCompletion() {
 	pollHandle = window.setTimeout(tick, pollIntervalMs)
 }
 
+// === Background poll to detect new scheduled completions ===
+let scheduledPollHandle: number | null = null
+const scheduledPollIntervalMs = 15_000
+
+function startScheduledCompletionsPoll() {
+	if (scheduledPollHandle !== null) return
+	const tick = async () => {
+		if (isStreaming.value) {
+			scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+			return
+		}
+		try {
+			const lastId = messages.value.length > 0 ? messages.value[messages.value.length - 1].id : null
+			const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+			const response = data.value as any
+			const list: any[] = response?.completions || []
+			const newLastId = list.length > 0 ? list[list.length - 1].id : null
+			if (newLastId && newLastId !== lastId) {
+				await loadCompletions()
+				autoScrollIfNearBottom()
+			}
+		} catch {}
+		scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+	}
+	scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+}
+
+function stopScheduledCompletionsPoll() {
+	if (scheduledPollHandle !== null) {
+		clearTimeout(scheduledPollHandle)
+		scheduledPollHandle = null
+	}
+}
+
 onMounted(async () => {
 	await Promise.all([
 		loadReport(),
 		loadVisualizations(),
 		loadCompletions(),
 		checkHasArtifacts(),
-		loadActiveLayoutHasBlocks()
+		loadActiveLayoutHasBlocks(),
+		loadScheduledPrompts()
 	])
 
 	// Open split screen if report has artifacts or legacy layout
@@ -2277,6 +2570,9 @@ onMounted(async () => {
 	if (!isStreaming.value && getLastInProgressSystem()) {
 		startPollingInProgressCompletion()
 	}
+
+	// Start background poll for new scheduled completions
+	startScheduledCompletionsPoll()
 	
 	// Open dashboard pane if there are any published widgets
 	if (visualizations.value.some(viz => viz.status === 'published')) {

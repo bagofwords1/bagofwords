@@ -154,8 +154,8 @@ class MessageContextBuilder:
                                             sample_row = rows[0]
                                     digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                     if col_names:
-                                        head_cols = ", ".join(col_names[:3])
-                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                        head_cols = ", ".join(col_names[:10])
+                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                     if sample_row:
                                         try:
                                             digest_parts.append(f"top row: {json.dumps(sample_row)}")
@@ -184,8 +184,8 @@ class MessageContextBuilder:
                                             sample_row = rows[0]
                                     digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                     if col_names:
-                                        head_cols = ", ".join(col_names[:3])
-                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                        head_cols = ", ".join(col_names[:10])
+                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                     # If a non-table viz was inferred, surface it concisely
                                     try:
                                         dm = rj.get('data_model') or {}
@@ -690,8 +690,8 @@ class MessageContextBuilder:
                                 row_count = len(rows)
                                 digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                 if col_names:
-                                    head_cols = ", ".join(col_names[:3])
-                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                    head_cols = ", ".join(col_names[:10])
+                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                 if allow_llm_see_data:
                                     preview = result_json.get('data_preview', {}) or {}
                                     preview_rows = preview.get('rows') or []
@@ -715,8 +715,8 @@ class MessageContextBuilder:
                                 row_count = len(rows)
                                 digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                 if col_names:
-                                    head_cols = ", ".join(col_names[:3])
-                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                    head_cols = ", ".join(col_names[:10])
+                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                 if allow_llm_see_data:
                                     preview = rj.get('data_preview', {}) or {}
                                     preview_rows = preview.get('rows') or []

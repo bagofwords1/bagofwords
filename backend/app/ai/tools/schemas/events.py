@@ -32,6 +32,11 @@ class ToolErrorEvent(BaseModel):
     payload: Dict[str, Any] = {}
 
 
+class ToolConfirmationEvent(BaseModel):
+    type: Literal["tool.confirmation"]
+    payload: Dict[str, Any] = {}
+
+
 # Union type for all tool events
 ToolEvent = Union[
     ToolStartEvent,
@@ -40,4 +45,5 @@ ToolEvent = Union[
     ToolStdoutEvent,
     ToolEndEvent,
     ToolErrorEvent,
+    ToolConfirmationEvent,
 ]

@@ -354,6 +354,7 @@ class CompletionService:
         external_message_ts: str = None,
         external_channel_id: str = None,
         external_channel_type: str = None,
+        scheduled_prompt_id: str = None,
     ):
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
@@ -363,6 +364,7 @@ class CompletionService:
                     span, db, report_id, completion_data, current_user, organization,
                     background, external_user_id, external_platform, build_id,
                     external_thread_ts, external_message_ts, external_channel_id, external_channel_type,
+                    scheduled_prompt_id=scheduled_prompt_id,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -385,6 +387,7 @@ class CompletionService:
         external_message_ts: str = None,
         external_channel_id: str = None,
         external_channel_type: str = None,
+        scheduled_prompt_id: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -455,7 +458,8 @@ class CompletionService:
                 external_thread_ts=external_thread_ts,
                 external_message_ts=external_message_ts,
                 external_channel_id=external_channel_id,
-                external_channel_type=external_channel_type
+                external_channel_type=external_channel_type,
+                scheduled_prompt_id=scheduled_prompt_id,
             )
 
             try:
@@ -509,7 +513,8 @@ class CompletionService:
                 external_thread_ts=external_thread_ts,
                 external_message_ts=external_message_ts,
                 external_channel_id=external_channel_id,
-                external_channel_type=external_channel_type
+                external_channel_type=external_channel_type,
+                scheduled_prompt_id=scheduled_prompt_id,
             )
 
             try:
@@ -1091,6 +1096,8 @@ class CompletionService:
                 instruction_suggestions=suggestions_list,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=user_feedback,
+                # Scheduled prompt
+                scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
@@ -1394,6 +1401,8 @@ class CompletionService:
                 instruction_suggestions=suggestions_list,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=None,  # Not available without current_user context
+                # Scheduled prompt
+                scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),

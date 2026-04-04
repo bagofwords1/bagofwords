@@ -189,9 +189,63 @@
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
-        class="absolute inset-0 w-full h-full border-0 bg-white"
+        class="absolute inset-0 w-full h-full border-0 bg-white z-0"
         @load="onIframeLoad"
       />
+
+      <!-- Polish Mode Button -->
+      <div
+        v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError"
+        class="absolute bottom-4 left-4 z-20"
+      >
+        <button
+          @click="togglePolishMode"
+          :class="[
+            'flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all',
+            isPolishMode
+              ? 'bg-indigo-600 text-white hover:bg-indigo-700 ring-2 ring-indigo-300'
+              : 'bg-gray-800 text-gray-100 hover:bg-gray-700'
+          ]"
+        >
+          <Icon name="heroicons:paint-brush" class="w-4 h-4" />
+          <span class="text-xs font-medium">Polish Dashboard</span>
+        </button>
+      </div>
+
+      <!-- Polish Prompt Box -->
+      <div
+        v-if="polishPromptVisible"
+        class="absolute z-30 w-80 bg-white rounded-lg shadow-xl border border-gray-200 p-3"
+        :style="polishPromptPosition"
+      >
+        <div class="flex items-center gap-2 mb-2">
+          <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
+          <span class="text-xs font-medium text-gray-700">Polish this element</span>
+          <button @click="cancelPolishPrompt" class="ml-auto text-gray-400 hover:text-gray-600">
+            <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 rounded px-2 py-1 truncate">
+          &lt;{{ polishSelectedElement?.tag?.toLowerCase() }}&gt; {{ polishSelectedElement?.text?.slice(0, 60) }}
+        </div>
+        <form @submit.prevent="submitPolishPrompt" class="flex gap-2">
+          <input
+            ref="polishInputRef"
+            v-model="polishInstruction"
+            type="text"
+            placeholder="e.g. make this bigger, change colors..."
+            class="flex-1 text-sm border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            @keydown.escape="cancelPolishPrompt"
+          />
+          <button
+            type="submit"
+            :disabled="!polishInstruction.trim()"
+            class="px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Apply
+          </button>
+        </form>
+      </div>
     </div>
 
     <!-- Fullscreen Modal -->
@@ -230,7 +284,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, toRaw } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
 import PublishModal from '../PublishModal.vue';
@@ -300,6 +354,71 @@ const isRefreshing = ref(false);
 
 // Iframe render error state
 const iframeError = ref<string | null>(null);
+
+// Polish mode state
+const isPolishMode = ref(false);
+const polishPromptVisible = ref(false);
+const polishInstruction = ref('');
+const polishInputRef = ref<HTMLInputElement | null>(null);
+const polishSelectedElement = ref<{ tag: string; classes: string; text: string; htmlSnippet: string; rect: { top: number; left: number; width: number; height: number } } | null>(null);
+
+const polishPromptPosition = computed(() => {
+  if (!polishSelectedElement.value?.rect) return { top: '50%', left: '50%' };
+  const r = polishSelectedElement.value.rect;
+  // Position below the element, clamped within the container
+  const top = Math.min(Math.max(r.top + r.height + 8, 8), 500);
+  const left = Math.min(Math.max(r.left, 8), 400);
+  return { top: top + 'px', left: left + 'px' };
+});
+
+function togglePolishMode() {
+  if (isPolishMode.value) {
+    exitPolishMode();
+  } else {
+    enterPolishMode();
+  }
+}
+
+function enterPolishMode() {
+  isPolishMode.value = true;
+  polishPromptVisible.value = false;
+  polishSelectedElement.value = null;
+  polishInstruction.value = '';
+  // Tell iframe to enable pick mode
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
+}
+
+function exitPolishMode() {
+  isPolishMode.value = false;
+  polishPromptVisible.value = false;
+  polishSelectedElement.value = null;
+  polishInstruction.value = '';
+  // Tell iframe to disable pick mode
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, '*');
+}
+
+function cancelPolishPrompt() {
+  polishPromptVisible.value = false;
+  polishSelectedElement.value = null;
+  polishInstruction.value = '';
+  // Re-enter pick mode so user can select another element
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
+}
+
+function submitPolishPrompt() {
+  if (!polishInstruction.value.trim() || !polishSelectedElement.value) return;
+
+  const artifactTitle = selectedArtifact.value?.title || 'the dashboard';
+  const artifactId = selectedArtifact.value?.id || selectedArtifactId.value || '';
+  const el = polishSelectedElement.value;
+  const prompt = `Polish the dashboard "${artifactTitle}" (artifact_id: ${artifactId}).\nTarget element:\n\`\`\`html\n${el.htmlSnippet}\n\`\`\`\nInstruction: ${polishInstruction.value.trim()}`;
+
+  window.dispatchEvent(new CustomEvent('prompt:prefill', {
+    detail: { text: prompt, autoSubmit: true }
+  }));
+
+  exitPolishMode();
+}
 
 // Refresh Dashboard - reruns report queries and refreshes data
 async function refreshDashboard() {
@@ -505,11 +624,16 @@ function handleArtifactSelect(event: Event) {
 // Handle artifact:created event (refresh list and select new artifact)
 async function handleArtifactCreated(event: Event) {
   const artifactId = (event as CustomEvent).detail?.artifact_id;
+  // Reset dataReady BEFORE selecting the new artifact so iframeSrcdoc doesn't
+  // render new code (with viz[N] refs) against stale visualization data.
+  dataReady.value = false;
   await fetchArtifactsList();
   if (artifactId) {
     selectedArtifactId.value = artifactId;
     // Force refetch in case same artifact transitioned from pending to completed
     await fetchSelectedArtifact();
+    // Fetch visualization data for the new artifact before rendering
+    await fetchData(artifactId);
   }
 }
 
@@ -556,6 +680,9 @@ async function fetchSelectedArtifact() {
     if (data.value) {
       selectedArtifact.value = data.value;
       console.log('[ArtifactFrame] Loaded artifact:', (data.value as any).title);
+      // Broadcast active artifact viz IDs so ToolWidgetPreview can show "Added to Dashboard"
+      const vizIds = (data.value as any)?.content?.visualization_ids || [];
+      window.dispatchEvent(new CustomEvent('artifact:viz-ids', { detail: { visualization_ids: vizIds } }));
     }
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch artifact:', e);
@@ -566,6 +693,7 @@ async function fetchSelectedArtifact() {
 watch(selectedArtifactId, async (newId, oldId) => {
   iframeError.value = null;
   iframeReady.value = false;
+  if (isPolishMode.value) exitPolishMode();
   await fetchSelectedArtifact();
   // Only refetch data if this is a user-initiated change (not initial load)
   if (oldId !== undefined) {
@@ -577,6 +705,7 @@ onUnmounted(() => {
   window.removeEventListener('message', handleIframeMessage);
   window.removeEventListener('artifact:select', handleArtifactSelect);
   window.removeEventListener('artifact:created', handleArtifactCreated);
+  if (isPolishMode.value) exitPolishMode();
 });
 
 // Handle messages from iframe
@@ -589,6 +718,11 @@ function handleIframeMessage(event: MessageEvent) {
   } else if (event.data?.type === 'ARTIFACT_ERROR') {
     console.error('[ArtifactFrame] Iframe render error:', event.data.payload?.message);
     iframeError.value = event.data.payload?.message || 'Unknown render error';
+  } else if (event.data?.type === 'POLISH_ELEMENT_SELECTED') {
+    polishSelectedElement.value = event.data.element;
+    polishPromptVisible.value = true;
+    polishInstruction.value = '';
+    nextTick(() => polishInputRef.value?.focus());
   }
 }
 
@@ -659,8 +793,22 @@ async function fetchData(artifactId?: string) {
       }
     }
 
-    visualizationsData.value = vizData;
-    console.log('[ArtifactFrame] Fetched', vizData.length, 'visualizations');
+    // Reorder vizData to match artifact's visualization_ids order
+    // (artifact code references viz[0], viz[1], etc. by index)
+    const vizIds = selectedArtifact.value?.content?.visualization_ids;
+    if (vizIds && vizIds.length > 0) {
+      const vizMap = new Map(vizData.map(v => [v.id, v]));
+      const ordered = vizIds.map((id: string) => vizMap.get(id)).filter(Boolean);
+      // Append any extras not in visualization_ids
+      const orderedIds = new Set(vizIds);
+      for (const v of vizData) {
+        if (!orderedIds.has(v.id)) ordered.push(v);
+      }
+      visualizationsData.value = ordered;
+    } else {
+      visualizationsData.value = vizData;
+    }
+    console.log('[ArtifactFrame] Fetched', visualizationsData.value.length, 'visualizations');
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
     dataReady.value = true;
@@ -1026,56 +1174,123 @@ const iframeSrcdoc = computed(() => {
 <body>
   <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">Loading artifact...</div></div>
 
+  <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
+  <script src="/libs/artifact-globals.js">${SC}
+
   <script>
-    window.ARTIFACT_DATA = ${embeddedData};
-    window.useArtifactData = function() {
-      return window.ARTIFACT_DATA;
-    };
-    // Global LoadingSpinner component for artifact code
-    window.LoadingSpinner = function(props) {
-      var size = props && props.size ? props.size : 24;
-      return React.createElement('svg', {
-        xmlns: 'http://www.w3.org/2000/svg',
-        width: size,
-        height: size,
-        viewBox: '0 0 24 24',
-        className: props && props.className ? props.className : ''
-      },
-        React.createElement('path', {
-          fill: 'currentColor',
-          d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z',
-          opacity: '0.5'
-        }),
-        React.createElement('path', {
-          fill: 'currentColor',
-          d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z'
-        },
-          React.createElement('animateTransform', {
-            attributeName: 'transform',
-            dur: '1s',
-            from: '0 12 12',
-            repeatCount: 'indefinite',
-            to: '360 12 12',
-            type: 'rotate'
-          })
-        )
-      );
-    };
-    // Fix ECharts 0-height issue: resize all charts after render
-    window.resizeAllCharts = function() {
-      if (typeof echarts !== 'undefined') {
-        var charts = document.querySelectorAll('[_echarts_instance_]');
-        charts.forEach(function(el) {
-          var chart = echarts.getInstanceByDom(el);
-          if (chart) chart.resize();
-        });
+    // Polish mode: element pick, highlight & custom cursor
+    (function() {
+      var polishActive = false;
+      var currentHighlight = null;
+
+      // Styles: highlight outline + custom cursor pill + hide native cursor
+      var polishStyle = document.createElement('style');
+      polishStyle.textContent = [
+        '.__polish-highlight { outline: 2px solid #6366f1 !important; outline-offset: 2px; }',
+        '.__polish-active { cursor: crosshair !important; }',
+        '.__polish-active * { cursor: crosshair !important; }',
+        '.__polish-cursor { position: fixed; pointer-events: none; z-index: 99999; display: none; }',
+        '.__polish-cursor-inner { display: flex; align-items: center; gap: 6px; background: #4f46e5; color: white; font-size: 12px; font-weight: 500; font-family: system-ui, sans-serif; padding: 5px 10px 5px 8px; border-radius: 20px; box-shadow: 0 4px 12px rgba(79,70,229,0.35); white-space: nowrap; }'
+      ].join('\\n');
+      document.head.appendChild(polishStyle);
+
+      // Create custom cursor element
+      var cursorEl = document.createElement('div');
+      cursorEl.className = '__polish-cursor';
+      cursorEl.innerHTML = '<div class="__polish-cursor-inner"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/><path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/><path d="M14.5 17.5 4.5 15"/></svg>Click to select</div>';
+      document.body.appendChild(cursorEl);
+
+      function onMouseMove(e) {
+        cursorEl.style.left = (e.clientX + 12) + 'px';
+        cursorEl.style.top = (e.clientY + 12) + 'px';
       }
-    };
-    // Auto-resize after React renders
-    setTimeout(window.resizeAllCharts, 100);
-    setTimeout(window.resizeAllCharts, 500);
-    window.addEventListener('resize', window.resizeAllCharts);
-    console.log('[Artifact] Data loaded:', window.ARTIFACT_DATA?.visualizations?.length || 0, 'visualizations');
+
+      function snapToMeaningful(el) {
+        // If the element itself is a heading, paragraph, table, list, or image — it's already meaningful
+        var selfTag = (el.tagName || '').toLowerCase();
+        if (/^(h[1-6]|table|ul|ol|img|svg|canvas|section|article|header|footer|nav|main)$/.test(selfTag)) {
+          return el;
+        }
+        var node = el;
+        var maxDepth = 6;
+        while (node && node !== document.body && node.id !== 'root' && maxDepth-- > 0) {
+          var cls = node.className || '';
+          if (typeof cls === 'string' && (
+            /rounded-(lg|xl|2xl)/.test(cls) ||
+            /shadow/.test(cls) ||
+            /\\bp-[4-9]\\b/.test(cls) ||
+            /\\bp-1[0-9]/.test(cls) ||
+            node.getAttribute('role') ||
+            node.hasAttribute('data-section') ||
+            node.hasAttribute('data-card')
+          )) {
+            return node;
+          }
+          if (node.parentElement && node.parentElement !== document.body && node.parentElement.id !== 'root') {
+            node = node.parentElement;
+          } else {
+            break;
+          }
+        }
+        return el;
+      }
+
+      function onHover(e) {
+        if (!polishActive) return;
+        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+        var target = snapToMeaningful(e.target);
+        target.classList.add('__polish-highlight');
+        currentHighlight = target;
+      }
+      function onOut(e) {
+        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+        currentHighlight = null;
+      }
+      function onClick(e) {
+        if (!polishActive) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var target = snapToMeaningful(e.target);
+        var rect = target.getBoundingClientRect();
+        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+        polishActive = false;
+        document.body.classList.remove('__polish-active');
+        cursorEl.style.display = 'none';
+        document.removeEventListener('mousemove', onMouseMove, true);
+        window.parent.postMessage({
+          type: 'POLISH_ELEMENT_SELECTED',
+          element: {
+            tag: target.tagName,
+            classes: target.className.replace(/__polish-highlight/g, '').trim(),
+            text: (target.textContent || '').slice(0, 100).trim(),
+            htmlSnippet: target.outerHTML.replace(/ class="[^"]*__polish[^"]*"/g, function(m) { return m.replace(/__polish-highlight/g, '').replace(/\\s+/g, ' '); }).slice(0, 500),
+            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+          }
+        }, '*');
+      }
+
+      window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'POLISH_ENTER') {
+          polishActive = true;
+          document.body.classList.add('__polish-active');
+          cursorEl.style.display = 'block';
+          document.addEventListener('mousemove', onMouseMove, true);
+          document.body.addEventListener('mouseover', onHover, true);
+          document.body.addEventListener('mouseout', onOut, true);
+          document.body.addEventListener('click', onClick, true);
+        } else if (e.data && e.data.type === 'POLISH_EXIT') {
+          polishActive = false;
+          document.body.classList.remove('__polish-active');
+          cursorEl.style.display = 'none';
+          document.removeEventListener('mousemove', onMouseMove, true);
+          if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
+          currentHighlight = null;
+          document.body.removeEventListener('mouseover', onHover, true);
+          document.body.removeEventListener('mouseout', onOut, true);
+          document.body.removeEventListener('click', onClick, true);
+        }
+      });
+    })();
 
     // Error reporting: send compile/runtime errors to parent
     window.__artifactErrorSent = false;
