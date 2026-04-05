@@ -26,10 +26,48 @@
 			:report="report"
 			:isSplitScreen="isSplitScreen"
 			:isStreaming="isStreaming"
+			:isMobile="isMobile"
+			:mobileView="mobileView"
 			@toggleSplitScreen="toggleSplitScreen"
 			@stop="abortStream"
+			@update:mobileView="(v: any) => mobileView = v"
 		/>
 
+		<!-- Mobile right panel content (full screen) -->
+		<div v-if="isMobile && mobileView !== 'chat'" class="flex-1 min-h-0 overflow-hidden flex flex-col">
+			<div class="flex-1 min-h-0 p-2">
+				<div class="h-full w-full bg-[#f8f8f7] rounded-xl border border-black/[0.08] overflow-hidden">
+					<!-- Summary View -->
+					<div v-if="mobileView === 'summary'" class="h-full overflow-y-auto">
+						<ChatSummary
+							:scheduledPrompts="scheduledPrompts"
+							:artifactList="artifactList"
+							:queryList="queryList"
+							:trainingInstructions="trainingInstructions"
+							@editScheduledPrompt="editScheduledPrompt"
+							@openArtifact="handleOpenArtifact"
+							@scrollToMessage="scrollToMessage"
+							@editTrainingInstruction="editTrainingInstruction"
+						/>
+					</div>
+					<!-- Agent View -->
+					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
+						<ReportAgentPanel :agents="report?.data_sources || []" />
+					</div>
+					<!-- Dashboard View -->
+					<ArtifactFrame
+						v-else-if="mobileView === 'dashboard' && reportLoaded && report?.id"
+						:report-id="report.id"
+						:report="report"
+						@close="mobileView = 'chat'"
+						class="h-full"
+					/>
+				</div>
+			</div>
+		</div>
+
+		<!-- Chat content (hidden on mobile when viewing other tabs) -->
+		<template v-if="!isMobile || mobileView === 'chat'">
 		<!-- Fork banner -->
 		<ForkBanner
 			v-if="report?.forked_from_id"
@@ -40,7 +78,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
-			<div class="pl-4 pr-2 pb-[3px]" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full mx-auto'">
+			<div class="pl-4 pr-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
 				<ForkedQueriesPanel
@@ -295,7 +333,7 @@
 						</div>
 					</li>
 			</ul>
-			<div v-else class="w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
+			<div v-else class="mt-32 fade-in">
 				<h1 class="text-4xl mb-4">🪴</h1>
 				<h1 class="text-lg font-semibold">Ask a question to get started.</h1>
 
@@ -309,13 +347,13 @@
 		</div>
 
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
-		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<Spinner class="w-3 h-3 mr-2 text-gray-400" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
-		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
 					<span class="font-medium bg-yellow-100 text-yellow-800 px-2 py-1 rounded-md">Note
@@ -324,7 +362,7 @@
 					</span>
 				</div>
 			</div>
-		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
@@ -332,7 +370,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
@@ -340,7 +378,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
@@ -350,7 +388,7 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
-			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+			<div class="mx-auto px-4 max-w-2xl w-full">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -375,6 +413,7 @@
 				/>
 			</div>
 		</div>
+		</template>
 		<!-- Training instruction edit modal -->
 		<InstructionModalComponent
 			v-model="showTrainingInstructionModal"
@@ -392,51 +431,102 @@
 		/>
 	</div>
 		</template>
+		<template #right-header>
+			<div class="flex items-center gap-1">
+				<button
+					@click="rightPanelView = 'summary'"
+					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+					:class="rightPanelView === 'summary'
+						? 'text-gray-900 bg-gray-100'
+						: 'text-gray-400 hover:text-gray-600'"
+				>
+					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
+					Summary
+				</button>
+				<button
+					@click="rightPanelView = 'artifact'"
+					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+					:class="rightPanelView === 'artifact' || rightPanelView === 'grid'
+						? 'text-gray-900 bg-gray-100'
+						: 'text-gray-400 hover:text-gray-600'"
+				>
+					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
+					Dashboard
+				</button>
+				<button
+					@click="rightPanelView = 'agent'"
+					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+					:class="rightPanelView === 'agent'
+						? 'text-gray-900 bg-gray-100'
+						: 'text-gray-400 hover:text-gray-600'"
+				>
+					<Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
+					Agent
+				</button>
+			</div>
+		</template>
 		<template #right>
-			<div class="h-screen flex flex-col overflow-hidden">
-				<!-- Grid View (DashboardComponent - Edit Mode) -->
-				<DashboardComponent
-					v-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
-					ref="dashboardRef"
-					:report="report"
-					:edit="true"
-					:visualizations="visualizations"
-					:textWidgetsIds="textWidgetsIds"
-					:isStreaming="isStreaming"
-					@toggleSplitScreen="toggleSplitScreen"
-					@editVisualization="handleEditQuery"
-					@toggleArtifactView="rightPanelView = 'artifact'"
-					class="flex-1 min-h-0"
+			<!-- Summary View -->
+			<div v-if="rightPanelView === 'summary'" class="h-full overflow-y-auto">
+				<ChatSummary
+					:scheduledPrompts="scheduledPrompts"
+					:artifactList="artifactList"
+					:queryList="queryList"
+					:trainingInstructions="trainingInstructions"
+					@editScheduledPrompt="editScheduledPrompt"
+					@openArtifact="handleOpenArtifact"
+					@scrollToMessage="scrollToMessage"
+					@editTrainingInstruction="editTrainingInstruction"
 				/>
+			</div>
 
-				<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-				<DashboardComponent
-					v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
-					ref="dashboardRef"
-					:report="report"
-					:edit="true"
-					:visualizations="visualizations"
-					:textWidgetsIds="textWidgetsIds"
-					:isStreaming="isStreaming"
-					:hideArtifactSwitch="true"
-					@toggleSplitScreen="toggleSplitScreen"
-					@editVisualization="handleEditQuery"
-					class="flex-1 min-h-0"
-				/>
+			<!-- Agent View -->
+			<div v-else-if="rightPanelView === 'agent'" class="h-full overflow-y-auto">
+				<ReportAgentPanel :agents="report?.data_sources || []" />
+			</div>
 
-				<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
-				<ArtifactFrame
-					v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
-					:report-id="report.id"
-					:report="report"
-					@close="toggleSplitScreen"
-					class="flex-1 min-h-0"
-				/>
+			<!-- Grid View (DashboardComponent - Edit Mode) -->
+			<DashboardComponent
+				v-else-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
+				ref="dashboardRef"
+				:report="report"
+				:edit="true"
+				:visualizations="visualizations"
+				:textWidgetsIds="textWidgetsIds"
+				:isStreaming="isStreaming"
+				@toggleSplitScreen="toggleSplitScreen"
+				@editVisualization="handleEditQuery"
+				@toggleArtifactView="rightPanelView = 'artifact'"
+				class="h-full"
+			/>
 
-				<!-- Empty state for grid view -->
-				<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 flex-1">
-					No dashboard items yet.
-				</div>
+			<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
+			<DashboardComponent
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
+				ref="dashboardRef"
+				:report="report"
+				:edit="true"
+				:visualizations="visualizations"
+				:textWidgetsIds="textWidgetsIds"
+				:isStreaming="isStreaming"
+				:hideArtifactSwitch="true"
+				@toggleSplitScreen="toggleSplitScreen"
+				@editVisualization="handleEditQuery"
+				class="h-full"
+			/>
+
+			<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
+			<ArtifactFrame
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+				:report-id="report.id"
+				:report="report"
+				@close="toggleSplitScreen"
+				class="h-full"
+			/>
+
+			<!-- Empty state for grid view -->
+			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 h-full">
+				No dashboard items yet.
 			</div>
 		</template>
 	</SplitScreenLayout>
@@ -490,6 +580,7 @@ import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
+import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
@@ -604,6 +695,31 @@ const queryList = computed(() => {
 	return list
 })
 
+// Artifact list for summary — derived from create_artifact / edit_artifact tool executions
+const artifactList = computed(() => {
+	const list: { id: string; title: string; isEdit: boolean; artifactId?: string }[] = []
+	const seen = new Set<string>()
+	for (const m of messages.value) {
+		if (!m.completion_blocks) continue
+		for (const b of m.completion_blocks) {
+			const te = b.tool_execution
+			if (!te || te.status !== 'success') continue
+			if (te.tool_name !== 'create_artifact' && te.tool_name !== 'edit_artifact') continue
+			const artifactId = te.result_json?.artifact_id || te.id
+			if (seen.has(artifactId)) continue
+			seen.add(artifactId)
+			const args = te.arguments_json || {}
+			list.push({
+				id: artifactId,
+				title: args.title || 'Untitled artifact',
+				isEdit: te.tool_name === 'edit_artifact',
+				artifactId: te.result_json?.artifact_id,
+			})
+		}
+	}
+	return list
+})
+
 const showContextIndicator = computed(() => {
 	const completedSystem = messages.value.some(
 		(m) => m.role === 'system' && ['success', 'error', 'stopped'].includes(m.status || '')
@@ -666,7 +782,7 @@ function isScheduledExpanded(messageId: string): boolean {
 // Training instructions - unique list for the pill in PromptBoxV2
 const trainingInstructions = computed(() => {
 	if (report.value?.mode !== 'training' || isStreaming.value) return []
-	const byId = new Map<string, { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number }>()
+	const byId = new Map<string, { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number; messageId: string }>()
 	for (const m of messages.value) {
 		if (!m.completion_blocks) continue
 		for (const b of m.completion_blocks) {
@@ -685,6 +801,7 @@ const trainingInstructions = computed(() => {
 				category: args.category || existing?.category || 'general',
 				isEdit,
 				lineCount: text ? text.split('\n').filter((l: string) => l.trim()).length : (existing?.lineCount ?? 0),
+				messageId: m.id,
 			})
 		}
 	}
@@ -837,8 +954,21 @@ const isResizing = ref(false)
 const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
 
-// Right panel view mode: 'grid' or 'artifact' - default to artifact
-const rightPanelView = ref<'grid' | 'artifact'>('artifact')
+// Right panel view mode
+const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary'>('artifact')
+
+// Mobile view mode (full-screen single section on narrow screens)
+const mobileView = ref<'chat' | 'summary' | 'dashboard' | 'agent'>('chat')
+const isMobile = ref(false)
+
+function checkMobile() {
+	isMobile.value = window.innerWidth < 768
+}
+
+if (import.meta.client) {
+	checkMobile()
+	window.addEventListener('resize', checkMobile)
+}
 
 // Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
@@ -1102,6 +1232,17 @@ watch(
 // Watch for split screen changes and scroll to bottom to maintain position
 watch(() => isSplitScreen.value, () => {
     nextTick(() => setTimeout(safeScrollToBottom, 80))
+})
+
+// Adjust left panel width based on active right panel tab
+watch(rightPanelView, (view) => {
+    if (!isSplitScreen.value || isResizing.value) return
+    const windowWidth = window.innerWidth
+    if (view === 'summary') {
+        leftPanelWidth.value = Math.round(windowWidth * 0.67)
+    } else {
+        leftPanelWidth.value = Math.round(windowWidth * 0.5)
+    }
 })
 
 function goBack() {
@@ -2106,7 +2247,10 @@ function toggleSplitScreen() {
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
 		if (isSplitScreen.value) {
-			leftPanelWidth.value = 460
+			const windowWidth = window.innerWidth
+			leftPanelWidth.value = rightPanelView.value === 'summary'
+				? Math.round(windowWidth * 0.67)
+				: Math.round(windowWidth * 0.5)
 			collapseSidebar()
 		}
         safeScrollToBottom()
@@ -2141,6 +2285,9 @@ function stopResize() {
 }
 
 onUnmounted(() => {
+	if (import.meta.client) {
+		window.removeEventListener('resize', checkMobile)
+	}
 	document.removeEventListener('mousemove', handleResize)
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
@@ -2586,19 +2733,31 @@ function stopScheduledCompletionsPoll() {
 }
 
 onMounted(async () => {
-	await Promise.all([
+	// Load report metadata first (fast), then open sidebar based on counts
+	// loadCompletions is slow (~30s) so don't block sidebar on it
+	const fastLoads = Promise.all([
 		loadReport(),
 		loadVisualizations(),
-		loadCompletions(),
 		checkHasArtifacts(),
 		loadActiveLayoutHasBlocks(),
 		loadScheduledPrompts()
 	])
+	const slowLoads = loadCompletions()
 
-	// Open split screen if report has artifacts or legacy layout
-	if (hasArtifacts.value || hasLegacyLayout.value) {
+	await fastLoads
+
+	// Auto-open right pane based on report metadata (available immediately from loadReport)
+	if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
 		isSplitScreen.value = true
+		rightPanelView.value = 'artifact'
+		leftPanelWidth.value = Math.round(window.innerWidth * 0.5)
+	} else if ((report.value as any)?.query_count > 0 || (report.value as any)?.instruction_count > 0 || (report.value as any)?.has_scheduled_prompts) {
+		isSplitScreen.value = true
+		rightPanelView.value = 'summary'
+		leftPanelWidth.value = Math.round(window.innerWidth * 0.67)
 	}
+
+	await slowLoads
 
 	// Handle new_message query parameter after everything is loaded
 	if (route.query.new_message && messages.value.length == 0) {
@@ -2620,12 +2779,6 @@ onMounted(async () => {
 	// Start background poll for new scheduled completions
 	startScheduledCompletionsPoll()
 	
-	// Open dashboard pane if there are any published widgets
-	if (visualizations.value.some(viz => viz.status === 'published')) {
-		isSplitScreen.value = true
-		// Scroll to bottom when automatically opening dashboard
-    nextTick(() => setTimeout(safeScrollToBottom, 100))
-	}
     // Aggressive initial scroll to handle async content mounting
 	scheduleInitialScroll()
     window.addEventListener('resize', safeScrollToBottom)

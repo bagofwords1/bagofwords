@@ -121,6 +121,26 @@ class ReportService:
             # Scheduled rerun notification subscribers
             notification_subscribers=getattr(report, "notification_subscribers", None),
         )
+        # Summary counts (for auto-opening sidebar)
+        report_schema.query_count = len(report.queries or [])
+        report_schema.artifact_count = len(report.artifacts or [])
+        active_sps = [
+            sp for sp in (report.scheduled_prompts or [])
+            if sp.is_active and sp.deleted_at is None
+        ]
+        report_schema.has_scheduled_prompts = len(active_sps) > 0
+        report_schema.scheduled_prompt_count = len(active_sps)
+
+        # Instruction count
+        from app.models.instruction import Instruction
+        from app.models.agent_execution import AgentExecution
+        ic_result = await db.execute(
+            select(func.count(Instruction.id))
+            .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
+            .where(AgentExecution.report_id == report.id)
+        )
+        report_schema.instruction_count = ic_result.scalar() or 0
+
         # Enrich fork lineage
         await self._enrich_fork_lineage(db, report, report_schema)
         return report_schema
