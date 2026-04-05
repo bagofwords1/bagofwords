@@ -1053,7 +1053,11 @@ class CompletionService:
                             _all_instruction_ids.add(li["id"])
         instruction_map: dict[str, Instruction] = {}
         if _all_instruction_ids:
-            instr_stmt = select(Instruction).where(Instruction.id.in_(list(_all_instruction_ids)))
+            instr_stmt = (
+                select(Instruction)
+                .options(selectinload(Instruction.data_sources))
+                .where(Instruction.id.in_(list(_all_instruction_ids)))
+            )
             instr_res = await db.execute(instr_stmt)
             for inst in instr_res.scalars().all():
                 instruction_map[inst.id] = inst
@@ -1406,7 +1410,11 @@ class CompletionService:
                             _all_instruction_ids.add(li["id"])
         instruction_map: dict[str, Instruction] = {}
         if _all_instruction_ids:
-            instr_stmt = select(Instruction).where(Instruction.id.in_(list(_all_instruction_ids)))
+            instr_stmt = (
+                select(Instruction)
+                .options(selectinload(Instruction.data_sources))
+                .where(Instruction.id.in_(list(_all_instruction_ids)))
+            )
             instr_res = await db.execute(instr_stmt)
             for inst in instr_res.scalars().all():
                 instruction_map[inst.id] = inst

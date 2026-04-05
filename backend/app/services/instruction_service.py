@@ -101,7 +101,13 @@ class InstructionService:
             
         db.add(instruction)
         await db.commit()
-        await db.refresh(instruction, ['id'])
+        # Refresh ID + any relationships that will be set below
+        refresh_attrs = ['id']
+        if instruction_data.data_source_ids:
+            refresh_attrs.append('data_sources')
+        if getattr(instruction_data, "label_ids", None):
+            refresh_attrs.append('labels')
+        await db.refresh(instruction, refresh_attrs)
 
         # Associate with data sources if provided
         if instruction_data.data_source_ids:

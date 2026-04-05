@@ -133,6 +133,10 @@ class InstructionContextBuilder:
         """
         stmt = (
             select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.labels),
+            )
             .where(
                 and_(
                     Instruction.status == "published",
@@ -211,7 +215,8 @@ class InstructionContextBuilder:
         contents_result = await self.db.execute(
             select(BuildContent)
             .options(
-                selectinload(BuildContent.instruction),
+                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                 selectinload(BuildContent.instruction_version),
             )
             .where(
@@ -281,6 +286,10 @@ class InstructionContextBuilder:
         """Fallback: load instructions directly when no build exists."""
         stmt = (
             select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.labels),
+            )
             .where(
                 and_(
                     Instruction.id.in_(instruction_ids),
@@ -361,6 +370,9 @@ class InstructionContextBuilder:
         # Load all intelligent instructions
         stmt = (
             select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources),
+            )
             .where(
                 and_(
                     Instruction.status == "published",
@@ -518,7 +530,8 @@ class InstructionContextBuilder:
         contents_result = await self.db.execute(
             select(BuildContent)
             .options(
-                selectinload(BuildContent.instruction),
+                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                 selectinload(BuildContent.instruction_version),
             )
             .where(BuildContent.build_id == build.id)
@@ -779,7 +792,8 @@ class InstructionContextBuilder:
             contents_result = await self.db.execute(
                 select(BuildContent)
                 .options(
-                    selectinload(BuildContent.instruction),
+                    selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                    selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                     selectinload(BuildContent.instruction_version),
                 )
                 .where(
