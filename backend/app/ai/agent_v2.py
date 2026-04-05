@@ -750,6 +750,7 @@ class AgentV2:
                     pass
                 # Persist loaded instructions metadata on system completion for hydration on refresh
                 try:
+                    from sqlalchemy.orm.attributes import flag_modified
                     _li = [
                         {"id": item.id, "title": item.title, "category": item.category,
                          "load_mode": item.load_mode, "load_reason": item.load_reason,
@@ -759,6 +760,7 @@ class AgentV2:
                     comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
                     comp_data["loaded_instructions"] = _li
                     self.system_completion.completion = comp_data
+                    flag_modified(self.system_completion, "completion")
                 except Exception:
                     pass
 
