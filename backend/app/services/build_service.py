@@ -142,18 +142,19 @@ class BuildService:
         Copy all BuildContent records from source build to target build.
         Returns the number of records copied.
         """
-        # Get all contents from source build
+        # Get only the IDs we need from source build (no relationship loading)
         result = await db.execute(
-            select(BuildContent).where(BuildContent.build_id == source_build_id)
+            select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+            .where(BuildContent.build_id == source_build_id)
         )
-        source_contents = result.scalars().all()
-        
+        source_rows = result.all()
+
         copied_count = 0
-        for content in source_contents:
+        for instruction_id, instruction_version_id in source_rows:
             new_content = BuildContent(
                 build_id=target_build_id,
-                instruction_id=content.instruction_id,
-                instruction_version_id=content.instruction_version_id,
+                instruction_id=instruction_id,
+                instruction_version_id=instruction_version_id,
             )
             db.add(new_content)
             copied_count += 1
@@ -774,9 +775,8 @@ class BuildService:
         )
 
         # Use raw SQL update for efficiency
-        from sqlalchemy import update
         await db.execute(
-            update(InstructionBuild)
+            sql_update(InstructionBuild)
             .where(
                 and_(
                     InstructionBuild.organization_id == build.organization_id,
@@ -791,17 +791,17 @@ class BuildService:
         build.is_main = True
 
         # Update Instruction.current_version_id for all instructions in this build
-        contents = await self.get_build_contents(db, build_id)
-        instruction_ids = [content.instruction_id for content in contents]
-        if instruction_ids:
-            result = await db.execute(
-                select(Instruction).where(Instruction.id.in_(instruction_ids))
+        # Query only IDs — no need to load full Instruction/BuildContent objects
+        content_rows = await db.execute(
+            select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+            .where(BuildContent.build_id == build_id)
+        )
+        for instruction_id, version_id in content_rows.all():
+            await db.execute(
+                sql_update(Instruction)
+                .where(Instruction.id == instruction_id)
+                .values(current_version_id=version_id)
             )
-            instructions_by_id = {i.id: i for i in result.scalars().all()}
-            for content in contents:
-                instruction = instructions_by_id.get(content.instruction_id)
-                if instruction:
-                    instruction.current_version_id = content.instruction_version_id
 
         await db.commit()
 

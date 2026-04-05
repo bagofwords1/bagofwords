@@ -567,6 +567,7 @@
 		v-model="showTraceModal"
 		:report-id="report_id"
 		:completion-id="selectedCompletionForTrace || ''"
+		@openInstruction="openInstructionById"
 	/>
 
 	<!-- Query Code Editor Modal -->
