@@ -294,11 +294,33 @@
 												@suggestionsReceived="(suggestions) => handleSuggestionsReceived(m, suggestions)"
 											/>
 
-											<!-- Instructions loaded indicator -->
-											<div v-if="m._loaded_instructions?.length" class="flex items-center gap-1 text-xs text-gray-400">
-												<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
-												<span>{{ m._loaded_instructions.length }} instructions</span>
-											</div>
+											<!-- Instructions loaded indicator with popover -->
+											<UPopover v-if="m._loaded_instructions?.length" :popper="{ placement: 'top-start' }">
+												<button class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
+													<span>{{ m._loaded_instructions.length }} instructions</span>
+												</button>
+												<template #panel>
+													<div class="p-3 w-[320px] max-h-[300px] overflow-y-auto">
+														<div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Instructions loaded</div>
+														<div class="space-y-1">
+															<div
+																v-for="ins in m._loaded_instructions"
+																:key="ins.id"
+																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs"
+																@click="openInstructionById(ins.id)"
+															>
+																<Icon name="heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
+																<span class="flex-1 truncate text-gray-700">{{ ins.title || 'Untitled' }}</span>
+																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'">
+																	{{ ins.load_mode || 'always' }}
+																</span>
+															</div>
+														</div>
+													</div>
+												</template>
+											</UPopover>
 
 											<!-- Debug button -->
 											<button
@@ -822,6 +844,20 @@ async function editTrainingInstruction(inst: { instructionId: string }) {
 		}
 	} catch {
 		editingTrainingInstruction.value = { id: inst.instructionId }
+	}
+	showTrainingInstructionModal.value = true
+}
+
+async function openInstructionById(instructionId: string) {
+	try {
+		const { data, error } = await useMyFetch(`/instructions/${instructionId}`)
+		if (!error.value && data.value) {
+			editingTrainingInstruction.value = data.value
+		} else {
+			editingTrainingInstruction.value = { id: instructionId }
+		}
+	} catch {
+		editingTrainingInstruction.value = { id: instructionId }
 	}
 	showTrainingInstructionModal.value = true
 }
