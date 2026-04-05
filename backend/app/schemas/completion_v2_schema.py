@@ -138,6 +138,9 @@ class CompletionV2Schema(BaseModel):
     # Suggested instructions produced during this agent execution (optional, outside blocks)
     instruction_suggestions: Optional[List[Dict[str, Any]]] = None
 
+    # Instructions loaded into context during this completion (for UI indicator)
+    loaded_instructions: Optional[List[Dict[str, Any]]] = None
+
     # Feedback - pre-loaded to avoid N+1 API calls
     feedback_score: int = 0  # Legacy aggregate score from Completion model
     user_feedback: Optional[CompletionFeedbackSchema] = None  # Current user's feedback if any

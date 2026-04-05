@@ -172,6 +172,33 @@
                                     </div>
                                 </template>
 
+                                <!-- Instructions summary detail -->
+                                <template v-else-if="selectedItem.kind === 'instructions'">
+                                    <div v-if="instructionsSummaryItems.length">
+                                        <!-- Summary counts -->
+                                        <div class="flex items-center gap-3 mb-3 text-xs text-gray-600">
+                                            <span class="font-medium">{{ instructionsSummaryItems.length }} instructions</span>
+                                            <span v-if="instructionsAlwaysCount" class="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ instructionsAlwaysCount }} always</span>
+                                            <span v-if="instructionsIntelligentCount" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ instructionsIntelligentCount }} intelligent</span>
+                                        </div>
+                                        <!-- Collapsible list -->
+                                        <div class="space-y-1">
+                                            <div v-for="ins in instructionsSummaryItems" :key="ins.id"
+                                                 class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                                 @click="emit('openInstruction', ins.id)">
+                                                <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                                <span class="font-medium flex-1 truncate">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
+                                                <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">{{ ins.category }}</span>
+                                                <span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+                                                      :class="ins.load_mode === 'always' ? 'bg-green-100 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'">
+                                                    {{ ins.load_mode || 'always' }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else class="text-xs text-gray-500">No instructions loaded.</div>
+                                </template>
+
                                 <!-- Decision details (minimal) -->
                                 <template v-else>
                                     <!-- Feedback details -->
@@ -219,6 +246,29 @@
                                                  class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
                                                 {{ selectedItem.tool_execution.error_message }}
                                             </div>
+                                        </div>
+
+                                        <!-- Instructions loaded by this tool -->
+                                        <div v-if="selectedItem.tool_execution?.result_json?.related_instructions?.length" class="mt-4">
+                                            <div
+                                                class="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-500 mb-2 cursor-pointer hover:text-gray-700"
+                                                @click="showToolInstructions = !showToolInstructions"
+                                            >
+                                                <UIcon :name="showToolInstructions ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
+                                                <UIcon name="i-heroicons-cube" class="w-3 h-3" />
+                                                {{ selectedItem.tool_execution.result_json.related_instructions.length }} Instructions Loaded
+                                            </div>
+                                            <Transition name="fade">
+                                                <div v-if="showToolInstructions" class="space-y-1">
+                                                    <div v-for="ins in selectedItem.tool_execution.result_json.related_instructions" :key="ins.id"
+                                                         class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                                         @click="emit('openInstruction', ins.id)">
+                                                        <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                                        <span class="font-medium">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
+                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 ml-auto">{{ ins.category }}</span>
+                                                    </div>
+                                                </div>
+                                            </Transition>
                                         </div>
 
                                         <!-- Sub-timings: per-query breakdown -->
@@ -536,6 +586,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
     'update:modelValue': [value: boolean]
+    'openInstruction': [id: string]
 }>()
 
 // State
@@ -555,6 +606,15 @@ const filteredStages = computed(() => {
     if (!Array.isArray(stages) || !stages.length) return []
     return stages
 })
+
+const instructionsSummaryItems = computed(() => {
+    return traceData.value?.head_context_snapshot?.context_view_json?.instructions_usage || []
+})
+
+const instructionsAlwaysCount = computed(() => instructionsSummaryItems.value.filter((i: any) => (i.load_mode || 'always') === 'always').length)
+const instructionsIntelligentCount = computed(() => instructionsSummaryItems.value.filter((i: any) => i.load_mode === 'intelligent').length)
+
+const showToolInstructions = ref(false)
 
 const selectedItemDataSources = computed(() => {
     const item = selectedItem.value
@@ -576,6 +636,11 @@ const leftItems = computed(() => {
     // 1) User prompt
     if (traceData.value?.head_prompt_snippet) {
         items.push({ id: 'user_prompt', kind: 'prompt', title: 'User Prompt', subtitle: traceData.value.head_prompt_snippet })
+    }
+    // 1b) Instructions summary (from context snapshot)
+    const instrItems = traceData.value?.head_context_snapshot?.context_view_json?.instructions_usage
+    if (instrItems?.length) {
+        items.push({ id: 'instructions_summary', kind: 'instructions', title: 'Instructions', subtitle: `${instrItems.length} loaded` })
     }
     // 2) Decisions (blocks)
     for (const b of blocks.value) {
@@ -648,6 +713,9 @@ const selectLeftItem = (item: any) => {
         selectBlock(item.ref)
     } else if (item.kind === 'prompt') {
         selectedItem.value = { id: 'user_prompt', title: 'User Prompt', content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
+        selectedItemType.value = 'block'
+    } else if (item.kind === 'instructions') {
+        selectedItem.value = { id: 'instructions_summary', kind: 'instructions', title: 'Instructions', created_at: traceData.value?.agent_execution?.started_at }
         selectedItemType.value = 'block'
     } else if (item.kind === 'feedback' && item.ref) {
         const fb = item.ref as CompletionFeedbackUI
@@ -754,6 +822,7 @@ const getBlockTitle = (block: CompletionBlockV2) => {
 
 const getLeftItemIcon = (item: any) => {
     if (item.kind === 'prompt') return 'i-heroicons-user'
+    if (item.kind === 'instructions') return 'i-heroicons-cube'
     if (item.kind === 'final') return 'i-heroicons-check-circle'
     if (item.kind === 'feedback') return (item?.ref?.direction || 0) > 0 ? 'i-heroicons-hand-thumb-up' : 'i-heroicons-hand-thumb-down'
     const status = item?.ref?.status
@@ -762,10 +831,17 @@ const getLeftItemIcon = (item: any) => {
 
 const getLeftItemIconClass = (item: any) => {
     if (item.kind === 'prompt') return 'w-3 h-3 text-blue-600'
+    if (item.kind === 'instructions') return 'w-3 h-3 text-indigo-600'
     if (item.kind === 'final') return 'w-3 h-3 text-green-600'
     if (item.kind === 'feedback') return (item?.ref?.direction || 0) > 0 ? 'w-3 h-3 text-green-600' : 'w-3 h-3 text-red-600'
     const status = item?.ref?.status
     return getStatusIconClass(status || '')
+}
+
+const truncateText = (text: string, maxLength: number) => {
+    if (!text) return ''
+    if (text.length <= maxLength) return text
+    return text.slice(0, maxLength) + '…'
 }
 
 const formatDate = (dateString: string) => {

@@ -253,6 +253,7 @@
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
+													@openInstruction="openInstructionById"
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
@@ -285,14 +286,44 @@
 
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
-										<div class="flex items-center space-x-2">
-											<CompletionItemFeedback 
-												:completion="{ id: (m.system_completion_id || m.id) }" 
-												:feedbackScore="m.feedback_score || 0" 
+										<div class="flex items-center gap-1">
+											<CompletionItemFeedback
+												:completion="{ id: (m.system_completion_id || m.id) }"
+												:feedbackScore="m.feedback_score || 0"
 												:initialUserFeedback="m.user_feedback"
 												@suggestionsLoading="() => handleSuggestionsLoading(m)"
 												@suggestionsReceived="(suggestions) => handleSuggestionsReceived(m, suggestions)"
 											/>
+
+											<!-- Instructions loaded indicator with popover -->
+											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }">
+												<UButton variant="ghost" color="gray" size="xs" class="!px-1.5">
+													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
+													<span class="text-xs text-gray-700 font-normal">{{ visibleInstructions(m).length }} instructions</span>
+												</UButton>
+												<template #panel>
+													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
+														<div class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Instructions loaded</div>
+														<div class="space-y-0.5">
+															<div
+																v-for="ins in visibleInstructions(m)"
+																:key="ins.id"
+																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs text-gray-700"
+																@click="openInstructionById(ins.id)"
+															>
+																<DataSourceIcon v-if="ins.data_source_type" :type="ins.data_source_type" class="h-3.5 w-3.5 flex-shrink-0" />
+																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+																<span class="flex-1 truncate">{{ ins.title || 'Untitled' }}</span>
+																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
+																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'">
+																	{{ ins.load_mode || 'always' }}
+																</span>
+															</div>
+														</div>
+													</div>
+												</template>
+											</UPopover>
 
 											<!-- Debug button -->
 											<button
@@ -536,6 +567,7 @@
 		v-model="showTraceModal"
 		:report-id="report_id"
 		:completion-id="selectedCompletionForTrace || ''"
+		@openInstruction="openInstructionById"
 	/>
 
 	<!-- Query Code Editor Modal -->
@@ -806,6 +838,20 @@ const trainingInstructions = computed(() => {
 const showTrainingInstructionModal = ref(false)
 const editingTrainingInstruction = ref<any>(null)
 
+async function openInstructionById(instructionId: string) {
+	try {
+		const { data, error } = await useMyFetch(`/instructions/${instructionId}`)
+		if (!error.value && data.value) {
+			editingTrainingInstruction.value = data.value
+		} else {
+			editingTrainingInstruction.value = { id: instructionId }
+		}
+	} catch {
+		editingTrainingInstruction.value = { id: instructionId }
+	}
+	showTrainingInstructionModal.value = true
+}
+
 async function editTrainingInstruction(inst: { instructionId: string }) {
 	try {
 		const { data, error } = await useMyFetch(`/instructions/${inst.instructionId}`)
@@ -818,6 +864,10 @@ async function editTrainingInstruction(inst: { instructionId: string }) {
 		editingTrainingInstruction.value = { id: inst.instructionId }
 	}
 	showTrainingInstructionModal.value = true
+}
+
+function visibleInstructions(m: ChatMessage) {
+	return (m._loaded_instructions || []).filter((ins: any) => ins.category !== 'system')
 }
 
 function isScheduledSystemExpanded(msg: ChatMessage): boolean {
@@ -1373,6 +1423,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Stash backend system completion id for stop-generation (sigkill)
 			if (payload && payload.system_completion_id) {
 				sysMessage.system_completion_id = payload.system_completion_id
+			}
+			break
+
+		case 'instructions.context':
+			// Track which instructions were loaded (context build or tool calls)
+			if (!sysMessage._loaded_instructions) sysMessage._loaded_instructions = []
+			for (const inst of (payload?.instructions || [])) {
+				if (inst?.id && !sysMessage._loaded_instructions.some((i: any) => i.id === inst.id)) {
+					sysMessage._loaded_instructions.push({ ...inst, source: payload.source || 'context_build' })
+				}
 			}
 			break
 
@@ -1996,6 +2056,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
+				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
 				// Fork summary fields
 				is_fork_summary: c.is_fork_summary,

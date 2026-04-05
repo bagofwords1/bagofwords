@@ -66,19 +66,19 @@ class InstructionBuild(BaseSchema):
     created_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     
     # Relationships
-    organization = relationship("Organization", lazy="selectin")
-    created_by_user = relationship("User", foreign_keys=[created_by_user_id], lazy="selectin")
-    approved_by_user = relationship("User", foreign_keys=[approved_by_user_id], lazy="selectin")
-    metadata_indexing_job = relationship("MetadataIndexingJob", foreign_keys=[metadata_indexing_job_id], lazy="selectin")
-    agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
+    organization = relationship("Organization", lazy="raise")
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id], lazy="raise")
+    approved_by_user = relationship("User", foreign_keys=[approved_by_user_id], lazy="raise")
+    metadata_indexing_job = relationship("MetadataIndexingJob", foreign_keys=[metadata_indexing_job_id], lazy="raise")
+    agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="raise")
     # test_run relationship removed - we query latest test run per build in service
-    
+
     # Base build for auto-merge
-    base_build = relationship("InstructionBuild", remote_side="InstructionBuild.id", 
-                              foreign_keys=[base_build_id], lazy="selectin")
-    
+    base_build = relationship("InstructionBuild", remote_side="InstructionBuild.id",
+                              foreign_keys=[base_build_id], lazy="raise")
+
     # Build contents - the instruction versions in this build
-    contents = relationship("BuildContent", back_populates="build", lazy="selectin", cascade="all, delete-orphan")
+    contents = relationship("BuildContent", back_populates="build", lazy="raise", cascade="all, delete-orphan")
     
     # Composite index for finding the main build per org
     __table_args__ = (
