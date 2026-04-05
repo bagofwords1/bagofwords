@@ -723,7 +723,32 @@ class AgentV2:
             # Record instruction usage in background (non-blocking)
             if view.static.instructions and view.static.instructions.items:
                 asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
-            
+                # Emit instructions.context SSE so frontend knows which instructions were loaded
+                try:
+                    seq_inst = await self.project_manager.next_seq(self.db, self.current_execution)
+                    await self._emit_sse_event(SSEEvent(
+                        event="instructions.context",
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
+                        seq=seq_inst,
+                        data={
+                            "source": "context_build",
+                            "instructions": [
+                                {
+                                    "id": item.id,
+                                    "title": item.title,
+                                    "category": item.category,
+                                    "load_mode": item.load_mode,
+                                    "load_reason": item.load_reason,
+                                    "source_type": item.source_type,
+                                }
+                                for item in view.static.instructions.items
+                            ],
+                        }
+                    ))
+                except Exception:
+                    pass
+
             # Build slim context snapshot with only usage tracking (excludes full schemas/instructions)
             context_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
             
@@ -1687,6 +1712,34 @@ class AgentV2:
                                 "created_visualization_ids": created_visualization_ids,
                             }
                         ))
+
+                        # Emit instructions.context if the tool loaded related instructions
+                        try:
+                            _tool_instructions = (safe_result_json or {}).get("related_instructions") if isinstance(safe_result_json, dict) else None
+                            if _tool_instructions:
+                                seq_ti = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="instructions.context",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq_ti,
+                                    data={
+                                        "source": f"tool:{tool_name}",
+                                        "instructions": [
+                                            {
+                                                "id": i.get("id"),
+                                                "title": i.get("title"),
+                                                "category": i.get("category"),
+                                                "load_mode": i.get("load_mode"),
+                                                "load_reason": "table_reference",
+                                                "source_type": i.get("source_type"),
+                                            }
+                                            for i in _tool_instructions
+                                        ],
+                                    }
+                                ))
+                        except Exception:
+                            pass
 
                         # Track tool observation for history
                         try:

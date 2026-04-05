@@ -192,6 +192,18 @@
 								<div class="w-full ml-4 max-w-2xl">
 									<!-- System message -->
 									<div>
+										<!-- Instructions loaded indicator -->
+										<div v-if="m._loaded_instructions?.length" class="flex items-center gap-1.5 text-xs text-gray-400 mb-2 ml-1">
+											<Icon name="heroicons-book-open" class="w-3.5 h-3.5" />
+											<span>{{ m._loaded_instructions.length }} instruction{{ m._loaded_instructions.length !== 1 ? 's' : '' }} loaded</span>
+											<button
+												v-if="m.system_completion_id || m.id"
+												class="text-gray-400 hover:text-gray-600 underline decoration-dotted underline-offset-2"
+												@click="openTraceModal(m.system_completion_id || m.id)"
+											>
+												view
+											</button>
+										</div>
 										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
 											<!-- 1. Thinking box (reasoning only) -->
@@ -1373,6 +1385,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Stash backend system completion id for stop-generation (sigkill)
 			if (payload && payload.system_completion_id) {
 				sysMessage.system_completion_id = payload.system_completion_id
+			}
+			break
+
+		case 'instructions.context':
+			// Track which instructions were loaded (context build or tool calls)
+			if (!sysMessage._loaded_instructions) sysMessage._loaded_instructions = []
+			for (const inst of (payload?.instructions || [])) {
+				if (inst?.id && !sysMessage._loaded_instructions.some((i: any) => i.id === inst.id)) {
+					sysMessage._loaded_instructions.push({ ...inst, source: payload.source || 'context_build' })
+				}
 			}
 			break
 
