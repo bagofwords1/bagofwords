@@ -41,14 +41,14 @@
 					<div v-if="mobileView === 'summary'" class="h-full overflow-y-auto">
 						<ChatSummary
 							:scheduledPrompts="scheduledPrompts"
-							:artifactList="artifactList"
+							:artifactList="reportArtifacts"
 							:queryList="queryList"
+							:queryExecutions="queryExecutions"
 							:trainingInstructions="trainingInstructions"
 							@editScheduledPrompt="editScheduledPrompt"
 							@openArtifact="handleOpenArtifact"
 							@scrollToMessage="scrollToMessage"
-							@editTrainingInstruction="editTrainingInstruction"
-						/>
+							/>
 					</div>
 					<!-- Agent View -->
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
@@ -470,13 +470,13 @@
 			<div v-if="rightPanelView === 'summary'" class="h-full overflow-y-auto">
 				<ChatSummary
 					:scheduledPrompts="scheduledPrompts"
-					:artifactList="artifactList"
+					:artifactList="reportArtifacts"
 					:queryList="queryList"
+					:queryExecutions="queryExecutions"
 					:trainingInstructions="trainingInstructions"
 					@editScheduledPrompt="editScheduledPrompt"
 					@openArtifact="handleOpenArtifact"
 					@scrollToMessage="scrollToMessage"
-					@editTrainingInstruction="editTrainingInstruction"
 				/>
 			</div>
 
@@ -695,26 +695,21 @@ const queryList = computed(() => {
 	return list
 })
 
-// Artifact list for summary — derived from create_artifact / edit_artifact tool executions
-const artifactList = computed(() => {
-	const list: { id: string; title: string; isEdit: boolean; artifactId?: string }[] = []
+// Query tool executions for summary — full tool_execution objects for ToolWidgetPreview
+const queryExecutions = computed(() => {
+	const list: any[] = []
 	const seen = new Set<string>()
 	for (const m of messages.value) {
 		if (!m.completion_blocks) continue
 		for (const b of m.completion_blocks) {
 			const te = b.tool_execution
 			if (!te || te.status !== 'success') continue
-			if (te.tool_name !== 'create_artifact' && te.tool_name !== 'edit_artifact') continue
-			const artifactId = te.result_json?.artifact_id || te.id
-			if (seen.has(artifactId)) continue
-			seen.add(artifactId)
-			const args = te.arguments_json || {}
-			list.push({
-				id: artifactId,
-				title: args.title || 'Untitled artifact',
-				isEdit: te.tool_name === 'edit_artifact',
-				artifactId: te.result_json?.artifact_id,
-			})
+			const step = te.created_step as any
+			if (!step) continue
+			const stepId = step.id || step.query_id || ''
+			if (stepId && seen.has(stepId)) continue
+			if (stepId) seen.add(stepId)
+			list.push(te)
 		}
 	}
 	return list
@@ -972,6 +967,7 @@ if (import.meta.client) {
 
 // Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
+const reportArtifacts = ref<any[]>([])
 const hasLegacyLayout = ref(false)
 
 // Toggle states
@@ -2232,9 +2228,11 @@ async function checkHasArtifacts(): Promise<boolean> {
     try {
         const { data } = await useMyFetch(`/artifacts/report/${report_id}`)
         const artifacts = Array.isArray(data.value) ? data.value : []
+        reportArtifacts.value = artifacts
         hasArtifacts.value = artifacts.length > 0
         return hasArtifacts.value
     } catch (e) {
+        reportArtifacts.value = []
         hasArtifacts.value = false
         return false
     }

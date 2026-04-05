@@ -70,53 +70,26 @@
 
     <!-- Tab content -->
     <div v-if="selectedAgent" class="flex-1 min-h-0 overflow-y-auto p-4">
-      <div v-if="loading" class="flex items-center justify-center py-10">
-        <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+      <!-- Tables tab — uses TablesSelector component -->
+      <div v-if="activeTab === 'tables'">
+        <TablesSelector
+          :ds-id="selectedAgentId!"
+          schema="full"
+          :can-update="canUpdateDataSource"
+          :show-refresh="true"
+          :refresh-icon-only="true"
+          :show-save="canUpdateDataSource"
+          save-label="Save"
+          max-height="calc(100vh - 280px)"
+        />
       </div>
 
-      <template v-else>
-        <!-- Tables tab -->
-        <div v-if="activeTab === 'tables'">
-          <div v-if="tablesError" class="text-xs text-gray-500">{{ tablesError }}</div>
-          <div v-else-if="tables.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No tables found</div>
-          <div v-else>
-            <!-- Table list -->
-            <div v-if="!selectedTable" class="border border-gray-200 rounded-lg overflow-hidden">
-              <button
-                v-for="t in tables"
-                :key="t.id || t.name"
-                @click="selectedTable = t"
-                class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
-              >
-                <span class="truncate flex-1 text-gray-800 font-medium">{{ t.name }}</span>
-                <span v-if="t.columns?.length" class="text-[11px] text-gray-400 flex-shrink-0">{{ t.columns.length }} cols</span>
-              </button>
-            </div>
-
-            <!-- Table detail (columns) -->
-            <div v-else class="space-y-2">
-              <div class="flex items-center justify-between">
-                <button @click="selectedTable = null" class="text-[11px] text-gray-500 hover:text-gray-700">← Back</button>
-                <div class="text-[11px] text-gray-400">Columns</div>
-              </div>
-              <div class="text-sm font-semibold text-gray-900 truncate">{{ selectedTable.name }}</div>
-              <div class="flex flex-wrap gap-1 max-h-[300px] overflow-auto border border-gray-200 rounded-lg p-2">
-                <span
-                  v-for="(col, idx) in (selectedTable.columns || [])"
-                  :key="idx"
-                  class="px-1.5 py-0.5 bg-white rounded border text-[11px] text-gray-700"
-                >
-                  {{ typeof col === 'string' ? col : (col as any).name }}
-                  <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ml-1">({{ (col as any).dtype }})</span>
-                </span>
-                <span v-if="!(selectedTable.columns || []).length" class="text-[12px] text-gray-400">No columns.</span>
-              </div>
-            </div>
-          </div>
+      <!-- Instructions tab -->
+      <div v-if="activeTab === 'instructions'">
+        <div v-if="loading" class="flex items-center justify-center py-10">
+          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
         </div>
-
-        <!-- Instructions tab -->
-        <div v-if="activeTab === 'instructions'">
+        <template v-else>
           <div v-if="instructionsError" class="text-xs text-gray-500">{{ instructionsError }}</div>
           <div v-else-if="instructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No instructions found</div>
           <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
@@ -140,10 +113,15 @@
               </div>
             </a>
           </div>
-        </div>
+        </template>
+      </div>
 
-        <!-- Queries tab -->
-        <div v-if="activeTab === 'queries'">
+      <!-- Queries tab -->
+      <div v-if="activeTab === 'queries'">
+        <div v-if="loading" class="flex items-center justify-center py-10">
+          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+        </div>
+        <template v-else>
           <div v-if="queriesError" class="text-xs text-gray-500">{{ queriesError }}</div>
           <div v-else-if="queries.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No saved queries found</div>
           <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
@@ -167,10 +145,15 @@
               </div>
             </a>
           </div>
-        </div>
+        </template>
+      </div>
 
-        <!-- Evals tab -->
-        <div v-if="activeTab === 'evals'">
+      <!-- Evals tab -->
+      <div v-if="activeTab === 'evals'">
+        <div v-if="loading" class="flex items-center justify-center py-10">
+          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+        </div>
+        <template v-else>
           <div v-if="evalsError" class="text-xs text-gray-500">{{ evalsError }}</div>
           <div v-else-if="evals.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No evals found for this agent</div>
           <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
@@ -193,8 +176,8 @@
               </div>
             </a>
           </div>
-        </div>
-      </template>
+        </template>
+      </div>
     </div>
   </div>
 </template>
@@ -207,6 +190,9 @@ const props = defineProps<{
   agents: Array<{ id: string; name: string; type?: string; connections?: any[] }>
 }>()
 
+// Permissions
+const canUpdateDataSource = computed(() => useCan('update_data_source'))
+
 // Dropdown state
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -216,20 +202,15 @@ const selectedAgentId = ref<string | null>(null)
 const activeTab = ref<'tables' | 'instructions' | 'queries' | 'evals'>('tables')
 
 // Data caches (keyed by agent id)
-const tablesCache = ref<Record<string, any[]>>({})
 const instructionsCache = ref<Record<string, any[]>>({})
 const queriesCache = ref<Record<string, any[]>>({})
 const evalsCache = ref<Record<string, any[]>>({})
 
 // Loading & error state
 const loading = ref(false)
-const tablesError = ref<string | null>(null)
 const instructionsError = ref<string | null>(null)
 const queriesError = ref<string | null>(null)
 const evalsError = ref<string | null>(null)
-
-// Table detail
-const selectedTable = ref<any | null>(null)
 
 // Auto-select first agent
 watch(() => props.agents, (agents) => {
@@ -242,15 +223,14 @@ const selectedAgent = computed(() => {
   return props.agents.find(a => a.id === selectedAgentId.value) || null
 })
 
-// Tab definitions with counts
+// Tab definitions with counts (tables count managed by TablesSelector internally)
 const tabs = computed(() => [
-  { key: 'tables' as const, label: 'Tables', count: tables.value.length },
+  { key: 'tables' as const, label: 'Tables', count: 0 },
   { key: 'instructions' as const, label: 'Instructions', count: instructions.value.length },
   { key: 'queries' as const, label: 'Queries', count: queries.value.length },
   { key: 'evals' as const, label: 'Evals', count: evals.value.length },
 ])
 
-const tables = computed(() => selectedAgentId.value ? (tablesCache.value[selectedAgentId.value] || []) : [])
 const instructions = computed(() => selectedAgentId.value ? (instructionsCache.value[selectedAgentId.value] || []) : [])
 const queries = computed(() => selectedAgentId.value ? (queriesCache.value[selectedAgentId.value] || []) : [])
 const evals = computed(() => selectedAgentId.value ? (evalsCache.value[selectedAgentId.value] || []) : [])
@@ -258,7 +238,6 @@ const evals = computed(() => selectedAgentId.value ? (evalsCache.value[selectedA
 function selectAgent(agentId: string) {
   selectedAgentId.value = agentId
   dropdownOpen.value = false
-  selectedTable.value = null
 }
 
 function promptPreview(promptJson: any): string {
@@ -289,18 +268,7 @@ onUnmounted(() => {
 
 // Fetch data for active tab when agent or tab changes
 async function fetchTabData(agentId: string, tab: string) {
-  if (tab === 'tables' && !tablesCache.value[agentId]) {
-    loading.value = true
-    tablesError.value = null
-    try {
-      const { data, error } = await useMyFetch(`/data_sources/${agentId}/schema`, { method: 'GET' })
-      if (error?.value) { tablesError.value = 'Failed to load tables'; return }
-      const payload: any = (data as any)?.value
-      const items = Array.isArray(payload) ? payload : []
-      tablesCache.value[agentId] = items.filter((t: any) => t?.is_active !== false)
-    } catch { tablesError.value = 'Failed to load tables' }
-    finally { loading.value = false }
-  }
+  // Tables tab is handled by TablesSelector component — no manual fetch needed
 
   if (tab === 'instructions' && !instructionsCache.value[agentId]) {
     loading.value = true
@@ -344,7 +312,6 @@ async function fetchTabData(agentId: string, tab: string) {
       if (error?.value) { evalsError.value = 'Failed to load evals'; return }
       const payload: any = (data as any)?.value
       const cases = Array.isArray(payload) ? payload : []
-      // Filter cases that include this agent in their data_source_ids_json
       evalsCache.value[agentId] = cases.filter((c: any) => {
         const dsIds = c.data_source_ids_json || []
         return dsIds.includes(agentId)
@@ -356,7 +323,6 @@ async function fetchTabData(agentId: string, tab: string) {
 
 watch([selectedAgentId, activeTab], ([agentId, tab]) => {
   if (agentId && tab) {
-    selectedTable.value = null
     fetchTabData(agentId, tab)
   }
 }, { immediate: true })
@@ -364,7 +330,6 @@ watch([selectedAgentId, activeTab], ([agentId, tab]) => {
 // Reset when agent changes
 watch(selectedAgentId, () => {
   activeTab.value = 'tables'
-  tablesError.value = null
   instructionsError.value = null
   queriesError.value = null
   evalsError.value = null
