@@ -1,8 +1,8 @@
 <template>
 
     <div class="flex flex-row h-screen overflow-y-hidden bg-white">
-        <!-- Left (Chat) -->
-        <div :style="{
+        <!-- Left (Chat) — z-20 so popovers can overlap the right panel -->
+        <div class="relative z-20" :style="{
                 width: isSplitScreen ? `${leftPanelWidth}px` : '100%',
                 transform: isSplitScreen ? 'none' : 'translateX(0)',
                 willChange: 'transform, width',
@@ -18,7 +18,7 @@
                  transform: 'translateX(0)',
                  transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }"
-             class="flex-1 min-w-0 relative bg-white flex flex-col">
+             class="flex-1 min-w-0 relative z-10 bg-white flex flex-col">
             <!-- Right header (tabs) -->
             <div class="flex-shrink-0 flex items-center justify-between px-3 pt-1.5">
                 <slot name="right-header" />

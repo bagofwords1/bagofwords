@@ -63,10 +63,6 @@
 
       <div class="flex items-center gap-2">
         <span v-if="isLoading" class="text-xs text-gray-400">Loading...</span>
-        <span v-else-if="dataReady" class="text-xs text-green-600 flex items-center gap-1">
-          <Icon name="heroicons:check-circle" class="w-3 h-3" />
-          Ready
-        </span>
 
         <!-- Refresh Dashboard (rerun + refresh) -->
         <UTooltip text="Refresh Data">
@@ -75,8 +71,8 @@
             :disabled="isRefreshing"
             class="p-1.5 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
           >
-            <Spinner v-if="isRefreshing" class="w-4 h-4 text-gray-500" />
-            <Icon v-else name="heroicons:arrow-path" class="w-4 h-4 text-gray-500" />
+            <Spinner v-if="isRefreshing" class="w-3.5 h-3.5 text-gray-500" />
+            <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500" />
           </button>
         </UTooltip>
 
@@ -90,8 +86,8 @@
             :disabled="isExporting"
             class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded disabled:opacity-50"
           >
-            <Icon v-if="isExporting" name="heroicons:arrow-path" class="w-4 h-4 text-gray-500 animate-spin" />
-            <Icon v-else name="heroicons:arrow-down-tray" class="w-4 h-4 text-purple-600" />
+            <Icon v-if="isExporting" name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500 animate-spin" />
+            <Icon v-else name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-purple-600" />
             <span class="text-xs text-purple-600 font-medium">PPTX</span>
           </button>
         </UTooltip>
@@ -99,14 +95,14 @@
         <!-- Fullscreen -->
         <UTooltip text="Full screen">
           <button @click="openFullscreen" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-            <Icon name="heroicons:arrows-pointing-out" class="w-4 h-4 text-gray-500" />
+            <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5 text-gray-500" />
           </button>
         </UTooltip>
 
         <!-- Open in new tab (if published) -->
         <UTooltip text="Open in new tab" v-if="report?.status === 'published'">
           <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-            <Icon name="heroicons:arrow-top-right-on-square" class="w-4 h-4 text-gray-500" />
+            <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-500" />
           </a>
         </UTooltip>
 

@@ -1,7 +1,7 @@
 <template>
     <div class="flex-shrink-0 p-4 pb-8 bg-white">
-        <!-- Query pills + Excel hint (above container) -->
-        <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)" class="mb-2 flex items-center justify-between">
+        <!-- Query pills + Excel hint (above container) — hidden for now -->
+        <div v-if="false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0" class="flex items-center gap-2">
                 <!-- Query pill with hover dropdown -->
                 <div

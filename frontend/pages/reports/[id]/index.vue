@@ -52,7 +52,7 @@
 					</div>
 					<!-- Agent View -->
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
-						<ReportAgentPanel :agents="report?.data_sources || []" />
+						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="report?.data_sources || []" />
 					</div>
 					<!-- Dashboard View -->
 					<ArtifactFrame
@@ -296,12 +296,12 @@
 											/>
 
 											<!-- Instructions loaded indicator with popover -->
-											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }">
+											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }" ref="instructionsPopoverRef">
 												<UButton variant="ghost" color="gray" size="xs" class="!px-1.5">
 													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
 													<span class="text-xs text-gray-700 font-normal">{{ visibleInstructions(m).length }} instructions</span>
 												</UButton>
-												<template #panel>
+												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
 														<div class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Instructions loaded</div>
 														<div class="space-y-0.5">
@@ -309,7 +309,7 @@
 																v-for="ins in visibleInstructions(m)"
 																:key="ins.id"
 																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs text-gray-700"
-																@click="openInstructionById(ins.id)"
+																@click="close(); openInstructionById(ins.id)"
 															>
 																<DataSourceIcon v-if="ins.data_source_type" :type="ins.data_source_type" class="h-3.5 w-3.5 flex-shrink-0" />
 																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
@@ -513,7 +513,7 @@
 
 			<!-- Agent View -->
 			<div v-else-if="rightPanelView === 'agent'" class="h-full overflow-y-auto">
-				<ReportAgentPanel :agents="report?.data_sources || []" />
+				<ReportAgentPanel ref="agentPanelRef" :agents="report?.data_sources || []" />
 			</div>
 
 			<!-- Grid View (DashboardComponent - Edit Mode) -->
@@ -612,6 +612,7 @@ import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
+import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
@@ -838,17 +839,32 @@ const trainingInstructions = computed(() => {
 const showTrainingInstructionModal = ref(false)
 const editingTrainingInstruction = ref<any>(null)
 
+// Agent panel refs
+const agentPanelRef = ref<InstanceType<typeof ReportAgentPanel> | null>(null)
+const mobileAgentPanelRef = ref<InstanceType<typeof ReportAgentPanel> | null>(null)
+
 async function openInstructionById(instructionId: string) {
+	// Immediately switch to agent panel with loading state
+	const panelRef = isMobile.value ? mobileAgentPanelRef : agentPanelRef
+	if (isMobile.value) {
+		mobileView.value = 'agent'
+	} else {
+		if (!isSplitScreen.value) isSplitScreen.value = true
+		rightPanelView.value = 'agent'
+	}
+	await nextTick()
+	panelRef.value?.setInstructionLoading(true)
+
 	try {
 		const { data, error } = await useMyFetch(`/instructions/${instructionId}`)
 		if (!error.value && data.value) {
-			editingTrainingInstruction.value = data.value
-		} else {
-			editingTrainingInstruction.value = { id: instructionId }
+			panelRef.value?.openInstruction(data.value)
+			return
 		}
-	} catch {
-		editingTrainingInstruction.value = { id: instructionId }
-	}
+	} catch {}
+	panelRef.value?.setInstructionLoading(false)
+	// Fallback: open in modal if fetch failed
+	editingTrainingInstruction.value = { id: instructionId }
 	showTrainingInstructionModal.value = true
 }
 
@@ -1285,9 +1301,13 @@ watch(rightPanelView, (view) => {
     if (!isSplitScreen.value || isResizing.value) return
     const windowWidth = window.innerWidth
     if (view === 'summary') {
-        leftPanelWidth.value = Math.round(windowWidth * 0.67)
+        leftPanelWidth.value = Math.round(windowWidth * 0.55)
+    } else if (view === 'agent') {
+        leftPanelWidth.value = Math.round(windowWidth * 0.45)
+        collapseSidebar()
     } else {
-        leftPanelWidth.value = Math.round(windowWidth * 0.5)
+        leftPanelWidth.value = Math.round(windowWidth * 0.37)
+        collapseSidebar()
     }
 })
 
@@ -2308,8 +2328,10 @@ function toggleSplitScreen() {
 		if (isSplitScreen.value) {
 			const windowWidth = window.innerWidth
 			leftPanelWidth.value = rightPanelView.value === 'summary'
-				? Math.round(windowWidth * 0.67)
-				: Math.round(windowWidth * 0.5)
+				? Math.round(windowWidth * 0.55)
+				: rightPanelView.value === 'agent'
+				? Math.round(windowWidth * 0.45)
+				: Math.round(windowWidth * 0.37)
 			collapseSidebar()
 		}
         safeScrollToBottom()
@@ -2809,11 +2831,12 @@ onMounted(async () => {
 	if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
 		isSplitScreen.value = true
 		rightPanelView.value = 'artifact'
-		leftPanelWidth.value = Math.round(window.innerWidth * 0.5)
+		leftPanelWidth.value = Math.round(window.innerWidth * 0.37)
+		collapseSidebar()
 	} else if ((report.value as any)?.query_count > 0 || (report.value as any)?.instruction_count > 0 || (report.value as any)?.has_scheduled_prompts) {
 		isSplitScreen.value = true
 		rightPanelView.value = 'summary'
-		leftPanelWidth.value = Math.round(window.innerWidth * 0.67)
+		leftPanelWidth.value = Math.round(window.innerWidth * 0.55)
 	}
 
 	await slowLoads
