@@ -748,6 +748,19 @@ class AgentV2:
                     ))
                 except Exception:
                     pass
+                # Persist loaded instructions metadata on system completion for hydration on refresh
+                try:
+                    _li = [
+                        {"id": item.id, "title": item.title, "category": item.category,
+                         "load_mode": item.load_mode, "load_reason": item.load_reason,
+                         "source_type": item.source_type}
+                        for item in view.static.instructions.items
+                    ]
+                    comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
+                    comp_data["loaded_instructions"] = _li
+                    self.system_completion.completion = comp_data
+                except Exception:
+                    pass
 
             # Build slim context snapshot with only usage tracking (excludes full schemas/instructions)
             context_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)

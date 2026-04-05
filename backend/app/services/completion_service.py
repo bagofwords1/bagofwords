@@ -1069,6 +1069,11 @@ class CompletionService:
             if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
                 suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
+            # Extract loaded instructions from completion data (saved by agent_v2)
+            loaded_instructions_list = None
+            if c.role == 'system' and isinstance(completion_data, dict):
+                loaded_instructions_list = completion_data.get("loaded_instructions")
+
             # Get user feedback from pre-loaded map
             user_feedback = completion_id_to_user_feedback.get(c.id)
 
@@ -1094,6 +1099,7 @@ class CompletionService:
                 created_at=c.created_at,
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
+                loaded_instructions=loaded_instructions_list,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=user_feedback,
                 # Scheduled prompt
@@ -1376,6 +1382,11 @@ class CompletionService:
             if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
                 suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
+            # Extract loaded instructions from completion data
+            loaded_instructions_list = None
+            if c.role == 'system' and isinstance(completion_data, dict):
+                loaded_instructions_list = completion_data.get("loaded_instructions")
+
             # Get files attached to this completion
             c_files = completion_id_to_files.get(c.id, [])
 
@@ -1399,6 +1410,7 @@ class CompletionService:
                 created_at=c.created_at,
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
+                loaded_instructions=loaded_instructions_list,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=None,  # Not available without current_user context
                 # Scheduled prompt

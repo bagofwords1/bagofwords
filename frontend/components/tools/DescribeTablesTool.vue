@@ -75,8 +75,31 @@
         </ul>
       </div>
     </Transition>
+    <!-- Related instructions loaded by this tool -->
+    <Transition name="fade" appear>
+      <div v-if="relatedInstructions.length && status !== 'running'" class="mt-1.5">
+        <div
+          class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+          @click="showInstructions = !showInstructions"
+        >
+          <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-0.5 text-gray-400" />
+          <Icon name="heroicons-cube" class="w-3 h-3 mr-1 text-indigo-400" />
+          <span>{{ relatedInstructions.length }} instruction{{ relatedInstructions.length !== 1 ? 's' : '' }} loaded</span>
+        </div>
+        <Transition name="fade">
+          <div v-if="showInstructions" class="ml-5 mt-1 space-y-0.5">
+            <div v-for="ins in relatedInstructions" :key="ins.id"
+                 class="flex items-center gap-2 text-xs text-gray-600 py-0.5">
+              <Icon name="heroicons-cube" class="w-3 h-3 text-indigo-400 flex-shrink-0" />
+              <span class="truncate">{{ ins.title || ins.text || 'Untitled' }}</span>
+              <span v-if="ins.category" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{{ ins.category }}</span>
+            </div>
+          </div>
+        </Transition>
+      </div>
+    </Transition>
   </div>
-  
+
 </template>
 
 <script setup lang="ts">
@@ -122,6 +145,13 @@ const topTables = computed<any[]>(() => {
   const tt = Array.isArray(rj.top_tables) ? rj.top_tables : []
   return tt
 })
+
+const relatedInstructions = computed<any[]>(() => {
+  const rj: any = props.toolExecution?.result_json || {}
+  return Array.isArray(rj.related_instructions) ? rj.related_instructions : []
+})
+
+const showInstructions = ref(false)
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(index: number) {

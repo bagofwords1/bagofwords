@@ -174,42 +174,27 @@
 
                                 <!-- Instructions summary detail -->
                                 <template v-else-if="selectedItem.kind === 'instructions'">
-                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Instructions Loaded</div>
-                                    <div v-if="instructionsSummaryItems.length" class="border rounded-md overflow-hidden">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <thead class="bg-gray-50">
-                                                <tr>
-                                                    <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
-                                                    <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
-                                                    <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Load</th>
-                                                    <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-24">Reason</th>
-                                                    <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Type</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="bg-white divide-y divide-gray-200">
-                                                <tr v-for="ins in instructionsSummaryItems" :key="ins.id" class="hover:bg-gray-50">
-                                                    <td class="px-3 py-2 text-xs text-gray-900">
-                                                        <span v-if="ins.title" class="font-medium">{{ ins.title }}</span>
-                                                        <span v-else class="text-gray-500 italic">{{ truncateText(ins.text || '', 60) }}</span>
-                                                    </td>
-                                                    <td class="px-3 py-2">
-                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{{ ins.category }}</span>
-                                                        <span v-else class="text-[9px] text-gray-400">—</span>
-                                                    </td>
-                                                    <td class="px-3 py-2">
-                                                        <span class="text-[9px] px-1.5 py-0.5 rounded"
-                                                              :class="ins.load_mode === 'always' ? 'bg-green-100 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'">
-                                                            {{ ins.load_mode || 'always' }}
-                                                        </span>
-                                                    </td>
-                                                    <td class="px-3 py-2 text-[9px] text-gray-500">{{ ins.load_reason || '—' }}</td>
-                                                    <td class="px-3 py-2">
-                                                        <span v-if="ins.source_type" class="text-[9px] text-gray-500">{{ ins.source_type }}</span>
-                                                        <span v-else class="text-[9px] text-gray-400">—</span>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                                    <div v-if="instructionsSummaryItems.length">
+                                        <!-- Summary counts -->
+                                        <div class="flex items-center gap-3 mb-3 text-xs text-gray-600">
+                                            <span class="font-medium">{{ instructionsSummaryItems.length }} instructions</span>
+                                            <span v-if="instructionsAlwaysCount" class="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ instructionsAlwaysCount }} always</span>
+                                            <span v-if="instructionsIntelligentCount" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ instructionsIntelligentCount }} intelligent</span>
+                                        </div>
+                                        <!-- Collapsible list -->
+                                        <div class="space-y-1">
+                                            <div v-for="ins in instructionsSummaryItems" :key="ins.id"
+                                                 class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                                 @click="toggleInstructionDetail(ins.id)">
+                                                <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                                <span class="font-medium flex-1 truncate">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
+                                                <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">{{ ins.category }}</span>
+                                                <span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+                                                      :class="ins.load_mode === 'always' ? 'bg-green-100 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'">
+                                                    {{ ins.load_mode || 'always' }}
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div v-else class="text-xs text-gray-500">No instructions loaded.</div>
                                 </template>
@@ -265,15 +250,24 @@
 
                                         <!-- Instructions loaded by this tool -->
                                         <div v-if="selectedItem.tool_execution?.result_json?.related_instructions?.length" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Instructions Loaded</div>
-                                            <div class="space-y-1">
-                                                <div v-for="ins in selectedItem.tool_execution.result_json.related_instructions" :key="ins.id"
-                                                     class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50">
-                                                    <Icon name="heroicons-book-open" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
-                                                    <span class="font-medium">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
-                                                    <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 ml-auto">{{ ins.category }}</span>
-                                                </div>
+                                            <div
+                                                class="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-500 mb-2 cursor-pointer hover:text-gray-700"
+                                                @click="showToolInstructions = !showToolInstructions"
+                                            >
+                                                <UIcon :name="showToolInstructions ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
+                                                <UIcon name="i-heroicons-cube" class="w-3 h-3" />
+                                                {{ selectedItem.tool_execution.result_json.related_instructions.length }} Instructions Loaded
                                             </div>
+                                            <Transition name="fade">
+                                                <div v-if="showToolInstructions" class="space-y-1">
+                                                    <div v-for="ins in selectedItem.tool_execution.result_json.related_instructions" :key="ins.id"
+                                                         class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50">
+                                                        <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                                        <span class="font-medium">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
+                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 ml-auto">{{ ins.category }}</span>
+                                                    </div>
+                                                </div>
+                                            </Transition>
                                         </div>
 
                                         <!-- Sub-timings: per-query breakdown -->
@@ -615,6 +609,19 @@ const instructionsSummaryItems = computed(() => {
     return traceData.value?.head_context_snapshot?.context_view_json?.instructions_usage || []
 })
 
+const instructionsAlwaysCount = computed(() => instructionsSummaryItems.value.filter((i: any) => (i.load_mode || 'always') === 'always').length)
+const instructionsIntelligentCount = computed(() => instructionsSummaryItems.value.filter((i: any) => i.load_mode === 'intelligent').length)
+
+const expandedInstructionIds = ref<Set<string>>(new Set())
+const showToolInstructions = ref(false)
+function toggleInstructionDetail(id: string) {
+    if (expandedInstructionIds.value.has(id)) {
+        expandedInstructionIds.value.delete(id)
+    } else {
+        expandedInstructionIds.value.add(id)
+    }
+}
+
 const selectedItemDataSources = computed(() => {
     const item = selectedItem.value
     if (!item) return []
@@ -821,7 +828,7 @@ const getBlockTitle = (block: CompletionBlockV2) => {
 
 const getLeftItemIcon = (item: any) => {
     if (item.kind === 'prompt') return 'i-heroicons-user'
-    if (item.kind === 'instructions') return 'i-heroicons-book-open'
+    if (item.kind === 'instructions') return 'i-heroicons-cube'
     if (item.kind === 'final') return 'i-heroicons-check-circle'
     if (item.kind === 'feedback') return (item?.ref?.direction || 0) > 0 ? 'i-heroicons-hand-thumb-up' : 'i-heroicons-hand-thumb-down'
     const status = item?.ref?.status

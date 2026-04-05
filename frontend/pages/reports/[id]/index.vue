@@ -194,15 +194,8 @@
 									<div>
 										<!-- Instructions loaded indicator -->
 										<div v-if="m._loaded_instructions?.length" class="flex items-center gap-1.5 text-xs text-gray-400 mb-2 ml-1">
-											<Icon name="heroicons-book-open" class="w-3.5 h-3.5" />
+											<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
 											<span>{{ m._loaded_instructions.length }} instruction{{ m._loaded_instructions.length !== 1 ? 's' : '' }} loaded</span>
-											<button
-												v-if="m.system_completion_id || m.id"
-												class="text-gray-400 hover:text-gray-600 underline decoration-dotted underline-offset-2"
-												@click="openTraceModal(m.system_completion_id || m.id)"
-											>
-												view
-											</button>
 										</div>
 										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
@@ -2018,6 +2011,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
+				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
 				// Fork summary fields
 				is_fork_summary: c.is_fork_summary,
