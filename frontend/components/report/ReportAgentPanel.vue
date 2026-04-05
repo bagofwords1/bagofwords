@@ -69,23 +69,24 @@
     </div>
 
     <!-- Tab content -->
-    <div v-if="selectedAgent" class="flex-1 min-h-0 overflow-y-auto p-4">
+    <div v-if="selectedAgent" class="flex-1 min-h-0 overflow-y-auto p-4 bg-white">
       <!-- Tables tab — uses TablesSelector component -->
-      <div v-if="activeTab === 'tables'">
+      <div v-if="activeTab === 'tables'" class="h-full">
         <TablesSelector
+          :key="selectedAgentId"
           :ds-id="selectedAgentId!"
           schema="full"
           :can-update="canUpdateDataSource"
-          :show-refresh="true"
-          :refresh-icon-only="true"
+          :show-refresh="false"
           :show-save="canUpdateDataSource"
           save-label="Save"
+          :show-stats="canUpdateDataSource"
           max-height="calc(100vh - 280px)"
         />
       </div>
 
       <!-- Instructions tab -->
-      <div v-if="activeTab === 'instructions'">
+      <div v-else-if="activeTab === 'instructions'">
         <div v-if="loading" class="flex items-center justify-center py-10">
           <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
         </div>
@@ -117,7 +118,7 @@
       </div>
 
       <!-- Queries tab -->
-      <div v-if="activeTab === 'queries'">
+      <div v-else-if="activeTab === 'queries'">
         <div v-if="loading" class="flex items-center justify-center py-10">
           <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
         </div>
@@ -149,7 +150,7 @@
       </div>
 
       <!-- Evals tab -->
-      <div v-if="activeTab === 'evals'">
+      <div v-else-if="activeTab === 'evals'">
         <div v-if="loading" class="flex items-center justify-center py-10">
           <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
         </div>
@@ -185,6 +186,7 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import TablesSelector from '~/components/datasources/TablesSelector.vue'
 
 const props = defineProps<{
   agents: Array<{ id: string; name: string; type?: string; connections?: any[] }>
