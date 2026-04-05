@@ -1,7 +1,7 @@
 <template>
   <div class="h-full w-full flex flex-col bg-white">
     <!-- Header / Toolbar -->
-    <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-white border-b">
+    <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 to-white border-b">
       <div class="flex items-center gap-3">
         <UTooltip text="Back to chat">
           <button @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">

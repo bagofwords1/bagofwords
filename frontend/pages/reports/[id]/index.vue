@@ -437,6 +437,7 @@
 					@scrollToMessage="scrollToMessage"
 					@editScheduledPrompt="editScheduledPrompt"
 					@editTrainingInstruction="editTrainingInstruction"
+					@openInstructions="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; }"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"

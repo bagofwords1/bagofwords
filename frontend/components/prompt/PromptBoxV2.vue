@@ -397,12 +397,12 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
-import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
+import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import { useCan } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
 import { useExcel } from '@/composables/useExcel'
@@ -449,7 +449,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions'])
 
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
@@ -994,10 +994,15 @@ const fileUploadRef = ref<any | null>(null)
 const instructionsListModalRef = ref<any | null>(null)
 const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(null)
 
+const attrs = useAttrs()
+
 function openInstructions() {
-    // Pass selected data source IDs to filter instructions (shows selected + global)
-    const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
-    instructionsListModalRef.value?.openModal?.(dataSourceIds)
+    if (attrs.onOpenInstructions) {
+        emit('openInstructions')
+    } else {
+        const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
+        instructionsListModalRef.value?.openModal?.(dataSourceIds)
+    }
 }
 
 function openImagePreview(file: any) {

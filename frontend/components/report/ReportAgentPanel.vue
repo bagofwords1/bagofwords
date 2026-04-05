@@ -112,14 +112,40 @@
                   />
                 </div>
                 <div class="flex items-center gap-2">
-                  <!-- Status filter -->
-                  <select
-                    v-model="instructionStatusFilter"
-                    class="text-[11px] border border-gray-200 rounded-md py-1 px-2 text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
-                  >
-                    <option value="">All statuses</option>
-                    <option v-for="s in instructionStatuses" :key="s" :value="s">{{ helpers.formatStatus(s) }}</option>
-                  </select>
+                  <!-- Status multi-select -->
+                  <div class="relative" ref="statusDropdownRef">
+                    <button
+                      @click.stop="statusDropdownOpen = !statusDropdownOpen"
+                      class="flex items-center gap-1 text-[11px] border border-gray-200 rounded-md py-1 px-2 text-gray-600 hover:bg-gray-50 bg-white"
+                    >
+                      <span v-if="instructionStatusFilter.length === 0">All statuses</span>
+                      <span v-else class="truncate max-w-[100px]">{{ instructionStatusFilter.map(s => helpers.formatStatus(s)).join(', ') }}</span>
+                      <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': statusDropdownOpen }" />
+                    </button>
+                    <div v-if="statusDropdownOpen" class="absolute z-20 mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[120px]">
+                      <button
+                        v-for="s in instructionStatuses"
+                        :key="s"
+                        @click.stop="toggleStatusFilter(s)"
+                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-left"
+                      >
+                        <span
+                          class="w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0"
+                          :class="instructionStatusFilter.includes(s) ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300'"
+                        >
+                          <Icon v-if="instructionStatusFilter.includes(s)" name="heroicons:check" class="w-2.5 h-2.5 text-white" />
+                        </span>
+                        <span class="text-gray-700">{{ helpers.formatStatus(s) }}</span>
+                      </button>
+                      <button
+                        v-if="instructionStatusFilter.length > 0"
+                        @click.stop="instructionStatusFilter = []"
+                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-left font-medium"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  </div>
                   <!-- Category multi-select -->
                   <div class="relative" ref="categoryDropdownRef">
                     <button
@@ -127,7 +153,7 @@
                       class="flex items-center gap-1 text-[11px] border border-gray-200 rounded-md py-1 px-2 text-gray-600 hover:bg-gray-50 bg-white"
                     >
                       <span v-if="instructionCategoryFilter.length === 0">All categories</span>
-                      <span v-else>{{ instructionCategoryFilter.length }} categor{{ instructionCategoryFilter.length === 1 ? 'y' : 'ies' }}</span>
+                      <span v-else class="truncate max-w-[100px]">{{ instructionCategoryFilter.map(c => helpers.formatCategory(c)).join(', ') }}</span>
                       <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': categoryDropdownOpen }" />
                     </button>
                     <div v-if="categoryDropdownOpen" class="absolute z-20 mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[140px]">
@@ -166,18 +192,6 @@
                   @click="selectedInstruction = inst"
                   class="w-full px-3 py-2.5 text-left text-xs flex items-start gap-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
                 >
-                  <!-- Source icon -->
-                  <div class="flex-shrink-0 mt-0.5">
-                    <Icon
-                      :name="helpers.getSourceIcon(inst)"
-                      class="w-4 h-4"
-                      :class="{
-                        'text-amber-500': helpers.getSourceType(inst) === 'ai',
-                        'text-blue-500': helpers.getSourceType(inst) === 'user',
-                        'text-gray-500': helpers.getSourceType(inst) === 'git'
-                      }"
-                    />
-                  </div>
                   <div class="flex-1 min-w-0">
                     <!-- Title or text preview -->
                     <div class="flex items-center gap-1.5">
@@ -187,6 +201,17 @@
                     <p v-if="inst.title && inst.text" class="text-[11px] text-gray-500 truncate mt-0.5 leading-snug">{{ inst.text.slice(0, 80) }}</p>
                     <!-- Badges row -->
                     <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <!-- Data source indicator -->
+                      <template v-if="inst.data_sources?.length">
+                        <span v-for="ds in inst.data_sources" :key="ds.id" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-gray-50 text-[9px] text-gray-600 font-medium border border-gray-100">
+                          <DataSourceIcon :type="getInstructionDsType(ds)" class="h-2.5 flex-shrink-0" />
+                          <span class="truncate max-w-[80px]">{{ ds.name }}</span>
+                        </span>
+                      </template>
+                      <span v-else class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-purple-50 text-[9px] text-purple-600 font-medium border border-purple-100">
+                        <Icon name="heroicons:circle-stack" class="w-2.5 h-2.5 text-purple-400 flex-shrink-0" />
+                        Any
+                      </span>
                       <span
                         :class="helpers.getCategoryClass(inst.category)"
                         class="text-[9px] px-1 py-0.5 rounded font-medium"
@@ -199,10 +224,24 @@
                         :class="helpers.getLoadModeClass(inst.load_mode)"
                         class="text-[9px] px-1 py-0.5 rounded font-medium"
                       >{{ helpers.getLoadModeLabel(inst.load_mode) }}</span>
+                      <!-- User & date -->
+                      <span v-if="inst.user" class="inline-flex items-center gap-0.5 text-[9px] text-gray-400">
+                        <Icon name="heroicons:user" class="w-2.5 h-2.5 flex-shrink-0" />
+                        <span class="truncate max-w-[60px]">{{ inst.user.name || inst.user.email }}</span>
+                        <span>· {{ formatDate(inst.created_at) }}</span>
+                      </span>
+                    </div>
+                    <!-- References -->
+                    <div v-if="inst.references?.length" class="flex items-center gap-1 mt-1 flex-wrap">
+                      <Icon name="heroicons:link" class="w-2.5 h-2.5 text-gray-300 flex-shrink-0" />
                       <span
-                        v-if="!inst.data_sources?.length"
-                        class="px-1 py-0.5 text-[9px] rounded bg-purple-50 text-purple-600 font-medium"
-                      >Global</span>
+                        v-for="ref in inst.references"
+                        :key="ref.id"
+                        class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-slate-50 border border-slate-100 text-[9px] text-slate-600 font-medium"
+                      >
+                        <Icon :name="ref.object_type === 'datasource_table' ? 'heroicons:table-cells' : ref.object_type === 'instruction' ? 'heroicons:document-text' : 'heroicons:cube'" class="w-2.5 h-2.5 flex-shrink-0" :class="ref.object_type === 'instruction' ? 'text-indigo-400' : 'text-slate-400'" />
+                        <span class="truncate max-w-[100px]">{{ ref.display_text || ref.object?.name || ref.object?.title || ref.object_id }}</span>
+                      </span>
                     </div>
                   </div>
                 </button>
@@ -328,7 +367,9 @@ const instructionLoading = ref(false)
 const helpers = useInstructionHelpers()
 const instructionSearch = ref('')
 const instructionCategoryFilter = ref<string[]>([])
-const instructionStatusFilter = ref<string>('published')
+const instructionStatusFilter = ref<string[]>(['published'])
+const statusDropdownOpen = ref(false)
+const statusDropdownRef = ref<HTMLElement | null>(null)
 const categoryDropdownOpen = ref(false)
 const categoryDropdownRef = ref<HTMLElement | null>(null)
 
@@ -351,9 +392,21 @@ function toggleCategoryFilter(cat: string) {
   }
 }
 
+function toggleStatusFilter(status: string) {
+  const idx = instructionStatusFilter.value.indexOf(status)
+  if (idx >= 0) {
+    instructionStatusFilter.value = instructionStatusFilter.value.filter(s => s !== status)
+  } else {
+    instructionStatusFilter.value = [...instructionStatusFilter.value, status]
+  }
+}
+
 function onCategoryDropdownOutsideClick(e: MouseEvent) {
   if (categoryDropdownRef.value && !categoryDropdownRef.value.contains(e.target as Node)) {
     categoryDropdownOpen.value = false
+  }
+  if (statusDropdownRef.value && !statusDropdownRef.value.contains(e.target as Node)) {
+    statusDropdownOpen.value = false
   }
 }
 
@@ -376,8 +429,8 @@ const filteredInstructions = computed(() => {
   if (instructionCategoryFilter.value.length > 0) {
     list = list.filter((i: any) => instructionCategoryFilter.value.includes(i.category))
   }
-  if (instructionStatusFilter.value) {
-    list = list.filter((i: any) => i.status === instructionStatusFilter.value)
+  if (instructionStatusFilter.value.length > 0) {
+    list = list.filter((i: any) => instructionStatusFilter.value.includes(i.status))
   }
   return list
 })
@@ -411,6 +464,16 @@ const instructions = computed(() => selectedAgentId.value ? (instructionsCache.v
 const queries = computed(() => selectedAgentId.value ? (queriesCache.value[selectedAgentId.value] || []) : [])
 const evals = computed(() => selectedAgentId.value ? (evalsCache.value[selectedAgentId.value] || []) : [])
 
+// Resolve DS type for instruction's embedded data_source (may lack connections)
+function getInstructionDsType(ds: any): string | undefined {
+  // Try the DS object itself
+  if (ds.type) return ds.type
+  if (ds.connections?.[0]?.type) return ds.connections[0].type
+  // Look up from agents prop (which has full connection info)
+  const match = props.agents.find(a => a.id === ds.id)
+  return match?.type || match?.connections?.[0]?.type || undefined
+}
+
 function selectAgent(agentId: string) {
   selectedAgentId.value = agentId
   dropdownOpen.value = false
@@ -423,6 +486,12 @@ function onInstructionSaved() {
     delete instructionsCache.value[selectedAgentId.value]
     fetchTabData(selectedAgentId.value, 'instructions')
   }
+}
+
+function formatDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function promptPreview(promptJson: any): string {
@@ -459,13 +528,19 @@ async function fetchTabData(agentId: string, tab: string) {
     loading.value = true
     instructionsError.value = null
     try {
+      // Fetch instructions for the selected agent AND global (any data source) instructions
+      const allAgentIds = props.agents.map(a => a.id).join(',')
       const { data, error } = await useMyFetch('/api/instructions', {
         method: 'GET',
-        query: { data_source_ids: agentId, include_global: true, limit: 50, include_own: true, include_drafts: true }
+        query: { data_source_ids: allAgentIds, include_global: true, limit: 200, include_own: true, include_drafts: true }
       })
       if (error?.value) { instructionsError.value = 'Failed to load instructions'; return }
       const payload: any = (data as any)?.value
-      instructionsCache.value[agentId] = payload?.items || payload || []
+      const allInstructions = payload?.items || payload || []
+      // Cache same list for all agents since we fetched for all + global
+      for (const agent of props.agents) {
+        instructionsCache.value[agent.id] = allInstructions
+      }
     } catch { instructionsError.value = 'Failed to load instructions' }
     finally { loading.value = false }
   }
@@ -521,7 +596,7 @@ watch(selectedAgentId, () => {
   evalsError.value = null
   instructionSearch.value = ''
   instructionCategoryFilter.value = []
-  instructionStatusFilter.value = 'published'
+  instructionStatusFilter.value = ['published']
 })
 
 // Expose methods for external callers
