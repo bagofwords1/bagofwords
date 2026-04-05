@@ -1041,6 +1041,23 @@ class CompletionService:
                 if comp_id:
                     completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
 
+        # 6d) Batch-load instruction metadata for loaded_instructions references
+        # Collect all instruction IDs stored in completion JSON across all system completions
+        _all_instruction_ids: set[str] = set()
+        for c in all_completions:
+            if c.role == 'system':
+                cdata = c.completion
+                if isinstance(cdata, dict):
+                    for li in (cdata.get("loaded_instructions") or []):
+                        if li.get("id"):
+                            _all_instruction_ids.add(li["id"])
+        instruction_map: dict[str, Instruction] = {}
+        if _all_instruction_ids:
+            instr_stmt = select(Instruction).where(Instruction.id.in_(list(_all_instruction_ids)))
+            instr_res = await db.execute(instr_stmt)
+            for inst in instr_res.scalars().all():
+                instruction_map[inst.id] = inst
+
         # 7) Assemble completion objects
         v2_completions: list[CompletionV2Schema] = []
         for c in all_completions:
@@ -1069,10 +1086,29 @@ class CompletionService:
             if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
                 suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
-            # Extract loaded instructions from completion data (saved by agent_v2)
+            # Extract loaded instructions from completion data, enriched from DB
             loaded_instructions_list = None
             if c.role == 'system' and isinstance(completion_data, dict):
-                loaded_instructions_list = completion_data.get("loaded_instructions")
+                raw_li = completion_data.get("loaded_instructions")
+                if raw_li:
+                    enriched = []
+                    for li in raw_li:
+                        inst = instruction_map.get(li.get("id", ""))
+                        ds_type = None
+                        if inst and inst.data_sources:
+                            ds = inst.data_sources[0]
+                            if ds.connections:
+                                ds_type = ds.connections[0].type
+                        enriched.append({
+                            "id": li.get("id"),
+                            "title": (inst.title or inst.text[:60].split('\n')[0]) if inst else li.get("title"),
+                            "category": inst.category if inst else li.get("category"),
+                            "load_mode": li.get("load_mode"),
+                            "load_reason": li.get("load_reason"),
+                            "source_type": inst.source_type if inst else li.get("source_type"),
+                            "data_source_type": ds_type,
+                        })
+                    loaded_instructions_list = enriched
 
             # Get user feedback from pre-loaded map
             user_feedback = completion_id_to_user_feedback.get(c.id)
@@ -1359,6 +1395,22 @@ class CompletionService:
                 if comp_id:
                     completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
 
+        # Batch-load instruction metadata for loaded_instructions references
+        _all_instruction_ids: set[str] = set()
+        for c in all_completions:
+            if c.role == 'system':
+                cdata = c.completion
+                if isinstance(cdata, dict):
+                    for li in (cdata.get("loaded_instructions") or []):
+                        if li.get("id"):
+                            _all_instruction_ids.add(li["id"])
+        instruction_map: dict[str, Instruction] = {}
+        if _all_instruction_ids:
+            instr_stmt = select(Instruction).where(Instruction.id.in_(list(_all_instruction_ids)))
+            instr_res = await db.execute(instr_stmt)
+            for inst in instr_res.scalars().all():
+                instruction_map[inst.id] = inst
+
         # Assemble v2 objects
         v2_list: list[CompletionV2Schema] = []
         for c in all_completions:
@@ -1382,10 +1434,29 @@ class CompletionService:
             if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
                 suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
-            # Extract loaded instructions from completion data
+            # Extract loaded instructions from completion data, enriched from DB
             loaded_instructions_list = None
             if c.role == 'system' and isinstance(completion_data, dict):
-                loaded_instructions_list = completion_data.get("loaded_instructions")
+                raw_li = completion_data.get("loaded_instructions")
+                if raw_li:
+                    enriched = []
+                    for li in raw_li:
+                        inst = instruction_map.get(li.get("id", ""))
+                        ds_type = None
+                        if inst and inst.data_sources:
+                            ds = inst.data_sources[0]
+                            if ds.connections:
+                                ds_type = ds.connections[0].type
+                        enriched.append({
+                            "id": li.get("id"),
+                            "title": (inst.title or inst.text[:60].split('\n')[0]) if inst else li.get("title"),
+                            "category": inst.category if inst else li.get("category"),
+                            "load_mode": li.get("load_mode"),
+                            "load_reason": li.get("load_reason"),
+                            "source_type": inst.source_type if inst else li.get("source_type"),
+                            "data_source_type": ds_type,
+                        })
+                    loaded_instructions_list = enriched
 
             # Get files attached to this completion
             c_files = completion_id_to_files.get(c.id, [])

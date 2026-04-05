@@ -185,7 +185,7 @@
                                         <div class="space-y-1">
                                             <div v-for="ins in instructionsSummaryItems" :key="ins.id"
                                                  class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50 hover:bg-gray-100 cursor-pointer"
-                                                 @click="toggleInstructionDetail(ins.id)">
+                                                 @click="emit('openInstruction', ins.id)">
                                                 <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
                                                 <span class="font-medium flex-1 truncate">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
                                                 <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">{{ ins.category }}</span>
@@ -261,7 +261,8 @@
                                             <Transition name="fade">
                                                 <div v-if="showToolInstructions" class="space-y-1">
                                                     <div v-for="ins in selectedItem.tool_execution.result_json.related_instructions" :key="ins.id"
-                                                         class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50">
+                                                         class="flex items-center gap-2 text-xs text-gray-700 px-2 py-1.5 rounded bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                                         @click="emit('openInstruction', ins.id)">
                                                         <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
                                                         <span class="font-medium">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
                                                         <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 ml-auto">{{ ins.category }}</span>
@@ -585,6 +586,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
     'update:modelValue': [value: boolean]
+    'openInstruction': [id: string]
 }>()
 
 // State
@@ -612,15 +614,7 @@ const instructionsSummaryItems = computed(() => {
 const instructionsAlwaysCount = computed(() => instructionsSummaryItems.value.filter((i: any) => (i.load_mode || 'always') === 'always').length)
 const instructionsIntelligentCount = computed(() => instructionsSummaryItems.value.filter((i: any) => i.load_mode === 'intelligent').length)
 
-const expandedInstructionIds = ref<Set<string>>(new Set())
 const showToolInstructions = ref(false)
-function toggleInstructionDetail(id: string) {
-    if (expandedInstructionIds.value.has(id)) {
-        expandedInstructionIds.value.delete(id)
-    } else {
-        expandedInstructionIds.value.add(id)
-    }
-}
 
 const selectedItemDataSources = computed(() => {
     const item = selectedItem.value

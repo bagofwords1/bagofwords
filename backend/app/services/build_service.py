@@ -107,8 +107,8 @@ class BuildService:
         
         db.add(build)
         await db.commit()
-        await db.refresh(build)
-        
+        await db.refresh(build, ['id', 'build_number'])
+
         logger.info(f"Created build {build.id} (#{build.build_number}) for org {org_id}, source={source}")
         
         # Copy contents from current main build (if exists and requested)
@@ -122,9 +122,8 @@ class BuildService:
                     logger.debug(f"Copying contents from main build {main_build.id} to {build.id}")
                     copied = await self._copy_build_contents(db, main_build.id, build.id)
                     logger.info(f"Copied {copied} instructions from main build to build {build.id}")
-                    # Commit base_build_id and copied contents, then refresh
+                    # Commit base_build_id and copied contents
                     await db.commit()
-                    await db.refresh(build)
                 else:
                     logger.debug(f"No main build found for org {org_id}, starting with empty build")
             except Exception as e:
@@ -464,7 +463,6 @@ class BuildService:
                     branch=build.branch,
                 )
             await db.commit()
-            await db.refresh(existing_content)
             return existing_content
         else:
             # Add new content
@@ -485,7 +483,6 @@ class BuildService:
                 branch=build.branch,
             )
             await db.commit()
-            await db.refresh(content)
             return content
     
     async def remove_from_build(
@@ -639,7 +636,6 @@ class BuildService:
 
         build.status = 'pending_approval'
         await db.commit()
-        await db.refresh(build)
 
         # Audit log
         try:
@@ -651,6 +647,7 @@ class BuildService:
                 resource_type="instruction_build",
                 resource_id=str(build.id),
                 details={"build_number": build.build_number, "title": build.title},
+                commit=False,
             )
         except Exception:
             pass
@@ -681,7 +678,6 @@ class BuildService:
         build.approved_by_user_id = approved_by_user_id
         build.approved_at = datetime.utcnow()
         await db.commit()
-        await db.refresh(build)
 
         # Audit log
         try:
@@ -693,6 +689,7 @@ class BuildService:
                 resource_type="instruction_build",
                 resource_id=str(build.id),
                 details={"build_number": build.build_number, "title": build.title},
+                commit=False,
             )
         except Exception:
             pass
@@ -807,7 +804,6 @@ class BuildService:
                     instruction.current_version_id = content.instruction_version_id
 
         await db.commit()
-        await db.refresh(build)
 
         # Audit log
         try:
@@ -819,6 +815,7 @@ class BuildService:
                 resource_type="instruction_build",
                 resource_id=str(build.id),
                 details={"build_number": build.build_number, "title": build.title},
+                commit=False,
             )
         except Exception:
             pass

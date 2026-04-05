@@ -736,7 +736,7 @@ class AgentV2:
                             "instructions": [
                                 {
                                     "id": item.id,
-                                    "title": item.title,
+                                    "title": item.title or (item.text[:60].split('\n')[0] if item.text else None),
                                     "category": item.category,
                                     "load_mode": item.load_mode,
                                     "load_reason": item.load_reason,
@@ -752,9 +752,7 @@ class AgentV2:
                 try:
                     from sqlalchemy.orm.attributes import flag_modified
                     _li = [
-                        {"id": item.id, "title": item.title, "category": item.category,
-                         "load_mode": item.load_mode, "load_reason": item.load_reason,
-                         "source_type": item.source_type}
+                        {"id": item.id, "load_mode": item.load_mode, "load_reason": item.load_reason}
                         for item in view.static.instructions.items
                     ]
                     comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
@@ -1732,6 +1730,17 @@ class AgentV2:
                         try:
                             _tool_instructions = (safe_result_json or {}).get("related_instructions") if isinstance(safe_result_json, dict) else None
                             if _tool_instructions:
+                                _tool_instr_items = [
+                                    {
+                                        "id": i.get("id"),
+                                        "title": i.get("title"),
+                                        "category": i.get("category"),
+                                        "load_mode": i.get("load_mode"),
+                                        "load_reason": "table_reference",
+                                        "source_type": i.get("source_type"),
+                                    }
+                                    for i in _tool_instructions
+                                ]
                                 seq_ti = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="instructions.context",
@@ -1740,19 +1749,24 @@ class AgentV2:
                                     seq=seq_ti,
                                     data={
                                         "source": f"tool:{tool_name}",
-                                        "instructions": [
-                                            {
-                                                "id": i.get("id"),
-                                                "title": i.get("title"),
-                                                "category": i.get("category"),
-                                                "load_mode": i.get("load_mode"),
-                                                "load_reason": "table_reference",
-                                                "source_type": i.get("source_type"),
-                                            }
-                                            for i in _tool_instructions
-                                        ],
+                                        "instructions": _tool_instr_items,
                                     }
                                 ))
+                                # Persist tool-loaded instructions to completion JSON (append, deduplicate)
+                                try:
+                                    from sqlalchemy.orm.attributes import flag_modified
+                                    comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
+                                    existing = comp_data.get("loaded_instructions") or []
+                                    existing_ids = {li.get("id") for li in existing}
+                                    for ti in _tool_instr_items:
+                                        if ti.get("id") and ti["id"] not in existing_ids:
+                                            existing.append({"id": ti["id"], "load_mode": ti.get("load_mode"), "load_reason": ti.get("load_reason")})
+                                            existing_ids.add(ti["id"])
+                                    comp_data["loaded_instructions"] = existing
+                                    self.system_completion.completion = comp_data
+                                    flag_modified(self.system_completion, "completion")
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
 

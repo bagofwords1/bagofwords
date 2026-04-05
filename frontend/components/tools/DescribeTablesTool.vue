@@ -85,7 +85,8 @@
             <Transition name="fade">
               <div v-if="showInstructions" class="pl-6 pr-1 pb-1 space-y-0.5">
                 <div v-for="ins in relatedInstructions" :key="ins.id"
-                     class="flex items-center gap-2 text-gray-600 py-0.5">
+                     class="flex items-center gap-2 text-gray-600 py-0.5 cursor-pointer hover:text-gray-900"
+                     @click="emit('openInstruction', ins.id)">
                   <Icon name="heroicons-cube" class="w-3 h-3 text-indigo-400 flex-shrink-0" />
                   <span class="truncate">{{ ins.title || ins.text || 'Untitled' }}</span>
                   <span v-if="ins.category" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{{ ins.category }}</span>
@@ -119,6 +120,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const emit = defineEmits<{ (e: 'openInstruction', id: string): void }>()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
 

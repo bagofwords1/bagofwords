@@ -101,8 +101,8 @@ class InstructionService:
             
         db.add(instruction)
         await db.commit()
-        await db.refresh(instruction)
-        
+        await db.refresh(instruction, ['id'])
+
         # Associate with data sources if provided
         if instruction_data.data_source_ids:
             await self._associate_data_sources(db, instruction, instruction_data.data_source_ids)
@@ -2161,7 +2161,6 @@ class InstructionService:
                 await self.build_service.approve_build(
                     db, build.id, approved_by_user_id=current_user.id
                 )
-                await db.refresh(build)
                 if not build.is_main:
                     await self.build_service.promote_build(db, build.id)
                     logger.info(f"Auto-approved and promoted build {build.id} to main")
@@ -2170,6 +2169,9 @@ class InstructionService:
             else:
                 # Non-admin: leave in pending_approval for admin review
                 logger.info(f"Build {build.id} submitted for admin approval (non-admin user)")
+
+            # Single commit for all deferred audit logs from submit/approve/promote
+            await db.commit()
         except Exception as e:
             logger.warning(f"Failed to auto-finalize build {build.id}: {e}")
             # Don't fail the instruction operation if auto-finalize fails
