@@ -294,14 +294,6 @@
 							</template>
 						</div>
 					</li>
-					<!-- Training Mode Summary - shows all instructions created in this session -->
-					<li v-if="report?.mode === 'training'" class="mt-4">
-						<TrainingInstructionsSummary
-							:report="report"
-							:isStreaming="isStreaming"
-							:messages="messages"
-						/>
-					</li>
 			</ul>
 			<div v-else class="w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
 				<h1 class="text-4xl mb-4">🪴</h1>
@@ -368,12 +360,14 @@
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
+					:trainingInstructions="trainingInstructions"
 					:hasArtifacts="hasArtifacts"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
 					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
 					@scrollToMessage="scrollToMessage"
 					@editScheduledPrompt="editScheduledPrompt"
+					@editTrainingInstruction="editTrainingInstruction"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"
@@ -381,6 +375,13 @@
 				/>
 			</div>
 		</div>
+		<!-- Training instruction edit modal -->
+		<InstructionModalComponent
+			v-model="showTrainingInstructionModal"
+			:instruction="editingTrainingInstruction"
+			:initial-type="'global'"
+			@instruction-saved="showTrainingInstructionModal = false"
+		/>
 		<!-- Edit scheduled prompt modal -->
 		<ScheduledPromptModal
 			v-model="showEditScheduledPromptModal"
@@ -483,7 +484,7 @@ import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
-import TrainingInstructionsSummary from '~/components/TrainingInstructionsSummary.vue'
+import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -660,6 +661,51 @@ function toggleScheduledExpand(messageId: string) {
 
 function isScheduledExpanded(messageId: string): boolean {
 	return expandedScheduledIds.value.has(messageId)
+}
+
+// Training instructions - unique list for the pill in PromptBoxV2
+const trainingInstructions = computed(() => {
+	if (report.value?.mode !== 'training' || isStreaming.value) return []
+	const byId = new Map<string, { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number }>()
+	for (const m of messages.value) {
+		if (!m.completion_blocks) continue
+		for (const b of m.completion_blocks) {
+			const te = b.tool_execution
+			if (!te || te.status !== 'success') continue
+			if (te.tool_name !== 'create_instruction' && te.tool_name !== 'edit_instruction') continue
+			const rj = te.result_json || {}
+			if (!rj.success || !rj.instruction_id) continue
+			const args = te.arguments_json || {}
+			const text = args.text || ''
+			const existing = byId.get(rj.instruction_id)
+			const isEdit = te.tool_name === 'edit_instruction' || (existing?.isEdit ?? false)
+			byId.set(rj.instruction_id, {
+				instructionId: rj.instruction_id,
+				title: existing?.title || text.split('\n')[0].replace(/^#+\s*/, '').trim().substring(0, 60) || 'Instruction',
+				category: args.category || existing?.category || 'general',
+				isEdit,
+				lineCount: text ? text.split('\n').filter((l: string) => l.trim()).length : (existing?.lineCount ?? 0),
+			})
+		}
+	}
+	return Array.from(byId.values())
+})
+
+const showTrainingInstructionModal = ref(false)
+const editingTrainingInstruction = ref<any>(null)
+
+async function editTrainingInstruction(inst: { instructionId: string }) {
+	try {
+		const { data, error } = await useMyFetch(`/instructions/${inst.instructionId}`)
+		if (!error.value && data.value) {
+			editingTrainingInstruction.value = data.value
+		} else {
+			editingTrainingInstruction.value = { id: inst.instructionId }
+		}
+	} catch {
+		editingTrainingInstruction.value = { id: inst.instructionId }
+	}
+	showTrainingInstructionModal.value = true
 }
 
 function isScheduledSystemExpanded(msg: ChatMessage): boolean {

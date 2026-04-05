@@ -160,23 +160,6 @@ class CreateInstructionTool(Tool):
             )
             return
 
-        # Validate text ends with period
-        if not data.text.strip().endswith("."):
-            yield ToolEndEvent(
-                type="tool.end",
-                payload={
-                    "output": CreateInstructionOutput(
-                        success=False,
-                        message="Instruction text must end with a period.",
-                        rejected_reason="invalid_format"
-                    ).model_dump(),
-                    "observation": {
-                        "summary": "Instruction rejected: text must end with period",
-                        "artifacts": [],
-                    },
-                }
-            )
-            return
 
         # Get required context from runtime
         db = runtime_ctx.get("db")

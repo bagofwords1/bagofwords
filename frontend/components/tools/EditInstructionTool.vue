@@ -14,6 +14,8 @@
           <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-blue-500" />
           <span class="truncate max-w-[300px]">Edited: {{ truncatedText }}</span>
           <span v-if="versionNumber" class="ml-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
+          <span v-if="linesAdded > 0" class="ml-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
+          <span v-if="linesRemoved > 0" class="ml-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 ml-1 text-gray-400 shrink-0"
@@ -290,6 +292,21 @@ const rejectedReason = computed(() => {
 const currentGlobalStatus = computed(() => {
   if (localGlobalStatus.value !== null) return localGlobalStatus.value
   return fetchedInstruction.value?.global_status || null
+})
+
+// Line diff counts for summary
+const linesAdded = computed(() => {
+  if (!updatedText.value || previousText.value === null) return 0
+  const newLines = updatedText.value.split('\n')
+  const oldLines = (previousText.value || '').split('\n')
+  return Math.max(0, newLines.length - oldLines.length)
+})
+
+const linesRemoved = computed(() => {
+  if (!updatedText.value || previousText.value === null) return 0
+  const newLines = updatedText.value.split('\n')
+  const oldLines = (previousText.value || '').split('\n')
+  return Math.max(0, oldLines.length - newLines.length)
 })
 
 // Check if text was changed

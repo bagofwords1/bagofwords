@@ -1,8 +1,8 @@
 <template>
     <div class="flex-shrink-0 p-4 pb-8 bg-white">
         <!-- Query pills + Excel hint (above container) -->
-        <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)" class="mb-2 flex items-center justify-between">
-            <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0" class="flex items-center gap-2">
+        <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)" class="mb-2 flex items-center justify-between">
+            <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0" class="flex items-center gap-2">
                 <!-- Query pill with hover dropdown -->
                 <div
                     v-if="props.queryList.length > 0"
@@ -69,6 +69,47 @@
                                 <div class="flex-1 min-w-0">
                                     <div class="text-xs text-gray-700 truncate" :class="{ 'text-gray-400': !sp.is_active }">{{ sp.prompt?.content || 'Untitled' }}</div>
                                     <div class="text-[10px] text-gray-400 mt-0.5">{{ getCronLabel(sp.cron_schedule) }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="h-1"></div>
+                    </div>
+                </div>
+                <!-- Training instructions pill with hover dropdown -->
+                <div
+                    v-if="props.trainingInstructions.length > 0"
+                    class="relative"
+                    @mouseenter="showTrainingDropdown = true"
+                    @mouseleave="showTrainingDropdown = false"
+                >
+                    <button
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                        <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
+                        {{ props.trainingInstructions.length }} Instruction{{ props.trainingInstructions.length === 1 ? '' : 's' }}
+                    </button>
+                    <div
+                        v-if="showTrainingDropdown"
+                        class="absolute left-0 bottom-full w-80 z-20"
+                    >
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
+                            <div
+                                v-for="inst in props.trainingInstructions"
+                                :key="inst.instructionId"
+                                class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                                @click="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
+                            >
+                                <div class="flex items-center gap-1.5">
+                                    <Icon
+                                        :name="inst.isEdit ? 'heroicons-pencil' : 'heroicons-plus-circle'"
+                                        class="w-3 h-3 shrink-0"
+                                        :class="inst.isEdit ? 'text-blue-500' : 'text-green-500'"
+                                    />
+                                    <span class="text-xs text-gray-700 truncate">{{ inst.title }}</span>
+                                </div>
+                                <div class="flex items-center gap-2 mt-0.5 ml-[18px]">
+                                    <span v-if="inst.category" class="text-[10px] text-gray-400">{{ inst.category }}</span>
+                                    <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
                                 </div>
                             </div>
                         </div>
@@ -393,6 +434,11 @@ const props = defineProps({
         type: Array as () => { id: string; prompt: any; cron_schedule: string; is_active: boolean }[],
         default: () => []
     },
+    // Training instructions for the pill above input
+    trainingInstructions: {
+        type: Array as () => { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number }[],
+        default: () => []
+    },
     // Whether the report has artifacts (for "View dashboard" pill)
     hasArtifacts: { type: Boolean, default: false },
     // Hide the schedule button (when embedded inside ScheduledPromptModal)
@@ -403,7 +449,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction'])
 
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
@@ -417,6 +463,7 @@ const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
 const isDraggingFiles = ref(false)
 const showQueryDropdown = ref(false)
 const showScheduledDropdown = ref(false)
+const showTrainingDropdown = ref(false)
 const showScheduledPromptModal = ref(false)
 const scheduleDraftContent = ref('')
 const scheduleDraftMode = ref<'chat' | 'deep'>('chat')

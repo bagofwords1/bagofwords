@@ -22,7 +22,8 @@ class EditInstructionInput(BaseModel):
         description=(
             "The new instruction text. If provided, must be clear, actionable, and reusable. "
             "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
-            "Must end with a period."
+            "Do not include volatile data facts (row counts, specific metric values, date ranges, distributions) that change as data is updated. "
+            "Use markdown formatting for clarity."
         ),
         min_length=20,
         max_length=20000000000,

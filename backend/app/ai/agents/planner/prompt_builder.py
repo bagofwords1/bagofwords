@@ -479,8 +479,15 @@ Only create when documenting something NOT already covered.
 2. **Business Rules** - Status codes, enums, definitions
 3. **Code Patterns** - SQL gotchas, join patterns (category: "code_gen")
 
+**DO NOT document volatile data** — instructions must capture stable domain knowledge only:
+- NO row counts, record counts, or data volumes ("the table has 1.2M rows")
+- NO specific aggregates or metric values ("average order value is $47")
+- NO date ranges or data boundaries ("data goes from 2020 to 2024")
+- NO counts per category or distribution stats ("there are 15 active users")
+- YES: schema relationships, business rules, enum definitions, naming conventions, SQL patterns
+
 **Required fields:**
-- `text`: Markdown-formatted, ends with period. Use headers, tables, bullets.
+- `text`: Markdown-formatted. Use headers, tables, bullets.
 - `category`: "general" (default) or "code_gen" (SQL-specific gotchas only)
 - `confidence`: 0.7-1.0. If <0.7, use clarify first.
 - `table_names`: Tables this instruction applies to (for intelligent loading)

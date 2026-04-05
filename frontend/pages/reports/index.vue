@@ -219,14 +219,19 @@
                                             >
                                                 {{ report.title }}
                                             </NuxtLink>
-                                            <div v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count" class="text-[11px] text-gray-400 mt-0.5">
+                                            <div v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count" class="text-[11px] text-gray-400 mt-0.5">
                                                 <span v-if="report.query_count">{{ report.query_count }} {{ report.query_count === 1 ? 'query' : 'queries' }}</span>
-                                                <span v-if="report.query_count && (report.artifact_count || report.scheduled_prompt_count)"> | </span>
+                                                <span v-if="report.query_count && (report.artifact_count || report.scheduled_prompt_count || report.instruction_count)"> | </span>
                                                 <span v-if="report.artifact_count">{{ report.artifact_count }} {{ report.artifact_count === 1 ? 'artifact' : 'artifacts' }}</span>
-                                                <span v-if="report.artifact_count && report.scheduled_prompt_count"> | </span>
+                                                <span v-if="report.artifact_count && (report.scheduled_prompt_count || report.instruction_count)"> | </span>
                                                 <span v-if="report.scheduled_prompt_count">
                                                     <Icon name="heroicons:clock" class="w-3 h-3 inline -mt-px" />
                                                     {{ report.scheduled_prompt_count }} scheduled
+                                                </span>
+                                                <span v-if="report.scheduled_prompt_count && report.instruction_count"> | </span>
+                                                <span v-if="report.instruction_count">
+                                                    <Icon name="heroicons-academic-cap" class="w-3 h-3 inline -mt-px" />
+                                                    {{ report.instruction_count }} {{ report.instruction_count === 1 ? 'instruction' : 'instructions' }}
                                                 </span>
                                             </div>
                                             <div

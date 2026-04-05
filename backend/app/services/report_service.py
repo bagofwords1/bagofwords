@@ -792,6 +792,27 @@ class ReportService:
             reports = result.scalars().all()
             span.add_event("query result loaded into memory ")
 
+            # Batch-fetch instruction counts for training reports
+            report_ids = [str(r.id) for r in reports]
+            instruction_counts: dict[str, int] = {}
+            if report_ids:
+                from app.models.instruction import Instruction
+                from app.models.agent_execution import AgentExecution
+                ic_query = (
+                    select(
+                        AgentExecution.report_id,
+                        func.count(Instruction.id),
+                    )
+                    .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
+                    .where(
+                        AgentExecution.report_id.in_(report_ids),
+                        Instruction.deleted_at == None,
+                    )
+                    .group_by(AgentExecution.report_id)
+                )
+                ic_result = await db.execute(ic_query)
+                instruction_counts = {str(row[0]): row[1] for row in ic_result.all()}
+
             # Convert to schemas
             report_schemas = []
             for report in reports:
@@ -830,6 +851,9 @@ class ReportService:
                 ]
                 report_schema.has_scheduled_prompts = len(active_sps) > 0
                 report_schema.scheduled_prompt_count = len(active_sps)
+
+                # Instruction count (from batch query)
+                report_schema.instruction_count = instruction_counts.get(str(report.id), 0)
 
                 # Compute unique artifact modes for this report
                 report_schema.artifact_modes = list(set(

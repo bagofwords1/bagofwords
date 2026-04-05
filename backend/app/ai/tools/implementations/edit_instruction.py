@@ -114,24 +114,6 @@ class EditInstructionTool(Tool):
             }
         )
 
-        # Validate text ends with period if provided
-        if data.text is not None and not data.text.strip().endswith("."):
-            yield ToolEndEvent(
-                type="tool.end",
-                payload={
-                    "output": EditInstructionOutput(
-                        success=False,
-                        instruction_id=data.instruction_id,
-                        message="Instruction text must end with a period.",
-                        rejected_reason="invalid_format"
-                    ).model_dump(),
-                    "observation": {
-                        "summary": "Edit rejected: text must end with period",
-                        "artifacts": [],
-                    },
-                }
-            )
-            return
 
         # Validate confidence threshold if provided
         if data.confidence is not None and data.confidence < MIN_CONFIDENCE_THRESHOLD:
