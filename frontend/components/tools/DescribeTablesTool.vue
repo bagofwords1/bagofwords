@@ -72,30 +72,28 @@
               </div>
             </Transition>
           </li>
-        </ul>
-      </div>
-    </Transition>
-    <!-- Related instructions loaded by this tool -->
-    <Transition name="fade" appear>
-      <div v-if="relatedInstructions.length && status !== 'running'" class="mt-1.5">
-        <div
-          class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
-          @click="showInstructions = !showInstructions"
-        >
-          <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-0.5 text-gray-400" />
-          <Icon name="heroicons-cube" class="w-3 h-3 mr-1 text-indigo-400" />
-          <span>{{ relatedInstructions.length }} instruction{{ relatedInstructions.length !== 1 ? 's' : '' }} loaded</span>
-        </div>
-        <Transition name="fade">
-          <div v-if="showInstructions" class="ml-5 mt-1 space-y-0.5">
-            <div v-for="ins in relatedInstructions" :key="ins.id"
-                 class="flex items-center gap-2 text-xs text-gray-600 py-0.5">
-              <Icon name="heroicons-cube" class="w-3 h-3 text-indigo-400 flex-shrink-0" />
-              <span class="truncate">{{ ins.title || ins.text || 'Untitled' }}</span>
-              <span v-if="ins.category" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{{ ins.category }}</span>
+          <!-- Related instructions (inside table list, after all tables) -->
+          <li v-if="relatedInstructions.length">
+            <div
+              class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50"
+              @click="showInstructions = !showInstructions"
+            >
+              <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 mr-1" />
+              <Icon name="heroicons-cube" class="w-3 h-3 mr-1 text-indigo-400" />
+              <span class="text-gray-600">{{ relatedInstructions.length }} instruction{{ relatedInstructions.length !== 1 ? 's' : '' }} loaded</span>
             </div>
-          </div>
-        </Transition>
+            <Transition name="fade">
+              <div v-if="showInstructions" class="pl-6 pr-1 pb-1 space-y-0.5">
+                <div v-for="ins in relatedInstructions" :key="ins.id"
+                     class="flex items-center gap-2 text-gray-600 py-0.5">
+                  <Icon name="heroicons-cube" class="w-3 h-3 text-indigo-400 flex-shrink-0" />
+                  <span class="truncate">{{ ins.title || ins.text || 'Untitled' }}</span>
+                  <span v-if="ins.category" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{{ ins.category }}</span>
+                </div>
+              </div>
+            </Transition>
+          </li>
+        </ul>
       </div>
     </Transition>
   </div>

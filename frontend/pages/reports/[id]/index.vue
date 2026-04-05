@@ -192,11 +192,6 @@
 								<div class="w-full ml-4 max-w-2xl">
 									<!-- System message -->
 									<div>
-										<!-- Instructions loaded indicator -->
-										<div v-if="m._loaded_instructions?.length" class="flex items-center gap-1.5 text-xs text-gray-400 mb-2 ml-1">
-											<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
-											<span>{{ m._loaded_instructions.length }} instruction{{ m._loaded_instructions.length !== 1 ? 's' : '' }} loaded</span>
-										</div>
 										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
 											<!-- 1. Thinking box (reasoning only) -->
@@ -291,13 +286,19 @@
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
 										<div class="flex items-center space-x-2">
-											<CompletionItemFeedback 
-												:completion="{ id: (m.system_completion_id || m.id) }" 
-												:feedbackScore="m.feedback_score || 0" 
+											<CompletionItemFeedback
+												:completion="{ id: (m.system_completion_id || m.id) }"
+												:feedbackScore="m.feedback_score || 0"
 												:initialUserFeedback="m.user_feedback"
 												@suggestionsLoading="() => handleSuggestionsLoading(m)"
 												@suggestionsReceived="(suggestions) => handleSuggestionsReceived(m, suggestions)"
 											/>
+
+											<!-- Instructions loaded indicator -->
+											<div v-if="m._loaded_instructions?.length" class="flex items-center gap-1 text-xs text-gray-400">
+												<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
+												<span>{{ m._loaded_instructions.length }} instructions</span>
+											</div>
 
 											<!-- Debug button -->
 											<button
