@@ -283,7 +283,9 @@
 											v-if="(m as any)._harness_running || (m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
 											:blocks="((m.completion_blocks || []).filter(b => (b as any).phase === 'knowledge_harness') as any)"
 											:harness-running="!!(m as any)._harness_running"
+											:knowledge-harness-build="(m as any).knowledge_harness_build || null"
 											@open-instruction="openInstructionById"
+											@published="() => loadCompletions({ skipEstimate: true })"
 										/>
 
 										<!-- Thinking dots when system is working but no visible progress - moved to end -->
@@ -2059,6 +2061,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
+				knowledge_harness_build: c.knowledge_harness_build || null,
 				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
 				// Fork summary fields

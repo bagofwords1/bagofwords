@@ -136,19 +136,29 @@ interface HarnessBlock {
   tool_execution?: ToolExecution
 }
 
+interface KnowledgeHarnessBuild {
+  id: string
+  build_number?: number
+  status: 'draft' | 'pending_approval' | 'approved' | 'rejected'
+  is_main: boolean
+}
+
 interface Props {
   blocks: HarnessBlock[]
   harnessRunning?: boolean
+  knowledgeHarnessBuild?: KnowledgeHarnessBuild | null
 }
 
 const props = defineProps<Props>()
-const emit = defineEmits<{ (e: 'open-instruction', id: string): void }>()
+const emit = defineEmits<{
+  (e: 'open-instruction', id: string): void
+  (e: 'published'): void
+}>()
 
 const isExpanded = ref(true)
 const showInstructionModal = ref(false)
 const editingInstruction = ref<any>(null)
 const isPublishingBuild = ref(false)
-const localPublishOverride = ref(false)
 const selectedIds = ref<Set<string>>(new Set())
 
 const toast = useToast()
@@ -313,8 +323,9 @@ const buildId = computed(() => {
 })
 
 const isBuildPublished = computed(() => {
-  if (localPublishOverride.value) return true
-  return false
+  const b = props.knowledgeHarnessBuild
+  if (!b) return false
+  return b.is_main === true || b.status === 'approved'
 })
 
 const publishButtonText = computed(() => {
@@ -384,8 +395,8 @@ const handlePublishBuild = async () => {
       body: { instruction_ids: selectedInstructionIds },
     })
     if (response.status.value === 'success') {
-      localPublishOverride.value = true
       toast.add({ title: 'Success', description: 'Changes published', color: 'green' })
+      emit('published')
     } else {
       throw new Error('Failed to publish build')
     }

@@ -381,7 +381,7 @@ class AgentV2:
         # 4 create/edit + 1 exit. The knowledge prompt biases toward capturing, so
         # the harness needs enough room to search, optionally verify, then write
         # one or more instructions.
-        MAX_HARNESS_STEPS = 10
+        MAX_KNOWLEDGE_HARNESS_STEPS = 10
 
         # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
         if self.mode == "training":
@@ -476,7 +476,7 @@ class AgentV2:
             observation = None
             step_count = 0
 
-            for step in range(MAX_HARNESS_STEPS):
+            for step in range(MAX_KNOWLEDGE_HARNESS_STEPS):
                 if self.sigkill_event.is_set():
                     break
                 step_count += 1

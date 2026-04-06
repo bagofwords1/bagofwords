@@ -144,6 +144,11 @@ class CompletionV2Schema(BaseModel):
     # Instructions loaded into context during this completion (for UI indicator)
     loaded_instructions: Optional[List[Dict[str, Any]]] = None
 
+    # Knowledge-harness build associated with this completion (if any).
+    # Shape: { id, build_number, status, is_main } — authoritative build state
+    # so KnowledgeGroup can render publish state without local caches.
+    knowledge_harness_build: Optional[Dict[str, Any]] = None
+
     # Feedback - pre-loaded to avoid N+1 API calls
     feedback_score: int = 0  # Legacy aggregate score from Completion model
     user_feedback: Optional[CompletionFeedbackSchema] = None  # Current user's feedback if any

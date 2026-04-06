@@ -944,24 +944,28 @@ class CompletionService:
 
         # 6) Batch-load instruction suggestions for all agent executions at once
         ae_id_to_suggestions: dict[str, list[dict]] = {}
+        ae_id_to_build: dict[str, "InstructionBuild"] = {}
         system_ae_ids = [
             e.id for cid, e in completion_id_to_exec.items()
             if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed']
                         for c in all_completions)
         ]
-        if system_ae_ids:
-            # Batch-load AI builds for all agent executions
-            from app.models.instruction_build import InstructionBuild
-            build_stmt = (
-                select(InstructionBuild)
-                .where(InstructionBuild.agent_execution_id.in_(system_ae_ids))
-                .where(InstructionBuild.deleted_at == None)
+        # Also load builds for any system exec (including still-running ones) so KnowledgeGroup
+        # can render publish state authoritatively during and after a harness session.
+        all_system_ae_ids = [
+            e.id for cid, e in completion_id_to_exec.items()
+            if e and any(c.id == cid and c.role == 'system' for c in all_completions)
+        ]
+        if all_system_ae_ids:
+            from app.models.instruction_build import InstructionBuild as _IB
+            _all_build_res = await db.execute(
+                select(_IB)
+                .where(_IB.agent_execution_id.in_(all_system_ae_ids))
+                .where(_IB.deleted_at == None)
             )
-            build_res = await db.execute(build_stmt)
-            ae_id_to_build: dict[str, InstructionBuild] = {}
-            for build in build_res.scalars().all():
-                ae_id_to_build[str(build.agent_execution_id)] = build
-
+            for _b in _all_build_res.scalars().all():
+                ae_id_to_build[str(_b.agent_execution_id)] = _b
+        if system_ae_ids:
             instr_stmt = (
                 select(Instruction)
                 .where(Instruction.agent_execution_id.in_(system_ae_ids))
@@ -1117,6 +1121,18 @@ class CompletionService:
             # Get user feedback from pre-loaded map
             user_feedback = completion_id_to_user_feedback.get(c.id)
 
+            # Knowledge-harness build (authoritative state for KnowledgeGroup UI)
+            knowledge_harness_build = None
+            if exec_obj and c.role == 'system':
+                _ai_build = ae_id_to_build.get(str(exec_obj.id))
+                if _ai_build is not None:
+                    knowledge_harness_build = {
+                        "id": str(_ai_build.id),
+                        "build_number": _ai_build.build_number,
+                        "status": _ai_build.status,
+                        "is_main": bool(_ai_build.is_main),
+                    }
+
             # Get files attached to this completion
             c_files = completion_id_to_files.get(c.id, [])
 
@@ -1140,6 +1156,7 @@ class CompletionService:
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
                 loaded_instructions=loaded_instructions_list,
+                knowledge_harness_build=knowledge_harness_build,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=user_feedback,
                 # Scheduled prompt
@@ -1321,24 +1338,26 @@ class CompletionService:
 
         # Batch-load instruction suggestions
         ae_id_to_suggestions: dict[str, list[dict]] = {}
+        ae_id_to_build: dict[str, "InstructionBuild"] = {}
         system_ae_ids = [
             e.id for cid, e in completion_id_to_exec.items()
             if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed']
                         for c in all_completions)
         ]
-        if system_ae_ids:
-            # Batch-load AI builds for all agent executions
-            from app.models.instruction_build import InstructionBuild
-            build_stmt = (
-                select(InstructionBuild)
-                .where(InstructionBuild.agent_execution_id.in_(system_ae_ids))
-                .where(InstructionBuild.deleted_at == None)
+        all_system_ae_ids = [
+            e.id for cid, e in completion_id_to_exec.items()
+            if e and any(c.id == cid and c.role == 'system' for c in all_completions)
+        ]
+        if all_system_ae_ids:
+            from app.models.instruction_build import InstructionBuild as _IB
+            _all_build_res = await db.execute(
+                select(_IB)
+                .where(_IB.agent_execution_id.in_(all_system_ae_ids))
+                .where(_IB.deleted_at == None)
             )
-            build_res = await db.execute(build_stmt)
-            ae_id_to_build: dict[str, InstructionBuild] = {}
-            for build in build_res.scalars().all():
-                ae_id_to_build[str(build.agent_execution_id)] = build
-
+            for _b in _all_build_res.scalars().all():
+                ae_id_to_build[str(_b.agent_execution_id)] = _b
+        if system_ae_ids:
             instr_stmt = (
                 select(Instruction)
                 .where(Instruction.agent_execution_id.in_(system_ae_ids))
@@ -1469,6 +1488,18 @@ class CompletionService:
             # Get files attached to this completion
             c_files = completion_id_to_files.get(c.id, [])
 
+            # Knowledge-harness build (authoritative state for KnowledgeGroup UI)
+            knowledge_harness_build = None
+            if exec_obj and c.role == 'system':
+                _ai_build = ae_id_to_build.get(str(exec_obj.id))
+                if _ai_build is not None:
+                    knowledge_harness_build = {
+                        "id": str(_ai_build.id),
+                        "build_number": _ai_build.build_number,
+                        "status": _ai_build.status,
+                        "is_main": bool(_ai_build.is_main),
+                    }
+
             v2 = CompletionV2Schema(
                 id=c.id,
                 role=c.role,
@@ -1490,6 +1521,7 @@ class CompletionService:
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
                 loaded_instructions=loaded_instructions_list,
+                knowledge_harness_build=knowledge_harness_build,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=None,  # Not available without current_user context
                 # Scheduled prompt
