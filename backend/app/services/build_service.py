@@ -809,19 +809,8 @@ class BuildService:
                 detail=f"Build cannot be promoted (status: {build.status}, is_main: {build.is_main})"
             )
 
-        # Clear is_main from current main build (if any)
-        await db.execute(
-            select(InstructionBuild)
-            .where(
-                and_(
-                    InstructionBuild.organization_id == build.organization_id,
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.id != build_id
-                )
-            )
-        )
-
-        # Use raw SQL update for efficiency
+        # Clear is_main from current main build (if any). Raw SQL update for
+        # efficiency — we don't need the ORM objects.
         await db.execute(
             sql_update(InstructionBuild)
             .where(
@@ -834,7 +823,16 @@ class BuildService:
             .values(is_main=False)
         )
 
-        # Set this build as main
+        # Set this build as main. Use a raw SQL update (instead of mutating
+        # the ORM attribute) so the change is guaranteed to be persisted in
+        # the same transaction as the raw update above — relying on ORM
+        # dirty-tracking next to a raw UPDATE on the same table is fragile.
+        await db.execute(
+            sql_update(InstructionBuild)
+            .where(InstructionBuild.id == build_id)
+            .values(is_main=True)
+        )
+        # Keep the in-memory object consistent for any caller that reads it.
         build.is_main = True
 
         # Update Instruction.current_version_id for all instructions in this build

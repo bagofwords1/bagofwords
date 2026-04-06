@@ -2084,6 +2084,8 @@ class InstructionService:
                     BuildContent.instruction_id == instruction.id,
                     InstructionBuild.is_main == False,  # noqa: E712
                     InstructionBuild.status.in_(['draft', 'pending_approval']),
+                    InstructionBuild.deleted_at == None,
+                    BuildContent.deleted_at == None,
                 )
                 .order_by(InstructionBuild.created_at.desc())
                 .limit(1)
