@@ -167,6 +167,21 @@ class CreateInstructionTool(Tool):
         user = runtime_ctx.get("user")
         training_build_id = runtime_ctx.get("training_build_id")
         agent_execution_id = runtime_ctx.get("agent_execution_id")
+        report = runtime_ctx.get("report")
+
+        # In knowledge-harness / post-analysis mode we must only attach the
+        # instruction to data sources that are actually part of the current
+        # report. Training mode is broader (user is intentionally curating the
+        # org) so we keep it org-scoped there.
+        mode = runtime_ctx.get("mode")
+        allowed_data_source_ids = None
+        if mode == "knowledge" and report is not None:
+            try:
+                allowed_data_source_ids = {
+                    str(ds.id) for ds in (report.data_sources or [])
+                }
+            except Exception:
+                allowed_data_source_ids = set()
 
         if not all([db, organization]):
             yield ToolErrorEvent(
@@ -242,14 +257,27 @@ class CreateInstructionTool(Tool):
                         conditions.append(func.lower(DataSourceTable.name).like(f'%.{name_lower}'))
 
                 if conditions:
-                    # Join through DataSource to filter by organization
+                    # Join through DataSource to filter by organization. In
+                    # knowledge-harness mode, additionally restrict to data
+                    # sources attached to the current report so the instruction
+                    # cannot be scoped to an unrelated datasource.
+                    where_clauses = [
+                        DataSource.organization_id == str(organization.id),
+                        or_(*conditions),
+                    ]
+                    if allowed_data_source_ids is not None:
+                        if not allowed_data_source_ids:
+                            # Report has no datasources — skip table resolution entirely
+                            where_clauses.append(DataSource.id.in_([]))
+                        else:
+                            where_clauses.append(
+                                DataSource.id.in_(list(allowed_data_source_ids))
+                            )
+
                     stmt = (
                         select(DataSourceTable)
                         .join(DataSource, DataSourceTable.datasource_id == DataSource.id)
-                        .where(
-                            DataSource.organization_id == str(organization.id),
-                            or_(*conditions)
-                        )
+                        .where(*where_clauses)
                     )
                     result = await db.execute(stmt)
                     tables = result.scalars().all()

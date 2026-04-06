@@ -699,21 +699,26 @@ The system detected one or more conditions in this session that suggested a lear
 YOUR TASK
 1. Review the trigger reasons above and the session history (messages, past_observations, last_observation).
 2. Use `search_instructions` to check whether any existing instruction already covers the topic. **Always search before creating.**
+   - Pass SHORT keywords only (1-3 tokens, e.g. `"revenue"`, `"album revenue"`, `"status enum"`). Never pass sentences, questions, or full instruction text.
 3. Optionally use `describe_tables` or `inspect_data` (max 1-2 calls) to verify a specific fact you want to capture (e.g., a column name, an enum value).
 4. Then either:
    - Call `edit_instruction` to enhance an existing similar instruction (PREFERRED when one exists), OR
    - Call `create_instruction` to capture a genuinely new learning, OR
    - Set `analysis_complete=true` with a brief `final_answer` summary if nothing is worth capturing.
 
+WHEN DEFINITIONS OR TERMS ARE CLARIFIED
+If the user clarified a term, metric, or definition during this session (e.g. defined a custom term, mapped an ambiguous word to a concrete rule, or resolved what something "means" in their domain), you SHOULD capture that clarification as an instruction. Clarified terms and definitions are exactly the kind of reusable knowledge this phase exists for — the next user who says the same term should benefit from the clarification without having to repeat it.
+
 RULES
 - **Be decisive.** You have a tight iteration budget (5 max). If nothing is worth capturing, exit immediately by setting `analysis_complete=true`.
 - **Search first, create last.** Always check existing instructions before creating new ones. Prefer editing over duplicating.
 - **No new exploration.** Do NOT use `inspect_data` or `describe_tables` for general exploration — only to verify a specific fact you intend to write into an instruction.
-- **No volatile facts.** Do NOT capture row counts, metric values, date ranges, or distributions. Capture stable domain knowledge: business rules, enum meanings, schema relationships, naming conventions, SQL patterns, error-recovery rules.
+- **No volatile data facts.** Do NOT write instructions that state raw data values as facts — e.g. "the orders table has 32 rows", "revenue is $100,000", "there are 5 active users". These change as data is updated and become stale. This rule is about raw observed counts/values, NOT about clarified definitions: capturing "term X means Y" or "metric M is defined as SUM(...) WHERE ..." is correct and expected, even if Y references numbers.
 - **Confidence floor 0.7.** Only create instructions you have strong evidence for. If you would have to guess, skip it.
 - **Be conservative.** It is better to capture nothing than to capture noise. One high-quality instruction is worth more than three speculative ones.
 - **Do not call `clarify`.** There is no user to talk to in this phase.
 - **One tool call per turn.** Same JSON schema as the main planner.
+- **Scope to this report.** When you pass `table_names` to `create_instruction`, only reference tables from data sources attached to the current report. Tables from other data sources will be silently dropped.
 
 CONFIDENCE
 - 0.9-1.0: Directly observed in this session's tool results, or user explicitly confirmed.
@@ -721,11 +726,11 @@ CONFIDENCE
 - <0.7: Skip — do not create.
 
 CATEGORIES
-- "general": business rules, definitions, terminology
-- "code_gen": SQL/code patterns, joins, filters, casts, NULL handling
-- "visualization": chart types, formatting
-- "dashboard": layout, composition
-- "system": agent behavior
+- "general": business rules, domain definitions, terminology, clarified terms (e.g. "X means revenue > $5"). Default choice when the instruction names a domain term or entity.
+- "code_gen": code-level rules used when generating SQL/code — e.g. SQL error fixes, dialect quirks, join patterns, cast/NULL-handling rules, column-level transformations (cents→dollars). Use when the knowledge only matters at the moment code is written.
+- "visualization": chart types, formatting, colors.
+- "dashboard": layout, composition.
+- "system": agent behavior and meta-rules about how the agent should act (e.g. "always ask before deleting"). Do NOT use `system` for domain term bindings — those are `general`.
 
 COMMUNICATION
 - `assistant_message`: ALWAYS provide. Briefly describe what you're doing this turn (e.g., "Searching for existing revenue instructions.", "Capturing the cancellation rule.", "Nothing new to capture.").

@@ -115,6 +115,16 @@ class SearchInstructionsTool(Tool):
             service = InstructionService()
             categories = [data.category] if data.category else None
 
+            # Normalize search to short keywords: strip, lowercase, keep first 3 tokens.
+            # The agent occasionally passes full sentences — collapse to a compact keyword
+            # query so the downstream substring match behaves like a keyword index.
+            normalized_search = data.search
+            if normalized_search:
+                tokens = [t for t in normalized_search.strip().lower().split() if len(t) >= 2]
+                if len(tokens) > 3:
+                    tokens = tokens[:3]
+                normalized_search = " ".join(tokens) if tokens else None
+
             result = await service.get_instructions(
                 db=db,
                 organization=organization,
@@ -124,7 +134,7 @@ class SearchInstructionsTool(Tool):
                 status="published",
                 categories=categories,
                 data_source_ids=data.data_source_ids,
-                search=data.search,
+                search=normalized_search,
                 include_global=True,
             )
 

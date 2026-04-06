@@ -13,10 +13,12 @@ class SearchInstructionsInput(BaseModel):
     search: Optional[str] = Field(
         None,
         description=(
-            "Keyword search string. Matches against instruction text and title. "
-            "Leave empty to list all instructions (filtered by other params)."
+            "SHORT keyword search — 1-3 tokens only (e.g. 'revenue', 'album revenue', 'status enum'). "
+            "Do NOT pass sentences, questions, or full instruction text. "
+            "Matches against instruction text and title as a simple case-insensitive substring. "
+            "Leave empty to list all instructions filtered by other params."
         ),
-        max_length=500,
+        max_length=80,
     )
 
     category: Optional[str] = Field(
