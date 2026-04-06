@@ -91,6 +91,14 @@ class BowClient:
         r.raise_for_status()
         return r.json()
 
+    def activate_all_tables(self, data_source_id: str) -> None:
+        r = self.s.post(
+            f"{self.base_url}/api/data_sources/{data_source_id}/bulk_update_tables",
+            json={"action": "activate", "filter": {}},
+            timeout=120,
+        )
+        r.raise_for_status()
+
     def create_report(self, title: str, data_source_id: str) -> dict:
         r = self.s.post(
             f"{self.base_url}/api/reports",
@@ -266,7 +274,8 @@ def main() -> None:
             try:
                 ds = client.create_data_source(name=db_id, sqlite_path=str(sqlite_file.resolve()))
                 ds_by_name[db_id] = ds["id"]
-                log.info("registered data source %s -> %s", db_id, ds["id"])
+                client.activate_all_tables(ds["id"])
+                log.info("registered + activated tables for %s -> %s", db_id, ds["id"])
             except Exception as e:
                 log.error("register %s failed: %s", db_id, e)
 
