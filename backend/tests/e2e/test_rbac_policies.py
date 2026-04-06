@@ -61,7 +61,7 @@ def test_registry_returns_updated_categories(test_client, create_user, login_use
 
     # Evals category should exist with correct permissions
     assert "Evals" in categories
-    assert set(categories["Evals"]) == {"manage_evals", "run_evals", "view_evals"}
+    assert set(categories["Evals"]) == {"manage_evals"}
 
     # Queries category replaces Widgets
     assert "Queries" in categories
@@ -89,7 +89,7 @@ def test_registry_data_source_resource_permissions(test_client, create_user, log
 
     expected = {
         "query", "view_schema", "view_entities", "create_entities",
-        "view_instructions", "create_instructions", "view_evals", "run_evals",
+        "view_instructions", "create_instructions",
         "manage", "manage_members",
     }
     assert set(ds_perms) == expected
@@ -127,16 +127,10 @@ def test_registry_report_resource_permissions(test_client, create_user, login_us
 
 @pytest.mark.e2e
 def test_member_can_view_evals(test_client, create_user, login_user, whoami):
-    """Members should have view_evals permission and be able to list test suites."""
+    """Members should be able to list test suites."""
     ctx = _setup_admin_and_member(test_client, create_user, login_user, whoami)
 
-    # Member should have view_evals in their permissions
-    member_info = whoami(ctx["member_token"])
-    member_org = next(o for o in member_info["organizations"] if o["id"] == ctx["org_id"])
-    assert "view_evals" in member_org["permissions"]
-    assert "run_evals" in member_org["permissions"]
-
-    # Member can list suites (view_evals)
+    # Member can list suites
     resp = test_client.get(
         f"/api/tests/suites",
         headers=_headers(ctx["member_token"], ctx["org_id"]),
@@ -366,15 +360,13 @@ def test_instruction_update_checks_data_source_permissions(test_client, create_u
 
 @pytest.mark.e2e
 def test_whoami_member_has_eval_permissions(test_client, create_user, login_user, whoami):
-    """Member whoami should include view_evals and run_evals but not manage_evals."""
+    """Member whoami should not include manage_evals."""
     ctx = _setup_admin_and_member(test_client, create_user, login_user, whoami)
 
     member_info = whoami(ctx["member_token"])
     member_org = next(o for o in member_info["organizations"] if o["id"] == ctx["org_id"])
     perms = member_org["permissions"]
 
-    assert "view_evals" in perms
-    assert "run_evals" in perms
     assert "manage_evals" not in perms
     assert "export_query" in perms
 

@@ -172,9 +172,47 @@ class UserManager(BaseUserManager[User, str]):
             user.is_verified = True
 
         # Update each open membership with the new user
+        from app.models.role import Role
+        from app.models.role_assignment import RoleAssignment
+
         for membership in open_memberships:
             membership.user_id = user.id
+            membership_role = membership.role
             membership.email = None  # Clear the email since we now have a user
+
+            # Create the matching RBAC role_assignment so the invited user
+            # actually has permissions in the org. Mirrors
+            # OrganizationService._assign_system_role.
+            if membership_role:
+                try:
+                    role_result = await session.execute(
+                        select(Role).where(
+                            Role.name == membership_role,
+                            Role.is_system == True,
+                            Role.organization_id.is_(None),
+                            Role.deleted_at.is_(None),
+                        )
+                    )
+                    system_role = role_result.scalar_one_or_none()
+                    if system_role:
+                        existing = await session.execute(
+                            select(RoleAssignment).where(
+                                RoleAssignment.organization_id == membership.organization_id,
+                                RoleAssignment.role_id == system_role.id,
+                                RoleAssignment.principal_type == "user",
+                                RoleAssignment.principal_id == user.id,
+                                RoleAssignment.deleted_at.is_(None),
+                            )
+                        )
+                        if not existing.scalar_one_or_none():
+                            session.add(RoleAssignment(
+                                organization_id=membership.organization_id,
+                                role_id=system_role.id,
+                                principal_type="user",
+                                principal_id=user.id,
+                            ))
+                except Exception:
+                    pass
             # Telemetry: invited user accepted invite and signed up
             try:
                 await telemetry.capture(
