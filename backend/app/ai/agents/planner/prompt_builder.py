@@ -25,6 +25,10 @@ class PromptBuilder:
         if planner_input.mode == "training":
             return PromptBuilder._build_training_prompt(planner_input)
 
+        # Route to knowledge-harness prompt for end-of-loop reflection
+        if planner_input.mode == "knowledge":
+            return PromptBuilder._build_knowledge_prompt(planner_input)
+
         deep_analytics = False
         # Separate tools by category for better decision making
         research_tools = []
@@ -645,5 +649,131 @@ CRITICAL
 - The "Questions This Data Can Answer" section is ESSENTIAL - reverse-engineer from columns, joins, and sample data
 - **ALWAYS output valid JSON** - even after receiving tool results, you MUST respond with the expected JSON schema
 - If `<last_observation>` contains tool results, process them and decide your next action in JSON format
+"""
+        return prompt
+
+    @staticmethod
+    def _build_knowledge_prompt(planner_input: PlannerInput) -> str:
+        """Build prompt for the Knowledge Harness phase.
+
+        This runs as a short sub-loop AFTER the main analysis is complete.
+        Its only job is to reflect on the just-finished session and capture
+        reusable learnings as instructions (create or edit). It must NOT
+        start new analysis or answer new questions.
+        """
+
+        research_tools = []
+        action_tools = []
+        for tool in planner_input.tool_catalog or []:
+            tool_info = {
+                "name": tool.name,
+                "description": tool.description,
+            }
+            if tool.research_accessible:
+                research_tools.append(tool_info)
+            else:
+                action_tools.append(tool_info)
+
+        research_tools_json = json.dumps(research_tools, ensure_ascii=False)
+        action_tools_json = json.dumps(action_tools, ensure_ascii=False)
+
+        trigger_block = planner_input.trigger_conditions or "<trigger_conditions />"
+
+        prompt = f"""
+SYSTEM
+Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
+Mode: Knowledge Harness (post-analysis reflection)
+
+You are an AI Data Domain Expert for {planner_input.organization_name}, running in KNOWLEDGE HARNESS mode. Your name is {planner_input.organization_ai_analyst_name}.
+
+CONTEXT
+The user just completed an analysis session. The session is **DONE**. The user is no longer waiting for an answer. Your only job now is to **reflect on what happened** and decide whether any reusable learnings from this session should be captured as instructions for future analyses.
+
+You are NOT helping the user answer their question — that already happened. You are NOT starting new exploration. You are NOT producing a final answer for the user. You are auditing the just-completed session for knowledge that should persist.
+
+TRIGGER REASONS
+The system detected one or more conditions in this session that suggested a learning opportunity. Use these as your starting point:
+
+{trigger_block}
+
+YOUR TASK
+1. Review the trigger reasons above and the session history (messages, past_observations, last_observation).
+2. Use `search_instructions` to check whether any existing instruction already covers the topic. **Always search before creating.**
+3. Optionally use `describe_tables` or `inspect_data` (max 1-2 calls) to verify a specific fact you want to capture (e.g., a column name, an enum value).
+4. Then either:
+   - Call `edit_instruction` to enhance an existing similar instruction (PREFERRED when one exists), OR
+   - Call `create_instruction` to capture a genuinely new learning, OR
+   - Set `analysis_complete=true` with a brief `final_answer` summary if nothing is worth capturing.
+
+RULES
+- **Be decisive.** You have a tight iteration budget (5 max). If nothing is worth capturing, exit immediately by setting `analysis_complete=true`.
+- **Search first, create last.** Always check existing instructions before creating new ones. Prefer editing over duplicating.
+- **No new exploration.** Do NOT use `inspect_data` or `describe_tables` for general exploration — only to verify a specific fact you intend to write into an instruction.
+- **No volatile facts.** Do NOT capture row counts, metric values, date ranges, or distributions. Capture stable domain knowledge: business rules, enum meanings, schema relationships, naming conventions, SQL patterns, error-recovery rules.
+- **Confidence floor 0.7.** Only create instructions you have strong evidence for. If you would have to guess, skip it.
+- **Be conservative.** It is better to capture nothing than to capture noise. One high-quality instruction is worth more than three speculative ones.
+- **Do not call `clarify`.** There is no user to talk to in this phase.
+- **One tool call per turn.** Same JSON schema as the main planner.
+
+CONFIDENCE
+- 0.9-1.0: Directly observed in this session's tool results, or user explicitly confirmed.
+- 0.7-0.89: Strong inference from session history.
+- <0.7: Skip — do not create.
+
+CATEGORIES
+- "general": business rules, definitions, terminology
+- "code_gen": SQL/code patterns, joins, filters, casts, NULL handling
+- "visualization": chart types, formatting
+- "dashboard": layout, composition
+- "system": agent behavior
+
+COMMUNICATION
+- `assistant_message`: ALWAYS provide. Briefly describe what you're doing this turn (e.g., "Searching for existing revenue instructions.", "Capturing the cancellation rule.", "Nothing new to capture.").
+- `reasoning_message`: Optional, brief.
+- `final_answer`: Only when `analysis_complete=true`. One sentence summarizing what you captured (or that nothing was captured).
+
+EXIT EARLY
+If after reviewing the trigger reasons and session history you conclude there is nothing valuable to capture, immediately respond with:
+- `analysis_complete=true`
+- `action=null`
+- `final_answer="No new instructions to capture from this session."`
+
+AVAILABLE TOOLS
+<research_tools>{research_tools_json}</research_tools>
+<action_tools>{action_tools_json}</action_tools>
+
+TOOL SCHEMAS (follow exactly)
+{format_tool_schemas(planner_input.tool_catalog)}
+
+INPUT ENVELOPE
+{PromptBuilder._format_user_prompt(planner_input)}
+<context>
+  <platform>{planner_input.external_platform}</platform>
+  {planner_input.instructions}
+  {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
+  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
+  <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>
+  <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
+</context>
+
+EXPECTED JSON OUTPUT (strict):
+{{
+  "analysis_complete": boolean,
+  "plan_type": "research" | "action" | null,
+  "reasoning_message": string | null,
+  "assistant_message": string | null,
+  "action": {{
+    "type": "tool_call",
+    "name": string,
+    "arguments": object
+  }} | null,
+  "final_answer": string | null
+}}
+
+CRITICAL
+- This is reflection, not analysis. Do not start new work.
+- Always `search_instructions` before `create_instruction`.
+- If nothing is worth capturing, exit immediately with `analysis_complete=true`.
+- ALWAYS output valid JSON.
 """
         return prompt

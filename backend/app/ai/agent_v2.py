@@ -30,7 +30,7 @@ from sqlalchemy import select, func
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
-from app.ai.agents.suggest_instructions import SuggestInstructions, InstructionTriggerEvaluator
+from app.ai.agents.suggest_instructions import InstructionTriggerEvaluator
 from app.settings.database import create_async_session_factory
 from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
@@ -155,8 +155,8 @@ class AgentV2:
             instruction_context_builder=self.context_hub.instruction_builder,
         )
 
-        # Initialize SuggestInstructions agent for post-analysis suggestions
-        self.suggest_instructions = SuggestInstructions(model=self.small_model)
+        # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
+        # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
     async def _get_active_artifact(self) -> Optional[dict]:
         """Get the most recent artifact for the current report."""
@@ -362,143 +362,307 @@ class AgentV2:
                 logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
                 return
 
-    async def _stream_suggestions_inline(self, prev_tool_name: Optional[str], conditions: list):
-        """Stream instruction suggestions inline before the SSE stream closes.
-        
-        This runs in the main execution flow using the existing DB session,
-        ensuring SSE events reach the frontend before the stream ends.
+    async def _run_knowledge_harness(self, conditions: list):
+        """Run the Knowledge Harness sub-loop after the main analysis completes.
+
+        This is the agentic replacement for _stream_suggestions_inline. It spins up
+        a small planner sub-loop in mode="knowledge" with access to:
+        - search_instructions (research existing instructions)
+        - describe_tables / inspect_data (verify a fact, sparingly)
+        - create_instruction / edit_instruction (capture learnings)
+
+        All instructions land in a draft AI build that is submitted for review
+        (matches the existing _stream_suggestions_inline semantics).
         """
+        from app.ai.agents.planner import PlannerV2
+        from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator
+
+        MAX_HARNESS_STEPS = 5
+
+        # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
+        if self.mode == "training":
+            return
+        if not conditions:
+            return
+
+        ai_build = None
+        drafts: list = []
+        prior_mode = self.mode
+
         try:
-            # Use existing context view
-            view_for_suggest = self.context_hub.get_view()
+            seq_si = await self.project_manager.next_seq(self.db, self.current_execution)
+            await self._emit_sse_event(SSEEvent(
+                event="instructions.suggest.started",
+                completion_id=str(self.system_completion.id),
+                agent_execution_id=str(self.current_execution.id),
+                seq=seq_si,
+                data={}
+            ))
+        except Exception as e:
+            logger.debug(f"Failed to emit harness started event: {e}")
+
+        try:
+            # === Create draft AI build (matches _stream_suggestions_inline) ===
+            try:
+                from app.services.build_service import BuildService
+                build_service = BuildService()
+                ai_build = await build_service.get_or_create_draft_build(
+                    self.db,
+                    str(self.organization.id),
+                    source='ai',
+                    user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                    agent_execution_id=str(self.current_execution.id),
+                )
+                # Expose to tools via the existing training_build_id slot
+                self.training_build_id = str(ai_build.id)
+                logger.info(f"Knowledge harness using draft AI build {ai_build.id}")
+            except Exception as build_error:
+                logger.warning(f"Failed to create AI build for knowledge harness: {build_error}")
+                return
+
+            # === Build a knowledge-mode tool catalog ===
+            knowledge_catalog_dicts = self.registry.get_catalog_for_plan_type(
+                "action", self.organization, mode="knowledge"
+            )
+            knowledge_catalog_dicts.extend(
+                self.registry.get_catalog_for_plan_type(
+                    "research", self.organization, mode="knowledge"
+                )
+            )
+            seen = set()
+            unique = []
+            for t in knowledge_catalog_dicts:
+                if t['name'] not in seen:
+                    unique.append(t)
+                    seen.add(t['name'])
+            knowledge_tool_catalog = [ToolDescriptor(**t) for t in unique]
+
+            if not knowledge_tool_catalog:
+                logger.warning("Knowledge harness has no tools available; aborting")
+                return
+
+            # === Spin up a planner instance with the knowledge catalog ===
+            knowledge_planner = PlannerV2(
+                model=self.small_model or self.model,
+                tool_catalog=knowledge_tool_catalog,
+                usage_session_maker=async_session_maker,
+            )
+
+            # Format trigger reasons for prompt injection
+            trigger_block = InstructionTriggerEvaluator.format_for_prompt(conditions)
+            trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
+
+            # Use existing context view (already includes full session history)
+            view = self.context_hub.get_view()
+            instructions_text = view.static.instructions.render() if view.static.instructions else ""
+            schemas_text = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+            try:
+                messages_section = await self.context_hub.message_builder.build(max_messages=20)
+                messages_context = messages_section.render() if messages_section else ""
+            except Exception:
+                messages_context = ""
+
+            # Switch into knowledge mode for tool runner / mode checks
+            self.mode = "knowledge"
+
+            observation = None
+            step_count = 0
+
+            for step in range(MAX_HARNESS_STEPS):
+                if self.sigkill_event.is_set():
+                    break
+                step_count += 1
+
+                planner_input = PlannerInput(
+                    organization_name=self.organization.name,
+                    organization_ai_analyst_name=self.ai_analyst_name,
+                    instructions=instructions_text,
+                    user_message=self.head_completion.prompt.get("content", "") if self.head_completion and self.head_completion.prompt else "",
+                    schemas_combined=schemas_text,
+                    messages_context=messages_context,
+                    last_observation=observation,
+                    past_observations=self.context_hub.observation_builder.tool_observations,
+                    tool_catalog=knowledge_tool_catalog,
+                    mode="knowledge",
+                    trigger_conditions=trigger_block,
+                    external_platform=getattr(self.head_completion, "external_platform", None),
+                )
+
+                # Run the planner and capture the final decision
+                final_decision = None
+                async for evt in knowledge_planner.execute(planner_input, self.sigkill_event):
+                    if evt.type == "planner.decision.final":
+                        final_decision = evt.data
+                        break
+
+                if not final_decision:
+                    break
+
+                # Done?
+                if getattr(final_decision, "analysis_complete", False) and not getattr(final_decision, "action", None):
+                    break
+
+                action = getattr(final_decision, "action", None)
+                if not action:
+                    break
+
+                tool_name = action.name
+                tool_input = action.arguments or {}
+
+                tool = self.registry.get(tool_name)
+                if not tool:
+                    logger.warning(f"Knowledge harness: unknown tool '{tool_name}'")
+                    observation = {
+                        "summary": f"Unknown tool '{tool_name}'",
+                        "error": {"code": "unknown_tool", "message": tool_name},
+                    }
+                    continue
+
+                runtime_ctx = {
+                    "db": self.db,
+                    "organization": self.organization,
+                    "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
+                    "settings": self.organization_settings,
+                    "report": self.report,
+                    "head_completion": self.head_completion,
+                    "system_completion": self.system_completion,
+                    "project_manager": self.project_manager,
+                    "model": self.model,
+                    "sigkill_event": self.sigkill_event,
+                    "observation_context": self.context_hub.observation_builder.to_dict(),
+                    "context_view": view,
+                    "context_hub": self.context_hub,
+                    "ds_clients": self.clients,
+                    "training_build_id": self.training_build_id,
+                    "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                    "mode": "knowledge",
+                }
+
+                async def _noop_emit(ev: dict):
+                    return None
+
+                try:
+                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _noop_emit)
+                except Exception as run_err:
+                    logger.warning(f"Knowledge harness tool '{tool_name}' raised: {run_err}")
+                    observation = {
+                        "summary": f"{tool_name} raised an error",
+                        "error": {"code": "tool_error", "message": str(run_err)},
+                    }
+                    continue
+
+                if isinstance(tool_result, dict) and "observation" in tool_result:
+                    observation = tool_result.get("observation")
+                    tool_output = tool_result.get("output")
+                else:
+                    observation = tool_result
+                    tool_output = None
+
+                # Capture training_build_id if the tool created one
+                if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                    self.training_build_id = runtime_ctx["training_build_id"]
+
+                # Stream a partial event for create/edit instruction successes
+                if tool_name in ("create_instruction", "edit_instruction"):
+                    inst_id = None
+                    if isinstance(tool_output, dict):
+                        inst_id = tool_output.get("instruction_id")
+                    if inst_id:
+                        try:
+                            from app.models.instruction import Instruction
+                            from sqlalchemy import select as _select
+                            res = await self.db.execute(_select(Instruction).where(Instruction.id == inst_id))
+                            inst = res.scalar_one_or_none()
+                        except Exception:
+                            inst = None
+                        if inst is not None:
+                            # Tag the instruction with trigger metadata if not already set
+                            try:
+                                if trigger_reason and not getattr(inst, 'trigger_reason', None):
+                                    inst.trigger_reason = trigger_reason
+                                if not getattr(inst, 'ai_source', None):
+                                    inst.ai_source = "completion"
+                                await self.db.commit()
+                            except Exception:
+                                await self.db.rollback()
+
+                            draft_payload = {
+                                "id": str(inst.id),
+                                "title": inst.title,
+                                "text": inst.text,
+                                "category": inst.category,
+                                "status": inst.status,
+                                "private_status": getattr(inst, 'private_status', None),
+                                "global_status": getattr(inst, 'global_status', None),
+                                "is_seen": getattr(inst, 'is_seen', None),
+                                "can_user_toggle": getattr(inst, 'can_user_toggle', None),
+                                "user_id": getattr(inst, 'user_id', None),
+                                "organization_id": str(inst.organization_id),
+                                "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
+                                "trigger_reason": getattr(inst, 'trigger_reason', None),
+                                "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
+                                "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
+                                "ai_source": getattr(inst, 'ai_source', None),
+                                "build_id": str(ai_build.id) if ai_build else None,
+                            }
+                            drafts.append(draft_payload)
+                            try:
+                                seq_p = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="instructions.suggest.partial",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq_p,
+                                    data={"instruction": draft_payload}
+                                ))
+                            except Exception as e:
+                                logger.debug(f"Failed to emit harness partial event: {e}")
+
+                # If the planner also flagged completion this turn, exit
+                if getattr(final_decision, "analysis_complete", False):
+                    break
+
+            # === Submit AI build for review (don't auto-publish) ===
+            if ai_build and len(drafts) > 0:
+                try:
+                    from app.services.build_service import BuildService
+                    build_service = BuildService()
+                    await build_service.submit_build(self.db, ai_build.id)
+                    logger.info(
+                        f"Knowledge harness submitted AI build {ai_build.id} for approval "
+                        f"with {len(drafts)} instructions ({step_count} steps)"
+                    )
+                except Exception as submit_err:
+                    logger.warning(f"Failed to submit AI build for approval: {submit_err}")
 
             try:
-                seq_si = await self.project_manager.next_seq(self.db, self.current_execution)
+                seq_f = await self.project_manager.next_seq(self.db, self.current_execution)
                 await self._emit_sse_event(SSEEvent(
-                    event="instructions.suggest.started",
+                    event="instructions.suggest.finished",
                     completion_id=str(self.system_completion.id),
                     agent_execution_id=str(self.current_execution.id),
-                    seq=seq_si,
-                    data={}
+                    seq=seq_f,
+                    data={"instructions": drafts}
                 ))
             except Exception as e:
-                logger.debug(f"Failed to emit suggestion started event: {e}")
+                logger.debug(f"Failed to emit harness finished event: {e}")
 
-            try:
-                if self.suggest_instructions is not None and self.report_type == 'regular':
-                    drafts = []
-                    # Format trigger reason from conditions for persistence
-                    trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
-                    
-                    # === Build System Integration ===
-                    # Create a single build for all AI-suggested instructions in this execution
-                    ai_build = None
-                    try:
-                        from app.services.build_service import BuildService
-                        build_service = BuildService()
-                        ai_build = await build_service.get_or_create_draft_build(
-                            self.db,
-                            str(self.organization.id),
-                            source='ai',
-                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                            agent_execution_id=str(self.current_execution.id),
-                        )
-                        logger.debug(f"Created AI build {ai_build.id} for agent execution {self.current_execution.id}")
-                    except Exception as build_error:
-                        logger.warning(f"Failed to create AI build: {build_error}")
-                    
-                    async for draft in self.suggest_instructions.stream_suggestions(
-                        context_view=view_for_suggest,
-                        context_hub=self.context_hub,
-                        conditions=conditions,
-                        mode=self.mode
-                    ):
-                        # Persist immediately and stream back full instruction object
-                        inst = await self.project_manager.create_instruction_from_draft(
-                            self.db,
-                            self.organization,
-                            text=draft.get("text", ""),
-                            title=draft.get("title"),
-                            category=draft.get("category", "general"),
-                            agent_execution_id=str(self.current_execution.id),
-                            trigger_reason=trigger_reason,
-                            ai_source="completion",
-                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                            build=ai_build  # Pass build for batching
-                        )
-                        # Append a minimal client payload
-                        draft_payload = {
-                            "id": str(inst.id),
-                            "title": inst.title,
-                            "text": inst.text,
-                            "category": inst.category,
-                            "status": inst.status,
-                            "private_status": inst.private_status,
-                            "global_status": inst.global_status,
-                            "is_seen": inst.is_seen,
-                            "can_user_toggle": inst.can_user_toggle,
-                            "user_id": inst.user_id,
-                            "organization_id": str(inst.organization_id),
-                            "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
-                            "trigger_reason": inst.trigger_reason,
-                            "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
-                            "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
-                            "ai_source": getattr(inst, 'ai_source', None),
-                            "build_id": str(ai_build.id) if ai_build else None,
-                        }
-                        drafts.append(draft_payload)
-
-                        try:
-                            seq_si_p = await self.project_manager.next_seq(self.db, self.current_execution)
-                            await self._emit_sse_event(SSEEvent(
-                                event="instructions.suggest.partial",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq_si_p,
-                                data={"instruction": draft_payload}
-                            ))
-                        except Exception as e:
-                            logger.debug(f"Failed to emit suggestion progress event: {e}")
-                    
-                    # === Finalize Build ===
-                    # Submit the AI build for admin approval (don't auto-publish)
-                    if ai_build and len(drafts) > 0:
-                        try:
-                            from app.services.build_service import BuildService
-                            build_service = BuildService()
-                            await build_service.submit_build(self.db, ai_build.id)
-                            # AI-created builds require admin review - don't auto-approve or promote
-                            logger.info(f"Submitted AI build {ai_build.id} for approval with {len(drafts)} instructions")
-                        except Exception as finalize_error:
-                            logger.warning(f"Failed to submit AI build for approval: {finalize_error}")
-
-                    try:
-                        seq_si_f = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event(SSEEvent(
-                            event="instructions.suggest.finished",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq_si_f,
-                            data={"instructions": drafts}
-                        ))
-                    except Exception as e:
-                        logger.debug(f"Failed to emit suggestion finished event: {e}")
-            except Exception as e:
-                logger.warning(f"Error during instruction suggestion generation: {e}", exc_info=True)
-                try:
-                    seq_si_e = await self.project_manager.next_seq(self.db, self.current_execution)
-                    await self._emit_sse_event(SSEEvent(
-                        event="instructions.suggest.finished",
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        seq=seq_si_e,
-                        data={"instructions": []}
-                    ))
-                except Exception as e2:
-                    logger.debug(f"Failed to emit error suggestion finished event: {e2}")
         except Exception as e:
-            # Best-effort; don't fail on suggestion errors
-            logger.info(f"Instruction suggestion process failed (non-critical): {e}")
+            logger.warning(f"Knowledge harness failed (non-critical): {e}", exc_info=True)
+            try:
+                seq_e = await self.project_manager.next_seq(self.db, self.current_execution)
+                await self._emit_sse_event(SSEEvent(
+                    event="instructions.suggest.finished",
+                    completion_id=str(self.system_completion.id),
+                    agent_execution_id=str(self.current_execution.id),
+                    seq=seq_e,
+                    data={"instructions": drafts, "error": str(e)}
+                ))
+            except Exception:
+                pass
+        finally:
+            # Restore the original mode
+            self.mode = prior_mode
 
     async def _generate_title_background(self, messages_context: str, plan_info: list):
         """Generate report title in background after completion.finished is sent."""
@@ -1281,16 +1445,14 @@ class AgentV2:
                                 # Training mode: finalize the build with all created instructions
                                 await self._finalize_training_build()
                             else:
-                                # Normal mode: Run suggestions inline so SSE events reach the frontend before stream closes
+                                # Normal mode: Run knowledge harness sub-loop if triggers fired.
+                                # Harness creates/edits instructions and submits them as a draft AI build for review.
                                 res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
                                 should_trigger_suggestions = res.get("decision", False)
                                 conditions = res.get("conditions", [])
 
                                 if should_trigger_suggestions:
-                                    await self._stream_suggestions_inline(
-                                        prev_tool_name_before_last_user,
-                                        conditions
-                                    )
+                                    await self._run_knowledge_harness(conditions)
                             break
                         # Retry flow: action plan with missing action
                         if (getattr(decision, "plan_type", None) == "action") and not action:

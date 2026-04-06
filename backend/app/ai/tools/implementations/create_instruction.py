@@ -55,7 +55,7 @@ class CreateInstructionTool(Tool):
             idempotent=False,
             required_permissions=["create_instructions"],
             tags=["training", "instruction", "semantic-learning"],
-            allowed_modes=["training"],
+            allowed_modes=["training", "knowledge"],
             examples=[
                 {
                     "input": {
