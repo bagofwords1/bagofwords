@@ -52,7 +52,7 @@
 					</div>
 					<!-- Agent View -->
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
-						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="report?.data_sources || []" />
+						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" />
 					</div>
 					<!-- Dashboard View -->
 					<ArtifactFrame
@@ -448,6 +448,7 @@
 					@editScheduledPrompt="editScheduledPrompt"
 					@editTrainingInstruction="editTrainingInstruction"
 					@openInstructions="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; }"
+					@update:selectedDataSources="(val: any[]) => currentAgents = val"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"
@@ -502,8 +503,13 @@
 						? 'text-gray-900 bg-gray-100'
 						: 'text-gray-400 hover:text-gray-600'"
 				>
-					<Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
-					Agent
+					<DataSourceIcon
+						v-if="currentAgents.length === 1"
+						:type="currentAgents[0].type || currentAgents[0].connections?.[0]?.type"
+						class="h-3.5 flex-shrink-0"
+					/>
+					<Icon v-else name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
+					{{ currentAgents.length > 1 ? 'Agents' : (currentAgents[0]?.name || 'Agent') }}
 				</button>
 			</div>
 		</template>
@@ -524,7 +530,7 @@
 
 			<!-- Agent View -->
 			<div v-else-if="rightPanelView === 'agent'" class="h-full overflow-y-auto">
-				<ReportAgentPanel ref="agentPanelRef" :agents="report?.data_sources || []" />
+				<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" />
 			</div>
 
 			<!-- Grid View (DashboardComponent - Edit Mode) -->
@@ -854,6 +860,12 @@ const editingTrainingInstruction = ref<any>(null)
 // Agent panel refs
 const agentPanelRef = ref<InstanceType<typeof ReportAgentPanel> | null>(null)
 const mobileAgentPanelRef = ref<InstanceType<typeof ReportAgentPanel> | null>(null)
+
+// Live list of agents (data sources) selected in the prompt box — used to drive ReportAgentPanel
+const currentAgents = ref<any[]>([])
+watch(() => report.value?.data_sources, (val) => {
+    if (val && currentAgents.value.length === 0) currentAgents.value = [...val]
+}, { immediate: true })
 
 async function openInstructionById(instructionId: string) {
 	// Immediately switch to agent panel with loading state

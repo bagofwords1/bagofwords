@@ -449,12 +449,17 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions','update:selectedDataSources'])
 
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
+
+// Emit whenever selected data sources change (for parent sync, e.g. agent panel)
+watch(selectedDataSources, (val) => {
+    emit('update:selectedDataSources', val)
+}, { deep: true })
 const isHydratingDataSources = ref(!!props.report_id && selectedDataSources.value.length === 0)
 const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
