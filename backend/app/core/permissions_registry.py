@@ -5,9 +5,9 @@ This is the single source of truth for valid permissions. Route decorators
 reference these strings, the frontend receives them via whoami, and the
 RolesManager UI groups them by category for the role editor.
 
-MVP scope: 15 org-level permissions + 9 data_source resource grants, plus
-the `full_admin_access` wildcard. Reports/builds/widgets/entities are
-derived from data_source access. Connection and report resource grants
+MVP scope: 18 org-level permissions + 7 data_source resource grants, plus
+the `full_admin_access` wildcard. Reports/builds/widgets are derived from
+data_source access. View of instructions/entities is derived from DS view. Connection and report resource grants
 land post-MVP — the resource_grants table is generic, no schema change
 needed.
 """
@@ -32,6 +32,7 @@ PERMISSION_CATEGORIES = {
     ],
     "Instructions": [
         "manage_instructions",
+        "manage_entities",
     ],
     "Evals": [
         "manage_evals",
@@ -64,9 +65,7 @@ RESOURCE_PERMISSIONS = {
     "data_source": [
         "view",
         "view_schema",
-        "view_instructions",
         "create_instructions",
-        "view_entities",
         "create_entities",
         "manage_evals",
         "manage",
@@ -89,8 +88,8 @@ MERGED_CATEGORIES = {
 RESOURCE_SCOPED_GROUPS = {
     "data_source": {
         "Access": ["view", "view_schema"],
-        "Instructions": ["view_instructions", "create_instructions"],
-        "Entities": ["view_entities", "create_entities"],
+        "Instructions": ["create_instructions"],
+        "Entities": ["create_entities"],
         "Evals": ["manage_evals"],
         "Management": ["manage", "manage_members"],
     },
@@ -175,16 +174,16 @@ MVP_OLD_TO_NEW_PERM_MAP: dict[str, str | None] = {
     "view_hidden_instructions": None,
     "suggest_instructions": None,
 
-    # Entities — derived from data_source grants
-    "view_entities": None,
-    "create_entities": None,
-    "update_entities": None,
-    "delete_entities": None,
-    "refresh_entities": None,
-    "approve_entities": None,
-    "reject_entities": None,
-    "suggest_entities": None,
-    "withdraw_entities": None,
+    # Entities — own org perm (manage_entities) + per-DS create_entities grant
+    "view_entities": "manage_entities",
+    "create_entities": "manage_entities",
+    "update_entities": "manage_entities",
+    "delete_entities": "manage_entities",
+    "refresh_entities": "manage_entities",
+    "approve_entities": "manage_entities",
+    "reject_entities": "manage_entities",
+    "suggest_entities": "manage_entities",
+    "withdraw_entities": "manage_entities",
 
     # Evals — collapsed
     "manage_evals": "manage_evals",

@@ -247,6 +247,10 @@ async def check_resource_permissions(
     2. Org-level `permission` held → allow on ALL resources (blanket)
     3. Per-resource grant must include `permission` for every resource_id
 
+    Admin bypasses (e.g. `manage_instructions` ⇒ all `create_instructions`)
+    are handled inside `resolved.has_resource_permission` via the
+    ORG_PERM_IMPLIES_RESOURCE map in permission_resolver.
+
     Raises HTTPException 403 if the user lacks the permission on ANY of
     the listed resources. Fails the whole batch on the first miss.
     """
@@ -263,7 +267,7 @@ async def check_resource_permissions(
     if resolved.has_org_permission(permission):
         return
 
-    # Tier 3: per-resource grant check
+    # Tier 3: per-resource grant check (admin implications handled in resolver)
     for rid in resource_ids:
         if not resolved.has_resource_permission(resource_type, str(rid), permission):
             raise HTTPException(

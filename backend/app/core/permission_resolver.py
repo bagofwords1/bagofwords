@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 
 FULL_ADMIN = "full_admin_access"
 
+# Org-level permissions that implicitly grant specific per-resource permissions.
+# E.g. holding `manage_instructions` at the org level means the user can
+# create/edit instructions on any data source, without needing per-DS grants.
+ORG_PERM_IMPLIES_RESOURCE: dict[str, dict[str, set[str]]] = {
+    "manage_instructions": {"data_source": {"create_instructions"}},
+    "manage_entities":     {"data_source": {"create_entities"}},
+    "manage_evals":        {"data_source": {"manage_evals"}},
+}
+
 
 @dataclass
 class ResolvedPermissions:
@@ -36,9 +45,18 @@ class ResolvedPermissions:
         return FULL_ADMIN in self.org_permissions or permission in self.org_permissions
 
     def has_resource_permission(self, resource_type: str, resource_id: str, permission: str) -> bool:
-        """Check if user has a specific resource-level permission. full_admin_access bypasses."""
+        """Check if user has a specific resource-level permission.
+
+        Tiers: full_admin → org-perm implications (ORG_PERM_IMPLIES_RESOURCE) → explicit grant.
+        """
         if FULL_ADMIN in self.org_permissions:
             return True
+        # Implied by an org-level admin permission
+        for org_perm in self.org_permissions:
+            implied = ORG_PERM_IMPLIES_RESOURCE.get(org_perm, {}).get(resource_type)
+            if implied and permission in implied:
+                return True
+        # Explicit grant
         key = (resource_type, resource_id)
         return permission in self.resource_permissions.get(key, set())
 

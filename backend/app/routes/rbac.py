@@ -39,7 +39,7 @@ async def get_permissions_registry():
 # ── Roles ────────────────────────────────────────────────────────────────
 
 @router.get("/organizations/{organization_id}/roles", response_model=List[RoleSchema])
-@requires_permission("view_organization_members")
+@requires_permission("view_members")
 async def list_roles(
     organization_id: str,
     organization: Organization = Depends(get_current_organization),
@@ -51,7 +51,7 @@ async def list_roles(
 
 @router.post("/organizations/{organization_id}/roles", response_model=RoleSchema)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_roles")
+@requires_permission("manage_members")
 async def create_role(
     organization_id: str,
     data: RoleCreate,
@@ -64,7 +64,7 @@ async def create_role(
 
 @router.put("/organizations/{organization_id}/roles/{role_id}", response_model=RoleSchema)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_roles")
+@requires_permission("manage_members")
 async def update_role(
     organization_id: str,
     role_id: str,
@@ -78,7 +78,7 @@ async def update_role(
 
 @router.delete("/organizations/{organization_id}/roles/{role_id}", status_code=204)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_roles")
+@requires_permission("manage_members")
 async def delete_role(
     organization_id: str,
     role_id: str,
@@ -93,7 +93,7 @@ async def delete_role(
 
 @router.get("/organizations/{organization_id}/groups", response_model=List[GroupSchema])
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_groups")
+@requires_permission("manage_members")
 async def list_groups(
     organization_id: str,
     organization: Organization = Depends(get_current_organization),
@@ -105,7 +105,7 @@ async def list_groups(
 
 @router.post("/organizations/{organization_id}/groups", response_model=GroupSchema)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_groups")
+@requires_permission("manage_members")
 async def create_group(
     organization_id: str,
     data: GroupCreate,
@@ -118,7 +118,7 @@ async def create_group(
 
 @router.put("/organizations/{organization_id}/groups/{group_id}", response_model=GroupSchema)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_groups")
+@requires_permission("manage_members")
 async def update_group(
     organization_id: str,
     group_id: str,
@@ -132,7 +132,7 @@ async def update_group(
 
 @router.delete("/organizations/{organization_id}/groups/{group_id}", status_code=204)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_groups")
+@requires_permission("manage_members")
 async def delete_group(
     organization_id: str,
     group_id: str,
@@ -145,7 +145,7 @@ async def delete_group(
 
 @router.get("/organizations/{organization_id}/groups/{group_id}/members", response_model=List[GroupMemberSchema])
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_groups")
+@requires_permission("manage_members")
 async def list_group_members(
     organization_id: str,
     group_id: str,
@@ -158,7 +158,7 @@ async def list_group_members(
 
 @router.post("/organizations/{organization_id}/groups/{group_id}/members", status_code=201)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_groups")
+@requires_permission("manage_members")
 async def add_group_member(
     organization_id: str,
     group_id: str,
@@ -172,7 +172,7 @@ async def add_group_member(
 
 @router.delete("/organizations/{organization_id}/groups/{group_id}/members/{user_id}", status_code=204)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_groups")
+@requires_permission("manage_members")
 async def remove_group_member(
     organization_id: str,
     group_id: str,
@@ -187,7 +187,7 @@ async def remove_group_member(
 # ── Role Assignments ─────────────────────────────────────────────────────
 
 @router.get("/organizations/{organization_id}/role-assignments", response_model=List[RoleAssignmentSchema])
-@requires_permission("view_organization_members")
+@requires_permission("view_members")
 async def list_role_assignments(
     organization_id: str,
     principal_type: Optional[str] = Query(None),
@@ -200,7 +200,7 @@ async def list_role_assignments(
 
 
 @router.post("/organizations/{organization_id}/role-assignments", response_model=RoleAssignmentSchema)
-@requires_permission("manage_role_assignments")
+@requires_permission("manage_members")
 async def create_role_assignment(
     organization_id: str,
     data: RoleAssignmentCreate,
@@ -212,7 +212,7 @@ async def create_role_assignment(
 
 
 @router.delete("/organizations/{organization_id}/role-assignments/{assignment_id}", status_code=204)
-@requires_permission("manage_role_assignments")
+@requires_permission("manage_members")
 async def delete_role_assignment(
     organization_id: str,
     assignment_id: str,
@@ -226,7 +226,7 @@ async def delete_role_assignment(
 # ── Resource Grants ──────────────────────────────────────────────────────
 
 @router.get("/organizations/{organization_id}/resource-grants", response_model=List[ResourceGrantSchema])
-@requires_permission("view_organization_members")
+@requires_permission("view_members")
 async def list_resource_grants(
     organization_id: str,
     resource_type: Optional[str] = Query(None),
@@ -243,7 +243,7 @@ async def list_resource_grants(
 
 
 @router.post("/organizations/{organization_id}/resource-grants", response_model=ResourceGrantSchema)
-@requires_permission("manage_resource_grants")
+@requires_permission("manage_members")
 async def create_resource_grant(
     organization_id: str,
     data: ResourceGrantCreate,
@@ -255,7 +255,7 @@ async def create_resource_grant(
 
 
 @router.put("/organizations/{organization_id}/resource-grants/{grant_id}", response_model=ResourceGrantSchema)
-@requires_permission("manage_resource_grants")
+@requires_permission("manage_members")
 async def update_resource_grant(
     organization_id: str,
     grant_id: str,
@@ -268,7 +268,7 @@ async def update_resource_grant(
 
 
 @router.delete("/organizations/{organization_id}/resource-grants/{grant_id}", status_code=204)
-@requires_permission("manage_resource_grants")
+@requires_permission("manage_members")
 async def delete_resource_grant(
     organization_id: str,
     grant_id: str,

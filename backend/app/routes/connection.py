@@ -62,7 +62,7 @@ async def _user_can_access_connection(
 # ==================== Routes ====================
 
 @router.get("", response_model=List[ConnectionSchema])
-@requires_permission('view_connections')
+@requires_permission('manage_connections')
 async def list_connections(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -156,7 +156,7 @@ async def create_connection(
 
 
 @router.get("/{connection_id}", response_model=ConnectionDetailSchema)
-@requires_permission('view_data_source')
+@requires_permission('manage_connections')
 async def get_connection(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -207,7 +207,7 @@ async def get_connection(
 
 
 @router.put("/{connection_id}", response_model=ConnectionSchema)
-@requires_permission('update_data_source')  # Admin-only
+@requires_permission('manage_connections')  # Admin-only
 async def update_connection(
     connection_id: str,
     data: ConnectionUpdate,
@@ -239,7 +239,7 @@ async def update_connection(
 
 
 @router.delete("/{connection_id}")
-@requires_permission('delete_data_source')  # Admin-only
+@requires_permission('manage_connections')  # Admin-only
 async def delete_connection(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -256,7 +256,7 @@ async def delete_connection(
 
 
 @router.post("/test-params")
-@requires_permission('update_data_source')
+@requires_permission('manage_connections')
 async def test_connection_params(
     data: ConnectionCreate,
     current_user: User = Depends(current_user),
@@ -273,7 +273,7 @@ async def test_connection_params(
 
 
 @router.post("/{connection_id}/test", response_model=ConnectionTestResult)
-@requires_permission('update_data_source')  # Admin-only
+@requires_permission('manage_connections')  # Admin-only
 async def test_connection(
     connection_id: str,
     overrides: ConnectionTestOverride = None,
@@ -301,7 +301,7 @@ async def test_connection(
 
 
 @router.post("/{connection_id}/refresh")
-@requires_permission('update_data_source')  # Admin-only
+@requires_permission('manage_connections')  # Admin-only
 async def refresh_connection_schema(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -319,7 +319,7 @@ async def refresh_connection_schema(
 
 
 @router.get("/{connection_id}/tables", response_model=List[ConnectionTableSchema])
-@requires_permission('update_data_source')  # Admin-only
+@requires_permission('manage_connections')  # Admin-only
 async def get_connection_tables(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -342,7 +342,7 @@ async def get_connection_tables(
 # ==================== Tool Management Routes (MCP / Custom API) ====================
 
 @router.post("/{connection_id}/refresh-tools", response_model=List[ConnectionToolSchema])
-@requires_permission('update_data_source')
+@requires_permission('manage_connections')
 async def refresh_connection_tools(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -368,7 +368,7 @@ async def refresh_connection_tools(
 
 
 @router.get("/{connection_id}/tools", response_model=List[ConnectionToolSchema])
-@requires_permission('update_data_source')
+@requires_permission('manage_connections')
 async def get_connection_tools_list(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -395,7 +395,7 @@ async def get_connection_tools_list(
 
 
 @router.put("/{connection_id}/tools/batch", response_model=List[ConnectionToolSchema])
-@requires_permission('update_data_source')
+@requires_permission('manage_connections')
 async def batch_update_connection_tools(
     connection_id: str,
     data: BatchToolUpdate,
@@ -422,7 +422,7 @@ async def batch_update_connection_tools(
 
 
 @router.put("/{connection_id}/tools/{tool_id}", response_model=ConnectionToolSchema)
-@requires_permission('update_data_source')
+@requires_permission('manage_connections')
 async def update_tool(
     connection_id: str,
     tool_id: str,

@@ -23,7 +23,7 @@ router = APIRouter(tags=["organization_settings"])
 external_platform_service = ExternalPlatformService()
 
 @router.get("/settings/integrations", response_model=List[ExternalPlatformSchema])
-@requires_permission('view_organization_settings')
+@requires_permission('manage_settings')
 async def get_integrations(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
@@ -33,7 +33,7 @@ async def get_integrations(
     return await external_platform_service.get_platforms(db, organization)
 
 @router.get("/settings/integrations/{platform_id}", response_model=ExternalPlatformSchema)
-@requires_permission('view_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def get_integration(
     platform_id: str,
     current_user: User = Depends(current_user),
@@ -47,7 +47,7 @@ async def get_integration(
     return ExternalPlatformSchema.from_orm(platform)
 
 @router.put("/settings/integrations/{platform_id}", response_model=ExternalPlatformSchema)
-@requires_permission('manage_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def update_integration(
     platform_id: str,
     platform_data: ExternalPlatformUpdate,
@@ -61,7 +61,7 @@ async def update_integration(
     )
 
 @router.delete("/settings/integrations/{platform_id}")
-@requires_permission('manage_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def delete_integration(
     platform_id: str,
     request: Request,
@@ -88,7 +88,7 @@ async def delete_integration(
     return result
 
 @router.post("/settings/integrations/{platform_id}/test", response_model=dict)
-@requires_permission('view_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def test_integration(
     platform_id: str,
     current_user: User = Depends(current_user),
@@ -101,7 +101,7 @@ async def test_integration(
     )
 
 @router.post("/settings/integrations/slack", response_model=ExternalPlatformSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def create_slack_integration(
     data: SlackConfig,
     request: Request,
@@ -129,7 +129,7 @@ async def create_slack_integration(
     return result
 
 @router.post("/settings/integrations/teams", response_model=ExternalPlatformSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def create_teams_integration(
     data: TeamsConfig,
     request: Request,
