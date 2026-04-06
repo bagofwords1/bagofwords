@@ -393,7 +393,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
@@ -1001,8 +1001,10 @@ const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(
 
 const attrs = useAttrs()
 
+const instance = getCurrentInstance()
+
 function openInstructions() {
-    if (attrs.onOpenInstructions) {
+    if (instance?.vnode.props?.onOpenInstructions) {
         emit('openInstructions')
     } else {
         const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
