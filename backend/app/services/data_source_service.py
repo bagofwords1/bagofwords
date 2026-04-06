@@ -42,7 +42,7 @@ from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import selectinload
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
@@ -131,23 +131,52 @@ class DataSourceService:
 
         return connections_list
 
-    async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str]):
+    async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str], permissions: Optional[List[str]] = None):
         """
         Create memberships for a list of user IDs.
+
+        Writes to both DataSourceMembership (legacy) and ResourceGrant (RBAC).
+        `permissions` controls the RBAC grant; defaults to ["view", "view_schema"]
+        to match legacy DSM semantics. Pass ["manage"] for the owner.
         """
         if not user_ids:
             return
-            
-        data_source_memberships = []
-        for user_id in user_ids:
-            data_source_membership = DataSourceMembership(
+
+        from app.models.resource_grant import ResourceGrant
+        grant_perms = list(permissions) if permissions is not None else ["view", "view_schema"]
+
+        data_source_memberships = [
+            DataSourceMembership(
                 data_source_id=data_source.id,
                 principal_type=PRINCIPAL_TYPE_USER,
-                principal_id=user_id
+                principal_id=user_id,
             )
-            data_source_memberships.append(data_source_membership)
-        
+            for user_id in user_ids
+        ]
         db.add_all(data_source_memberships)
+
+        # Mirror into resource_grants (RBAC). Skip if a grant already exists.
+        for user_id in user_ids:
+            existing = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == str(data_source.id),
+                    ResourceGrant.principal_type == PRINCIPAL_TYPE_USER,
+                    ResourceGrant.principal_id == str(user_id),
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
+            db.add(ResourceGrant(
+                organization_id=str(data_source.organization_id),
+                resource_type="data_source",
+                resource_id=str(data_source.id),
+                principal_type=PRINCIPAL_TYPE_USER,
+                principal_id=str(user_id),
+                permissions=grant_perms,
+            ))
+
         await db.commit()
 
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
@@ -354,7 +383,7 @@ class DataSourceService:
             pass
 
         # Always add the creator as a member (regardless of public/private status)
-        await self._create_memberships(db, new_data_source, [current_user.id])
+        await self._create_memberships(db, new_data_source, [current_user.id], permissions=["manage"])
         
         # Create memberships for additional specified users (only for private data sources)
         if member_user_ids and not is_public:
@@ -2850,7 +2879,7 @@ class DataSourceService:
         await db.refresh(new_data_source)
         
         # Create memberships
-        await self._create_memberships(db, new_data_source, [current_user.id])
+        await self._create_memberships(db, new_data_source, [current_user.id], permissions=["manage"])
         if member_user_ids and not is_public:
             additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
             if additional_user_ids:
