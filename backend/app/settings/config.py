@@ -87,8 +87,10 @@ class Settings(BaseSettings):
         else:
             raise ValueError(f"Unknown environment: {environment}")
             
-        # Setup email client if SMTP settings exist
-        if bow_config.smtp_settings:
+        # Setup email client only when SMTP settings are fully configured.
+        # In dev/test, BOW_SMTP_PASSWORD is often unset and resolves to None;
+        # in that case, leave email_client unset rather than failing to start.
+        if bow_config.smtp_settings and bow_config.smtp_settings.password:
             email_config = ConnectionConfig(
                 MAIL_USERNAME=bow_config.smtp_settings.username,
                 MAIL_PASSWORD=bow_config.smtp_settings.password,
