@@ -111,7 +111,12 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                         raise HTTPException(status_code=500, detail="Object does not support ownership checks")
 
             # Check role-based permission, with special-case for Instruction owner updates on unpublished
-            has_role_permission = permission in ROLES_PERMISSIONS.get(membership.role, set())
+            # `permission` may be a single string or a list/tuple (ANY-of semantics)
+            role_perms = ROLES_PERMISSIONS.get(membership.role, set())
+            if isinstance(permission, (list, tuple, set)):
+                has_role_permission = any(p in role_perms for p in permission)
+            else:
+                has_role_permission = permission in role_perms
             if not has_role_permission:
                 # Special owner allowance: Instruction owner may modify/delete when not published
                 if isinstance(obj, Instruction):

@@ -277,7 +277,7 @@
         <TablesSelector
           :key="selectedAgentId"
           :ds-id="selectedAgentId!"
-          schema="full"
+          :schema="canUpdateDataSource ? 'full' : 'user'"
           :can-update="canUpdateDataSource"
           :show-refresh="false"
           :show-save="canUpdateDataSource"
@@ -374,6 +374,7 @@ const props = defineProps<{
 // Permissions
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const canViewBuilds = computed(() => useCan('view_builds'))
+const canManageTests = computed(() => useCan('manage_tests'))
 
 // Build explorer modal (for "View changes" affordance on unpublished-build banner)
 const showBuildExplorer = ref(false)
@@ -490,12 +491,17 @@ const selectedAgent = computed(() => {
 })
 
 // Tab definitions with counts (tables count managed by TablesSelector internally)
-const tabs = computed(() => [
-  { key: 'instructions' as const, label: 'Instructions', count: instructions.value.length },
-  { key: 'tables' as const, label: 'Tables', count: 0 },
-  { key: 'queries' as const, label: 'Queries', count: queries.value.length },
-  { key: 'evals' as const, label: 'Evals', count: evals.value.length },
-])
+const tabs = computed(() => {
+  const t: Array<{ key: 'instructions' | 'tables' | 'queries' | 'evals'; label: string; count: number }> = [
+    { key: 'instructions', label: 'Instructions', count: instructions.value.length },
+    { key: 'tables', label: 'Tables', count: 0 },
+    { key: 'queries', label: 'Queries', count: queries.value.length },
+  ]
+  if (canManageTests.value) {
+    t.push({ key: 'evals', label: 'Evals', count: evals.value.length })
+  }
+  return t
+})
 
 const instructions = computed(() => selectedAgentId.value ? (instructionsCache.value[selectedAgentId.value] || []) : [])
 const queries = computed(() => selectedAgentId.value ? (queriesCache.value[selectedAgentId.value] || []) : [])

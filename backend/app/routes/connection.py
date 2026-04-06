@@ -16,6 +16,7 @@ from app.models.connection_table import ConnectionTable
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
 from app.core.permissions_decorator import requires_permission
+from app.models.membership import Membership, ROLES_PERMISSIONS
 from app.schemas.connection_schema import (
     ConnectionCreate,
     ConnectionUpdate,
@@ -36,17 +37,51 @@ router = APIRouter(prefix="/connections", tags=["connections"])
 connection_service = ConnectionService()
 
 
+async def _is_org_admin(db: AsyncSession, user: User, organization: Organization) -> bool:
+    """Return True if user has admin-level data source permissions in the org."""
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user.id,
+            Membership.organization_id == organization.id,
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if not membership:
+        return False
+    return "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set())
+
+
+async def _user_can_access_connection(
+    db: AsyncSession, user: User, connection
+) -> bool:
+    """Non-admin accessibility check: user must have access to at least one linked data source."""
+    for ds in (connection.data_sources or []):
+        if getattr(ds, "is_public", False):
+            return True
+        if await ds.has_membership_async(user.id, db):
+            return True
+    return False
+
+
 # ==================== Routes ====================
 
 @router.get("", response_model=List[ConnectionSchema])
-@requires_permission('update_data_source')  # Admin-only
+@requires_permission('view_data_source')
 async def list_connections(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """List all connections for the organization."""
+    """List connections for the organization. Non-admins only see connections linked to data sources they can access."""
     connections = await connection_service.get_connections(db, organization)
+
+    is_admin = await _is_org_admin(db, current_user, organization)
+    if not is_admin:
+        accessible = []
+        for conn in connections:
+            if await _user_can_access_connection(db, current_user, conn):
+                accessible.append(conn)
+        connections = accessible
     
     result = []
     for conn in connections:
@@ -118,16 +153,21 @@ async def create_connection(
 
 
 @router.get("/{connection_id}", response_model=ConnectionDetailSchema)
-@requires_permission('update_data_source')  # Admin-only
+@requires_permission('view_data_source')
 async def get_connection(
     connection_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get connection details including config for editing."""
+    """Get connection details. Non-admins get a redacted view (no config/credentials) and must have access to at least one linked data source."""
     connection = await connection_service.get_connection(db, connection_id, organization)
-    
+
+    is_admin = await _is_org_admin(db, current_user, organization)
+    if not is_admin:
+        if not await _user_can_access_connection(db, current_user, connection):
+            raise HTTPException(status_code=403, detail="Access denied to this connection")
+
     # Parse config if it's a string
     import json
     config = connection.config
@@ -136,21 +176,30 @@ async def get_connection(
             config = json.loads(config)
         except:
             config = {}
-    
+
+    # Strip sensitive fields for non-admins
+    if not is_admin:
+        config = {}
+        allowed_user_auth_modes = []
+        has_credentials = False
+    else:
+        allowed_user_auth_modes = connection.allowed_user_auth_modes
+        has_credentials = bool(connection.credentials)
+
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
         type=connection.type,
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
-        allowed_user_auth_modes=connection.allowed_user_auth_modes,
+        allowed_user_auth_modes=allowed_user_auth_modes,
         config=config or {},
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
         table_count=len(connection.connection_tables) if connection.connection_tables else 0,
         domain_count=len(connection.data_sources) if connection.data_sources else 0,
         domain_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
-        has_credentials=bool(connection.credentials),
+        has_credentials=has_credentials,
     )
 
 

@@ -643,6 +643,11 @@ class InstructionService:
             await self._handle_admin_edit(instruction, instruction_data, current_user)
         elif update_type == "owner_edit":
             await self._handle_owner_edit(instruction, instruction_data)
+        elif update_type == "suggester_edit":
+            # Suggester edits use the same safe field subset as owner edits (no status changes).
+            # The downstream build-auto-finalize logic will route the resulting build to
+            # pending_approval since the user is not an admin.
+            await self._handle_owner_edit(instruction, instruction_data)
         else:
             raise HTTPException(status_code=403, detail="Permission denied")
         
@@ -1477,15 +1482,20 @@ class InstructionService:
         """
         is_admin = self._is_admin_permissions(user_permissions)
         is_owner = instruction.user_id == current_user.id
-        
+        can_suggest = 'suggest_instructions' in user_permissions
+
         # Admin editing any instruction
         if is_admin:
             return "admin_edit"
-        
+
         # Owner editing their own instruction
         elif is_owner and user_permissions:
             return "owner_edit"
-        
+
+        # Non-admin with suggest permission: proposes edit; auto-finalize routes it to pending_approval
+        elif can_suggest:
+            return "suggester_edit"
+
         # No permission
         else:
             return "no_permission"

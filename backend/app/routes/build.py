@@ -160,7 +160,7 @@ async def get_build_contents(
 # ==================== Lifecycle ====================
 
 @router.post("", response_model=InstructionBuildSchema)
-@requires_permission('create_instructions')
+@requires_permission(['create_instructions', 'suggest_instructions'])
 async def create_build(
     build_data: InstructionBuildCreate,
     current_user: User = Depends(current_user),
@@ -181,7 +181,7 @@ async def create_build(
 
 
 @router.post("/{build_id}/submit", response_model=InstructionBuildSchema)
-@requires_permission('create_builds')
+@requires_permission(['create_builds', 'suggest_instructions'])
 async def submit_build(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -228,7 +228,7 @@ async def reject_build(
 # ==================== Draft Editing ====================
 
 @router.put("/{build_id}/contents/{instruction_id}", response_model=BuildContentSchema)
-@requires_permission('create_builds')
+@requires_permission(['create_builds', 'suggest_instructions'])
 async def add_or_update_build_content(
     build_id: str,
     instruction_id: str,

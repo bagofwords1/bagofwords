@@ -313,7 +313,7 @@ async def get_instruction(
     return instruction
 
 @router.put("/instructions/{instruction_id}", response_model=InstructionSchema)
-@requires_permission('update_instructions', model=Instruction)
+@requires_permission(['update_instructions', 'suggest_instructions'], model=Instruction)
 async def update_instruction(
     instruction_id: str,
     instruction: InstructionUpdate,
