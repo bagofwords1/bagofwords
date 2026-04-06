@@ -60,8 +60,10 @@ async def create_global_entity(
     return EntitySchema.model_validate(entity)
 
 
+# No org-level perm gate: entity visibility is derived from data_source
+# access (public DSes are visible to every member). The service applies
+# user-permission-based filtering internally.
 @router.get("", response_model=List[EntityListSchema])
-@requires_permission('manage_entities')
 async def list_entities(
     q: Optional[str] = Query(None),
     type: Optional[str] = Query(None),

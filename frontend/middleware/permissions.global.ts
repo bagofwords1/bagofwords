@@ -1,4 +1,6 @@
-import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
+import { useCan, useCanAny, usePermissionsLoaded } from '~/composables/usePermissions'
+
+type ResourcePermissionAny = { permission: string; resourceType: string }
 
 export default defineNuxtRouteMiddleware(async (to, from) => {
   // Skip permission checks for auth/public pages
@@ -7,9 +9,19 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
     return
   }
 
-  // Skip if no permissions required for this route
+  // Two ways a route can declare its access requirements:
+  //   meta.permissions: ['org_perm']               → must hold the org perm
+  //   meta.resourcePermissionAny: {permission, resourceType}
+  //                                                → must hold this perm on
+  //                                                  ANY resource of the given
+  //                                                  type (e.g. manage on
+  //                                                  any data_source). Use this
+  //                                                  for pages that already
+  //                                                  filter their data per
+  //                                                  resource on the backend.
   const requiredPermissions = (to.meta.permissions as string[] | undefined) || []
-  if (!requiredPermissions.length) {
+  const resourceAny = to.meta.resourcePermissionAny as ResourcePermissionAny | undefined
+  if (!requiredPermissions.length && !resourceAny) {
     return
   }
 
@@ -21,7 +33,7 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
 
   // Check if permissions have been loaded
   const permissionsLoaded = usePermissionsLoaded()
-  
+
   // If permissions haven't loaded yet, don't block - let the page load
   // The permissions plugin will handle loading them
   if (!permissionsLoaded.value) {
@@ -35,6 +47,11 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
     if (!can) {
       hasPermission = false
       break
+    }
+  }
+  if (hasPermission && resourceAny) {
+    if (!useCanAny(resourceAny.permission, resourceAny.resourceType)) {
+      hasPermission = false
     }
   }
 

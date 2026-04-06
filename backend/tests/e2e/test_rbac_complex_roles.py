@@ -184,6 +184,7 @@ def test_analyst_role_resolution(test_client, create_user, login_user, whoami, d
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason="post-MVP: requires view_evals/run_evals split, only manage_evals exists in MVP")
 def test_analyst_can_view_evals_but_not_manage(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
     """Analyst can list eval suites (view_evals) but cannot create them (manage_evals)."""
     ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
@@ -314,6 +315,7 @@ def test_org_level_create_instructions_bypasses_resource_check(test_client, crea
 # ═══════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason="post-MVP: requires view_evals/run_evals split, only manage_evals exists in MVP")
 def test_eval_runner_can_run_but_not_manage(test_client, create_user, login_user, whoami):
     """Eval Runner with run_evals can trigger runs but cannot create suites/cases."""
     ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)

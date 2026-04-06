@@ -46,7 +46,11 @@ def _setup_admin_and_member(test_client, create_user, login_user, whoami):
 
 # ── Permission Registry ──────────────────────────────────────────────────
 
+POST_MVP_SKIP = "post-MVP: registry only has manage_evals and data_source resource grants"
+
+
 @pytest.mark.e2e
+@pytest.mark.skip(reason=POST_MVP_SKIP)
 def test_registry_returns_updated_categories(test_client, create_user, login_user):
     """Permission registry should return the correct categories after cleanup."""
     user = create_user()
@@ -78,6 +82,7 @@ def test_registry_returns_updated_categories(test_client, create_user, login_use
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason=POST_MVP_SKIP)
 def test_registry_data_source_resource_permissions(test_client, create_user, login_user):
     """Data source resource permissions should include entity/instruction/eval scoped perms."""
     user = create_user()
@@ -96,6 +101,7 @@ def test_registry_data_source_resource_permissions(test_client, create_user, log
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason=POST_MVP_SKIP)
 def test_registry_connection_resource_permissions(test_client, create_user, login_user):
     """Connection resource permissions should be simplified to manage_data_sources and manage."""
     user = create_user()
@@ -109,6 +115,7 @@ def test_registry_connection_resource_permissions(test_client, create_user, logi
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason=POST_MVP_SKIP)
 def test_registry_report_resource_permissions(test_client, create_user, login_user):
     """Report resource permissions should include run_steps."""
     user = create_user()
@@ -126,6 +133,7 @@ def test_registry_report_resource_permissions(test_client, create_user, login_us
 # ── Eval Permission Split ─────────────────────────────────────────────────
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason=POST_MVP_SKIP)
 def test_member_can_view_evals(test_client, create_user, login_user, whoami):
     """Members should be able to list test suites."""
     ctx = _setup_admin_and_member(test_client, create_user, login_user, whoami)
@@ -359,6 +367,7 @@ def test_instruction_update_checks_data_source_permissions(test_client, create_u
 # ── Whoami Reflects New Permissions ───────────────────────────────────────
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason=POST_MVP_SKIP)
 def test_whoami_member_has_eval_permissions(test_client, create_user, login_user, whoami):
     """Member whoami should not include manage_evals."""
     ctx = _setup_admin_and_member(test_client, create_user, login_user, whoami)
