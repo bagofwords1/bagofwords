@@ -259,8 +259,11 @@ class InstructionSyncService:
         
         db.add(instruction)
         await db.commit()
-        await db.refresh(instruction)
-        
+        # Explicitly load the data_sources collection — Instruction.data_sources
+        # is lazy="raise", so any access (including .append) without an
+        # explicit load raises InvalidRequestError.
+        await db.refresh(instruction, ['data_sources'])
+
         # Associate instruction with the data source (only for domain-scoped resources)
         # Org-level git repos create org-wide instructions with no domain association
         if data_source:
@@ -1277,7 +1280,10 @@ class InstructionSyncService:
 
         db.add(instruction)
         await db.commit()
-        await db.refresh(instruction)
+        # Explicitly load the data_sources collection — Instruction.data_sources
+        # is lazy="raise", so any access (including .append) without an
+        # explicit load raises InvalidRequestError.
+        await db.refresh(instruction, ['data_sources'])
 
         # Associate instruction with the data source
         if data_source:
