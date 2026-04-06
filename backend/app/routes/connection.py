@@ -340,8 +340,32 @@ async def refresh_connection_schema(
     }
 
 
+async def _ensure_can_read_connection(db, organization, current_user, connection):
+    """Allow read if user is admin, has an explicit connection grant, or the
+    connection backs a data source the user can access (public DS or DS grant).
+    Raises 403 otherwise.
+    """
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    if FULL_ADMIN in resolved.org_permissions or resolved.has_org_permission("manage_connections"):
+        return
+    if resolved.has_resource_permission("connection", str(connection.id), "view"):
+        return
+    granted_ds_ids = {
+        rid for (rtype, rid) in resolved.resource_permissions if rtype == "data_source"
+    }
+    public_rows = await db.execute(
+        select(DataSource.id).where(
+            DataSource.organization_id == str(organization.id),
+            DataSource.is_public.is_(True),
+        )
+    )
+    accessible_ds_ids = granted_ds_ids | {str(r) for (r,) in public_rows.all()}
+    if connection.data_sources and any(str(ds.id) in accessible_ds_ids for ds in connection.data_sources):
+        return
+    raise HTTPException(status_code=403, detail="Access denied to this connection")
+
+
 @router.get("/{connection_id}/tables", response_model=List[ConnectionTableSchema])
-@requires_permission('manage_connections')  # Admin-only
 async def get_connection_tables(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -350,7 +374,8 @@ async def get_connection_tables(
 ):
     """Get tables for a connection."""
     connection = await connection_service.get_connection(db, connection_id, organization)
-    
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+
     result = []
     for table in (connection.connection_tables or []):
         result.append(ConnectionTableSchema(
@@ -390,7 +415,6 @@ async def refresh_connection_tools(
 
 
 @router.get("/{connection_id}/tools", response_model=List[ConnectionToolSchema])
-@requires_permission('manage_connections')
 async def get_connection_tools_list(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -398,8 +422,8 @@ async def get_connection_tools_list(
     organization: Organization = Depends(get_current_organization),
 ):
     """Get all tools for a connection."""
-    # Verify connection belongs to org
-    await connection_service.get_connection(db, connection_id, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
     tools = await connection_service.get_connection_tools(db, connection_id)
     return [
         ConnectionToolSchema(
