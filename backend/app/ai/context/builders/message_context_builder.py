@@ -19,6 +19,49 @@ from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 
 
+def _digest_knowledge_tool(tool_execution) -> str:
+    """Build a tight one-line digest for knowledge-harness instruction tools.
+
+    Returns an empty string when the tool isn't one of the knowledge tools so
+    callers can fall through to the next elif.
+    """
+    name = tool_execution.tool_name
+    rj = tool_execution.result_json or {}
+    if name == 'search_instructions':
+        # Never dump full text — ids + titles only, capped at 5.
+        try:
+            obs = rj.get('observation') or {}
+            arts = (obs.get('artifacts') or [])
+            items = arts[0].get('items', []) if arts else []
+        except Exception:
+            items = []
+        total = rj.get('total') if isinstance(rj.get('total'), int) else len(items)
+        hits = []
+        for it in items[:5]:
+            hits.append(f"{it.get('id','?')}:{(it.get('title') or '').strip()[:60]}")
+        more = f" (+{len(items)-5} more)" if len(items) > 5 else ""
+        return f"found {total} — [{'; '.join(hits)}]{more}" if hits else f"found {total}"
+    if name == 'create_instruction':
+        parts = []
+        if rj.get('title'):
+            parts.append(f"title: {rj.get('title')}")
+        if rj.get('instruction_id'):
+            parts.append(f"id: {rj.get('instruction_id')}")
+        parts.append("status=draft")
+        if rj.get('rejected_reason'):
+            parts.append(f"rejected: {rj.get('rejected_reason')}")
+        return "; ".join(parts)
+    if name == 'edit_instruction':
+        parts = []
+        if rj.get('title'):
+            parts.append(f"title: {rj.get('title')}")
+        if rj.get('instruction_id'):
+            parts.append(f"id: {rj.get('instruction_id')}")
+        parts.append("status=draft")
+        return "; ".join(parts)
+    return ""
+
+
 class MessageContextBuilder:
     """
     Builds conversation message context for agent execution.
@@ -109,9 +152,20 @@ class MessageContextBuilder:
                 blocks = blocks_result.scalars().all()
                 
                 system_parts = []
-                
+                in_knowledge_wrap = False
+
                 # Collect reasoning, assistant messages, and tool executions from blocks
                 for block in blocks:
+                    # Harness blocks use loop_index >= 1000 (see agent_v2._run_knowledge_harness).
+                    # Wrap contiguous harness blocks in <post_analysis_knowledge_update>…</…>
+                    # so the LLM sees them labeled as knowledge-base updates, not object-level work.
+                    is_harness = (block.loop_index or 0) >= 1000
+                    if is_harness and not in_knowledge_wrap:
+                        system_parts.append("<post_analysis_knowledge_update>")
+                        in_knowledge_wrap = True
+                    elif (not is_harness) and in_knowledge_wrap:
+                        system_parts.append("</post_analysis_knowledge_update>")
+                        in_knowledge_wrap = False
                     # Don't truncate reasoning and content - show full text
                     if block.reasoning and block.reasoning.strip():
                         system_parts.append(f"Thinking: {block.reasoning.strip()}")
@@ -154,8 +208,8 @@ class MessageContextBuilder:
                                             sample_row = rows[0]
                                     digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                     if col_names:
-                                        head_cols = ", ".join(col_names[:3])
-                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                        head_cols = ", ".join(col_names[:10])
+                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                     if sample_row:
                                         try:
                                             digest_parts.append(f"top row: {json.dumps(sample_row)}")
@@ -184,8 +238,8 @@ class MessageContextBuilder:
                                             sample_row = rows[0]
                                     digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                     if col_names:
-                                        head_cols = ", ".join(col_names[:3])
-                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                        head_cols = ", ".join(col_names[:10])
+                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                     # If a non-table viz was inferred, surface it concisely
                                     try:
                                         dm = rj.get('data_model') or {}
@@ -373,6 +427,10 @@ class MessageContextBuilder:
                                         digest_parts.append(f"{rc} rows")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
+                                    digest = _digest_knowledge_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     obs = rj.get('observation') or rj
@@ -442,7 +500,11 @@ class MessageContextBuilder:
                                 tool_info += f" - Error: {error}"
                             
                             system_parts.append(tool_info)
-                
+
+                if in_knowledge_wrap:
+                    system_parts.append("</post_analysis_knowledge_update>")
+                    in_knowledge_wrap = False
+
                 # If no blocks or content, fall back to completion.completion
                 if not system_parts and completion.completion:
                     if isinstance(completion.completion, dict):
@@ -665,7 +727,15 @@ class MessageContextBuilder:
                 )
                 blocks = blocks_result.scalars().all()
                 system_parts: List[str] = []
+                in_knowledge_wrap = False
                 for block in blocks:
+                    is_harness = (block.loop_index or 0) >= 1000
+                    if is_harness and not in_knowledge_wrap:
+                        system_parts.append("<post_analysis_knowledge_update>")
+                        in_knowledge_wrap = True
+                    elif (not is_harness) and in_knowledge_wrap:
+                        system_parts.append("</post_analysis_knowledge_update>")
+                        in_knowledge_wrap = False
                     if block.reasoning and block.reasoning.strip():
                         system_parts.append(f"Thinking: {block.reasoning.strip()}")
                     if block.content and block.content.strip():
@@ -690,8 +760,8 @@ class MessageContextBuilder:
                                 row_count = len(rows)
                                 digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                 if col_names:
-                                    head_cols = ", ".join(col_names[:3])
-                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                    head_cols = ", ".join(col_names[:10])
+                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                 if allow_llm_see_data:
                                     preview = result_json.get('data_preview', {}) or {}
                                     preview_rows = preview.get('rows') or []
@@ -715,8 +785,8 @@ class MessageContextBuilder:
                                 row_count = len(rows)
                                 digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
                                 if col_names:
-                                    head_cols = ", ".join(col_names[:3])
-                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                    head_cols = ", ".join(col_names[:10])
+                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
                                 if allow_llm_see_data:
                                     preview = rj.get('data_preview', {}) or {}
                                     preview_rows = preview.get('rows') or []
@@ -908,6 +978,10 @@ class MessageContextBuilder:
                                     digest_parts.append(f"{rc} rows")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
+                                digest = _digest_knowledge_tool(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
                             elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
                                 obs = rj.get('observation') or rj
@@ -946,6 +1020,9 @@ class MessageContextBuilder:
                                     error = error[:50] + "..."
                                 tool_info += f" - Error: {error}"
                             system_parts.append(tool_info)
+                if in_knowledge_wrap:
+                    system_parts.append("</post_analysis_knowledge_update>")
+                    in_knowledge_wrap = False
                 if not system_parts and completion.completion:
                     if isinstance(completion.completion, dict):
                         content = completion.completion.get('content', '') or completion.completion.get('message', '')

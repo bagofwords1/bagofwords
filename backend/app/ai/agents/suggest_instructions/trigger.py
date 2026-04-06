@@ -53,6 +53,23 @@ class TriggerCondition:
         return {"name": self.name, "hint": self.hint}
 
     @staticmethod
+    def format_for_prompt(conditions: List[Dict[str, str]]) -> str:
+        """Format a list of trigger conditions as an XML block for the knowledge harness prompt.
+
+        Each condition becomes a numbered line: [name] hint
+        Returns an empty <trigger_conditions /> tag if conditions is empty.
+        """
+        if not conditions:
+            return "<trigger_conditions />"
+        lines = []
+        for idx, c in enumerate(conditions, start=1):
+            name = c.get("name", "unknown")
+            hint = c.get("hint", "")
+            lines.append(f"{idx}. [{name}] {hint}")
+        body = "\n".join(lines)
+        return f"<trigger_conditions>\n{body}\n</trigger_conditions>"
+
+    @staticmethod
     def create_feedback_condition(feedback_direction: int, feedback_message: Optional[str] = None) -> Dict[str, str]:
         """Create a trigger condition for feedback-based suggestion generation.
         

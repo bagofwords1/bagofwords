@@ -149,28 +149,30 @@
             <!-- View Mode Actions (fixed at bottom) -->
             <div class="shrink-0 bg-white border-t px-5 py-3">
                 <div class="flex justify-between items-center">
-                    <UButton 
+                    <UButton
+                        v-if="canDeleteInstructions"
                         size="xs"
-                        color="red" 
-                        variant="ghost" 
+                        color="red"
+                        variant="ghost"
                         @click="confirmDelete"
                         :loading="isDeleting"
                     >
                         <Icon name="heroicons:trash" class="w-3.5 h-3.5 mr-1" />
                         Delete
                     </UButton>
-                    
-                    <div class="flex gap-2">
+
+                    <div class="flex gap-2 ml-auto">
                         <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
                             Close
                         </UButton>
-                        <UButton 
-                            size="xs" 
+                        <UButton
+                            v-if="canEditInstructions || canSuggestInstructions"
+                            size="xs"
                             color="blue"
                             @click="isViewMode = false"
                         >
                             <Icon name="heroicons:pencil" class="w-3.5 h-3.5 mr-1" />
-                            Edit
+                            {{ isSuggestMode ? 'Suggest edit' : 'Edit' }}
                         </UButton>
                     </div>
                 </div>
@@ -606,33 +608,33 @@ Tip: Type @ to reference other instructions"
             <!-- Form Actions (fixed at bottom) -->
             <div class="shrink-0 bg-white border-t px-5 py-3">
                 <div class="flex justify-between items-center">
-                    <!-- Delete button (only show when editing) -->
-                    <UButton 
-                        v-if="isEditing"
+                    <!-- Delete button (only show when editing and user can delete) -->
+                    <UButton
+                        v-if="isEditing && canDeleteInstructions"
                         size="xs"
-                        color="red" 
-                        variant="ghost" 
+                        color="red"
+                        variant="ghost"
                         @click="confirmDelete"
                         :loading="isDeleting"
                     >
                         <Icon name="heroicons:trash" class="w-3.5 h-3.5 mr-1" />
                         Delete
                     </UButton>
-                    
-                    <div class="flex gap-2" :class="{ 'ml-auto': !isEditing }">
+
+                    <div class="flex gap-2" :class="{ 'ml-auto': !(isEditing && canDeleteInstructions) }">
                         <UButton v-if="isEditing" color="gray" variant="ghost" size="xs" @click="cancelEdit">
                             Cancel
                         </UButton>
                         <UButton v-else color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
                             Cancel
                         </UButton>
-                        <UButton 
-                            type="submit" 
-                            size="xs" 
+                        <UButton
+                            type="submit"
+                            size="xs"
                             color="blue"
                             :loading="isSubmitting"
                         >
-                            {{ isEditing ? 'Update' : 'Create' }}
+                            {{ isSuggestMode ? 'Submit suggestion' : (isEditing ? 'Update' : 'Create') }}
                         </UButton>
                     </div>
                 </div>
@@ -1173,6 +1175,13 @@ const instructionForm = ref<InstructionForm>({
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
 
+// Permission-derived mode: users with only `suggest_instructions` can propose edits,
+// which flow through the build system and land as pending_approval for admin review.
+const canEditInstructions = computed(() => useCan('create_instructions') || useCan('update_instructions'))
+const canDeleteInstructions = computed(() => useCan('delete_instructions'))
+const canSuggestInstructions = computed(() => useCan('suggest_instructions'))
+const isSuggestMode = computed(() => !canEditInstructions.value && canSuggestInstructions.value)
+
 const createdAtDisplay = computed(() => {
     const raw = props.instruction?.created_at
     if (!raw) return null
@@ -1292,20 +1301,31 @@ const filteredMentionableOptions = computed(() => {
 })
 
 // Status options (simplified - no more suggestion workflow)
+// Labels are user-facing; backend enum values unchanged.
 const statusOptions = computed(() => {
     return [
-        { label: 'Draft', value: 'draft' },
-        { label: 'Published', value: 'published' },
-        { label: 'Archived', value: 'archived' }
+        { label: 'Active', value: 'published' },
+        { label: 'Inactive', value: 'draft' }
     ]
 })
 
-// Helper function to get the right display text for the currently selected status
+// True when the instruction has an in-flight change in an unpublished build.
+// When true, the badge single-replaces the underlying Active/Inactive label
+// with "Pending review" so the user isn't misled about live vs. pending state.
+const isPendingReview = computed(() => {
+    const inst: any = props.instruction
+    if (!inst?.current_build_id) return false
+    const bs = inst.current_build_status
+    return bs === 'draft' || bs === 'pending_approval'
+})
+
+// Display text for the currently-selected status badge.
 const getCurrentStatusDisplayText = () => {
+    if (isPendingReview.value) return 'Pending review'
     const currentStatus = instructionForm.value.status
     const statusMap: Record<string, string> = {
-        draft: 'Draft',
-        published: 'Published', 
+        draft: 'Inactive',
+        published: 'Active',
         archived: 'Archived'
     }
     return statusMap[currentStatus] || formatStatus(currentStatus)
@@ -1385,8 +1405,8 @@ const handleDataSourceToggle = (dataSourceId: string) => {
 // Helper functions
 const formatStatus = (status: string) => {
     const statusMap = {
-        draft: 'Draft',
-        published: 'Published',
+        draft: 'Inactive',
+        published: 'Active',
         archived: 'Archived'
     }
     return statusMap[status as keyof typeof statusMap] || status
@@ -1405,6 +1425,11 @@ const formatCategory = (category: string) => {
 }
 
 const getStatusClass = (status: string) => {
+    // Read-only display path: when the instruction is pending review, the
+    // badge replaces the underlying Active/Inactive color with amber.
+    if (isPendingReview.value && status === instructionForm.value.status) {
+        return 'bg-amber-100 text-amber-800'
+    }
     const statusClasses = {
         draft: 'bg-yellow-100 text-yellow-800',
         published: 'bg-green-100 text-green-800',

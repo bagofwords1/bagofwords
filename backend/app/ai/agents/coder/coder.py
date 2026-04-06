@@ -444,9 +444,6 @@ class Coder:
             {messages_context}
             </messages>
 
-            - History Summary:
-            {history_summary}
-
             - Past Observations:
             <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>
 
@@ -460,11 +457,11 @@ class Coder:
 
             **Guidelines and Requirements**:
 
-            0. **CRITICAL - ONE FOCUSED WIDGET**:
-               - Create ONE widget that answers ONE specific question or shows ONE metric/chart.
-               - Do NOT combine multiple unrelated KPIs, metrics, or analyses into a single DataFrame.
-               - If past_observations contain multi-table inspection queries, those were exploratory research — do NOT mimic that pattern here.
-               - Your output should be focused and purposeful, not a data dump.
+            0. **Data Modeling**:
+                - Make sure the data structure answers the user prompt and is feasible given the schemas and data sources.
+                - Bias for a master table: include additional columns that are relevant for filtering and slicing in the visualization layer, even if not explicitly requested by the user. For example, if the user asks for total sales by region, also include date and product category columns if available.
+                - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
+                - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do NOT add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
 
             1. **Function Signature**: Implement exactly:
                `def generate_df(ds_clients, excel_files):`
@@ -491,7 +488,7 @@ class Coder:
                - Use only columns and relationships that exist in the provided schemas.
                - Do NOT invent columns that do not exist or cannot be derived.
                - Use metadata resources for tables/cols enrichments, code examples, etc.
-               - Never use tables/cols that exist in metadata resources but are not in the provided schemas.
+               - Never use tables/cols that exist in instructions but are not in the provided schemas.
 
             4. **Handling Previous Code and Errors**:
                - If `retries` ≥ 1, review the code_and_error_messages:
@@ -723,11 +720,13 @@ class Coder:
 
         **Guidelines and Requirements**:
 
-        0. **CRITICAL - ONE FOCUSED WIDGET**:
-           - Create ONE widget that answers ONE specific question or shows ONE metric/chart.
-           - Do NOT combine multiple unrelated KPIs, metrics, or analyses into a single DataFrame.
+        0. **Data Modeling**:
+           - Create a focused DataFrame that answers the user's question.
+           - Include additional columns that are relevant for filtering and slicing in the visualization layer, even if not explicitly requested. For example, if the user asks for total sales by region, also include date and product category columns if available.
+           - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
+           - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do NOT add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
+           - Do NOT combine multiple unrelated KPIs or analyses into a single DataFrame.
            - If past_observations contain multi-table inspection queries, those were exploratory research — do NOT mimic that pattern here.
-           - Your output should be focused and purposeful, not a data dump.
 
         1. **Function Signature**: Implement exactly:
            `def generate_df(ds_clients, excel_files):`

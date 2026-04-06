@@ -59,7 +59,7 @@ class PlannerDecision(BaseModel):
 
 class PlannerInput(BaseModel):
     external_platform: Optional[str] = None
-    mode: Optional[str] = "chat" # "chat" | "deep"
+    mode: Optional[str] = "chat" # "chat" | "deep" | "training" | "knowledge"
     user_message: str
     instructions: Optional[str] = None
     schemas_excerpt: Optional[str] = None
@@ -103,5 +103,11 @@ class PlannerInput(BaseModel):
 
     # Feature flags
     mcp_tools_enabled: bool = False
+
+    # Scheduled execution context
+    scheduled_context: Optional[Dict[str, Any]] = None
+
+    # Knowledge harness trigger conditions (formatted block injected into knowledge-mode prompt)
+    trigger_conditions: Optional[str] = None
 
 

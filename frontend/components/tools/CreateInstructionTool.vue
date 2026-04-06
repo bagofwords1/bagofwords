@@ -14,6 +14,7 @@
           <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-green-500" />
           <span class="truncate max-w-[300px]">{{ truncatedText }}</span>
           <span v-if="category" class="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
+          <span v-if="lineCount > 0" class="ml-1.5 text-[10px] text-green-600 shrink-0">+{{ lineCount }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 ml-1 text-gray-400 shrink-0"
@@ -243,6 +244,12 @@ const loadMode = computed(() => {
 const evidence = computed(() => {
   const args = props.toolExecution?.arguments_json || {}
   return args.evidence || ''
+})
+
+const lineCount = computed(() => {
+  const text = instructionText.value
+  if (!text) return 0
+  return text.split('\n').filter((l: string) => l.trim()).length
 })
 
 const tableCount = computed(() => {

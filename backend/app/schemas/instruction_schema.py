@@ -159,6 +159,12 @@ class InstructionSchema(InstructionBase):
     # === Build System fields ===
     current_version_id: Optional[str] = None
 
+    # Latest non-main build (draft or pending_approval) that contains this
+    # instruction, if any. Populated by the service layer — not an ORM column.
+    # Used by the UI to show "part of unpublished build" warnings.
+    current_build_id: Optional[str] = None
+    current_build_status: Optional[str] = None
+
     class Config:
         from_attributes = True
 

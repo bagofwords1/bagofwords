@@ -44,7 +44,7 @@
                         >
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-1.5 min-w-0">
-                                    <span class="text-xs font-medium text-gray-800 truncate">{{ build.title || `Build #${build.build_number}` }}</span>
+                                    <span class="text-xs font-medium text-gray-800 truncate">{{ buildDisplayTitle(build) }}</span>
                                     <!-- Git indicator with tooltip -->
                                     <UTooltip 
                                         v-if="build.git_pr_url" 
@@ -76,7 +76,7 @@
                                 <span>#{{ build.build_number }}</span>
                                 <span>•</span>
                                 <span>{{ formatDate(build.created_at) }}</span>
-                                <span v-if="build.created_by_user_name" class="truncate">• {{ build.created_by_user_name }}</span>
+                                <span v-if="build.created_by_user_name" class="truncate">• {{ build.source === 'ai' ? `AI for ${build.created_by_user_name}` : build.created_by_user_name }}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5">
                                 <span class="text-[10px] text-gray-400">
@@ -111,47 +111,57 @@
                     <template v-else>
                         <!-- Build Header -->
                         <div class="px-4 py-3 border-b border-gray-200 bg-white shrink-0">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <h4 class="text-sm font-semibold text-gray-900">
-                                        {{ selectedBuild.title || `Build #${selectedBuild.build_number}` }}
-                                    </h4>
-                                    <div class="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
-                                        <span>#{{ selectedBuild.build_number }} • {{ formatDateTime(selectedBuild.created_at) }}</span>
-                                        <span v-if="selectedBuild.created_by_user_name" class="flex items-center gap-1">
-                                            <UIcon name="i-heroicons-user" class="w-2.5 h-2.5" />
-                                            {{ selectedBuild.created_by_user_name }}
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <h4 class="text-sm font-semibold text-gray-900 truncate">
+                                            {{ buildDisplayTitle(selectedBuild) }}
+                                        </h4>
+                                        <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full shrink-0">
+                                            Active
                                         </span>
-                                        <span v-if="selectedBuild.approved_by_user_name" class="flex items-center gap-1 text-green-600">
-                                            <UIcon name="i-heroicons-check-badge" class="w-2.5 h-2.5" />
-                                            Approved by {{ selectedBuild.approved_by_user_name }}
+                                        <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full shrink-0">
+                                            Pending
+                                        </span>
+                                        <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full shrink-0">
+                                            Rejected
                                         </span>
                                     </div>
-                                    <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-0.5">
-                                        <span>Build ID:</span>
-                                        <button 
+                                    <div class="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
+                                        <span>#{{ selectedBuild.build_number }} • {{ formatDateTime(selectedBuild.created_at) }}</span>
+                                        <span v-if="selectedBuild.created_by_user_name">
+                                            • {{ selectedBuild.source === 'ai' ? `AI for ${selectedBuild.created_by_user_name}` : selectedBuild.created_by_user_name }}
+                                        </span>
+                                        <span v-if="selectedBuild.approved_by_user_name" class="text-green-600">• Approved by {{ selectedBuild.approved_by_user_name }}</span>
+                                        <button
                                             @click="copyBuildId"
-                                            class="flex items-center gap-1 font-mono text-gray-500 hover:text-gray-900 cursor-pointer transition-colors"
-                                            title="Click to copy"
+                                            class="flex items-center text-gray-400 hover:text-gray-700 transition-colors"
+                                            :title="`Copy Build ID: ${selectedBuild.id}`"
                                         >
-                                            {{ selectedBuild.id }}
                                             <UIcon name="i-heroicons-clipboard-document" class="w-3 h-3" />
                                         </button>
                                     </div>
+                                    <!-- Build description ("commit message") — read-only -->
+                                    <div
+                                        v-if="selectedBuild.description"
+                                        class="mt-3 mb-3 text-[13px] text-gray-700 markdown-wrapper"
+                                    >
+                                        <MDC :value="selectedBuild.description" class="markdown-content" />
+                                    </div>
+                                    <!-- View source trace link -->
+                                    <button
+                                        v-if="canViewConsole && selectedBuild.agent_execution_id && selectedBuild.report_id && selectedBuild.completion_id"
+                                        @click="openTraceForSelectedBuild"
+                                        class="mt-1 mb-2 flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-900 transition-colors"
+                                    >
+                                        <Icon name="heroicons-bug-ant" class="w-3.5 h-3.5" />
+                                        View source trace
+                                    </button>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
-                                        Active
-                                    </span>
-                                    <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
-                                        Pending Approval
-                                    </span>
-                                    <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full">
-                                        Rejected
-                                    </span>
-                                    
+                                <div class="flex items-center gap-1.5 shrink-0">
+
                                     <!-- Git Status Badge -->
-                                    <a 
+                                    <a
                                         v-if="selectedBuild.git_pr_url"
                                         :href="selectedBuild.git_pr_url"
                                         target="_blank"
@@ -160,14 +170,14 @@
                                         <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" />
                                         PR
                                     </a>
-                                    <span 
+                                    <span
                                         v-else-if="selectedBuild.git_branch_name"
                                         class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full flex items-center gap-1"
                                     >
                                         <UIcon name="i-heroicons-code-bracket" class="w-2.5 h-2.5" />
                                         {{ selectedBuild.git_branch_name }}
                                     </span>
-                                    
+
                                     <!-- Push to Git button - only for non-git-sourced builds -->
                                     <UButton
                                         v-if="gitRepoId && canCreateBuilds && !selectedBuild.git_pushed_at && selectedBuild.source !== 'git'"
@@ -260,153 +270,103 @@
                                 </div>
                             </button>
                             
-                            <!-- Expanded diff content -->
-                            <div v-if="diffExpanded" class="px-4 pb-3 space-y-2">
-                                <!-- Added -->
-                                <div v-if="addedItems.length" class="space-y-1">
-                                    <div class="text-[10px] font-medium text-green-700">Added</div>
-                                    <div 
-                                        v-for="item in addedItems.slice(0, 5)" 
-                                        :key="item.instruction_id"
-                                        class="group flex items-center justify-between border-l-2 border-l-green-400 bg-green-50/30 pl-2 pr-1 py-1 rounded-r"
+                            <!-- Expanded diff content: unified change list
+                                 (mirrors KnowledgeGroup.vue row styling) -->
+                            <div v-if="diffExpanded" class="px-4 pb-3 space-y-0.5">
+                                <div
+                                    v-for="item in allDiffItems"
+                                    :key="item.instruction_id + ':' + item.change_type"
+                                    :class="[
+                                        'py-1 px-1.5 -mx-1.5 rounded hover:bg-gray-50',
+                                        // Fade out unchecked rows (excludable ones only).
+                                        (item.change_type !== 'removed' && !selectedInstructionIds.has(item.instruction_id)) ? 'opacity-50' : ''
+                                    ]"
+                                >
+                                    <div
+                                        class="flex items-start gap-2 cursor-pointer"
+                                        @click="toggleDiffExpand(item.instruction_id)"
                                     >
-                                        <span class="text-[10px] text-gray-700 truncate flex-1 min-w-0">
-                                            {{ truncateText(item.title || item.text, 70) }}
-                                        </span>
-                                        <div class="flex items-center gap-1 shrink-0">
-                                            <button
-                                                v-if="isBuildEditable"
-                                                @click="openEditInstruction(item)"
-                                                class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
-                                                title="Edit instruction"
-                                            >
-                                                <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
-                                                Edit
-                                            </button>
-                                            <button
-                                                v-if="isBuildEditable"
-                                                @click="removeChange(item)"
-                                                class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                                                title="Remove this addition"
-                                            >
-                                                <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
-                                                Remove
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div v-if="addedItems.length > 5" class="text-[10px] text-gray-400 pl-2">
-                                        +{{ addedItems.length - 5 }} more
-                                    </div>
-                                </div>
-                                
-                                <!-- Modified -->
-                                <div v-if="modifiedItems.length" class="space-y-1">
-                                    <div class="text-[10px] font-medium text-amber-700">Modified</div>
-                                    <div 
-                                        v-for="item in modifiedItems.slice(0, 5)" 
-                                        :key="item.instruction_id"
-                                        class="group border-l-2 border-l-amber-400 bg-amber-50/30 pl-2 pr-1 py-1.5 rounded-r"
-                                    >
-                                        <div class="flex items-center justify-between">
-                                            <span class="text-[10px] text-gray-700 font-medium truncate flex-1 min-w-0">
-                                                {{ truncateText(item.title || item.text, 70) }}
-                                            </span>
-                                            <div class="flex items-center gap-1 shrink-0">
-                                                <button
-                                                    v-if="isBuildEditable"
-                                                    @click="openEditInstruction(item)"
-                                                    class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
-                                                    title="Edit instruction"
+                                        <UCheckbox
+                                            v-if="isBuildEditable && item.change_type !== 'removed'"
+                                            :model-value="selectedInstructionIds.has(item.instruction_id)"
+                                            color="blue"
+                                            @update:model-value="(v: boolean) => toggleInstructionSelection(item.instruction_id, v)"
+                                            @click.stop
+                                            class="mt-0.5"
+                                        />
+                                        <!-- Spacer when no checkbox (removed row, or read-only build) -->
+                                        <span v-else class="w-4 shrink-0"></span>
+                                        <UIcon
+                                            :name="isDiffItemExpanded(item.instruction_id) ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
+                                            class="w-3 h-3 text-gray-400 mt-0.5 shrink-0"
+                                        />
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center gap-1.5">
+                                                <span
+                                                    :class="[
+                                                        'text-[9px] font-mono font-semibold uppercase tracking-wide shrink-0',
+                                                        item.change_type === 'added' ? 'text-green-600' :
+                                                        item.change_type === 'modified' ? 'text-blue-600' : 'text-red-600'
+                                                    ]"
                                                 >
-                                                    <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    v-if="isBuildEditable"
-                                                    @click="removeChange(item)"
-                                                    class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
-                                                    title="Revert this change"
+                                                    {{ item.change_type === 'added' ? 'new' : item.change_type === 'modified' ? 'edit' : 'del' }}
+                                                </span>
+                                                <span class="text-[12px] text-gray-700 truncate">
+                                                    {{ item.title || truncateText(item.text, 70) }}
+                                                </span>
+                                                <span
+                                                    v-if="item.change_type === 'modified'"
+                                                    class="flex items-center gap-1 shrink-0"
                                                 >
-                                                    <UIcon name="i-heroicons-arrow-uturn-left" class="w-3 h-3" />
-                                                    Revert
-                                                </button>
+                                                    <span v-if="diffLineCounts(item).added > 0" class="text-[10px] font-mono text-green-600">+{{ diffLineCounts(item).added }}</span>
+                                                    <span v-if="diffLineCounts(item).removed > 0" class="text-[10px] font-mono text-red-500">−{{ diffLineCounts(item).removed }}</span>
+                                                </span>
+                                            </div>
+                                            <!-- Changed-fields chips (only for modified) -->
+                                            <div v-if="item.change_type === 'modified' && item.changed_fields?.length" class="flex flex-wrap gap-1 mt-0.5">
+                                                <span
+                                                    v-for="f in item.changed_fields"
+                                                    :key="f"
+                                                    class="inline-flex items-center px-1 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px]"
+                                                >
+                                                    {{ f }}
+                                                </span>
                                             </div>
                                         </div>
-                                        <!-- Show what changed -->
-                                        <div class="flex flex-wrap gap-1 mt-1">
-                                            <span 
-                                                v-if="item.changed_fields?.includes('text')"
-                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px]"
-                                            >
-                                                <UIcon name="i-heroicons-document-text" class="w-2.5 h-2.5" />
-                                                text
-                                            </span>
-                                            <span 
-                                                v-if="item.changed_fields?.includes('status')"
-                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px]"
-                                            >
-                                                <UIcon name="i-heroicons-flag" class="w-2.5 h-2.5" />
-                                                {{ item.previous_status }} → {{ item.status }}
-                                            </span>
-                                            <span 
-                                                v-if="item.changed_fields?.includes('load_mode')"
-                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-purple-100 text-purple-700 rounded text-[9px]"
-                                            >
-                                                <UIcon name="i-heroicons-bolt" class="w-2.5 h-2.5" />
-                                                {{ formatLoadMode(item.previous_load_mode) }} → {{ formatLoadMode(item.load_mode) }}
-                                            </span>
-                                            <span 
-                                                v-if="item.changed_fields?.includes('category')"
-                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-gray-100 text-gray-700 rounded text-[9px]"
-                                            >
-                                                <UIcon name="i-heroicons-tag" class="w-2.5 h-2.5" />
-                                                category
-                                            </span>
-                                            <span 
-                                                v-if="item.changed_fields?.includes('references')"
-                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-teal-100 text-teal-700 rounded text-[9px]"
-                                            >
-                                                <UIcon name="i-heroicons-table-cells" class="w-2.5 h-2.5" />
-                                                references
-                                                <template v-if="item.references_added">+{{ item.references_added }}</template>
-                                                <template v-if="item.references_removed">-{{ item.references_removed }}</template>
-                                            </span>
-                                            <span 
-                                                v-if="item.changed_fields?.includes('title')"
-                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px]"
-                                            >
-                                                title
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div v-if="modifiedItems.length > 5" class="text-[10px] text-gray-400 pl-2">
-                                        +{{ modifiedItems.length - 5 }} more
-                                    </div>
-                                </div>
-                                
-                                <!-- Removed -->
-                                <div v-if="removedItems.length" class="space-y-1">
-                                    <div class="text-[10px] font-medium text-red-700">Removed</div>
-                                    <div 
-                                        v-for="item in removedItems.slice(0, 5)" 
-                                        :key="item.instruction_id"
-                                        class="group flex items-center justify-between border-l-2 border-l-red-400 bg-red-50/30 pl-2 pr-1 py-1 rounded-r"
-                                    >
-                                        <span class="text-[10px] text-gray-700 truncate">
-                                            {{ truncateText(item.title || item.text, 70) }}
-                                        </span>
                                         <button
-                                            v-if="isBuildEditable"
-                                            @click="removeChange(item)"
-                                            class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
-                                            title="Restore this instruction"
+                                            v-if="isBuildEditable && item.change_type !== 'removed'"
+                                            @click.stop="openEditInstruction(item)"
+                                            class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                                            title="Edit instruction"
                                         >
-                                            <UIcon name="i-heroicons-arrow-uturn-left" class="w-3 h-3" />
-                                            Restore
+                                            <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
+                                            Edit
                                         </button>
                                     </div>
-                                    <div v-if="removedItems.length > 5" class="text-[10px] text-gray-400 pl-2">
-                                        +{{ removedItems.length - 5 }} more
+
+                                    <!-- Inline expansion: full text / before-after -->
+                                    <div
+                                        v-if="isDiffItemExpanded(item.instruction_id)"
+                                        class="mt-2 ml-10 text-[11px]"
+                                    >
+                                        <template v-if="item.change_type === 'modified'">
+                                            <div class="space-y-1.5">
+                                                <div>
+                                                    <div class="text-[9px] font-medium uppercase tracking-wide text-red-600 mb-0.5">Before</div>
+                                                    <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-l-2 border-l-red-300 pl-2 py-1 text-gray-700 font-sans">{{ item.previous_text || '(empty)' }}</pre>
+                                                </div>
+                                                <div>
+                                                    <div class="text-[9px] font-medium uppercase tracking-wide text-green-600 mb-0.5">After</div>
+                                                    <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-l-2 border-l-green-300 pl-2 py-1 text-gray-700 font-sans">{{ item.text || '(empty)' }}</pre>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template v-else-if="item.change_type === 'added'">
+                                            <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-l-2 border-l-green-300 pl-2 py-1 text-gray-700 font-sans">{{ item.text }}</pre>
+                                        </template>
+                                        <template v-else>
+                                            <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-l-2 border-l-red-300 pl-2 py-1 text-gray-700 font-sans">{{ item.previous_text || item.text }}</pre>
+                                        </template>
                                     </div>
                                 </div>
                             </div>
@@ -661,6 +621,21 @@
                     />
                 </div>
             </template>
+            <div
+                v-if="selectedBuild?.status === 'pending_approval'"
+                class="mx-4 mt-3 mb-1 flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-[12px] text-amber-800"
+            >
+                <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                    This instruction is part of a build pending approval. Changes here will update the pending build — they won't go live until the build is published.
+                    <button
+                        @click="closeEditInstruction"
+                        class="ml-1 font-medium text-amber-900 underline hover:text-amber-950"
+                    >
+                        View build #{{ selectedBuild.build_number }}
+                    </button>
+                </span>
+            </div>
             <InstructionGlobalCreateComponent
                 v-if="editingInstruction"
                 :instruction="editingInstruction"
@@ -670,6 +645,15 @@
             />
         </UCard>
     </UModal>
+
+    <!-- Agent Trace modal — opened from the "View trace" button on builds
+         that were produced by an agent execution. -->
+    <TraceModal
+        v-if="canViewConsole"
+        v-model="showTraceModal"
+        :report-id="traceReportId"
+        :completion-id="traceCompletionId"
+    />
 </template>
 
 <script setup lang="ts">
@@ -677,6 +661,7 @@ import Spinner from '~/components/Spinner.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
+import TraceModal from '~/components/console/TraceModal.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 import { useCan } from '~/composables/usePermissions'
 
@@ -684,10 +669,15 @@ interface Build {
     id: string
     build_number: number
     title?: string  // Auto-generated or user-provided title
+    description?: string  // Commit-message style rationale (from harness evidence)
     is_main: boolean
     status: string
     source?: string  // 'user' | 'git' | 'ai'
     base_build_id?: string  // The build this was forked from (for diff comparison)
+    // Agent execution trigger + resolved trace coordinates
+    agent_execution_id?: string
+    report_id?: string
+    completion_id?: string
     created_at: string
     total_instructions?: number
     added_count?: number
@@ -821,6 +811,38 @@ const selectedBuild = ref<Build | null>(null)
 const mainBuild = ref<Build | null>(null)  // Stored separately for diff comparison
 const instructions = ref<Instruction[]>([])
 const diffData = ref<BuildDiffDetailedResponse | null>(null)
+// Per-row expansion state in the unified changes list.
+const expandedDiffItems = ref<Set<string>>(new Set())
+// Checkbox selection for publish filtering. Default-all-selected whenever
+// diffData loads; only 'added' + 'modified' rows are checkable (unchecking a
+// 'removed' row has no effect in publish_build's filter semantics).
+const selectedInstructionIds = ref<Set<string>>(new Set())
+
+const isDiffItemExpanded = (id: string) => expandedDiffItems.value.has(id)
+const toggleDiffExpand = (id: string) => {
+    const next = new Set(expandedDiffItems.value)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    expandedDiffItems.value = next
+}
+const toggleInstructionSelection = (id: string, checked: boolean) => {
+    const next = new Set(selectedInstructionIds.value)
+    if (checked) next.add(id)
+    else next.delete(id)
+    selectedInstructionIds.value = next
+}
+
+// Cheap line-count based diff stats for the row header.
+const diffLineCounts = (item: DiffInstructionItem) => {
+    const prev = (item.previous_text || '').split('\n')
+    const next = (item.text || '').split('\n')
+    const prevSet = new Set(prev)
+    const nextSet = new Set(next)
+    let added = 0, removed = 0
+    for (const l of next) if (!prevSet.has(l)) added++
+    for (const l of prev) if (!nextSet.has(l)) removed++
+    return { added, removed }
+}
 const diffExpanded = ref(true)
 const instructionsExpanded = ref(false)
 const evalsExpanded = ref(true)
@@ -846,6 +868,20 @@ const toast = useToast()
 // Permission check - use computed for reactivity
 const canCreateBuilds = computed(() => useCan('create_builds'))
 const canManageTests = computed(() => useCan('manage_tests'))
+const canViewConsole = computed(() => useCan('view_console'))
+
+// TraceModal state (opened from the "View trace" button on builds that were
+// produced by an agent execution).
+const showTraceModal = ref(false)
+const traceReportId = ref<string>('')
+const traceCompletionId = ref<string>('')
+const openTraceForSelectedBuild = () => {
+    const b = selectedBuild.value
+    if (!b?.report_id || !b?.completion_id) return
+    traceReportId.value = b.report_id
+    traceCompletionId.value = b.completion_id
+    showTraceModal.value = true
+}
 
 // Pagination
 const currentPage = ref(1)
@@ -886,11 +922,28 @@ const modifiedItems = computed(() =>
 const removedItems = computed(() => 
     diffData.value?.items.filter(i => i.change_type === 'removed') || []
 )
-const hasDiffChanges = computed(() => 
-    (diffData.value?.added_count || 0) + 
-    (diffData.value?.modified_count || 0) + 
+const hasDiffChanges = computed(() =>
+    (diffData.value?.added_count || 0) +
+    (diffData.value?.modified_count || 0) +
     (diffData.value?.removed_count || 0) > 0
 )
+// Unified list: added + modified + removed in deterministic order.
+const allDiffItems = computed<DiffInstructionItem[]>(() => {
+    const items = diffData.value?.items || []
+    const order = { added: 0, modified: 1, removed: 2 } as Record<string, number>
+    return [...items].sort((a, b) => (order[a.change_type] ?? 9) - (order[b.change_type] ?? 9))
+})
+
+// Seed default-all-selected whenever a new diff loads. Excludes 'removed'
+// rows since publish_build's instruction_ids filter can't un-remove.
+watch(diffData, (next) => {
+    const picks = new Set<string>()
+    for (const item of next?.items || []) {
+        if (item.change_type !== 'removed') picks.add(item.instruction_id)
+    }
+    selectedInstructionIds.value = picks
+    expandedDiffItems.value = new Set()
+}, { immediate: true })
 
 // Build is editable if it's in draft or pending_approval status (not yet published)
 const isBuildEditable = computed(() => 
@@ -1106,11 +1159,23 @@ const rollbackToBuild = async () => {
 
 const publishBuild = async () => {
     if (!selectedBuild.value || publishingBuild.value) return
-    
+
+    // Include selected (added/modified) + all removed instruction ids. The
+    // backend filter drops any BuildContent row whose instruction_id isn't in
+    // the list before promoting — removed rows have no content row by
+    // definition, so their ids are effectively a no-op but we include them
+    // for symmetry and to future-proof against filter semantic changes.
+    const selectedIds = Array.from(selectedInstructionIds.value)
+    const removedIds = (diffData.value?.items || [])
+        .filter(i => i.change_type === 'removed')
+        .map(i => i.instruction_id)
+    const instructionIds = Array.from(new Set([...selectedIds, ...removedIds]))
+
     publishingBuild.value = true
     try {
         const response = await useMyFetch(`/builds/${selectedBuild.value.id}/publish`, {
-            method: 'POST'
+            method: 'POST',
+            body: { instruction_ids: instructionIds },
         })
         
         if (response.error.value) {
@@ -1124,13 +1189,21 @@ const publishBuild = async () => {
             icon: 'i-heroicons-rocket-launch'
         })
         
-        // Refresh builds list
+        // Refresh builds list and the currently-selected build's data.
+        // In suggestionsMode the list only contains pending_approval builds,
+        // so the just-published build will drop out — refetch it by id so
+        // the detail pane reflects the new status instead of staying stale.
+        const publishedId = selectedBuild.value.id
         await fetchBuilds()
-        
-        // Select the new main build
-        const newMainBuild = builds.value.find(b => b.is_main)
-        if (newMainBuild) {
-            await selectBuild(newMainBuild)
+
+        try {
+            const r = await useMyFetch<Build>(`/builds/${publishedId}`)
+            if (r.data.value) {
+                selectedBuild.value = r.data.value as Build
+                await Promise.all([fetchInstructions(), fetchDiff()])
+            }
+        } catch (refreshErr) {
+            console.warn('Failed to refresh published build:', refreshErr)
         }
     } catch (e: any) {
         console.error('Publish failed:', e)
@@ -1384,6 +1457,26 @@ const handlePageChange = (page: number) => {
 const handleInstructionClick = (instruction: Instruction) => {
     // Could emit an event or open a detail view
     console.log('Clicked instruction:', instruction.id)
+}
+
+const buildDisplayTitle = (build: any): string => {
+    if (build?.title) return build.title
+    if (build?.description) {
+        // Use the first non-empty line of the description, stripped of markdown list markers/emphasis
+        const firstLine = String(build.description)
+            .split('\n')
+            .map((l: string) => l.trim())
+            .find((l: string) => l.length > 0)
+        if (firstLine) {
+            const cleaned = firstLine
+                .replace(/^[-*+]\s+/, '')        // leading list marker
+                .replace(/\*\*(.+?)\*\*/g, '$1') // bold
+                .replace(/[*_`]/g, '')           // stray emphasis chars
+                .trim()
+            if (cleaned) return cleaned.length > 80 ? cleaned.slice(0, 77) + '…' : cleaned
+        }
+    }
+    return `Build #${build?.build_number ?? ''}`
 }
 
 const formatDate = (dateStr: string) => {

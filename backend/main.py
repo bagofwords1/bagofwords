@@ -76,6 +76,7 @@ from app.routes import (
     artifact,
     oauth_server,
     rbac,
+    scheduled_prompt,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -179,6 +180,7 @@ app.include_router(
 app.include_router(demo_data_source.router, prefix="/api")  # Must be before data_source for /data_sources/demos to match
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
+app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
 app.include_router(widget.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
@@ -350,6 +352,10 @@ async def startup_event():
             logger.error(f"Failed to schedule LDAP sync job: {e}")
 
     scheduler.start()
+
+    # Re-register scheduled prompt jobs
+    from app.services.scheduled_prompt_service import scheduled_prompt_service
+    await scheduled_prompt_service.register_all_jobs()
 
     # Validate license at startup
     license_info = get_license_info()

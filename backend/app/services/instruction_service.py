@@ -101,8 +101,14 @@ class InstructionService:
             
         db.add(instruction)
         await db.commit()
-        await db.refresh(instruction)
-        
+        # Refresh ID + any relationships that will be set below
+        refresh_attrs = ['id']
+        if instruction_data.data_source_ids:
+            refresh_attrs.append('data_sources')
+        if getattr(instruction_data, "label_ids", None):
+            refresh_attrs.append('labels')
+        await db.refresh(instruction, refresh_attrs)
+
         # Associate with data sources if provided
         if instruction_data.data_source_ids:
             await self._associate_data_sources(db, instruction, instruction_data.data_source_ids)
@@ -636,6 +642,11 @@ class InstructionService:
         if update_type == "admin_edit":
             await self._handle_admin_edit(instruction, instruction_data, current_user)
         elif update_type == "owner_edit":
+            await self._handle_owner_edit(instruction, instruction_data)
+        elif update_type == "suggester_edit":
+            # Suggester edits use the same safe field subset as owner edits (no status changes).
+            # The downstream build-auto-finalize logic will route the resulting build to
+            # pending_approval since the user is not an admin.
             await self._handle_owner_edit(instruction, instruction_data)
         else:
             raise HTTPException(status_code=403, detail="Permission denied")
@@ -1471,15 +1482,20 @@ class InstructionService:
         """
         is_admin = self._is_admin_permissions(user_permissions)
         is_owner = instruction.user_id == current_user.id
-        
+        can_suggest = 'suggest_instructions' in user_permissions
+
         # Admin editing any instruction
         if is_admin:
             return "admin_edit"
-        
+
         # Owner editing their own instruction
         elif is_owner and user_permissions:
             return "owner_edit"
-        
+
+        # Non-admin with suggest permission: proposes edit; auto-finalize routes it to pending_approval
+        elif can_suggest:
+            return "suggester_edit"
+
         # No permission
         else:
             return "no_permission"
@@ -2063,6 +2079,33 @@ class InstructionService:
         """Convert instruction to schema with populated references."""
         # Convert to basic schema
         instruction_dict = InstructionSchema.from_orm(instruction).model_dump()
+
+        # Look up the latest non-main build (draft / pending_approval) that
+        # contains this instruction, so the UI can show an "unpublished build"
+        # warning and offer a "View changes" affordance. is_main builds are
+        # the live/published state and should not trigger the warning.
+        try:
+            from app.models.instruction_build import InstructionBuild
+            from app.models.build_content import BuildContent
+            build_lookup = await db.execute(
+                select(InstructionBuild.id, InstructionBuild.status)
+                .join(BuildContent, BuildContent.build_id == InstructionBuild.id)
+                .where(
+                    BuildContent.instruction_id == instruction.id,
+                    InstructionBuild.is_main == False,  # noqa: E712
+                    InstructionBuild.status.in_(['draft', 'pending_approval']),
+                    InstructionBuild.deleted_at == None,  # noqa: E711
+                    BuildContent.deleted_at == None,  # noqa: E711
+                )
+                .order_by(InstructionBuild.created_at.desc())
+                .limit(1)
+            )
+            latest = build_lookup.first()
+            if latest:
+                instruction_dict["current_build_id"] = str(latest[0])
+                instruction_dict["current_build_status"] = latest[1]
+        except Exception as e:
+            logger.warning(f"Failed to resolve current build for instruction {instruction.id}: {e}")
         
         # Populate the referenced objects for each reference
         if instruction.references:
@@ -2161,7 +2204,6 @@ class InstructionService:
                 await self.build_service.approve_build(
                     db, build.id, approved_by_user_id=current_user.id
                 )
-                await db.refresh(build)
                 if not build.is_main:
                     await self.build_service.promote_build(db, build.id)
                     logger.info(f"Auto-approved and promoted build {build.id} to main")
@@ -2170,6 +2212,9 @@ class InstructionService:
             else:
                 # Non-admin: leave in pending_approval for admin review
                 logger.info(f"Build {build.id} submitted for admin approval (non-admin user)")
+
+            # Single commit for all deferred audit logs from submit/approve/promote
+            await db.commit()
         except Exception as e:
             logger.warning(f"Failed to auto-finalize build {build.id}: {e}")
             # Don't fail the instruction operation if auto-finalize fails

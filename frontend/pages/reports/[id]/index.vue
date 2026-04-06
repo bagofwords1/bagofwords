@@ -26,10 +26,48 @@
 			:report="report"
 			:isSplitScreen="isSplitScreen"
 			:isStreaming="isStreaming"
+			:isMobile="isMobile"
+			:mobileView="mobileView"
 			@toggleSplitScreen="toggleSplitScreen"
 			@stop="abortStream"
+			@update:mobileView="(v: any) => mobileView = v"
 		/>
 
+		<!-- Mobile right panel content (full screen) -->
+		<div v-if="isMobile && mobileView !== 'chat'" class="flex-1 min-h-0 overflow-hidden flex flex-col">
+			<div class="flex-1 min-h-0 p-2">
+				<div class="h-full w-full bg-[#f8f8f7] rounded-xl border border-black/[0.08] overflow-hidden">
+					<!-- Summary View -->
+					<div v-if="mobileView === 'summary'" class="h-full overflow-y-auto">
+						<ChatSummary
+							:scheduledPrompts="scheduledPrompts"
+							:artifactList="reportArtifacts"
+							:queryList="queryList"
+							:queryExecutions="queryExecutions"
+							:trainingInstructions="trainingInstructions"
+							@editScheduledPrompt="editScheduledPrompt"
+							@openArtifact="handleOpenArtifact"
+							@scrollToMessage="scrollToMessage"
+							/>
+					</div>
+					<!-- Agent View -->
+					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
+						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" />
+					</div>
+					<!-- Dashboard View -->
+					<ArtifactFrame
+						v-else-if="mobileView === 'dashboard' && reportLoaded && report?.id"
+						:report-id="report.id"
+						:report="report"
+						@close="mobileView = 'chat'"
+						class="h-full"
+					/>
+				</div>
+			</div>
+		</div>
+
+		<!-- Chat content (hidden on mobile when viewing other tabs) -->
+		<template v-if="!isMobile || mobileView === 'chat'">
 		<!-- Fork banner -->
 		<ForkBanner
 			v-if="report?.forked_from_id"
@@ -40,7 +78,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
-			<div class="pl-4 pr-2 pb-[3px]" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full mx-auto'">
+			<div class="pl-4 pr-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
 				<ForkedQueriesPanel
@@ -61,7 +99,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline mr-2" /> Loading older messages…
 					</li>
-					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
+					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 mb-2 text-sm">
 						<!-- Fork summary card (special rendering) -->
 						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
@@ -70,6 +108,43 @@
 							</div>
 							<div class="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
 						</div>
+
+						<!-- Scheduled prompt: collapsible header + user bubble when expanded -->
+						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
+							<button
+								@click="toggleScheduledExpand(m.id)"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors mb-2"
+							>
+								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
+								<span class="font-medium text-gray-500">Scheduled run</span>
+								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
+								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
+								<span v-if="getScheduledStats(m)" class="text-gray-400">{{ getScheduledStats(m) }}</span>
+								<Icon :name="isScheduledExpanded(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 ml-auto flex-shrink-0" />
+							</button>
+							<!-- User bubble shown inside the collapsible area -->
+							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
+								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
+									<div class="flex-1 flex justify-end">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left" dir="auto">
+											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
+												<MDC :value="m.prompt.content" class="markdown-content" />
+											</div>
+										</div>
+									</div>
+									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
+										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+											{{ report.user.name.charAt(0) }}
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Scheduled system message: hide when user header is collapsed -->
+						<template v-else-if="m.scheduled_prompt_id && m.role === 'system' && !isScheduledSystemExpanded(m)">
+							<!-- collapsed -->
+						</template>
 
 						<!-- Regular message rendering -->
 						<div
@@ -118,7 +193,7 @@
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
+										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -166,7 +241,7 @@
 											</div>
 
 											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-											<div v-if="block.tool_execution" class="tool-execution-container">
+											<div v-if="block.tool_execution" class="tool-execution-container" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
@@ -178,6 +253,7 @@
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
+													@openInstruction="openInstructionById"
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
@@ -202,6 +278,16 @@
 
 																	</div>
 
+										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
+										<KnowledgeGroup
+											v-if="(m as any)._harness_running || (m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
+											:blocks="((m.completion_blocks || []).filter(b => (b as any).phase === 'knowledge_harness') as any)"
+											:harness-running="!!(m as any)._harness_running"
+											:knowledge-harness-build="(m as any).knowledge_harness_build || null"
+											@open-instruction="openInstructionById"
+											@published="() => loadCompletions({ skipEstimate: true })"
+										/>
+
 										<!-- Thinking dots when system is working but no visible progress - moved to end -->
 										<div v-if="shouldShowWorkingDots(m)" class="mt-2">
 											<div class="simple-dots"></div>
@@ -210,14 +296,44 @@
 
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
-										<div class="flex items-center space-x-2">
-											<CompletionItemFeedback 
-												:completion="{ id: (m.system_completion_id || m.id) }" 
-												:feedbackScore="m.feedback_score || 0" 
+										<div class="flex items-center gap-1">
+											<CompletionItemFeedback
+												:completion="{ id: (m.system_completion_id || m.id) }"
+												:feedbackScore="m.feedback_score || 0"
 												:initialUserFeedback="m.user_feedback"
 												@suggestionsLoading="() => handleSuggestionsLoading(m)"
 												@suggestionsReceived="(suggestions) => handleSuggestionsReceived(m, suggestions)"
 											/>
+
+											<!-- Instructions loaded indicator with popover -->
+											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }" ref="instructionsPopoverRef">
+												<UButton variant="ghost" color="gray" size="xs" class="!px-1.5">
+													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
+													<span class="text-xs text-gray-700 font-normal">{{ visibleInstructions(m).length }} instructions</span>
+												</UButton>
+												<template #panel="{ close }">
+													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
+														<div class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Instructions loaded</div>
+														<div class="space-y-0.5">
+															<div
+																v-for="ins in visibleInstructions(m)"
+																:key="ins.id"
+																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-xs text-gray-700"
+																@click="close(); openInstructionById(ins.id)"
+															>
+																<DataSourceIcon v-if="ins.data_source_type" :type="ins.data_source_type" class="h-3.5 w-3.5 flex-shrink-0" />
+																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+																<span class="flex-1 truncate">{{ ins.title || 'Untitled' }}</span>
+																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
+																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'">
+																	{{ ins.load_mode || 'always' }}
+																</span>
+															</div>
+														</div>
+													</div>
+												</template>
+											</UPopover>
 
 											<!-- Debug button -->
 											<button
@@ -232,7 +348,7 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="report?.mode !== 'training' && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+									<div v-if="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
 												id: `suggestions-${m.id}`,
@@ -257,16 +373,8 @@
 							</template>
 						</div>
 					</li>
-					<!-- Training Mode Summary - shows all instructions created in this session -->
-					<li v-if="report?.mode === 'training'" class="mt-4">
-						<TrainingInstructionsSummary
-							:report="report"
-							:isStreaming="isStreaming"
-							:messages="messages"
-						/>
-					</li>
 			</ul>
-			<div v-else class="w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
+			<div v-else class="mt-32 fade-in">
 				<h1 class="text-4xl mb-4">🪴</h1>
 				<h1 class="text-lg font-semibold">Ask a question to get started.</h1>
 
@@ -280,13 +388,13 @@
 		</div>
 
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
-		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<Spinner class="w-3 h-3 mr-2 text-gray-400" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
-		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
 					<span class="font-medium bg-yellow-100 text-yellow-800 px-2 py-1 rounded-md">Note
@@ -295,7 +403,7 @@
 					</span>
 				</div>
 			</div>
-		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
@@ -303,7 +411,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
@@ -311,7 +419,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
@@ -321,7 +429,7 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
-			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+			<div class="mx-auto px-4 max-w-2xl w-full">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -329,59 +437,144 @@
 					:initialMode="report?.mode || 'chat'"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
+					:queryList="queryList"
+					:scheduledPrompts="scheduledPrompts"
+					:trainingInstructions="trainingInstructions"
+					:hasArtifacts="hasArtifacts"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
+					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
+					@scrollToMessage="scrollToMessage"
+					@editScheduledPrompt="editScheduledPrompt"
+					@editTrainingInstruction="editTrainingInstruction"
+					@openInstructions="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; }"
+					@update:selectedDataSources="(val: any[]) => currentAgents = val"
+					@deleteScheduledPrompt="deleteScheduledPrompt"
+					@toggleScheduledPrompt="toggleScheduledPromptActive"
+					@scheduledPromptSaved="loadScheduledPrompts"
 					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
 		</div>
+		</template>
+		<!-- Training instruction edit modal -->
+		<InstructionModalComponent
+			v-model="showTrainingInstructionModal"
+			:instruction="editingTrainingInstruction"
+			:initial-type="'global'"
+			@instruction-saved="showTrainingInstructionModal = false"
+		/>
+		<!-- Edit scheduled prompt modal -->
+		<ScheduledPromptModal
+			v-model="showEditScheduledPromptModal"
+			:reportId="report_id"
+			:scheduledPrompt="editingScheduledPrompt"
+			:initialDataSources="report?.data_sources || []"
+			@saved="loadScheduledPrompts"
+		/>
 	</div>
 		</template>
+		<template #right-header>
+			<div class="flex items-center gap-1">
+				<button
+					@click="rightPanelView = 'summary'"
+					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+					:class="rightPanelView === 'summary'
+						? 'text-gray-900 bg-gray-100'
+						: 'text-gray-400 hover:text-gray-600'"
+				>
+					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
+					Summary
+				</button>
+				<button
+					@click="rightPanelView = 'artifact'"
+					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+					:class="rightPanelView === 'artifact' || rightPanelView === 'grid'
+						? 'text-gray-900 bg-gray-100'
+						: 'text-gray-400 hover:text-gray-600'"
+				>
+					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
+					Dashboard
+				</button>
+				<button
+					@click="rightPanelView = 'agent'"
+					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+					:class="rightPanelView === 'agent'
+						? 'text-gray-900 bg-gray-100'
+						: 'text-gray-400 hover:text-gray-600'"
+				>
+					<DataSourceIcon
+						v-if="currentAgents.length === 1"
+						:type="currentAgents[0].type || currentAgents[0].connections?.[0]?.type"
+						class="h-3.5 flex-shrink-0"
+					/>
+					<Icon v-else name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
+					{{ currentAgents.length > 1 ? 'Agents' : (currentAgents[0]?.name || 'Agent') }}
+				</button>
+			</div>
+		</template>
 		<template #right>
-			<div class="h-screen flex flex-col overflow-hidden">
-				<!-- Grid View (DashboardComponent - Edit Mode) -->
-				<DashboardComponent
-					v-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
-					ref="dashboardRef"
-					:report="report"
-					:edit="true"
-					:visualizations="visualizations"
-					:textWidgetsIds="textWidgetsIds"
-					:isStreaming="isStreaming"
-					@toggleSplitScreen="toggleSplitScreen"
-					@editVisualization="handleEditQuery"
-					@toggleArtifactView="rightPanelView = 'artifact'"
-					class="flex-1 min-h-0"
+			<!-- Summary View -->
+			<div v-if="rightPanelView === 'summary'" class="h-full overflow-y-auto">
+				<ChatSummary
+					:scheduledPrompts="scheduledPrompts"
+					:artifactList="reportArtifacts"
+					:queryList="queryList"
+					:queryExecutions="queryExecutions"
+					:trainingInstructions="trainingInstructions"
+					@editScheduledPrompt="editScheduledPrompt"
+					@openArtifact="handleOpenArtifact"
+					@scrollToMessage="scrollToMessage"
 				/>
+			</div>
 
-				<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-				<DashboardComponent
-					v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
-					ref="dashboardRef"
-					:report="report"
-					:edit="true"
-					:visualizations="visualizations"
-					:textWidgetsIds="textWidgetsIds"
-					:isStreaming="isStreaming"
-					:hideArtifactSwitch="true"
-					@toggleSplitScreen="toggleSplitScreen"
-					@editVisualization="handleEditQuery"
-					class="flex-1 min-h-0"
-				/>
+			<!-- Agent View -->
+			<div v-else-if="rightPanelView === 'agent'" class="h-full overflow-y-auto">
+				<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" />
+			</div>
 
-				<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
-				<ArtifactFrame
-					v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
-					:report-id="report.id"
-					:report="report"
-					@close="toggleSplitScreen"
-					class="flex-1 min-h-0"
-				/>
+			<!-- Grid View (DashboardComponent - Edit Mode) -->
+			<DashboardComponent
+				v-else-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
+				ref="dashboardRef"
+				:report="report"
+				:edit="true"
+				:visualizations="visualizations"
+				:textWidgetsIds="textWidgetsIds"
+				:isStreaming="isStreaming"
+				@toggleSplitScreen="toggleSplitScreen"
+				@editVisualization="handleEditQuery"
+				@toggleArtifactView="rightPanelView = 'artifact'"
+				class="h-full"
+			/>
 
-				<!-- Empty state for grid view -->
-				<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 flex-1">
-					No dashboard items yet.
-				</div>
+			<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
+			<DashboardComponent
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
+				ref="dashboardRef"
+				:report="report"
+				:edit="true"
+				:visualizations="visualizations"
+				:textWidgetsIds="textWidgetsIds"
+				:isStreaming="isStreaming"
+				:hideArtifactSwitch="true"
+				@toggleSplitScreen="toggleSplitScreen"
+				@editVisualization="handleEditQuery"
+				class="h-full"
+			/>
+
+			<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
+			<ArtifactFrame
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+				:report-id="report.id"
+				:report="report"
+				@close="toggleSplitScreen"
+				class="h-full"
+			/>
+
+			<!-- Empty state for grid view -->
+			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 h-full">
+				No dashboard items yet.
 			</div>
 		</template>
 	</SplitScreenLayout>
@@ -391,6 +584,7 @@
 		v-model="showTraceModal"
 		:report-id="report_id"
 		:completion-id="selectedCompletionForTrace || ''"
+		@openInstruction="openInstructionById"
 	/>
 
 	<!-- Query Code Editor Modal -->
@@ -429,12 +623,14 @@ import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
-import TrainingInstructionsSummary from '~/components/TrainingInstructionsSummary.vue'
+import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
+import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
+import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
@@ -472,6 +668,7 @@ interface CompletionBlock {
 	id: string
 	seq?: number
 	block_index: number
+	phase?: string | null
 	status: string
 	content?: string
 	reasoning?: string
@@ -511,6 +708,8 @@ interface ChatMessage {
 	instruction_suggestions?: Array<{ text: string; category: string }>
 	// Loading state for feedback-triggered suggestions
 	instruction_suggestions_loading?: boolean
+	// Scheduled prompt tag
+	scheduled_prompt_id?: string | null
 }
 
 const route = useRoute()
@@ -521,6 +720,52 @@ const canViewConsole = computed(() => useCan('view_console'))
 
 const messages = ref<ChatMessage[]>([])
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
+
+// List of queries for the summary pills — derived from created_steps in completions
+const queryList = computed(() => {
+	const list: { id: string; label: string; rowCount?: number; messageId: string; stepId: string }[] = []
+	const seen = new Set<string>()
+	for (const m of messages.value) {
+		if (!m.completion_blocks) continue
+		for (const b of m.completion_blocks) {
+			const step = b.tool_execution?.created_step as any
+			if (step && b.tool_execution?.status === 'success') {
+				const stepId = step.id || step.query_id || ''
+				if (stepId && seen.has(stepId)) continue
+				if (stepId) seen.add(stepId)
+				list.push({
+					id: stepId,
+					label: step.title || 'Query',
+					rowCount: step.data?.info?.total_rows ?? undefined,
+					messageId: m.id,
+					stepId
+				})
+			}
+		}
+	}
+	return list
+})
+
+// Query tool executions for summary — full tool_execution objects for ToolWidgetPreview
+const queryExecutions = computed(() => {
+	const list: any[] = []
+	const seen = new Set<string>()
+	for (const m of messages.value) {
+		if (!m.completion_blocks) continue
+		for (const b of m.completion_blocks) {
+			const te = b.tool_execution
+			if (!te || te.status !== 'success') continue
+			const step = te.created_step as any
+			if (!step) continue
+			const stepId = step.id || step.query_id || ''
+			if (stepId && seen.has(stepId)) continue
+			if (stepId) seen.add(stepId)
+			list.push(te)
+		}
+	}
+	return list
+})
+
 const showContextIndicator = computed(() => {
 	const completedSystem = messages.value.some(
 		(m) => m.role === 'system' && ['success', 'error', 'stopped'].includes(m.status || '')
@@ -561,6 +806,188 @@ const report = ref<any | null>(null)
 const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
+
+// Scheduled prompts state
+const scheduledPrompts = ref<any[]>([])
+const editingScheduledPrompt = ref<any>(null)
+const showEditScheduledPromptModal = ref(false)
+const expandedScheduledIds = ref<Set<string>>(new Set())
+
+function toggleScheduledExpand(messageId: string) {
+	if (expandedScheduledIds.value.has(messageId)) {
+		expandedScheduledIds.value.delete(messageId)
+	} else {
+		expandedScheduledIds.value.add(messageId)
+	}
+}
+
+function isScheduledExpanded(messageId: string): boolean {
+	return expandedScheduledIds.value.has(messageId)
+}
+
+// Training instructions - unique list for the pill in PromptBoxV2
+const trainingInstructions = computed(() => {
+	if (report.value?.mode !== 'training' || isStreaming.value) return []
+	const byId = new Map<string, { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number; messageId: string }>()
+	for (const m of messages.value) {
+		if (!m.completion_blocks) continue
+		for (const b of m.completion_blocks) {
+			const te = b.tool_execution
+			if (!te || te.status !== 'success') continue
+			if (te.tool_name !== 'create_instruction' && te.tool_name !== 'edit_instruction') continue
+			const rj = te.result_json || {}
+			if (!rj.success || !rj.instruction_id) continue
+			const args = te.arguments_json || {}
+			const text = args.text || ''
+			const existing = byId.get(rj.instruction_id)
+			const isEdit = te.tool_name === 'edit_instruction' || (existing?.isEdit ?? false)
+			byId.set(rj.instruction_id, {
+				instructionId: rj.instruction_id,
+				title: existing?.title || text.split('\n')[0].replace(/^#+\s*/, '').trim().substring(0, 60) || 'Instruction',
+				category: args.category || existing?.category || 'general',
+				isEdit,
+				lineCount: text ? text.split('\n').filter((l: string) => l.trim()).length : (existing?.lineCount ?? 0),
+				messageId: m.id,
+			})
+		}
+	}
+	return Array.from(byId.values())
+})
+
+const showTrainingInstructionModal = ref(false)
+const editingTrainingInstruction = ref<any>(null)
+
+// Agent panel refs
+const agentPanelRef = ref<InstanceType<typeof ReportAgentPanel> | null>(null)
+const mobileAgentPanelRef = ref<InstanceType<typeof ReportAgentPanel> | null>(null)
+
+// Live list of agents (data sources) selected in the prompt box — used to drive ReportAgentPanel
+const currentAgents = ref<any[]>([])
+watch(() => report.value?.data_sources, (val) => {
+    if (val && currentAgents.value.length === 0) currentAgents.value = [...val]
+}, { immediate: true })
+
+async function openInstructionById(instructionId: string) {
+	// Immediately switch to agent panel with loading state
+	const panelRef = isMobile.value ? mobileAgentPanelRef : agentPanelRef
+	if (isMobile.value) {
+		mobileView.value = 'agent'
+	} else {
+		if (!isSplitScreen.value) isSplitScreen.value = true
+		rightPanelView.value = 'agent'
+	}
+	await nextTick()
+	panelRef.value?.setInstructionLoading(true)
+
+	try {
+		const { data, error } = await useMyFetch(`/instructions/${instructionId}`)
+		if (!error.value && data.value) {
+			panelRef.value?.openInstruction(data.value)
+			return
+		}
+	} catch {}
+	panelRef.value?.setInstructionLoading(false)
+	// Fallback: open in modal if fetch failed
+	editingTrainingInstruction.value = { id: instructionId }
+	showTrainingInstructionModal.value = true
+}
+
+async function editTrainingInstruction(inst: { instructionId: string }) {
+	try {
+		const { data, error } = await useMyFetch(`/instructions/${inst.instructionId}`)
+		if (!error.value && data.value) {
+			editingTrainingInstruction.value = data.value
+		} else {
+			editingTrainingInstruction.value = { id: inst.instructionId }
+		}
+	} catch {
+		editingTrainingInstruction.value = { id: inst.instructionId }
+	}
+	showTrainingInstructionModal.value = true
+}
+
+function visibleInstructions(m: ChatMessage) {
+	return (m._loaded_instructions || []).filter((ins: any) => ins.category !== 'system')
+}
+
+function isScheduledSystemExpanded(msg: ChatMessage): boolean {
+	// Find the preceding user message with the same scheduled_prompt_id
+	const idx = messages.value.indexOf(msg)
+	if (idx > 0) {
+		const prev = messages.value[idx - 1]
+		if (prev.scheduled_prompt_id === msg.scheduled_prompt_id && prev.role === 'user') {
+			return expandedScheduledIds.value.has(prev.id)
+		}
+	}
+	return true
+}
+
+function formatScheduledDate(date?: string) {
+	if (!date) return ''
+	return new Date(date).toLocaleString()
+}
+
+function getScheduledStats(userMsg: ChatMessage): string | null {
+	// Find the paired system message
+	const idx = messages.value.indexOf(userMsg)
+	if (idx < 0 || idx >= messages.value.length - 1) return null
+	const sysMsg = messages.value[idx + 1]
+	if (!sysMsg || sysMsg.scheduled_prompt_id !== userMsg.scheduled_prompt_id || sysMsg.role !== 'system') return null
+	const blocks = sysMsg.completion_blocks || []
+	if (!blocks.length) return null
+
+	let queries = 0
+	let artifacts = 0
+	for (const b of blocks) {
+		const te = b.tool_execution
+		if (!te || te.status !== 'success') continue
+		if (te.tool_name === 'create_data' && te.created_step_id) queries++
+		if (te.tool_name === 'create_artifact' || te.tool_name === 'edit_artifact') artifacts++
+	}
+
+	const parts: string[] = []
+	parts.push(`${blocks.length} step${blocks.length !== 1 ? 's' : ''}`)
+	if (queries) parts.push(`${queries} quer${queries !== 1 ? 'ies' : 'y'}`)
+	if (artifacts) parts.push(`${artifacts} artifact${artifacts !== 1 ? 's' : ''}`)
+	return parts.join(', ')
+}
+
+async function loadScheduledPrompts() {
+    try {
+        const { data } = await useMyFetch(`/reports/${report_id}/scheduled-prompts`)
+        scheduledPrompts.value = (data.value as any[]) || []
+    } catch {
+        scheduledPrompts.value = []
+    }
+    // Start/stop the background poll based on whether this report has scheduled prompts
+    if (scheduledPrompts.value.length > 0) {
+        startScheduledCompletionsPoll()
+    } else {
+        stopScheduledCompletionsPoll()
+    }
+}
+
+async function deleteScheduledPrompt(sp: any) {
+    try {
+        await useMyFetch(`/reports/${report_id}/scheduled-prompts/${sp.id}`, { method: 'DELETE' })
+        await loadScheduledPrompts()
+    } catch {}
+}
+
+async function toggleScheduledPromptActive(sp: any) {
+    try {
+        await useMyFetch(`/reports/${report_id}/scheduled-prompts/${sp.id}`, {
+            method: 'PUT',
+            body: { is_active: !sp.is_active },
+        })
+        await loadScheduledPrompts()
+    } catch {}
+}
+
+function editScheduledPrompt(sp: any) {
+    editingScheduledPrompt.value = sp
+    showEditScheduledPromptModal.value = true
+}
 
 // Fork state — extract forked queries and artifact ref from the fork summary completion
 const forkedQueries = ref<any[]>([])
@@ -618,11 +1045,25 @@ const isResizing = ref(false)
 const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
 
-// Right panel view mode: 'grid' or 'artifact' - default to artifact
-const rightPanelView = ref<'grid' | 'artifact'>('artifact')
+// Right panel view mode
+const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary'>('artifact')
+
+// Mobile view mode (full-screen single section on narrow screens)
+const mobileView = ref<'chat' | 'summary' | 'dashboard' | 'agent'>('chat')
+const isMobile = ref(false)
+
+function checkMobile() {
+	isMobile.value = window.innerWidth < 768
+}
+
+if (import.meta.client) {
+	checkMobile()
+	window.addEventListener('resize', checkMobile)
+}
 
 // Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
+const reportArtifacts = ref<any[]>([])
 const hasLegacyLayout = ref(false)
 
 // Toggle states
@@ -885,6 +1326,21 @@ watch(() => isSplitScreen.value, () => {
     nextTick(() => setTimeout(safeScrollToBottom, 80))
 })
 
+// Adjust left panel width based on active right panel tab
+watch(rightPanelView, (view) => {
+    if (!isSplitScreen.value || isResizing.value) return
+    const windowWidth = window.innerWidth
+    if (view === 'summary') {
+        leftPanelWidth.value = Math.round(windowWidth * 0.55)
+    } else if (view === 'agent') {
+        leftPanelWidth.value = Math.round(windowWidth * 0.45)
+        collapseSidebar()
+    } else {
+        leftPanelWidth.value = Math.round(windowWidth * 0.37)
+        collapseSidebar()
+    }
+})
+
 function goBack() {
 	if (history.length > 1) history.back()
 }
@@ -926,6 +1382,23 @@ const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(
 
 function openImagePreview(file: any) {
 	imagePreviewModalRef.value?.open(file)
+}
+
+function scrollToMessage(messageId: string, stepId?: string) {
+	const container = scrollContainer.value
+	if (!container) return
+	// If a stepId is provided, try to scroll to the specific tool execution block first
+	if (stepId) {
+		const stepEl = container.querySelector(`[data-step-id="${stepId}"]`) as HTMLElement
+		if (stepEl) {
+			stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+			return
+		}
+	}
+	const el = container.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement
+	if (el) {
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+	}
 }
 
 function scrollToBottom() {
@@ -1003,54 +1476,26 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
-		case 'instructions.suggest.started':
-			// Create a lightweight synthetic block to display drafts streaming
-			if (!sysMessage.completion_blocks) sysMessage.completion_blocks = []
-			// Avoid duplicating if already created in the same completion
-			if (!sysMessage.completion_blocks.some(b => b.title === 'Instruction Suggestions')) {
-				sysMessage.completion_blocks.push({
-					id: `instr-${Date.now()}`,
-					block_index: (sysMessage.completion_blocks.length || 0) + 1,
-					status: 'in_progress',
-					title: 'Instruction Suggestions',
-					icon: '📝',
-					tool_execution: {
-						id: `instr-te-${Date.now()}`,
-						tool_name: 'suggest_instructions',
-						status: 'running',
-						result_json: { drafts: [] }
-					}
-				} as any)
+		case 'instructions.context':
+			// Track which instructions were loaded (context build or tool calls)
+			if (!sysMessage._loaded_instructions) sysMessage._loaded_instructions = []
+			for (const inst of (payload?.instructions || [])) {
+				if (inst?.id && !sysMessage._loaded_instructions.some((i: any) => i.id === inst.id)) {
+					sysMessage._loaded_instructions.push({ ...inst, source: payload.source || 'context_build' })
+				}
 			}
+			break
+
+		case 'instructions.suggest.started':
+			// Flip a flag so <KnowledgeGroup> renders immediately in a loading
+			// state, even before the first harness block arrives.
+			;(sysMessage as any)._harness_running = true
 			break
 
 		case 'instructions.suggest.partial':
-			// Append each streamed draft to the synthetic block (keep full object for actions)
-			{
-				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
-				if (b && b.tool_execution) {
-					b.tool_execution.result_json = b.tool_execution.result_json || {}
-					const rj: any = b.tool_execution.result_json
-					rj.drafts = Array.isArray(rj.drafts) ? rj.drafts : []
-					const instr = payload?.instruction
-					if (instr && typeof instr.text === 'string') {
-						// Push the full server-sent payload so it includes id/status/global_status
-						rj.drafts.push({ ...instr })
-						b.status = 'in_progress'
-					}
-				}
-			}
 			break
-
 		case 'instructions.suggest.finished':
-			// Mark the synthetic block done
-			{
-				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
-				if (b && b.tool_execution) {
-					b.tool_execution.status = 'success'
-					b.status = 'success'
-				}
-			}
+			;(sysMessage as any)._harness_running = false
 			break
 
 		case 'block.upsert':
@@ -1225,6 +1670,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
 							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
 						}
+
+						// Capture code, attempt, and errors for create_data / inspect_data
+						if ((payload.tool_name === 'create_data' || payload.tool_name === 'inspect_data') && payload.payload) {
+							const p = payload.payload
+							const te = lastBlock.tool_execution as any
+							// Stream generated code from code_generated stage
+							if (p.stage === 'generated_code' && p.code) {
+								te.progress_code = p.code
+							}
+							// Track current attempt number
+							if (typeof p.attempt === 'number') {
+								te.progress_attempt = p.attempt
+							}
+							// On retry, capture the error that triggered it
+							if (p.stage === 'retry') {
+								te.progress_errors = te.progress_errors || []
+								// The error was already emitted via stdout before the retry event
+							}
+						}
 					}
 
           // Progressive data model updates for create_widget tool
@@ -1288,6 +1752,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						} catch {}
 					}
 
+					// Visualizations resolved for create_artifact / edit_artifact
+					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact') && payload.payload) {
+						if (payload.payload.stage === 'visualizations_resolved' && Array.isArray(payload.payload.visualizations)) {
+							;(lastBlock.tool_execution as any).progress_visualizations = payload.payload.visualizations
+						}
+					}
+
 					// Progressive slide tracking for create_artifact tool
 					if (payload.tool_name === 'create_artifact' && payload.payload) {
 						const p = payload.payload
@@ -1333,6 +1804,32 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 
 					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'tool.stdout':
+			// Capture stdout messages (errors, execution logs) for create_data / inspect_data
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					const te = lastBlock.tool_execution as any
+					te.progress_stdout = te.progress_stdout || []
+					const msg = typeof payload.payload === 'string' ? payload.payload : (payload.payload?.message || '')
+					if (msg) {
+						te.progress_stdout.push(msg)
+					}
+				}
+			}
+			break
+
+		case 'tool.confirmation':
+			// Confirmation request from create_artifact / edit_artifact
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock?.tool_execution) {
+					;(lastBlock.tool_execution as any).confirmation = payload.payload
+					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
 				}
 			}
 			break
@@ -1489,11 +1986,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
 					}
 				}
-				// Set isStreaming = false immediately on terminal status so thumbs up and 
-				// stop→submit button appear at the same time (don't wait for [DONE])
-				if (['success', 'error', 'stopped'].includes(completionStatus)) {
-					isStreaming.value = false
-				}
+				// NOTE: do NOT flip isStreaming here. The knowledge harness continues
+				// streaming SSE events (block.upsert/tool.*) after completion.finished
+				// fires. Flipping isStreaming=false early opens a race window where
+				// polling/refetch paths can wipe messages.value mid-stream. [DONE] is
+				// the single source of truth for end-of-stream. Thumbs-up and
+				// stop→submit UI should gate on sysMessage.status, not isStreaming.
 			}
 			// Note: loadReport and refreshContextEstimate are called after [DONE] to avoid blocking
 			break
@@ -1517,7 +2015,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 	}
 }
 
-async function loadCompletions() {
+async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
 		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
 		const response = data.value as any
@@ -1533,6 +2031,10 @@ async function loadCompletions() {
 				id: b.id,
 				seq: b.seq,
 				block_index: b.block_index,
+				loop_index: b.loop_index,
+				phase: b.phase,
+				title: b.title,
+				icon: b.icon,
 				status: b.status,
 				content: b.content,
 				reasoning: b.reasoning,
@@ -1541,7 +2043,7 @@ async function loadCompletions() {
 					id: b.tool_execution.id,
 					tool_name: b.tool_execution.tool_name,
 					tool_action: b.tool_execution.tool_action,
-					status: b.tool_execution.status,
+					status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
 					result_summary: b.tool_execution.result_summary,
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
@@ -1552,7 +2054,7 @@ async function loadCompletions() {
 					created_step: b.tool_execution.created_step
 				} : undefined
 			})) || []
-			
+
 			// Auto-collapse reasoning for blocks that have content or tool execution
 			for (const b of blocks) {
 				if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1571,11 +2073,15 @@ async function loadCompletions() {
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
+				knowledge_harness_build: c.knowledge_harness_build || null,
+				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
 				// Fork summary fields
 				is_fork_summary: c.is_fork_summary,
 				source_report_id: c.source_report_id,
 				fork_asset_refs: c.fork_asset_refs,
+				// Scheduled prompt tag
+				scheduled_prompt_id: c.scheduled_prompt_id || null,
 			}
 		})
 		// Update cursors
@@ -1583,8 +2089,15 @@ async function loadCompletions() {
 		cursorBefore.value = response?.next_before || null
         await nextTick()
         safeScrollToBottom()
-		await promptBoxRef.value?.refreshContextEstimate?.()
+		if (!skipEstimate) {
+			await promptBoxRef.value?.refreshContextEstimate?.()
+		}
 		await enrichForkedQueries()
+		// Auto-expand the latest scheduled completion
+		const lastScheduledUser = [...messages.value].reverse().find(m => m.scheduled_prompt_id && m.role === 'user')
+		if (lastScheduledUser) {
+			expandedScheduledIds.value.add(lastScheduledUser.id)
+		}
 	} catch (e) {
 		console.error('Error loading completions:', e)
 	} finally {
@@ -1612,6 +2125,10 @@ async function loadPreviousCompletions() {
                 id: b.id,
                 seq: b.seq,
                 block_index: b.block_index,
+                loop_index: b.loop_index,
+                phase: b.phase,
+                title: b.title,
+                icon: b.icon,
                 status: b.status,
                 content: b.content,
                 reasoning: b.reasoning,
@@ -1620,9 +2137,10 @@ async function loadPreviousCompletions() {
                     id: b.tool_execution.id,
                     tool_name: b.tool_execution.tool_name,
                     tool_action: b.tool_execution.tool_action,
-                    status: b.tool_execution.status,
+                    status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
                     result_summary: b.tool_execution.result_summary,
                     result_json: b.tool_execution.result_json,
+                    arguments_json: b.tool_execution.arguments_json,
                     duration_ms: b.tool_execution.duration_ms,
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
@@ -1630,7 +2148,7 @@ async function loadPreviousCompletions() {
                     created_step: b.tool_execution.created_step
                 } : undefined
             })) || []
-            
+
             // Auto-collapse reasoning for blocks that have content or tool execution
             for (const b of blocks) {
                 if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
@@ -1648,7 +2166,8 @@ async function loadPreviousCompletions() {
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
                 instruction_suggestions: c.instruction_suggestions,
-                files: c.files || []
+                files: c.files || [],
+                scheduled_prompt_id: c.scheduled_prompt_id || null,
             }
         })
         // Dedupe by id and prepend
@@ -1742,6 +2261,9 @@ onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
     })
+    window.addEventListener('artifact:open', ((ev: CustomEvent) => {
+        handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
+    }) as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -1790,9 +2312,11 @@ async function checkHasArtifacts(): Promise<boolean> {
     try {
         const { data } = await useMyFetch(`/artifacts/report/${report_id}`)
         const artifacts = Array.isArray(data.value) ? data.value : []
+        reportArtifacts.value = artifacts
         hasArtifacts.value = artifacts.length > 0
         return hasArtifacts.value
     } catch (e) {
+        reportArtifacts.value = []
         hasArtifacts.value = false
         return false
     }
@@ -1805,7 +2329,12 @@ function toggleSplitScreen() {
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
 		if (isSplitScreen.value) {
-			leftPanelWidth.value = 460
+			const windowWidth = window.innerWidth
+			leftPanelWidth.value = rightPanelView.value === 'summary'
+				? Math.round(windowWidth * 0.55)
+				: rightPanelView.value === 'agent'
+				? Math.round(windowWidth * 0.45)
+				: Math.round(windowWidth * 0.37)
 			collapseSidebar()
 		}
         safeScrollToBottom()
@@ -1840,6 +2369,9 @@ function stopResize() {
 }
 
 onUnmounted(() => {
+	if (import.meta.client) {
+		window.removeEventListener('resize', checkMobile)
+	}
 	document.removeEventListener('mousemove', handleResize)
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
@@ -1851,6 +2383,7 @@ onUnmounted(() => {
 	}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
+	stopScheduledCompletionsPoll()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 })
@@ -1939,12 +2472,13 @@ function abortStream() {
 				const newMessages = [...messages.value]
 				const updatedMessage = { ...newMessages[msgIndex], status: 'stopped' as ChatStatus }
 				
-				// Also update all completion blocks to stopped status
+				// Also update all completion blocks and their tool executions to stopped status
 				if (updatedMessage.completion_blocks) {
 					updatedMessage.completion_blocks = updatedMessage.completion_blocks.map(block => ({
 						...block,
 						status: block.status === 'in_progress' ? 'stopped' as ChatStatus : block.status,
-						completed_at: block.completed_at || new Date().toISOString()
+						completed_at: block.completed_at || new Date().toISOString(),
+						tool_execution: block.tool_execution?.status === 'running' ? { ...block.tool_execution, status: 'stopped' } : block.tool_execution
 					}))
 				}
 				
@@ -2224,12 +2758,19 @@ async function startPollingInProgressCompletion() {
 	const maxDurationMs = 2 * 60 * 1000
 
 	const tick = async () => {
+		// If SSE streaming has (re)started, stop polling — SSE is the source of truth
+		// and loadCompletions would wipe in-memory stream state.
+		if (isStreaming.value) {
+			stopPollingInProgressCompletion()
+			return
+		}
 		try {
-			await loadCompletions()
+			await loadCompletions({ skipEstimate: true })
 			autoScrollIfNearBottom()
 			const still = getLastInProgressSystem()
 			if (!still) {
 				stopPollingInProgressCompletion()
+				promptBoxRef.value?.refreshContextEstimate?.()
 				return
 			}
 			if (Date.now() - startTs > maxDurationMs) {
@@ -2247,19 +2788,70 @@ async function startPollingInProgressCompletion() {
 	pollHandle = window.setTimeout(tick, pollIntervalMs)
 }
 
+// === Background poll to detect new scheduled completions ===
+let scheduledPollHandle: number | null = null
+const scheduledPollIntervalMs = 15_000
+
+function startScheduledCompletionsPoll() {
+	if (scheduledPollHandle !== null) return
+	// Only poll if this report actually has scheduled prompts that can fire in the background
+	if (!scheduledPrompts.value || scheduledPrompts.value.length === 0) return
+	const tick = async () => {
+		// Skip while streaming (SSE is authoritative) or while tab is hidden
+		if (isStreaming.value || (typeof document !== 'undefined' && document.hidden)) {
+			scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+			return
+		}
+		try {
+			const lastId = messages.value.length > 0 ? messages.value[messages.value.length - 1].id : null
+			const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+			const response = data.value as any
+			const list: any[] = response?.completions || []
+			const newLastId = list.length > 0 ? list[list.length - 1].id : null
+			if (newLastId && newLastId !== lastId) {
+				await loadCompletions()
+				autoScrollIfNearBottom()
+			}
+		} catch {}
+		scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+	}
+	scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
+}
+
+function stopScheduledCompletionsPoll() {
+	if (scheduledPollHandle !== null) {
+		clearTimeout(scheduledPollHandle)
+		scheduledPollHandle = null
+	}
+}
+
 onMounted(async () => {
-	await Promise.all([
+	// Load report metadata first (fast), then open sidebar based on counts
+	// loadCompletions is slow (~30s) so don't block sidebar on it
+	const fastLoads = Promise.all([
 		loadReport(),
 		loadVisualizations(),
-		loadCompletions(),
 		checkHasArtifacts(),
-		loadActiveLayoutHasBlocks()
+		loadActiveLayoutHasBlocks(),
+		loadScheduledPrompts()
 	])
+	const slowLoads = loadCompletions()
 
-	// Open split screen if report has artifacts or legacy layout
-	if (hasArtifacts.value || hasLegacyLayout.value) {
+	await fastLoads
+
+	// Auto-open right pane based on report metadata (available immediately from loadReport)
+	if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
 		isSplitScreen.value = true
+		rightPanelView.value = 'artifact'
+		leftPanelWidth.value = Math.round(window.innerWidth * 0.37)
+		collapseSidebar()
+	} else if ((report.value as any)?.query_count > 0 || (report.value as any)?.instruction_count > 0 || (report.value as any)?.has_scheduled_prompts) {
+		isSplitScreen.value = true
+		rightPanelView.value = 'summary'
+		leftPanelWidth.value = Math.round(window.innerWidth * 0.55)
 	}
+
+	await slowLoads
 
 	// Handle new_message query parameter after everything is loaded
 	if (route.query.new_message && messages.value.length == 0) {
@@ -2277,13 +2869,10 @@ onMounted(async () => {
 	if (!isStreaming.value && getLastInProgressSystem()) {
 		startPollingInProgressCompletion()
 	}
+
+	// Start background poll for new scheduled completions
+	startScheduledCompletionsPoll()
 	
-	// Open dashboard pane if there are any published widgets
-	if (visualizations.value.some(viz => viz.status === 'published')) {
-		isSplitScreen.value = true
-		// Scroll to bottom when automatically opening dashboard
-    nextTick(() => setTimeout(safeScrollToBottom, 100))
-	}
     // Aggressive initial scroll to handle async content mounting
 	scheduleInitialScroll()
     window.addEventListener('resize', safeScrollToBottom)

@@ -354,6 +354,7 @@ class CompletionService:
         external_message_ts: str = None,
         external_channel_id: str = None,
         external_channel_type: str = None,
+        scheduled_prompt_id: str = None,
     ):
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
@@ -363,6 +364,7 @@ class CompletionService:
                     span, db, report_id, completion_data, current_user, organization,
                     background, external_user_id, external_platform, build_id,
                     external_thread_ts, external_message_ts, external_channel_id, external_channel_type,
+                    scheduled_prompt_id=scheduled_prompt_id,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -385,6 +387,7 @@ class CompletionService:
         external_message_ts: str = None,
         external_channel_id: str = None,
         external_channel_type: str = None,
+        scheduled_prompt_id: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -455,7 +458,8 @@ class CompletionService:
                 external_thread_ts=external_thread_ts,
                 external_message_ts=external_message_ts,
                 external_channel_id=external_channel_id,
-                external_channel_type=external_channel_type
+                external_channel_type=external_channel_type,
+                scheduled_prompt_id=scheduled_prompt_id,
             )
 
             try:
@@ -509,7 +513,8 @@ class CompletionService:
                 external_thread_ts=external_thread_ts,
                 external_message_ts=external_message_ts,
                 external_channel_id=external_channel_id,
-                external_channel_type=external_channel_type
+                external_channel_type=external_channel_type,
+                scheduled_prompt_id=scheduled_prompt_id,
             )
 
             try:
@@ -939,24 +944,28 @@ class CompletionService:
 
         # 6) Batch-load instruction suggestions for all agent executions at once
         ae_id_to_suggestions: dict[str, list[dict]] = {}
+        ae_id_to_build: dict[str, "InstructionBuild"] = {}
         system_ae_ids = [
             e.id for cid, e in completion_id_to_exec.items()
             if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed']
                         for c in all_completions)
         ]
-        if system_ae_ids:
-            # Batch-load AI builds for all agent executions
-            from app.models.instruction_build import InstructionBuild
-            build_stmt = (
-                select(InstructionBuild)
-                .where(InstructionBuild.agent_execution_id.in_(system_ae_ids))
-                .where(InstructionBuild.deleted_at == None)
+        # Also load builds for any system exec (including still-running ones) so KnowledgeGroup
+        # can render publish state authoritatively during and after a harness session.
+        all_system_ae_ids = [
+            e.id for cid, e in completion_id_to_exec.items()
+            if e and any(c.id == cid and c.role == 'system' for c in all_completions)
+        ]
+        if all_system_ae_ids:
+            from app.models.instruction_build import InstructionBuild as _IB
+            _all_build_res = await db.execute(
+                select(_IB)
+                .where(_IB.agent_execution_id.in_(all_system_ae_ids))
+                .where(_IB.deleted_at == None)
             )
-            build_res = await db.execute(build_stmt)
-            ae_id_to_build: dict[str, InstructionBuild] = {}
-            for build in build_res.scalars().all():
-                ae_id_to_build[str(build.agent_execution_id)] = build
-
+            for _b in _all_build_res.scalars().all():
+                ae_id_to_build[str(_b.agent_execution_id)] = _b
+        if system_ae_ids:
             instr_stmt = (
                 select(Instruction)
                 .where(Instruction.agent_execution_id.in_(system_ae_ids))
@@ -1036,6 +1045,27 @@ class CompletionService:
                 if comp_id:
                     completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
 
+        # 6d) Batch-load instruction metadata for loaded_instructions references
+        # Collect all instruction IDs stored in completion JSON across all system completions
+        _all_instruction_ids: set[str] = set()
+        for c in all_completions:
+            if c.role == 'system':
+                cdata = c.completion
+                if isinstance(cdata, dict):
+                    for li in (cdata.get("loaded_instructions") or []):
+                        if li.get("id"):
+                            _all_instruction_ids.add(li["id"])
+        instruction_map: dict[str, Instruction] = {}
+        if _all_instruction_ids:
+            instr_stmt = (
+                select(Instruction)
+                .options(selectinload(Instruction.data_sources))
+                .where(Instruction.id.in_(list(_all_instruction_ids)))
+            )
+            instr_res = await db.execute(instr_stmt)
+            for inst in instr_res.scalars().all():
+                instruction_map[inst.id] = inst
+
         # 7) Assemble completion objects
         v2_completions: list[CompletionV2Schema] = []
         for c in all_completions:
@@ -1064,8 +1094,44 @@ class CompletionService:
             if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
                 suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
+            # Extract loaded instructions from completion data, enriched from DB
+            loaded_instructions_list = None
+            if c.role == 'system' and isinstance(completion_data, dict):
+                raw_li = completion_data.get("loaded_instructions")
+                if raw_li:
+                    enriched = []
+                    for li in raw_li:
+                        inst = instruction_map.get(li.get("id", ""))
+                        ds_type = None
+                        if inst and inst.data_sources:
+                            ds = inst.data_sources[0]
+                            if ds.connections:
+                                ds_type = ds.connections[0].type
+                        enriched.append({
+                            "id": li.get("id"),
+                            "title": (inst.title or inst.text[:60].split('\n')[0]) if inst else li.get("title"),
+                            "category": inst.category if inst else li.get("category"),
+                            "load_mode": li.get("load_mode"),
+                            "load_reason": li.get("load_reason"),
+                            "source_type": inst.source_type if inst else li.get("source_type"),
+                            "data_source_type": ds_type,
+                        })
+                    loaded_instructions_list = enriched
+
             # Get user feedback from pre-loaded map
             user_feedback = completion_id_to_user_feedback.get(c.id)
+
+            # Knowledge-harness build (authoritative state for KnowledgeGroup UI)
+            knowledge_harness_build = None
+            if exec_obj and c.role == 'system':
+                _ai_build = ae_id_to_build.get(str(exec_obj.id))
+                if _ai_build is not None:
+                    knowledge_harness_build = {
+                        "id": str(_ai_build.id),
+                        "build_number": _ai_build.build_number,
+                        "status": _ai_build.status,
+                        "is_main": bool(_ai_build.is_main),
+                    }
 
             # Get files attached to this completion
             c_files = completion_id_to_files.get(c.id, [])
@@ -1089,8 +1155,12 @@ class CompletionService:
                 created_at=c.created_at,
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
+                loaded_instructions=loaded_instructions_list,
+                knowledge_harness_build=knowledge_harness_build,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=user_feedback,
+                # Scheduled prompt
+                scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
@@ -1268,24 +1338,26 @@ class CompletionService:
 
         # Batch-load instruction suggestions
         ae_id_to_suggestions: dict[str, list[dict]] = {}
+        ae_id_to_build: dict[str, "InstructionBuild"] = {}
         system_ae_ids = [
             e.id for cid, e in completion_id_to_exec.items()
             if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed']
                         for c in all_completions)
         ]
-        if system_ae_ids:
-            # Batch-load AI builds for all agent executions
-            from app.models.instruction_build import InstructionBuild
-            build_stmt = (
-                select(InstructionBuild)
-                .where(InstructionBuild.agent_execution_id.in_(system_ae_ids))
-                .where(InstructionBuild.deleted_at == None)
+        all_system_ae_ids = [
+            e.id for cid, e in completion_id_to_exec.items()
+            if e and any(c.id == cid and c.role == 'system' for c in all_completions)
+        ]
+        if all_system_ae_ids:
+            from app.models.instruction_build import InstructionBuild as _IB
+            _all_build_res = await db.execute(
+                select(_IB)
+                .where(_IB.agent_execution_id.in_(all_system_ae_ids))
+                .where(_IB.deleted_at == None)
             )
-            build_res = await db.execute(build_stmt)
-            ae_id_to_build: dict[str, InstructionBuild] = {}
-            for build in build_res.scalars().all():
-                ae_id_to_build[str(build.agent_execution_id)] = build
-
+            for _b in _all_build_res.scalars().all():
+                ae_id_to_build[str(_b.agent_execution_id)] = _b
+        if system_ae_ids:
             instr_stmt = (
                 select(Instruction)
                 .where(Instruction.agent_execution_id.in_(system_ae_ids))
@@ -1346,6 +1418,26 @@ class CompletionService:
                 if comp_id:
                     completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
 
+        # Batch-load instruction metadata for loaded_instructions references
+        _all_instruction_ids: set[str] = set()
+        for c in all_completions:
+            if c.role == 'system':
+                cdata = c.completion
+                if isinstance(cdata, dict):
+                    for li in (cdata.get("loaded_instructions") or []):
+                        if li.get("id"):
+                            _all_instruction_ids.add(li["id"])
+        instruction_map: dict[str, Instruction] = {}
+        if _all_instruction_ids:
+            instr_stmt = (
+                select(Instruction)
+                .options(selectinload(Instruction.data_sources))
+                .where(Instruction.id.in_(list(_all_instruction_ids)))
+            )
+            instr_res = await db.execute(instr_stmt)
+            for inst in instr_res.scalars().all():
+                instruction_map[inst.id] = inst
+
         # Assemble v2 objects
         v2_list: list[CompletionV2Schema] = []
         for c in all_completions:
@@ -1369,8 +1461,44 @@ class CompletionService:
             if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
                 suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
+            # Extract loaded instructions from completion data, enriched from DB
+            loaded_instructions_list = None
+            if c.role == 'system' and isinstance(completion_data, dict):
+                raw_li = completion_data.get("loaded_instructions")
+                if raw_li:
+                    enriched = []
+                    for li in raw_li:
+                        inst = instruction_map.get(li.get("id", ""))
+                        ds_type = None
+                        if inst and inst.data_sources:
+                            ds = inst.data_sources[0]
+                            if ds.connections:
+                                ds_type = ds.connections[0].type
+                        enriched.append({
+                            "id": li.get("id"),
+                            "title": (inst.title or inst.text[:60].split('\n')[0]) if inst else li.get("title"),
+                            "category": inst.category if inst else li.get("category"),
+                            "load_mode": li.get("load_mode"),
+                            "load_reason": li.get("load_reason"),
+                            "source_type": inst.source_type if inst else li.get("source_type"),
+                            "data_source_type": ds_type,
+                        })
+                    loaded_instructions_list = enriched
+
             # Get files attached to this completion
             c_files = completion_id_to_files.get(c.id, [])
+
+            # Knowledge-harness build (authoritative state for KnowledgeGroup UI)
+            knowledge_harness_build = None
+            if exec_obj and c.role == 'system':
+                _ai_build = ae_id_to_build.get(str(exec_obj.id))
+                if _ai_build is not None:
+                    knowledge_harness_build = {
+                        "id": str(_ai_build.id),
+                        "build_number": _ai_build.build_number,
+                        "status": _ai_build.status,
+                        "is_main": bool(_ai_build.is_main),
+                    }
 
             v2 = CompletionV2Schema(
                 id=c.id,
@@ -1392,8 +1520,12 @@ class CompletionService:
                 created_at=c.created_at,
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
+                loaded_instructions=loaded_instructions_list,
+                knowledge_harness_build=knowledge_harness_build,
                 feedback_score=c.feedback_score or 0,
                 user_feedback=None,  # Not available without current_user context
+                # Scheduled prompt
+                scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),

@@ -22,7 +22,8 @@ class EditInstructionInput(BaseModel):
         description=(
             "The new instruction text. If provided, must be clear, actionable, and reusable. "
             "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
-            "Must end with a period."
+            "Do not include volatile data facts (row counts, specific metric values, date ranges, distributions) that change as data is updated. "
+            "Use markdown formatting for clarity."
         ),
         min_length=20,
         max_length=20000000000,
@@ -111,4 +112,24 @@ class EditInstructionOutput(BaseModel):
     rejected_reason: Optional[str] = Field(
         None,
         description="Reason if edit was rejected (e.g., not_found, permission_denied, invalid_format)"
+    )
+
+    title: Optional[str] = Field(
+        None,
+        description="Title of the instruction after edit"
+    )
+
+    build_id: Optional[str] = Field(
+        None,
+        description="ID of the draft build this edit was added to."
+    )
+
+    previous_text: Optional[str] = Field(
+        None,
+        description="The instruction text before this edit, when the text field was updated."
+    )
+
+    new_text: Optional[str] = Field(
+        None,
+        description="The instruction text after this edit, when the text field was updated."
     )

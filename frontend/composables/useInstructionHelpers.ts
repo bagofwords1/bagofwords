@@ -43,7 +43,13 @@ export interface Instruction {
   reviewed_by_user_id?: string | null  // DEPRECATED - not used
   reviewed_by?: User | null            // DEPRECATED - not used
   labels?: InstructionLabel[]
-  
+
+  // Build tracking — populated when the instruction has an in-flight change
+  // sitting in an unpublished build (draft or pending_approval). Used to
+  // derive a "Pending review" effective status for display.
+  current_build_id?: string | null
+  current_build_status?: 'draft' | 'pending_approval' | 'approved' | 'rejected' | null
+
   // Unified Instructions System fields
   source_type?: 'user' | 'ai' | 'git'
   source_metadata_resource_id?: string | null
@@ -57,37 +63,65 @@ export interface Instruction {
 
 export function useInstructionHelpers() {
   // Status helpers
+  //
+  // Display labels are decoupled from the backend enum:
+  //   backend 'published' → "Active"     (the instruction is live in the knowledge base)
+  //   backend 'draft'     → "Inactive"   (exists but not yet enabled)
+  //   backend 'archived'  → "Archived"   (legacy — kept so existing rows still render,
+  //                                        but no new archive actions are surfaced)
+  //   derived 'pending_review' → "Pending review"
+  //     Used when the instruction has an in-flight change in an unpublished
+  //     build (draft / pending_approval). Replaces the underlying Active/
+  //     Inactive label so users aren't misled about live vs. pending state.
   const formatStatus = (status: string) => {
     const statusMap: Record<string, string> = {
-      draft: 'Draft',
-      published: 'Published',
-      archived: 'Archived'
+      draft: 'Inactive',
+      published: 'Active',
+      archived: 'Archived',
+      pending_review: 'Pending review'
     }
     return statusMap[status] || status
   }
 
-  // SIMPLIFIED: Status helpers now only use instruction.status
-  // Approval workflow is handled by builds, not instruction status
+  // Derive the effective status for display. An instruction whose current
+  // change is sitting in an unpublished build is shown as "Pending review"
+  // regardless of its underlying lifecycle value.
+  const getEffectiveStatus = (instruction: Instruction): string => {
+    const buildStatus = instruction.current_build_status
+    if (instruction.current_build_id && (buildStatus === 'draft' || buildStatus === 'pending_approval')) {
+      return 'pending_review'
+    }
+    return instruction.status
+  }
+
   const getStatusClass = (instruction: Instruction) => {
     const statusClasses: Record<string, string> = {
       draft: 'bg-yellow-100 text-yellow-800',
       published: 'bg-green-100 text-green-800',
-      archived: 'bg-gray-100 text-gray-800'
+      archived: 'bg-gray-100 text-gray-800',
+      pending_review: 'bg-amber-100 text-amber-800'
     }
-    return statusClasses[instruction.status] || 'bg-gray-100 text-gray-800'
+    return statusClasses[getEffectiveStatus(instruction)] || 'bg-gray-100 text-gray-800'
   }
 
   const getStatusIconClass = (instruction: Instruction) => {
     const statusClasses: Record<string, string> = {
       draft: 'bg-yellow-400',
       published: 'bg-green-400',
-      archived: 'bg-gray-400'
+      archived: 'bg-gray-400',
+      pending_review: 'bg-amber-400'
     }
-    return statusClasses[instruction.status] || 'bg-gray-400'
+    return statusClasses[getEffectiveStatus(instruction)] || 'bg-gray-400'
   }
 
   const getStatusTooltip = (instruction: Instruction) => {
-    return formatStatus(instruction.status)
+    return formatStatus(getEffectiveStatus(instruction))
+  }
+
+  // Convenience: the label to render in a badge, already accounting for the
+  // effective (possibly pending-review) state.
+  const getStatusLabel = (instruction: Instruction) => {
+    return formatStatus(getEffectiveStatus(instruction))
   }
 
   // DEPRECATED: No longer used - kept for backward compatibility
@@ -344,9 +378,11 @@ export function useInstructionHelpers() {
   return {
     // Status
     formatStatus,
+    getEffectiveStatus,
     getStatusClass,
     getStatusIconClass,
     getStatusTooltip,
+    getStatusLabel,
     getSubStatus,
     // Category
     formatCategory,

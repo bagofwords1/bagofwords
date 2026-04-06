@@ -84,6 +84,9 @@ class CompletionBlockV2Schema(BaseModel):
     block_index: int
     loop_index: Optional[int]
 
+    # Phase tag (e.g. 'knowledge_harness'); None for regular main-loop blocks
+    phase: Optional[str] = None
+
     # Render fields
     title: str
     status: str  # in_progress | completed | error | planning
@@ -138,6 +141,14 @@ class CompletionV2Schema(BaseModel):
     # Suggested instructions produced during this agent execution (optional, outside blocks)
     instruction_suggestions: Optional[List[Dict[str, Any]]] = None
 
+    # Instructions loaded into context during this completion (for UI indicator)
+    loaded_instructions: Optional[List[Dict[str, Any]]] = None
+
+    # Knowledge-harness build associated with this completion (if any).
+    # Shape: { id, build_number, status, is_main } — authoritative build state
+    # so KnowledgeGroup can render publish state without local caches.
+    knowledge_harness_build: Optional[Dict[str, Any]] = None
+
     # Feedback - pre-loaded to avoid N+1 API calls
     feedback_score: int = 0  # Legacy aggregate score from Completion model
     user_feedback: Optional[CompletionFeedbackSchema] = None  # Current user's feedback if any
@@ -146,6 +157,9 @@ class CompletionV2Schema(BaseModel):
     sigkill: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+
+    # Scheduled prompt
+    scheduled_prompt_id: Optional[str] = None
 
     # Fork summary fields
     is_fork_summary: Optional[str] = None

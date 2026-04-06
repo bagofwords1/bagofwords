@@ -1,29 +1,44 @@
 <template>
 
-    <header class="sticky top-0 bg-white z-10 flex flex-row pt-1 h-[40px] border-gray-200 pb-1 pr-2 items-center">
-        <GoBackChevron />
-        <h1 class="text-sm md:text-left text-center w-[500px]">
-            <span class="font-semibold text-sm">
-                <input 
-                    type="text" 
-                    class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-left w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]" 
-                    v-if="report"
-                    v-model="localTitle" 
-                    :disabled="isSaving"
-                    @keyup.enter="saveReportTitle" 
-                    @blur="saveReportTitle"
-                    ref="reportTitleInput" 
-                />
-                <span v-else></span>
-            </span>
-        </h1>
-        <div class="ml-auto flex items-center gap-2">
-            <ShareConversationModal v-if="report" :report="report" />
-            <button @click="$emit('toggleSplitScreen')" class="p-1.5 rounded text-xl hover:bg-gray-100 flex items-center">
-                <span class="inline-flex items-center">
-                    <Icon name="heroicons:chart-pie" class="inline-block mr-2" />
+    <header class="sticky top-0 bg-white z-10 flex flex-col border-gray-200">
+        <!-- Top row: back, title, share, dashboard toggle -->
+        <div class="flex flex-row pt-1 h-[40px] pb-1 pr-2 items-center">
+            <GoBackChevron />
+            <h1 class="text-sm md:text-left text-center w-[500px]">
+                <span class="font-semibold text-sm">
+                    <input
+                        type="text"
+                        class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-left w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]"
+                        v-if="report"
+                        v-model="localTitle"
+                        :disabled="isSaving"
+                        @keyup.enter="saveReportTitle"
+                        @blur="saveReportTitle"
+                        ref="reportTitleInput"
+                    />
+                    <span v-else></span>
                 </span>
-                <span class="text-sm" :class="isSplitScreen ? 'hidden' : 'inline'">Dashboard</span>
+            </h1>
+            <div class="ml-auto flex items-center gap-2">
+                <ShareConversationModal v-if="report" :report="report" />
+                <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 items-center" title="Toggle panel">
+                    <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500" />
+                </button>
+            </div>
+        </div>
+        <!-- Mobile tabs -->
+        <div v-if="isMobile" class="flex items-center gap-1 px-2 pb-1.5 border-b border-gray-100">
+            <button
+                v-for="tab in mobileTabs"
+                :key="tab.value"
+                @click="$emit('update:mobileView', tab.value)"
+                class="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
+                :class="mobileView === tab.value
+                    ? 'text-gray-900 bg-gray-100'
+                    : 'text-gray-400 hover:text-gray-600'"
+            >
+                <Icon :name="tab.icon" class="w-3 h-3" />
+                {{ tab.label }}
             </button>
         </div>
     </header>
@@ -34,13 +49,22 @@ import { ref, watch } from 'vue'
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import ShareConversationModal from '@/components/ShareConversationModal.vue'
 
-const props = defineProps<{ 
+const props = defineProps<{
     report: any | null,
     isSplitScreen: boolean,
     isStreaming: boolean,
+    isMobile?: boolean,
+    mobileView?: string,
 }>()
 
-defineEmits(['toggleSplitScreen', 'stop'])
+defineEmits(['toggleSplitScreen', 'stop', 'update:mobileView'])
+
+const mobileTabs = [
+    { value: 'chat', label: 'Chat', icon: 'heroicons:chat-bubble-left-right' },
+    { value: 'summary', label: 'Summary', icon: 'heroicons:queue-list' },
+    { value: 'dashboard', label: 'Dashboard', icon: 'heroicons:chart-bar-square' },
+    { value: 'agent', label: 'Agent', icon: 'heroicons:cog-6-tooth' },
+]
 
 const route = useRoute()
 const report_id = route.params.id

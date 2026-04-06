@@ -247,9 +247,10 @@ class ContextHub:
         
         # Existing builders (enhanced)
         self.instruction_builder = InstructionContextBuilder(
-            self.db, 
-            self.organization, 
-            organization_settings=self.organization_settings
+            self.db,
+            self.organization,
+            organization_settings=self.organization_settings,
+            data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
         )
         self.code_builder = CodeContextBuilder(self.db, self.organization)
         self.resource_builder = ResourceContextBuilder(self.db, self.data_sources, self.organization, self.prompt_content)

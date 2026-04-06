@@ -51,8 +51,8 @@ class InstructionVersion(BaseSchema):
     created_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     
     # Relationships
-    instruction = relationship("Instruction", back_populates="versions", lazy="selectin")
-    created_by_user = relationship("User", foreign_keys=[created_by_user_id], lazy="selectin")
+    instruction = relationship("Instruction", back_populates="versions", lazy="raise")
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id], lazy="raise")
     
     # Composite index for efficient version lookups
     __table_args__ = (

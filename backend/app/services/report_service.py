@@ -121,6 +121,29 @@ class ReportService:
             # Scheduled rerun notification subscribers
             notification_subscribers=getattr(report, "notification_subscribers", None),
         )
+        # Summary counts (for auto-opening sidebar)
+        report_schema.query_count = len(report.queries or [])
+        report_schema.artifact_count = len(report.artifacts or [])
+        active_sps = [
+            sp for sp in (report.scheduled_prompts or [])
+            if sp.is_active and sp.deleted_at is None
+        ]
+        report_schema.has_scheduled_prompts = len(active_sps) > 0
+        report_schema.scheduled_prompt_count = len(active_sps)
+
+        # Instruction count
+        from app.models.instruction import Instruction
+        from app.models.agent_execution import AgentExecution
+        ic_result = await db.execute(
+            select(func.count(Instruction.id))
+            .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
+            .where(
+                AgentExecution.report_id == report.id,
+                Instruction.deleted_at == None,
+            )
+        )
+        report_schema.instruction_count = ic_result.scalar() or 0
+
         # Enrich fork lineage
         await self._enrich_fork_lineage(db, report, report_schema)
         return report_schema
@@ -714,11 +737,31 @@ class ReportService:
                     )
                 )
 
-            # Optional filter by scheduled status
+            # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
             if scheduled is True:
-                base_conditions.append(Report.cron_schedule.isnot(None))
+                from app.models.scheduled_prompt import ScheduledPrompt
+                base_conditions.append(
+                    or_(
+                        Report.cron_schedule.isnot(None),
+                        Report.id.in_(
+                            select(ScheduledPrompt.report_id).where(
+                                ScheduledPrompt.is_active == True,
+                                ScheduledPrompt.deleted_at == None,
+                            )
+                        ),
+                    )
+                )
             elif scheduled is False:
+                from app.models.scheduled_prompt import ScheduledPrompt
                 base_conditions.append(Report.cron_schedule.is_(None))
+                base_conditions.append(
+                    ~Report.id.in_(
+                        select(ScheduledPrompt.report_id).where(
+                            ScheduledPrompt.is_active == True,
+                            ScheduledPrompt.deleted_at == None,
+                        )
+                    )
+                )
 
             # Optional filter by report status (draft/published)
             if status in ('draft', 'published'):
@@ -772,6 +815,27 @@ class ReportService:
             reports = result.scalars().all()
             span.add_event("query result loaded into memory ")
 
+            # Batch-fetch instruction counts for training reports
+            report_ids = [str(r.id) for r in reports]
+            instruction_counts: dict[str, int] = {}
+            if report_ids:
+                from app.models.instruction import Instruction
+                from app.models.agent_execution import AgentExecution
+                ic_query = (
+                    select(
+                        AgentExecution.report_id,
+                        func.count(Instruction.id),
+                    )
+                    .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
+                    .where(
+                        AgentExecution.report_id.in_(report_ids),
+                        Instruction.deleted_at == None,
+                    )
+                    .group_by(AgentExecution.report_id)
+                )
+                ic_result = await db.execute(ic_query)
+                instruction_counts = {str(row[0]): row[1] for row in ic_result.all()}
+
             # Convert to schemas
             report_schemas = []
             for report in reports:
@@ -798,6 +862,21 @@ class ReportService:
                     )
                     for ds in (report.data_sources or [])
                 ]
+
+                # Summary counts
+                report_schema.query_count = len(report.queries or [])
+                report_schema.artifact_count = len(report.artifacts or [])
+
+                # Check for active scheduled prompts
+                active_sps = [
+                    sp for sp in (report.scheduled_prompts or [])
+                    if sp.is_active and sp.deleted_at is None
+                ]
+                report_schema.has_scheduled_prompts = len(active_sps) > 0
+                report_schema.scheduled_prompt_count = len(active_sps)
+
+                # Instruction count (from batch query)
+                report_schema.instruction_count = instruction_counts.get(str(report.id), 0)
 
                 # Compute unique artifact modes for this report
                 report_schema.artifact_modes = list(set(

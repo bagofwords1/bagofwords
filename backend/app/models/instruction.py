@@ -86,27 +86,27 @@ class Instruction(BaseSchema):
         "DataSource",
         secondary=instruction_data_source_association,
         back_populates="instructions",
-        lazy="selectin",
+        lazy="raise",
         passive_deletes=True,
     )
     labels = relationship(
         "InstructionLabel",
         secondary=instruction_label_association,
         back_populates="instructions",
-        lazy="selectin",
+        lazy="raise",
     )
-    user = relationship("User", foreign_keys=[user_id], lazy="selectin")
-    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id], lazy="selectin")
+    user = relationship("User", foreign_keys=[user_id], lazy="raise")
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id], lazy="raise")
     organization = relationship("Organization")
-    references = relationship("InstructionReference", back_populates="instruction", lazy="selectin", cascade="all, delete-orphan")
-    agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
-    source_metadata_resource = relationship("MetadataResource", foreign_keys=[source_metadata_resource_id], lazy="selectin")
-    
+    references = relationship("InstructionReference", back_populates="instruction", lazy="raise", cascade="all, delete-orphan")
+    agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="raise")
+    source_metadata_resource = relationship("MetadataResource", foreign_keys=[source_metadata_resource_id], lazy="raise")
+
     # Version history relationship
     versions = relationship(
         "InstructionVersion",
         back_populates="instruction",
-        lazy="selectin",
+        lazy="raise",
         foreign_keys="InstructionVersion.instruction_id",
         cascade="all, delete-orphan"
     )
@@ -114,7 +114,7 @@ class Instruction(BaseSchema):
         "InstructionVersion",
         primaryjoin="Instruction.current_version_id == InstructionVersion.id",
         foreign_keys="Instruction.current_version_id",
-        lazy="selectin",
+        lazy="raise",
         post_update=True,
         uselist=False
     )

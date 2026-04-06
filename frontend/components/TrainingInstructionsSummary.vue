@@ -1,59 +1,66 @@
 <template>
-  <div v-if="shouldShow" class="mt-1">
-    <!-- Minimal header row - cursor style -->
-    <div
-      class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
-      @click="toggleExpanded"
+  <div
+    v-if="shouldShow"
+    class="relative"
+    @mouseenter="showDropdown = true"
+    @mouseleave="showDropdown = false"
+  >
+    <button
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
     >
-      <Icon name="heroicons-academic-cap" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <span class="text-gray-600">Training summary</span>
-      <span v-if="toolExecutions.length > 0" class="text-gray-400 ml-1.5">
-        {{ toolExecutions.length }} instruction{{ toolExecutions.length === 1 ? '' : 's' }}
-      </span>
-      <Icon
-        :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-        class="w-3 h-3 ml-1 text-gray-400"
-      />
-    </div>
+      <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
+      {{ uniqueInstructions.length }} Instruction{{ uniqueInstructions.length === 1 ? '' : 's' }}
+    </button>
 
-    <!-- Expandable content -->
-    <Transition name="slide">
-      <div v-if="isExpanded" class="mt-2 space-y-1">
+    <!-- Dropdown -->
+    <div
+      v-if="showDropdown"
+      class="absolute left-0 top-full mt-1 w-80 z-20"
+    >
+      <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
         <!-- Loading -->
-        <div v-if="isLoading" class="flex items-center text-[11px] text-gray-500">
+        <div v-if="isLoading" class="flex items-center justify-center px-3 py-2">
           <Spinner class="w-3 h-3 mr-1.5" />
-          Loading...
+          <span class="text-[11px] text-gray-500">Loading...</span>
         </div>
 
-        <!-- Empty state -->
-        <div v-else-if="toolExecutions.length === 0" class="text-[11px] text-gray-400 italic">
-          No instructions created
-        </div>
-
-        <!-- Instructions list using appropriate tool component -->
+        <!-- Instructions list -->
         <template v-else>
-          <template v-for="te in toolExecutions" :key="te.id">
-            <EditInstructionTool
-              v-if="te.tool_name === 'edit_instruction'"
-              :tool-execution="te"
-              @instruction-updated="handleInstructionUpdated"
-            />
-            <CreateInstructionTool
-              v-else
-              :tool-execution="te"
-              @instruction-updated="handleInstructionUpdated"
-            />
-          </template>
+          <div
+            v-for="inst in uniqueInstructions"
+            :key="inst.instructionId"
+            class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+            @click="handleClick(inst)"
+          >
+            <div class="flex items-center gap-1.5">
+              <Icon
+                :name="inst.isEdit ? 'heroicons-pencil' : 'heroicons-plus-circle'"
+                class="w-3 h-3 shrink-0"
+                :class="inst.isEdit ? 'text-blue-500' : 'text-green-500'"
+              />
+              <span class="text-xs text-gray-700 truncate">{{ inst.title }}</span>
+            </div>
+            <div class="flex items-center gap-2 mt-0.5 ml-[18px]">
+              <span v-if="inst.category" class="text-[10px] text-gray-400">{{ inst.category }}</span>
+              <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
+            </div>
+          </div>
         </template>
       </div>
-    </Transition>
+    </div>
+    <!-- Instruction Modal -->
+    <InstructionModalComponent
+      v-model="showInstructionModal"
+      :instruction="editingInstruction"
+      :initial-type="'global'"
+      @instruction-saved="handleInstructionSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
-import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 
 interface Instruction {
@@ -101,15 +108,24 @@ interface Props {
   messages?: ChatMessage[]
 }
 
+interface UniqueInstruction {
+  instructionId: string
+  title: string
+  category: string
+  isEdit: boolean
+  lineCount: number
+}
+
 const props = defineProps<Props>()
 
 const apiInstructions = ref<Instruction[]>([])
 const isLoading = ref(false)
-const isExpanded = ref(false)
+const showDropdown = ref(false)
+const showInstructionModal = ref(false)
+const editingInstruction = ref<any>(null)
 
 const shouldShow = computed(() => {
-  // Only show for training mode reports when not streaming AND has instructions
-  return props.report?.mode === 'training' && !props.isStreaming && toolExecutions.value.length > 0
+  return props.report?.mode === 'training' && !props.isStreaming && uniqueInstructions.value.length > 0
 })
 
 // Extract tool executions from messages (both create and edit)
@@ -123,10 +139,8 @@ const extractedToolExecutions = computed<ToolExecution[]>(() => {
 
     for (const block of message.completion_blocks) {
       const te = block.tool_execution
-      // Handle create_instruction
       if (te?.tool_name === 'create_instruction' && te.status === 'success') {
         const rj = te.result_json || {}
-        // Only include successfully created instructions
         if (rj.success === true && rj.instruction_id) {
           executions.push({
             id: te.id || `te-${rj.instruction_id}`,
@@ -137,7 +151,6 @@ const extractedToolExecutions = computed<ToolExecution[]>(() => {
           })
         }
       }
-      // Handle edit_instruction
       if (te?.tool_name === 'edit_instruction' && te.status === 'success') {
         const rj = te.result_json || {}
         if (rj.success === true && rj.instruction_id) {
@@ -156,52 +169,55 @@ const extractedToolExecutions = computed<ToolExecution[]>(() => {
   return executions
 })
 
-// Convert API instructions to tool execution format
-const apiToolExecutions = computed<ToolExecution[]>(() => {
-  return apiInstructions.value.map(inst => ({
-    id: `api-${inst.id}`,
-    tool_name: 'create_instruction',
-    status: 'success',
-    result_json: {
-      success: true,
-      instruction_id: inst.id,
-      global_status: inst.global_status,
-      status: inst.status
-    },
-    arguments_json: {
-      text: inst.text,
+// Build unique instructions list (dedupe by instruction_id, keep last action)
+const uniqueInstructions = computed<UniqueInstruction[]>(() => {
+  const byId = new Map<string, UniqueInstruction>()
+
+  // API instructions first
+  for (const inst of apiInstructions.value) {
+    byId.set(inst.id, {
+      instructionId: inst.id,
+      title: inst.title || inst.text.split('\n')[0].replace(/^#+\s*/, '').trim().substring(0, 60) || 'Instruction',
       category: inst.category,
-      load_mode: inst.load_mode || 'intelligent',
-      table_names: inst.references?.map(r => r.display_text) || []
-    }
-  }))
-})
-
-// Combine extracted and API tool executions (dedupe by instruction_id)
-const toolExecutions = computed<ToolExecution[]>(() => {
-  const byInstructionId = new Map<string, ToolExecution>()
-
-  // API instructions take precedence (more complete data)
-  for (const te of apiToolExecutions.value) {
-    const instId = te.result_json.instruction_id
-    if (instId) {
-      byInstructionId.set(instId, te)
-    }
+      isEdit: false,
+      lineCount: inst.text.split('\n').filter(l => l.trim()).length,
+    })
   }
 
-  // Add extracted ones if not already present
+  // Overlay with extracted tool executions (later ones override)
   for (const te of extractedToolExecutions.value) {
     const instId = te.result_json.instruction_id
-    if (instId && !byInstructionId.has(instId)) {
-      byInstructionId.set(instId, te)
-    }
+    if (!instId) continue
+    const args = te.arguments_json || {}
+    const text = args.text || ''
+    const existing = byId.get(instId)
+    const isEdit = te.tool_name === 'edit_instruction' || (existing?.isEdit ?? false)
+
+    byId.set(instId, {
+      instructionId: instId,
+      title: existing?.title || text.split('\n')[0].replace(/^#+\s*/, '').trim().substring(0, 60) || 'Instruction',
+      category: args.category || existing?.category || 'general',
+      isEdit,
+      lineCount: text ? text.split('\n').filter((l: string) => l.trim()).length : (existing?.lineCount ?? 0),
+    })
   }
 
-  return Array.from(byInstructionId.values())
+  return Array.from(byId.values())
 })
 
-function toggleExpanded() {
-  isExpanded.value = !isExpanded.value
+async function handleClick(inst: UniqueInstruction) {
+  showDropdown.value = false
+  try {
+    const { data, error } = await useMyFetch(`/instructions/${inst.instructionId}`)
+    if (!error.value && data.value) {
+      editingInstruction.value = data.value
+    } else {
+      editingInstruction.value = { id: inst.instructionId }
+    }
+  } catch {
+    editingInstruction.value = { id: inst.instructionId }
+  }
+  showInstructionModal.value = true
 }
 
 async function fetchInstructions() {
@@ -221,19 +237,19 @@ async function fetchInstructions() {
 }
 
 onMounted(() => {
-  if (shouldShow.value) {
+  if (props.report?.mode === 'training') {
     fetchInstructions()
   }
 })
 
 watch(() => props.report?.id, () => {
-  if (shouldShow.value) {
+  if (props.report?.mode === 'training') {
     fetchInstructions()
   }
 })
 
 watch(() => props.isStreaming, (newVal, oldVal) => {
-  if (oldVal === true && newVal === false && shouldShow.value) {
+  if (oldVal === true && newVal === false && props.report?.mode === 'training') {
     fetchInstructions()
   }
 })
@@ -243,25 +259,9 @@ const emit = defineEmits<{
   (e: 'instruction-updated'): void
 }>()
 
-function handleInstructionUpdated() {
-  // Refresh the instructions list when any instruction is updated
+function handleInstructionSaved(data: any) {
   fetchInstructions()
-  // Propagate the event up if needed
+  showInstructionModal.value = false
   emit('instruction-updated')
 }
 </script>
-
-<style scoped>
-.slide-enter-active, .slide-leave-active {
-  transition: all 0.15s ease;
-  overflow: hidden;
-}
-.slide-enter-from, .slide-leave-to {
-  opacity: 0;
-  max-height: 0;
-}
-.slide-enter-to, .slide-leave-from {
-  opacity: 1;
-  max-height: 1000px;
-}
-</style>

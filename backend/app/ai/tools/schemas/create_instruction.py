@@ -14,7 +14,11 @@ class CreateInstructionInput(BaseModel):
         description=(
             "The instruction text. Must be clear, actionable, and reusable. "
             "Should capture non-obvious semantic rules that prevent mistakes or improve accuracy. "
-            "Must end with a period."
+            "Do NOT write raw data facts as standalone statements (e.g. 'the orders table has 32 rows', "
+            "'revenue is $100,000', 'there are 5 users') — these become stale as data changes. "
+            "DO capture clarified terms and definitions (e.g. 'X means revenue > $5 USD'), "
+            "business rules, enum meanings, schema relationships, and SQL/code patterns. "
+            "Use markdown formatting for clarity."
         ),
         min_length=20,
         max_length=20000000000,
@@ -30,11 +34,11 @@ class CreateInstructionInput(BaseModel):
         default="general",
         description=(
             "Category for the instruction: "
-            "'general' (business rules, definitions, terminology), "
-            "'code_gen' (SQL/code patterns, joins, filters, aggregations), "
+            "'general' (business rules, domain definitions, terminology, clarified terms — default when the instruction names a domain term or entity), "
+            "'code_gen' (code-level rules applied when generating SQL/code: error fixes, dialect quirks, join patterns, cast/NULL handling, column transformations), "
             "'visualization' (chart types, colors, formatting), "
             "'dashboard' (layout, composition), "
-            "'system' (agent behavior, clarification flows)"
+            "'system' (agent behavior / meta-rules only — do NOT use for domain term bindings)"
         ),
     )
 
@@ -89,6 +93,16 @@ class CreateInstructionOutput(BaseModel):
     instruction_id: Optional[str] = Field(
         None,
         description="ID of the created instruction (if successful)"
+    )
+
+    title: Optional[str] = Field(
+        None,
+        description="Title of the created instruction (provided or auto-generated)"
+    )
+
+    build_id: Optional[str] = Field(
+        None,
+        description="ID of the draft build this instruction was added to."
     )
 
     message: str = Field(

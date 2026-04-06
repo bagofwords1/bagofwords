@@ -30,6 +30,7 @@ class AuditService:
         resource_id: Optional[str] = None,
         details: Optional[dict] = None,
         request: Optional[Request] = None,
+        commit: bool = True,
     ) -> Optional[AuditLog]:
         """
         Create an audit log entry.
@@ -70,7 +71,8 @@ class AuditService:
         )
 
         db.add(audit_log)
-        await db.commit()
+        if commit:
+            await db.commit()
 
         logger.debug(f"Audit log created: {action} by user {user_id} in org {organization_id}")
         return audit_log

@@ -245,10 +245,15 @@ class DescribeTablesTool(Tool):
                             # Load instructions via InstructionContextBuilder (only intelligent)
                             from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
-                            instruction_builder = InstructionContextBuilder(
-                                db=db,
-                                organization=organization,
-                            )
+                            # Reuse context_hub's builder (has data_source_ids + build context)
+                            # or create a new one as fallback
+                            if context_hub and getattr(context_hub, 'instruction_builder', None):
+                                instruction_builder = context_hub.instruction_builder
+                            else:
+                                instruction_builder = InstructionContextBuilder(
+                                    db=db,
+                                    organization=organization,
+                                )
                             instruction_items = await instruction_builder.load_instructions_by_ids(
                                 instruction_ids=instruction_ids,
                                 load_mode_filter="intelligent",

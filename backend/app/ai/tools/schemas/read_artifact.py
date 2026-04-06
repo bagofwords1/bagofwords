@@ -12,6 +12,10 @@ class ReadArtifactInput(BaseModel):
         ...,
         description="ID of the artifact to read. Find this in previous create_artifact results as 'artifact_id: <uuid>' in the conversation history."
     )
+    load_screenshot: bool = Field(
+        default=False,
+        description="If true, include the artifact's last rendered preview screenshot in the observation images. Use this when debugging visual issues or when you need to see what the artifact currently looks like before deciding how to edit it."
+    )
 
 
 class ReadArtifactOutput(BaseModel):

@@ -114,8 +114,12 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                         raise HTTPException(status_code=500, detail="Object does not support ownership checks")
 
             # Check role-based permission via RBAC resolver
+            # `permission` may be a single string or a list/tuple (ANY-of semantics)
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
-            has_role_permission = resolved.has_org_permission(permission)
+            if isinstance(permission, (list, tuple, set)):
+                has_role_permission = any(resolved.has_org_permission(p) for p in permission)
+            else:
+                has_role_permission = resolved.has_org_permission(permission)
             if not has_role_permission:
                 # Special owner allowance: Instruction owner may modify/delete when not published
                 if isinstance(obj, Instruction):

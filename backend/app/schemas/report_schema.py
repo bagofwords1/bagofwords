@@ -58,6 +58,12 @@ class ReportSchema(ReportBase):
     thumbnail_url: Optional[str] = None
     # Scheduled rerun notification subscribers
     notification_subscribers: Optional[List[dict]] = None
+    # Summary counts for list view
+    query_count: int = 0
+    artifact_count: int = 0
+    has_scheduled_prompts: bool = False
+    scheduled_prompt_count: int = 0
+    instruction_count: int = 0
     # Fork lineage
     forked_from_id: Optional[str] = None
     forked_from_title: Optional[str] = None

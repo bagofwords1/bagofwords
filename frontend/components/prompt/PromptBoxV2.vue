@@ -1,14 +1,132 @@
 <template>
     <div class="flex-shrink-0 p-4 pb-8 bg-white">
-        <!-- Instructions button + Excel selection hint -->
-        <div class="mb-2 flex items-center justify-between">
-            <button
-                class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 text-xs flex items-center"
-                @click="openInstructions"
-            >
-                <Icon name="heroicons-cube" class="w-4 h-4 mr-1" />
-                Instructions
-            </button>
+        <!-- Query pills + Excel hint (above container) — hidden for now -->
+        <div v-if="false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed))" class="mb-2 flex items-center justify-between">
+            <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0" class="flex items-center gap-2">
+                <!-- Query pill with hover dropdown -->
+                <div
+                    v-if="props.queryList.length > 0"
+                    class="relative"
+                    @mouseenter="showQueryDropdown = true"
+                    @mouseleave="showQueryDropdown = false"
+                >
+                    <button
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                        <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />
+                        {{ props.queryList.length }} {{ props.queryList.length === 1 ? 'Query' : 'Queries' }}
+                    </button>
+                    <!-- Query dropdown on hover — pad-bridge eliminates the gap -->
+                    <div
+                        v-if="showQueryDropdown"
+                        class="absolute left-0 bottom-full w-72 z-20"
+                    >
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
+                            <div
+                                v-for="(q, i) in props.queryList"
+                                :key="i"
+                                class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                                @click="q.messageId && emit('scrollToMessage', q.messageId, q.stepId); showQueryDropdown = false"
+                            >
+                                <div class="text-xs text-gray-700 truncate">{{ q.label }}</div>
+                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 mt-0.5">{{ q.rowCount.toLocaleString() }} rows</div>
+                            </div>
+                        </div>
+                        <!-- Invisible bridge to cover gap between dropdown and pill -->
+                        <div class="h-1"></div>
+                    </div>
+                </div>
+                <!-- Scheduled prompts pill with hover dropdown -->
+                <div
+                    v-if="props.scheduledPrompts.length > 0"
+                    class="relative"
+                    @mouseenter="showScheduledDropdown = true"
+                    @mouseleave="showScheduledDropdown = false"
+                >
+                    <button
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                        <Icon name="heroicons-clock" class="w-3.5 h-3.5 text-gray-400" />
+                        {{ props.scheduledPrompts.length }} Scheduled
+                    </button>
+                    <div
+                        v-if="showScheduledDropdown"
+                        class="absolute left-0 bottom-full w-80 z-20"
+                    >
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
+                            <div
+                                v-for="sp in props.scheduledPrompts"
+                                :key="sp.id"
+                                class="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2"
+                                @click.stop="emit('editScheduledPrompt', sp); showScheduledDropdown = false"
+                            >
+                                <div class="flex-shrink-0">
+                                    <div
+                                        class="w-2 h-2 rounded-full"
+                                        :class="sp.is_active ? 'bg-green-400' : 'bg-gray-300'"
+                                    />
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-xs text-gray-700 truncate" :class="{ 'text-gray-400': !sp.is_active }">{{ sp.prompt?.content || 'Untitled' }}</div>
+                                    <div class="text-[10px] text-gray-400 mt-0.5">{{ getCronLabel(sp.cron_schedule) }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="h-1"></div>
+                    </div>
+                </div>
+                <!-- Training instructions pill with hover dropdown -->
+                <div
+                    v-if="props.trainingInstructions.length > 0"
+                    class="relative"
+                    @mouseenter="showTrainingDropdown = true"
+                    @mouseleave="showTrainingDropdown = false"
+                >
+                    <button
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                        <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
+                        {{ props.trainingInstructions.length }} Instruction{{ props.trainingInstructions.length === 1 ? '' : 's' }}
+                    </button>
+                    <div
+                        v-if="showTrainingDropdown"
+                        class="absolute left-0 bottom-full w-80 z-20"
+                    >
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
+                            <div
+                                v-for="inst in props.trainingInstructions"
+                                :key="inst.instructionId"
+                                class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                                @click="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
+                            >
+                                <div class="flex items-center gap-1.5">
+                                    <Icon
+                                        :name="inst.isEdit ? 'heroicons-pencil' : 'heroicons-plus-circle'"
+                                        class="w-3 h-3 shrink-0"
+                                        :class="inst.isEdit ? 'text-blue-500' : 'text-green-500'"
+                                    />
+                                    <span class="text-xs text-gray-700 truncate">{{ inst.title }}</span>
+                                </div>
+                                <div class="flex items-center gap-2 mt-0.5 ml-[18px]">
+                                    <span v-if="inst.category" class="text-[10px] text-gray-400">{{ inst.category }}</span>
+                                    <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="h-1"></div>
+                    </div>
+                </div>
+                <!-- View dashboard pill (only if artifacts exist) -->
+                <button
+                    v-if="props.hasArtifacts"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-blue-600 hover:bg-blue-50 transition-colors"
+                    @click="emit('viewDashboard')"
+                >
+                    View dashboard
+                    <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
+                </button>
+            </div>
+            <div v-else></div>
             <button
                 v-if="isExcel && excelSelection && !excelSelectionDismissed"
                 class="text-gray-400 hover:text-gray-600 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-50 transition-colors"
@@ -24,7 +142,7 @@
         <!-- Minimalist prompt container -->
         <div
             class="border rounded-xl bg-white focus-within:border-gray-300 transition-colors relative"
-            :class="isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : 'border-gray-200'"
+            :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : 'border-gray-200', props.compact ? 'text-xs' : '']"
             @dragenter="handleDragEnter"
             @dragleave="handleDragLeave"
             @dragover="handleDragOver"
@@ -42,8 +160,18 @@
                 </div>
             </div>
 
-            <!-- Input -->
-            <div class="p-3">
+            <!-- Input area -->
+            <div :class="props.compact ? 'px-2 pt-2 pb-2' : 'px-3 pt-2.5 pb-3'">
+                <!-- Instructions -->
+                <button
+                    :class="props.compact
+                        ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 text-[11px] flex items-center transition-colors mb-1'
+                        : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
+                    @click="openInstructions"
+                >
+                    <Icon name="heroicons-cube" :class="props.compact ? 'w-3 h-3 mr-1' : 'w-4 h-4 mr-1.5'" />
+                    Instructions
+                </button>
                 <div
                     v-if="isHydratingDataSources"
                     class="flex items-center justify-center py-6 space-x-2 text-xs text-gray-500"
@@ -57,7 +185,8 @@
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
                     :placeholder="placeholder"
-                    :rows="2"
+                    :rows="props.compact ? 1 : 2"
+                    :class="props.compact ? 'text-xs' : ''"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
             </div>
@@ -131,8 +260,7 @@
 
             <!-- Bottom controls -->
             <div
-                class="px-3 pb-3 flex items-center justify-between"
-                :class="{ 'opacity-50 pointer-events-none': isHydratingDataSources }"
+                :class="[props.compact ? 'px-2 pb-2' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
@@ -192,6 +320,16 @@
                     <!-- File attach (open files modal) -->
                     <FileUploadComponent ref="fileUploadRef" :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
 
+                    <!-- Schedule a prompt -->
+                    <UTooltip v-if="!props.hideScheduleButton" text="Schedule a prompt" :popper="{ strategy: 'fixed', placement: 'top' }">
+                        <button
+                            class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center"
+                            @click="openScheduleModal"
+                        >
+                            <Icon name="heroicons-clock" class="w-4 h-4" />
+                        </button>
+                    </UTooltip>
+
                     <!-- Model selector -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
@@ -225,7 +363,7 @@
                     >
                         <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
                     </button>
-                    <UTooltip v-else :text="submitTooltip" :popper="{ strategy: 'fixed', placement: 'top' }" :disabled="canSubmit">
+                    <UTooltip v-else-if="!props.hideSubmitButton" :text="submitTooltip" :popper="{ strategy: 'fixed', placement: 'top' }" :disabled="canSubmit">
                         <button
                             class="text-white w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
                             :class="canSubmit ? 'bg-gray-700 hover:cursor-pointer hover:bg-black' : 'bg-gray-300 cursor-not-allowed'"
@@ -242,20 +380,29 @@
         <!-- Modals -->
         <InstructionsListModalComponent ref="instructionsListModalRef" />
         <ImagePreviewModal ref="imagePreviewModalRef" />
+        <ScheduledPromptModal
+            v-model="showScheduledPromptModal"
+            :reportId="report_id || ''"
+            :initialDataSources="selectedDataSources"
+            :draftContent="scheduleDraftContent"
+            :draftMode="scheduleDraftMode"
+            :draftModel="scheduleDraftModel"
+            @saved="emit('scheduledPromptSaved')"
+        />
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
-import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
+import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import { useCan } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
 import { useExcel } from '@/composables/useExcel'
@@ -276,21 +423,90 @@ const props = defineProps({
     initialMode: {
         type: String as () => 'chat' | 'deep' | 'training',
         default: 'chat'
-    }
+    },
+    // Query list for summary pills above input
+    queryList: {
+        type: Array as () => { id: string; label: string; rowCount?: number; messageId: string; stepId?: string }[],
+        default: () => []
+    },
+    // Scheduled prompts for the pill above input
+    scheduledPrompts: {
+        type: Array as () => { id: string; prompt: any; cron_schedule: string; is_active: boolean }[],
+        default: () => []
+    },
+    // Training instructions for the pill above input
+    trainingInstructions: {
+        type: Array as () => { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number }[],
+        default: () => []
+    },
+    // Whether the report has artifacts (for "View dashboard" pill)
+    hasArtifacts: { type: Boolean, default: false },
+    // Hide the schedule button (when embedded inside ScheduledPromptModal)
+    hideScheduleButton: { type: Boolean, default: false },
+    hideSubmitButton: { type: Boolean, default: false },
+    compact: { type: Boolean, default: false },
+    // Initial model to pre-select
+    initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions','update:selectedDataSources'])
 
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
+
+// Emit whenever selected data sources change (for parent sync, e.g. agent panel)
+watch(selectedDataSources, (val) => {
+    emit('update:selectedDataSources', val)
+}, { deep: true })
 const isHydratingDataSources = ref(!!props.report_id && selectedDataSources.value.length === 0)
 const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
 const inlineMentions = ref<any[]>([])
 const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
 const isDraggingFiles = ref(false)
+const showQueryDropdown = ref(false)
+const showScheduledDropdown = ref(false)
+const showTrainingDropdown = ref(false)
+const showScheduledPromptModal = ref(false)
+const scheduleDraftContent = ref('')
+const scheduleDraftMode = ref<'chat' | 'deep'>('chat')
+const scheduleDraftModel = ref('')
+
+const openScheduleModal = () => {
+    scheduleDraftContent.value = text.value
+    scheduleDraftMode.value = mode.value === 'training' ? 'chat' : mode.value
+    scheduleDraftModel.value = selectedModel.value
+    showScheduledPromptModal.value = true
+}
+
+const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function getCronLabel(cron: string): string {
+    if (!cron) return ''
+    const p = cron.split(' ')
+    if (p.length < 5) return cron
+    const [min, hour, dom, , dow] = p
+    const fmtHour = (h: string) => {
+        const n = parseInt(h)
+        if (n === 0) return '12 AM'
+        if (n < 12) return `${n} AM`
+        if (n === 12) return '12 PM'
+        return `${n - 12} PM`
+    }
+    if (min.startsWith('*/')) return `Every ${min.slice(2)} min`
+    if (hour.startsWith('*/')) return `Every ${hour.slice(2)} hr`
+    if (dow === '1-5') return `Weekdays at ${fmtHour(hour)}`
+    if (dom !== '*' && dow === '*') return `Monthly on the ${dom}${ordSuffix(+dom)} at ${fmtHour(hour)}`
+    if (dow !== '*') return `${dayNames[+dow] || dow}s at ${fmtHour(hour)}`
+    if (hour !== '*') return `Daily at ${fmtHour(hour)}`
+    return `Hourly`
+}
+function ordSuffix(n: number): string {
+    if (n >= 11 && n <= 13) return 'th'
+    const r = n % 10
+    return r === 1 ? 'st' : r === 2 ? 'nd' : r === 3 ? 'rd' : 'th'
+}
 let dragCounter = 0 // Track enter/leave for nested elements
 
 // Excel selection hint
@@ -471,6 +687,9 @@ async function loadModels() {
             models.value = data.value
             // Set the default model as selected, or fall back to first enabled model
             if (!selectedModel.value && models.value.length > 0) {
+                if (props.initialModel && models.value.find(m => m.id === props.initialModel)) {
+                    selectedModel.value = props.initialModel
+                } else {
                 // First try to find the model marked as default
                 const defaultModel = models.value.find(m => m.is_default)
                 if (defaultModel) {
@@ -478,6 +697,7 @@ async function loadModels() {
                 } else {
                     // Fall back to first enabled model if no default is set
                     selectedModel.value = models.value[0].id
+                }
                 }
             }
         }
@@ -779,10 +999,17 @@ const fileUploadRef = ref<any | null>(null)
 const instructionsListModalRef = ref<any | null>(null)
 const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(null)
 
+const attrs = useAttrs()
+
+const instance = getCurrentInstance()
+
 function openInstructions() {
-    // Pass selected data source IDs to filter instructions (shows selected + global)
-    const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
-    instructionsListModalRef.value?.openModal?.(dataSourceIds)
+    if (instance?.vnode.props?.onOpenInstructions) {
+        emit('openInstructions')
+    } else {
+        const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
+        instructionsListModalRef.value?.openModal?.(dataSourceIds)
+    }
 }
 
 function openImagePreview(file: any) {
@@ -868,7 +1095,12 @@ watch(selectedModel, async (newModel, oldModel) => {
 defineExpose({
     refreshContextEstimate: () => refreshContextEstimate(true),
     // Refresh files list after completion (when backend deletes images)
-    refreshFiles: () => fileUploadRef.value?.refresh?.()
+    refreshFiles: () => fileUploadRef.value?.refresh?.(),
+    // Expose current state for external save (e.g. ScheduledPromptModal)
+    getText: () => text.value,
+    getMode: () => mode.value,
+    getModel: () => selectedModel.value,
+    getMentions: () => inlineMentions.value,
 })
 
 // Keep local text in sync with parent-provided content (landing page)

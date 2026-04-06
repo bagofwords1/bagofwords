@@ -107,8 +107,8 @@ class BuildService:
         
         db.add(build)
         await db.commit()
-        await db.refresh(build)
-        
+        await db.refresh(build, ['id', 'build_number'])
+
         logger.info(f"Created build {build.id} (#{build.build_number}) for org {org_id}, source={source}")
         
         # Copy contents from current main build (if exists and requested)
@@ -122,9 +122,8 @@ class BuildService:
                     logger.debug(f"Copying contents from main build {main_build.id} to {build.id}")
                     copied = await self._copy_build_contents(db, main_build.id, build.id)
                     logger.info(f"Copied {copied} instructions from main build to build {build.id}")
-                    # Commit base_build_id and copied contents, then refresh
+                    # Commit base_build_id and copied contents
                     await db.commit()
-                    await db.refresh(build)
                 else:
                     logger.debug(f"No main build found for org {org_id}, starting with empty build")
             except Exception as e:
@@ -143,18 +142,19 @@ class BuildService:
         Copy all BuildContent records from source build to target build.
         Returns the number of records copied.
         """
-        # Get all contents from source build
+        # Get only the IDs we need from source build (no relationship loading)
         result = await db.execute(
-            select(BuildContent).where(BuildContent.build_id == source_build_id)
+            select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+            .where(BuildContent.build_id == source_build_id)
         )
-        source_contents = result.scalars().all()
-        
+        source_rows = result.all()
+
         copied_count = 0
-        for content in source_contents:
+        for instruction_id, instruction_version_id in source_rows:
             new_content = BuildContent(
                 build_id=target_build_id,
-                instruction_id=content.instruction_id,
-                instruction_version_id=content.instruction_version_id,
+                instruction_id=instruction_id,
+                instruction_version_id=instruction_version_id,
             )
             db.add(new_content)
             copied_count += 1
@@ -276,7 +276,29 @@ class BuildService:
             
             for run in runs:
                 test_runs_by_build[run.build_id] = run
-        
+
+        # Batch-resolve trace coordinates (report_id, completion_id) for any
+        # builds that were created by an agent execution, so the UI can wire
+        # a "View trace" button without an extra round-trip per row.
+        trace_by_exec_id: Dict[str, Dict[str, Optional[str]]] = {}
+        exec_ids = [str(b.agent_execution_id) for b in builds if getattr(b, 'agent_execution_id', None)]
+        if exec_ids:
+            from app.models.agent_execution import AgentExecution
+            exec_stmt = (
+                select(
+                    AgentExecution.id,
+                    AgentExecution.report_id,
+                    AgentExecution.completion_id,
+                )
+                .where(AgentExecution.id.in_(exec_ids))
+            )
+            exec_result = await db.execute(exec_stmt)
+            for row in exec_result.all():
+                trace_by_exec_id[str(row[0])] = {
+                    "report_id": str(row[1]) if row[1] else None,
+                    "completion_id": str(row[2]) if row[2] else None,
+                }
+
         # Enrich builds with test run data and user info
         enriched_items = []
         for build in builds:
@@ -289,10 +311,17 @@ class BuildService:
             if build.approved_by_user:
                 approved_by_name = getattr(build.approved_by_user, 'full_name', None) or getattr(build.approved_by_user, 'name', None)
             
+            exec_id = str(build.agent_execution_id) if getattr(build, 'agent_execution_id', None) else None
+            trace_coords = trace_by_exec_id.get(exec_id) if exec_id else None
+
             build_dict = {
                 "id": str(build.id),
                 "build_number": build.build_number,
                 "title": build.title,
+                "description": build.description,
+                "agent_execution_id": exec_id,
+                "report_id": trace_coords.get("report_id") if trace_coords else None,
+                "completion_id": trace_coords.get("completion_id") if trace_coords else None,
                 "status": build.status,
                 "source": build.source,
                 "is_main": build.is_main,
@@ -419,8 +448,26 @@ class BuildService:
 
         return await self.create_build(db, org_id, source=source, user_id=user_id)
     
+    async def update_build_description(
+        self,
+        db: AsyncSession,
+        build_id: str,
+        description: Optional[str],
+    ) -> Optional[InstructionBuild]:
+        """Set a build's free-text description. Used by the knowledge harness
+        to attach a commit-message style rationale derived from tool-call
+        evidence. Safe to call on any build status — the description field is
+        metadata, not part of the instruction snapshot."""
+        build = await self.get_build(db, build_id)
+        if not build:
+            return None
+        build.description = description
+        await db.commit()
+        await db.refresh(build)
+        return build
+
     # ==================== Draft Editing ====================
-    
+
     async def add_to_build(
         self,
         db: AsyncSession,
@@ -464,7 +511,6 @@ class BuildService:
                     branch=build.branch,
                 )
             await db.commit()
-            await db.refresh(existing_content)
             return existing_content
         else:
             # Add new content
@@ -485,7 +531,6 @@ class BuildService:
                 branch=build.branch,
             )
             await db.commit()
-            await db.refresh(content)
             return content
     
     async def remove_from_build(
@@ -639,7 +684,6 @@ class BuildService:
 
         build.status = 'pending_approval'
         await db.commit()
-        await db.refresh(build)
 
         # Audit log
         try:
@@ -651,6 +695,7 @@ class BuildService:
                 resource_type="instruction_build",
                 resource_id=str(build.id),
                 details={"build_number": build.build_number, "title": build.title},
+                commit=False,
             )
         except Exception:
             pass
@@ -681,7 +726,6 @@ class BuildService:
         build.approved_by_user_id = approved_by_user_id
         build.approved_at = datetime.utcnow()
         await db.commit()
-        await db.refresh(build)
 
         # Audit log
         try:
@@ -693,6 +737,7 @@ class BuildService:
                 resource_type="instruction_build",
                 resource_id=str(build.id),
                 details={"build_number": build.build_number, "title": build.title},
+                commit=False,
             )
         except Exception:
             pass
@@ -764,22 +809,10 @@ class BuildService:
                 detail=f"Build cannot be promoted (status: {build.status}, is_main: {build.is_main})"
             )
 
-        # Clear is_main from current main build (if any)
+        # Clear is_main from current main build (if any). Raw SQL update for
+        # efficiency — we don't need the ORM objects.
         await db.execute(
-            select(InstructionBuild)
-            .where(
-                and_(
-                    InstructionBuild.organization_id == build.organization_id,
-                    InstructionBuild.is_main == True,
-                    InstructionBuild.id != build_id
-                )
-            )
-        )
-
-        # Use raw SQL update for efficiency
-        from sqlalchemy import update
-        await db.execute(
-            update(InstructionBuild)
+            sql_update(InstructionBuild)
             .where(
                 and_(
                     InstructionBuild.organization_id == build.organization_id,
@@ -790,24 +823,32 @@ class BuildService:
             .values(is_main=False)
         )
 
-        # Set this build as main
+        # Set this build as main. Use a raw SQL update (instead of mutating
+        # the ORM attribute) so the change is guaranteed to be persisted in
+        # the same transaction as the raw update above — relying on ORM
+        # dirty-tracking next to a raw UPDATE on the same table is fragile.
+        await db.execute(
+            sql_update(InstructionBuild)
+            .where(InstructionBuild.id == build_id)
+            .values(is_main=True)
+        )
+        # Keep the in-memory object consistent for any caller that reads it.
         build.is_main = True
 
         # Update Instruction.current_version_id for all instructions in this build
-        contents = await self.get_build_contents(db, build_id)
-        instruction_ids = [content.instruction_id for content in contents]
-        if instruction_ids:
-            result = await db.execute(
-                select(Instruction).where(Instruction.id.in_(instruction_ids))
+        # Query only IDs — no need to load full Instruction/BuildContent objects
+        content_rows = await db.execute(
+            select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+            .where(BuildContent.build_id == build_id)
+        )
+        for instruction_id, version_id in content_rows.all():
+            await db.execute(
+                sql_update(Instruction)
+                .where(Instruction.id == instruction_id)
+                .values(current_version_id=version_id)
             )
-            instructions_by_id = {i.id: i for i in result.scalars().all()}
-            for content in contents:
-                instruction = instructions_by_id.get(content.instruction_id)
-                if instruction:
-                    instruction.current_version_id = content.instruction_version_id
 
         await db.commit()
-        await db.refresh(build)
 
         # Audit log
         try:
@@ -819,6 +860,7 @@ class BuildService:
                 resource_type="instruction_build",
                 resource_id=str(build.id),
                 details={"build_number": build.build_number, "title": build.title},
+                commit=False,
             )
         except Exception:
             pass
