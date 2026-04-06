@@ -556,21 +556,15 @@ class EntityService:
             return {"data": None, "error": str(e)}
 
     def _is_admin_permissions(self, user_permissions: set) -> bool:
-        """Check if permissions set corresponds to an admin in org"""
-        return 'update_entities' in user_permissions or 'create_entities' in user_permissions or 'delete_entities' in user_permissions
+        """MVP: entity admin = full_admin_access. Per-DS create is checked at the route layer."""
+        return 'full_admin_access' in user_permissions
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
-        """Get user's permissions in the organization"""
-        from app.models.membership import Membership, ROLES_PERMISSIONS
-        
-        stmt = select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.organization_id == organization.id
-        )
-        result = await db.execute(stmt)
-        membership = result.scalar_one_or_none()
-        
-        return ROLES_PERMISSIONS.get(membership.role, set()) if membership else set()
+        """Get user's org-level permissions via the RBAC resolver."""
+        from app.core.permission_resolver import resolve_permissions
+
+        resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+        return set(resolved.org_permissions)
 
     def _determine_update_type(self, entity: Entity, payload: EntityUpdate, current_user: User, user_permissions: set) -> str:
         """Determine what type of update this is based on permissions and changes"""

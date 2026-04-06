@@ -332,10 +332,10 @@ class OrganizationService:
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
 
-        # RBAC lockout prevention when changing roles
+        # RBAC lockout prevention: whenever we mutate a membership's role field,
+        # verify at least one user still holds full_admin_access in the org.
         if membership.user_id and membership_data.role and membership_data.role != membership.role:
-            if membership.role == "admin":
-                await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
+            await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
 
         # currently only updating role
         membership.role = membership_data.role
@@ -370,11 +370,19 @@ class OrganizationService:
         
         return False
     
-    async def _active_admin_count(self, db: AsyncSession, organization: Organization, current_user: User) -> bool:
-        admin_memberships = await self.get_members(db, organization, current_user)
-        admin_members = [membership for membership in admin_memberships if membership.role == "admin" and membership.user_id is not None]
+    async def _active_admin_count(self, db: AsyncSession, organization: Organization, current_user: User) -> int:
+        """Count active users holding full_admin_access in the org (via RBAC resolver)."""
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 
-        return len(admin_members)
+        memberships = await self.get_members(db, organization, current_user)
+        count = 0
+        for m in memberships:
+            if not m.user_id:
+                continue
+            resolved = await resolve_permissions(db, str(m.user_id), str(organization.id))
+            if FULL_ADMIN in resolved.org_permissions:
+                count += 1
+        return count
     
     async def _send_invitation_email(self, membership: Membership, email: str):
         sign_up_url = settings.bow_config.base_url + "/users/sign-up?email=" + email

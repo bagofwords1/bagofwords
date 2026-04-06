@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 from functools import wraps
 from inspect import signature
-from app.models.membership import Membership, ROLES_PERMISSIONS
+from app.models.membership import Membership
 from app.models.instruction import Instruction
 from app.settings.config import settings
 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN

@@ -17,7 +17,6 @@ from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TY
 from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
 from app.models.git_repository import GitRepository
-from app.models.membership import Membership, ROLES_PERMISSIONS
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -814,18 +813,19 @@ class DataSourceService:
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
         
-        # Compute once whether the current user has org-level permission to update data sources
+        # Compute once whether the current user has admin-level access to data sources
+        # (full_admin_access or org-level create_data_source).
         has_update_perm = False
         if current_user:
             try:
-                mem_res = await db.execute(
-                    select(Membership).where(
-                        Membership.user_id == current_user.id,
-                        Membership.organization_id == organization.id,
-                    )
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                resolved = await resolve_permissions(
+                    db, str(current_user.id), str(organization.id)
                 )
-                membership = mem_res.scalar_one_or_none()
-                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_org_permission("create_data_source")
+                )
             except Exception:
                 has_update_perm = False
         
@@ -1237,17 +1237,19 @@ class DataSourceService:
                 is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
             except Exception:
                 is_owner = False
-            # Check org role permission for update_data_source
+            # Admin-level access gate: full_admin or per-DS `manage` grant
             has_update_perm = False
             try:
-                mem_res = await db.execute(
-                    select(Membership).where(
-                        Membership.user_id == current_user.id,
-                        Membership.organization_id == getattr(data_source, "organization_id", None),
-                    )
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                resolved = await resolve_permissions(
+                    db,
+                    str(current_user.id),
+                    str(getattr(data_source, "organization_id", "")),
                 )
-                membership = mem_res.scalar_one_or_none()
-                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
+                )
             except Exception:
                 has_update_perm = False
             if is_owner or has_update_perm:
@@ -1375,15 +1377,16 @@ class DataSourceService:
             is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
             has_update_perm = False
             try:
-                from app.models.membership import Membership, ROLES_PERMISSIONS
-                mem_res = await db.execute(
-                    select(Membership).where(
-                        Membership.user_id == current_user.id,
-                        Membership.organization_id == getattr(data_source, "organization_id", None),
-                    )
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                resolved = await resolve_permissions(
+                    db,
+                    str(current_user.id),
+                    str(getattr(data_source, "organization_id", "")),
                 )
-                membership = mem_res.scalar_one_or_none()
-                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
+                )
             except Exception:
                 pass
 

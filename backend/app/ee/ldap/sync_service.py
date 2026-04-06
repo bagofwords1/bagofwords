@@ -321,12 +321,24 @@ class LDAPGroupSyncService:
             select(Membership)
             .where(Membership.organization_id == organization_id)
             .where(Membership.deleted_at.is_(None))
-            .where(Membership.role == "member")  # Never remove admins
             .where(Membership.user_id.notin_(users_with_ldap_groups))
             .where(Membership.user_id.notin_(users_still_in_ldap))
         )
         # Only delete if user was originally LDAP-provisioned (no invite token, no email-based invite)
         orphan_memberships = (await db.execute(stmt)).scalars().all()
+
+        # Never remove users who hold full_admin_access (RBAC-aware admin check)
+        from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+        _admin_safe: list = []
+        for m in orphan_memberships:
+            if not m.user_id:
+                _admin_safe.append(m)
+                continue
+            resolved = await resolve_permissions(db, str(m.user_id), str(organization_id))
+            if FULL_ADMIN not in resolved.org_permissions:
+                _admin_safe.append(m)
+        orphan_memberships = _admin_safe
+
         for membership in orphan_memberships:
             # Extra safety: only remove if user has no non-LDAP groups in this org
             non_ldap_stmt = (

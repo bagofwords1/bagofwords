@@ -17,7 +17,7 @@ from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
 from app.core.permissions_decorator import requires_permission
 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-from app.models.membership import Membership, ROLES_PERMISSIONS
+from app.models.membership import Membership
 from app.schemas.connection_schema import (
     ConnectionCreate,
     ConnectionUpdate,
@@ -39,17 +39,12 @@ connection_service = ConnectionService()
 
 
 async def _is_org_admin(db: AsyncSession, user: User, organization: Organization) -> bool:
-    """Return True if user has admin-level data source permissions in the org."""
-    result = await db.execute(
-        select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.organization_id == organization.id,
-        )
+    """Return True if user has admin-level connection/data source access in the org."""
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    return (
+        FULL_ADMIN in resolved.org_permissions
+        or resolved.has_org_permission("manage_connections")
     )
-    membership = result.scalar_one_or_none()
-    if not membership:
-        return False
-    return "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set())
 
 
 async def _user_can_access_connection(
