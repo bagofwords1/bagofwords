@@ -643,6 +643,11 @@ class InstructionService:
             await self._handle_admin_edit(instruction, instruction_data, current_user)
         elif update_type == "owner_edit":
             await self._handle_owner_edit(instruction, instruction_data)
+        elif update_type == "suggester_edit":
+            # Suggester edits use the same safe field subset as owner edits (no status changes).
+            # The downstream build-auto-finalize logic will route the resulting build to
+            # pending_approval since the user is not an admin.
+            await self._handle_owner_edit(instruction, instruction_data)
         else:
             raise HTTPException(status_code=403, detail="Permission denied")
         
@@ -1471,24 +1476,19 @@ class InstructionService:
         return instruction
 
     def _determine_update_type(self, instruction: Instruction, instruction_data: InstructionUpdate, current_user: User, user_permissions: set) -> str:
-        """Determine what type of update this is based on permissions and changes.
-        
-        SIMPLIFIED: No more suggestion workflow. Just admin vs owner edits.
+        """Determine what type of update this is based on permissions.
+
+        MVP: no suggestion workflow. Admin (manage_instructions) edits anything;
+        owner can edit their own; everyone else is denied.
         """
         is_admin = self._is_admin_permissions(user_permissions)
         is_owner = instruction.user_id == current_user.id
-        
-        # Admin editing any instruction
+
         if is_admin:
             return "admin_edit"
-        
-        # Owner editing their own instruction
-        elif is_owner and user_permissions:
+        if is_owner:
             return "owner_edit"
-        
-        # No permission
-        else:
-            return "no_permission"
+        return "no_permission"
 
     async def _handle_admin_edit(self, instruction: Instruction, instruction_data: InstructionUpdate, admin_user: User):
         """Handle admin editing any instruction (not review)"""
@@ -1515,8 +1515,8 @@ class InstructionService:
                 setattr(instruction, field, getattr(instruction_data, field))
 
     def _is_admin_permissions(self, user_permissions: set) -> bool:
-        """Check if permissions set corresponds to an admin in org"""
-        return 'update_instructions' in user_permissions or 'create_instructions' in user_permissions or 'delete_instructions' in user_permissions
+        """MVP: org-level manage_instructions is the admin gate."""
+        return 'manage_instructions' in user_permissions or 'full_admin_access' in user_permissions
 
     async def _get_instruction_by_id(self, db: AsyncSession, instruction_id: str, organization: Organization) -> Instruction:
         """Get instruction by ID with proper error handling"""
@@ -1557,7 +1557,7 @@ class InstructionService:
         # Treat instructions with NULL user_id as "others" so system/AI-created drafts are visible
         base = [or_(Instruction.user_id != user_id, Instruction.user_id == None)]
         
-        if 'create_instructions' in permissions:
+        if 'manage_instructions' in permissions or 'full_admin_access' in permissions:
             # Admin: see everything with optional filters
             if not include_drafts:
                 base.append(Instruction.status != "draft")
@@ -1566,23 +1566,18 @@ class InstructionService:
             if not include_hidden:
                 base.append(Instruction.is_seen == True)
             return and_(*base)
-        
-        elif 'view_instructions' in permissions:
-            # Regular user: only published, visible instructions
-            # Note: Build system controls actual visibility (whether in main build)
-            base.extend([
-                Instruction.status == "published",
-                Instruction.is_seen == True,
-            ])
-            return and_(*base)
-        
-        else:
-            # No permission to see others' instructions
-            return None
+
+        # Non-admin org members: only published, visible instructions.
+        # Per-DS visibility is enforced at the route layer via DS resource grants.
+        base.extend([
+            Instruction.status == "published",
+            Instruction.is_seen == True,
+        ])
+        return and_(*base)
 
     def _can_filter_by_user(self, permissions: set) -> bool:
-        """Check if user can filter by specific user ID"""
-        return 'create_instructions' in permissions
+        """Only org instruction admins may filter the list by arbitrary user id."""
+        return 'manage_instructions' in permissions or 'full_admin_access' in permissions
 
     async def _execute_instructions_query(
         self, 
@@ -1802,17 +1797,11 @@ class InstructionService:
         }
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
-        """Get user's permissions in the organization"""
-        from app.models.membership import Membership, ROLES_PERMISSIONS
-        
-        stmt = select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.organization_id == organization.id
-        )
-        result = await db.execute(stmt)
-        membership = result.scalar_one_or_none()
-        
-        return ROLES_PERMISSIONS.get(membership.role, set()) if membership else set()
+        """Get user's org-level permissions via the RBAC resolver."""
+        from app.core.permission_resolver import resolve_permissions
+
+        resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+        return set(resolved.org_permissions)
 
     async def get_available_references(
         self,

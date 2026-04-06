@@ -195,7 +195,7 @@
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
 import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
-import { usePermissionsLoaded, useCan } from '~/composables/usePermissions'
+import { usePermissionsLoaded, useCan, useCanAny } from '~/composables/usePermissions'
 import Spinner from '~/components/Spinner.vue'
 import { onMounted, onUnmounted } from 'vue'
 
@@ -442,28 +442,29 @@ const impactTotalCount = ref(0)
 const isLoadingImpact = ref(false)
 const isLoadingRelated = ref(false)
 
+const canCreateInstructions = computed(() => useCanAny('create_instructions', 'data_source'))
+
 const selectedInstructionType = computed(() => {
     // Check permissions first - admins always use the global component for consistent UI
     const permissionsLoaded = usePermissionsLoaded()
     if (!permissionsLoaded.value) {
         // Default to private to avoid flashing the admin UI. It will correct itself once permissions load.
-        return 'private' 
+        return 'private'
     }
-    
-    // Admins always use the global component for all instruction types (git, user, AI)
-    // This ensures consistent edit UI regardless of instruction source
-    if (useCan('create_instructions')) {
+
+    // Users with create_instructions (org-wide OR on any data source) use the global component
+    if (canCreateInstructions.value) {
         return 'global'
     }
-    
-    // Non-admins use the private component (for suggestions)
+
+    // Users without create permission use the private component (for suggestions)
     return 'private'
 })
 
-// Non-admins default to suggestions when creating
+// Users without create_instructions default to suggestions when creating
 const effectiveIsSuggestion = computed(() => {
     if (props.isSuggestion !== undefined) return props.isSuggestion
-    return !useCan('create_instructions')
+    return !canCreateInstructions.value
 })
 
 // Event handlers

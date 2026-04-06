@@ -223,12 +223,12 @@ class GitService:
         # If already HTTPS, inject credentials
         if repo_url.startswith('https://'):
             parsed = urlparse(repo_url)
-            if username:
-                # Bitbucket Cloud: username:app_password@
-                auth = f"{username}:{access_token}"
-            else:
-                # GitHub/GitLab: token@
-                auth = access_token
+            # When no explicit username is supplied, use a placeholder
+            # username so credential helpers don't interpret the bare
+            # token as a username and prompt for a password.
+            # GitHub recommends `x-access-token`; GitLab uses `oauth2`.
+            effective_username = username or "x-access-token"
+            auth = f"{effective_username}:{access_token}"
             return f"https://{auth}@{parsed.netloc}{parsed.path}"
         
         # Convert SSH URL to HTTPS

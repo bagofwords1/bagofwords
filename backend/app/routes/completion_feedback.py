@@ -20,7 +20,7 @@ feedback_service = CompletionFeedbackService()
 
 
 @router.post("/completions/{completion_id}/feedback")
-@requires_permission('create_completion_feedback')
+@requires_permission('view_reports')
 async def create_or_update_feedback(
     completion_id: str,
     feedback_data: CompletionFeedbackCreate,
@@ -35,7 +35,7 @@ async def create_or_update_feedback(
 
 
 @router.get("/completions/{completion_id}/feedback/summary")
-@requires_permission('create_completion_feedback')
+@requires_permission('view_reports')
 async def get_feedback_summary(
     completion_id: str,
     current_user: User = Depends(current_user),
@@ -49,7 +49,7 @@ async def get_feedback_summary(
 
 
 @router.post("/completions/{completion_id}/feedback/suggest-instructions")
-@requires_permission('create_completion_feedback')
+@requires_permission('view_reports')
 async def suggest_instructions_from_feedback(
     completion_id: str,
     current_user: User = Depends(current_user),
@@ -67,7 +67,7 @@ async def suggest_instructions_from_feedback(
 
 
 @router.get("/completions/{completion_id}/feedback")
-@requires_permission('create_completion_feedback')
+@requires_permission('view_reports')
 async def get_completion_feedbacks(
     completion_id: str,
     current_user: User = Depends(current_user),
@@ -81,7 +81,7 @@ async def get_completion_feedbacks(
 
 
 @router.delete("/completions/{completion_id}/feedback")
-@requires_permission('create_completion_feedback')
+@requires_permission('view_reports')
 async def delete_feedback(
     completion_id: str,
     current_user: User = Depends(current_user),

@@ -19,7 +19,7 @@ context_snapshot_service = ContextSnapshotService()
 console_service = ConsoleService()
 
 @router.get("/console/agent_executions/{agent_execution_id}/context_snapshot/{id}", response_model=ContextSnapshotSchema)
-@requires_permission('view_organization_overview')
+@requires_permission('manage_settings')
 async def get_context_snapshot(
     agent_execution_id: str,
     id: str,
@@ -31,7 +31,7 @@ async def get_context_snapshot(
     return await context_snapshot_service.get_context_snapshot(db, agent_execution_id, id)
 
 @router.get("/console/agent_executions/{agent_execution_id}", response_model=AgentExecutionTraceResponse)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_agent_execution_trace(
     agent_execution_id: str,
     organization: Organization = Depends(get_current_organization),
@@ -42,7 +42,7 @@ async def get_agent_execution_trace(
     return await console_service.get_agent_execution_trace(db, organization, agent_execution_id)
 
 @router.get("/console/agent_executions/by-completion/{completion_id}", response_model=AgentExecutionTraceResponse)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_agent_execution_trace_by_completion(
     completion_id: str,
     organization: Organization = Depends(get_current_organization),

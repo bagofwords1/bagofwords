@@ -41,17 +41,16 @@ const route = useRoute()
 // Make route path reactive
 const currentPath = computed(() => route.path)
 
-// All available tabs with their required permissions
+// All available tabs. Visibility mirrors the page-level gate: anyone with
+// `manage` on at least one data source can see the monitoring tabs.
 const allTabs = [
-    { name: '', label: 'Explore', icon: 'i-heroicons-chart-bar', requiredPermission: "view_console" },
-    { name: 'diagnosis', label: 'Diagnosis', icon: 'i-heroicons-wrench', requiredPermission: "view_console" },
+    { name: '', label: 'Explore', icon: 'i-heroicons-chart-bar' },
+    { name: 'diagnosis', label: 'Diagnosis', icon: 'i-heroicons-wrench' },
 ]
 
-// Filter tabs based on user permissions
 const visibleTabs = computed(() => {
-    return allTabs.filter(tab => {
-        return useCan(tab.requiredPermission)
-    })
+    if (!useCanAny('manage', 'data_source')) return []
+    return allTabs
 })
 
 // Helper function to check if tab is active

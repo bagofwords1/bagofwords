@@ -23,6 +23,8 @@ TIER_FEATURES = {
         "audit_logs",
         "step_retention_config",
         "scim",
+        "custom_roles",
+        "ldap",
     ],
 }
 

@@ -16,7 +16,6 @@ router = APIRouter(tags=["organization_settings"])
 settings_service = OrganizationSettingsService()
 
 @router.get("/organization/settings", response_model=OrganizationSettingsSchema)
-@requires_permission('view_organization_settings')
 async def get_organization_settings(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -26,7 +25,7 @@ async def get_organization_settings(
     return await settings_service.get_settings(db, organization, current_user)
 
 @router.put("/organization/settings", response_model=OrganizationSettingsSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def update_organization_settings(
     settings: OrganizationSettingsUpdate,
     current_user: User = Depends(current_user),
@@ -37,7 +36,7 @@ async def update_organization_settings(
     return await settings_service.update_settings(db, organization, current_user, settings)
 
 @router.post("/organization/settings/agents/{agent_name}")
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def update_agent_setting(
     agent_name: str,
     enabled: bool,
@@ -50,7 +49,7 @@ async def update_agent_setting(
 
 
 @router.post("/organization/general/icon", response_model=OrganizationSettingsSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def upload_general_icon(
     icon: UploadFile = File(...),
     current_user: User = Depends(current_user),
@@ -61,7 +60,7 @@ async def upload_general_icon(
 
 
 @router.delete("/organization/general/icon", response_model=OrganizationSettingsSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def delete_general_icon(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),

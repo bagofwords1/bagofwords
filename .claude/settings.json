@@ -6,7 +6,8 @@
       "Bash(grep:*)",
       "Grep",
       "Bash(wc:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(curl:*)"
     ]
   }
 }

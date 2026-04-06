@@ -22,7 +22,7 @@ async def create_organization(organization: OrganizationCreate, db: AsyncSession
     return await organization_service.create_organization(db, organization, current_user)
 
 @router.post("/organizations/{organization_id}/members", response_model=MembershipSchema)
-@requires_permission('add_organization_members')
+@requires_permission('manage_members')
 async def add_member(
     organization_id: str,
     membership: MembershipCreate,
@@ -46,12 +46,12 @@ async def add_member(
     return result
 
 @router.get("/organizations/{organization_id}/members", response_model=List[MembershipSchema])
-@requires_permission('view_organization_members')
+@requires_permission('view_members')
 async def get_members(organization_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await organization_service.get_members(db, organization, current_user)
 
 @router.delete("/organizations/{organization_id}/members/{membership_id}", status_code=204)
-@requires_permission('remove_organization_members')
+@requires_permission('manage_members')
 async def remove_member(
     organization_id: str,
     membership_id: str,
@@ -72,7 +72,7 @@ async def remove_member(
     return await organization_service.remove_member(db, organization_id, membership_id, current_user, organization)
 
 @router.put("/organizations/{organization_id}/members/{membership_id}", response_model=MembershipSchema)
-@requires_permission('update_organization_members')
+@requires_permission('manage_members')
 async def update_member(
     organization_id: str,
     membership_id: str,
@@ -102,14 +102,14 @@ async def update_member(
 async def get_organizations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
     return await organization_service.get_user_organizations(db, current_user)
 
-@requires_permission('update_organization_members')
+@requires_permission('manage_members')
 @router.get("/organization/members", response_model=List[UserSchema])
 async def get_organization_members(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
     return await organization_service.get_organization_members(db, current_user, organization)
 
 
 @router.put("/organization", response_model=OrganizationSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def update_organization(
     payload: OrganizationUpdate,
     db: AsyncSession = Depends(get_async_db),

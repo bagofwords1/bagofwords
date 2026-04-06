@@ -18,14 +18,13 @@ from app.schemas.datasource_table_schema import (
     DeltaUpdateTablesRequest,
     DeltaUpdateTablesResponse,
 )
-from app.core.permissions_decorator import requires_permission, requires_data_source_access
+from app.core.permissions_decorator import requires_permission, requires_resource_permission, check_resource_permissions
 from app.models.data_source import DataSource
 
 router = APIRouter(tags=["data_sources"])
 data_source_service = DataSourceService()
 
 @router.get("/available_data_sources", response_model=list[dict])
-@requires_permission('view_data_source')
 async def get_available_data_sources(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -34,7 +33,6 @@ async def get_available_data_sources(
     return await data_source_service.get_available_data_sources(db, organization)
 
 @router.get("/data_sources", response_model=list[DataSourceListItemSchema])
-@requires_permission('view_data_source')
 async def get_data_sources(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -43,7 +41,6 @@ async def get_data_sources(
     return await data_source_service.get_data_sources(db, current_user, organization)
 
 @router.get("/data_sources/active", response_model=list[DataSourceListItemSchema])
-@requires_permission('view_data_source')
 async def get_active_data_sources(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -52,7 +49,7 @@ async def get_active_data_sources(
     return await data_source_service.get_active_data_sources(db, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}", response_model=DataSourceSchema)
-@requires_data_source_access('view_data_source', allow_public=True)
+@requires_resource_permission('data_source', 'view')
 async def get_data_source(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -63,7 +60,6 @@ async def get_data_source(
 
 
 @router.get("/data_sources/{data_source_type}/fields", response_model=dict)
-@requires_permission('view_data_source', model=DataSource)
 async def get_data_source_fields(
     data_source_type: str,
     current_user: User = Depends(current_user),
@@ -80,10 +76,21 @@ async def create_data_source(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    # Check resource-level permission on connection(s) being linked
+    connection_ids = []
+    if data_source.connection_ids:
+        connection_ids = data_source.connection_ids
+    elif data_source.connection_id:
+        connection_ids = [data_source.connection_id]
+    if connection_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "connection", connection_ids, "manage_data_sources",
+        )
     return await data_source_service.create_data_source(db, organization, current_user, data_source)
 
 @router.delete("/data_sources/{data_source_id}")
-@requires_permission('delete_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def delete_data_source(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -93,7 +100,7 @@ async def delete_data_source(
     return await data_source_service.delete_data_source(db, data_source_id, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}/test_connection", response_model=dict)
-@requires_data_source_access('view_data_source', allow_public=True)
+@requires_resource_permission('data_source', 'view')
 async def test_data_source_connection(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -113,7 +120,7 @@ async def test_new_data_source_connection(
     return await data_source_service.test_new_data_source_connection(db=db, data=data_source, organization=organization, current_user=current_user)
 
 @router.put("/data_sources/{data_source_id}", response_model=DataSourceSchema)
-@requires_permission('update_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def update_data_source(
     data_source_id: str,
     data_source: DataSourceUpdate,
@@ -124,7 +131,7 @@ async def update_data_source(
     return await data_source_service.update_data_source(db, data_source_id, organization, data_source, current_user)
 
 @router.get("/data_sources/{data_source_id}/schema", response_model=list)
-@requires_data_source_access('view_data_source', allow_public=True)
+@requires_resource_permission('data_source', 'view')
 async def get_data_source_schema(
     data_source_id: str,
     with_stats: bool = Query(False),
@@ -135,7 +142,7 @@ async def get_data_source_schema(
     return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
 
 @router.get("/data_sources/{data_source_id}/full_schema", response_model=Union[PaginatedTablesResponse, list])
-@requires_permission('view_data_source_full_schema', model=DataSource)
+@requires_resource_permission('data_source', 'view_schema')
 async def get_data_source_full_schema(
     data_source_id: str,
     with_stats: bool = Query(False),
@@ -189,7 +196,7 @@ async def get_data_source_full_schema(
     return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=True, organization=organization, current_user=current_user, with_stats=with_stats)
 
 @router.put("/data_sources/{data_source_id}/update_schema", response_model=DataSourceSchema)
-@requires_permission('view_data_source_full_schema', model=DataSource)
+@requires_resource_permission('data_source', 'view_schema')
 async def update_table_status_in_schema(
     data_source_id: str,
     tables: list[DataSourceTableSchema],
@@ -201,7 +208,7 @@ async def update_table_status_in_schema(
 
 
 @router.post("/data_sources/{data_source_id}/bulk_update_tables", response_model=DeltaUpdateTablesResponse)
-@requires_permission('view_data_source_full_schema', model=DataSource)
+@requires_resource_permission('data_source', 'view_schema')
 async def bulk_update_tables(
     data_source_id: str,
     request: BulkUpdateTablesRequest,
@@ -226,7 +233,7 @@ async def bulk_update_tables(
 
 
 @router.put("/data_sources/{data_source_id}/update_tables_status", response_model=DeltaUpdateTablesResponse)
-@requires_permission('view_data_source_full_schema', model=DataSource)
+@requires_resource_permission('data_source', 'view_schema')
 async def update_tables_status_delta(
     data_source_id: str,
     request: DeltaUpdateTablesRequest,
@@ -251,7 +258,7 @@ async def update_tables_status_delta(
 
 
 @router.get("/data_sources/{data_source_id}/generate_items", response_model=dict)
-@requires_permission('update_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def generate_data_source_items(
     data_source_id: str,
     item: str,
@@ -262,7 +269,7 @@ async def generate_data_source_items(
     return await data_source_service.generate_data_source_items(db, item, data_source_id, organization, current_user)
 
 @router.post("/data_sources/{data_source_id}/llm_sync", response_model=dict)
-@requires_permission('update_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def llm_sync(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -272,7 +279,7 @@ async def llm_sync(
     return await data_source_service.llm_sync(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
 
 @router.get("/data_sources/{data_source_id}/refresh_schema", response_model=list)
-@requires_permission('view_data_source_full_schema', model=DataSource)
+@requires_resource_permission('data_source', 'view_schema')
 async def refresh_data_source_schema(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -282,7 +289,7 @@ async def refresh_data_source_schema(
     return await data_source_service.refresh_data_source_schema(db, data_source_id, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}/metadata_resources", response_model=MetadataIndexingJobSchema)
-@requires_permission('view_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'view')
 async def get_metadata_resources(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -292,7 +299,7 @@ async def get_metadata_resources(
     return await data_source_service.get_metadata_resources(db, data_source_id, organization, current_user)
 
 @router.put("/data_sources/{data_source_id}/update_metadata_resources", response_model=MetadataIndexingJobSchema)
-@requires_permission('update_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def update_metadata_resources(
     data_source_id: str,
     resources: list = Body(...),
@@ -311,7 +318,7 @@ async def update_metadata_resources(
 
 
 @router.get("/data_sources/{data_source_id}/members", response_model=list[DataSourceMembershipSchema])
-@requires_permission('view_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'view')
 async def get_data_source_members(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -321,7 +328,7 @@ async def get_data_source_members(
     return await data_source_service.get_data_source_members(db, data_source_id, organization, current_user)
 
 @router.post("/data_sources/{data_source_id}/members", response_model=DataSourceMembershipSchema)
-@requires_permission('manage_data_source_memberships', model=DataSource)
+@requires_resource_permission('data_source', 'manage_members')
 async def add_data_source_member(
     data_source_id: str,
     member: DataSourceMembershipCreate,
@@ -332,7 +339,7 @@ async def add_data_source_member(
     return await data_source_service.add_data_source_member(db, data_source_id, member, organization, current_user)
 
 @router.delete("/data_sources/{data_source_id}/members/{user_id}", status_code=204)
-@requires_permission('manage_data_source_memberships', model=DataSource)
+@requires_resource_permission('data_source', 'manage_members')
 async def remove_data_source_member(
     data_source_id: str,
     user_id: str,
@@ -346,7 +353,7 @@ async def remove_data_source_member(
 # ==================== Domain-Connection Routes ====================
 
 @router.get("/data_sources/{data_source_id}/connections")
-@requires_permission('update_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def get_domain_connections(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -367,7 +374,7 @@ async def get_domain_connections(
 
 
 @router.post("/data_sources/{data_source_id}/connections/{connection_id}")
-@requires_permission('update_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def add_connection_to_domain(
     data_source_id: str,
     connection_id: str,
@@ -388,7 +395,7 @@ async def add_connection_to_domain(
 
 
 @router.delete("/data_sources/{data_source_id}/connections/{connection_id}")
-@requires_permission('update_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'manage')
 async def remove_connection_from_domain(
     data_source_id: str,
     connection_id: str,

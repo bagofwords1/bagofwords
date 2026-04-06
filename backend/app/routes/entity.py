@@ -6,7 +6,7 @@ from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, check_resource_permissions
 
 from app.models.entity import Entity
 from app.schemas.entity_schema import (
@@ -25,7 +25,7 @@ service = EntityService()
 
 
 @router.post("", response_model=EntitySchema)
-@requires_permission('create_entities')
+@requires_permission('create_entities', resource_scoped=True)
 async def create_private_entity(
     payload: EntityCreate,
     db: AsyncSession = Depends(get_async_db),
@@ -33,12 +33,17 @@ async def create_private_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     """Create a new private entity (auto-published) - Private Published: published, null, published"""
-    entity = await service.create_entity(db, payload, current_user, organization, force_global=False)
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
+    entity = await service.create_entity(db, payload, current_user, organization)
     return EntitySchema.model_validate(entity)
 
 
 @router.post("/global", response_model=EntitySchema)
-@requires_permission('create_entities')
+@requires_permission('create_entities', resource_scoped=True)
 async def create_global_entity(
     payload: EntityCreate,
     db: AsyncSession = Depends(get_async_db),
@@ -46,12 +51,19 @@ async def create_global_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     """Create a new global entity (admin only) - Global Draft/Published: null, approved, draft/published"""
-    entity = await service.create_entity(db, payload, current_user, organization, force_global=True)
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
+    entity = await service.create_entity(db, payload, current_user, organization)
     return EntitySchema.model_validate(entity)
 
 
+# No org-level perm gate: entity visibility is derived from data_source
+# access (public DSes are visible to every member). The service applies
+# user-permission-based filtering internally.
 @router.get("", response_model=List[EntityListSchema])
-@requires_permission('view_entities')
 async def list_entities(
     q: Optional[str] = Query(None),
     type: Optional[str] = Query(None),
@@ -87,7 +99,7 @@ async def list_entities(
 
 
 @router.get("/{entity_id}", response_model=EntitySchema)
-@requires_permission('view_entities', model=Entity)
+@requires_permission('manage_entities', model=Entity)
 async def get_entity(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -101,7 +113,7 @@ async def get_entity(
 
 
 @router.put("/{entity_id}", response_model=EntitySchema)
-@requires_permission('update_entities', model=Entity)
+@requires_permission('manage_entities', model=Entity, resource_scoped=True)
 async def update_entity(
     entity_id: str,
     payload: EntityUpdate,
@@ -109,7 +121,22 @@ async def update_entity(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Update an entity (permission-based: owner can edit private, admin can edit all)"""
+    """Update an entity. Org `manage_entities` admins bypass; otherwise must hold
+    per-DS `create_entities` grant on every attached DS (existing + new)."""
+    existing = await service.get_entity(db, entity_id, organization, current_user)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "create_entities",
+        )
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
     entity = await service.update_entity(db, entity_id, payload, organization, current_user)
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
@@ -117,13 +144,22 @@ async def update_entity(
 
 
 @router.delete("/{entity_id}")
-@requires_permission('delete_entities', model=Entity)
+@requires_permission('manage_entities', model=Entity, resource_scoped=True)
 async def delete_entity(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
+    existing = await service.get_entity(db, entity_id, organization, current_user)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "create_entities",
+        )
     ok = await service.delete_entity(db, entity_id, organization)
     if not ok:
         raise HTTPException(status_code=404, detail="Entity not found")
@@ -139,9 +175,14 @@ async def create_entity_from_step(
     organization: Organization = Depends(get_current_organization),
 ):
     """
-    Create entity from step. Accessible to both admins (create_entities) and 
+    Create entity from step. Accessible to both admins (create_entities) and
     regular users (suggest_entities). Permission checking happens at service level.
     """
+    if payload.data_source_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", payload.data_source_ids, "create_entities",
+        )
     try:
         entity = await service.create_entity_from_step(
             db,
@@ -161,7 +202,7 @@ async def create_entity_from_step(
 
 
 @router.post("/{entity_id}/run", response_model=EntitySchema)
-@requires_permission('update_entities', model=Entity)
+@requires_permission('manage_entities', model=Entity)
 async def run_entity(
     entity_id: str,
     payload: EntityRunPayload,
@@ -177,7 +218,7 @@ async def run_entity(
 
 
 @router.post("/{entity_id}/preview")
-@requires_permission('update_entities', model=Entity)
+@requires_permission('manage_entities', model=Entity)
 async def preview_entity(
     entity_id: str,
     payload: EntityPreviewPayload,
@@ -194,7 +235,7 @@ async def preview_entity(
 
 # Suggestion workflow endpoints
 @router.post("/{entity_id}/suggest", response_model=EntitySchema)
-@requires_permission('suggest_entities')
+@requires_permission('manage_entities')
 async def suggest_entity(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -207,7 +248,7 @@ async def suggest_entity(
 
 
 @router.post("/{entity_id}/withdraw", response_model=EntitySchema)
-@requires_permission('withdraw_entities')
+@requires_permission('manage_entities')
 async def withdraw_suggestion(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -220,7 +261,7 @@ async def withdraw_suggestion(
 
 
 @router.post("/{entity_id}/approve", response_model=EntitySchema)
-@requires_permission('approve_entities')
+@requires_permission('manage_entities')
 async def approve_suggestion(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -242,7 +283,7 @@ async def approve_suggestion(
 
 
 @router.post("/{entity_id}/reject", response_model=EntitySchema)
-@requires_permission('reject_entities')
+@requires_permission('manage_entities')
 async def reject_suggestion(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),

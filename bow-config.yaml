@@ -31,6 +31,24 @@ google_oauth:
  # extra_authorize_params: { prompt: login }
  # extra_token_params: {}
 
+# LDAP / Active Directory
+# ldap:
+#   enabled: false
+#   url: ldaps://ad.company.com:636
+#   bind_dn: cn=service-account,ou=Services,dc=company,dc=com
+#   bind_password: ${BOW_LDAP_BIND_PASSWORD}
+#   base_dn: dc=company,dc=com
+#   user_search_base: ou=Users,dc=company,dc=com
+#   user_search_filter: "(objectClass=person)"
+#   user_email_attribute: mail
+#   group_search_base: ou=Groups,dc=company,dc=com
+#   group_search_filter: "(objectClass=group)"
+#   group_name_attribute: cn
+#   group_member_attribute: member       # "member" (AD) or "memberUid" (OpenLDAP)
+#   group_member_format: dn              # "dn" or "uid"
+#   sync_interval_minutes: 60
+#   auto_provision_users: false
+
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
 intercom:

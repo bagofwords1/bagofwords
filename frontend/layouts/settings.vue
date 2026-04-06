@@ -1,7 +1,7 @@
 <template>
     <NuxtLayout name="default">
-        <div class="flex pl-2 md:pl-4 text-sm">
-            <div class="w-full md:w-3/4 px-4 pl-0 py-4">
+        <div class="flex justify-center pl-2 md:pl-4 text-sm">
+            <div class="w-full max-w-7xl px-4 pl-0 py-4">
                 <div>
                     <h1 class="text-lg font-semibold">
                         Settings
@@ -40,12 +40,12 @@ const route = useRoute()
 // All available tabs with their required permissions
 const allTabs = [
     { name: 'members', label: 'Members', requiredPermission: "view_organization_members" },
-    { name: 'models', label: 'LLM', requiredPermission: "view_llm_settings" },
+    { name: 'models', label: 'LLM', requiredPermission: "modify_settings" },
     { name: 'ai_settings', label: 'AI Settings', requiredPermission: "view_settings" },
     { name: 'general', label: 'General', requiredPermission: "view_settings" },
     { name: "integrations", label: "Integrations", requiredPermission: "manage_organization_external_platforms" },
     { name: 'audit', label: 'Audit Logs', requiredPermission: "view_audit_logs" },
-    { name: 'scim', label: 'SCIM', requiredPermission: "manage_scim" },
+    { name: 'identity-provider', label: 'Identity Provider', requiredPermission: "manage_scim" },
     { name: 'license', label: 'License', requiredPermission: "view_settings" },
 ]
 

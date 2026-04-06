@@ -593,6 +593,30 @@ class BuildService:
         )
         return list(result.scalars().all())
 
+    async def get_build_data_source_ids(
+        self,
+        db: AsyncSession,
+        build_id: str,
+    ) -> list[str]:
+        """Return distinct data_source_ids touched by all instructions in a build.
+
+        Used for strict per-DS permission enforcement on build publish/submit/rollback:
+        the acting user must hold `create_instructions` on every returned DS (admin
+        bypass via `manage_instructions` is handled in the resolver).
+        """
+        result = await db.execute(
+            select(BuildContent)
+            .options(selectinload(BuildContent.instruction).selectinload(Instruction.data_sources))
+            .where(BuildContent.build_id == build_id)
+        )
+        ds_ids: set[str] = set()
+        for content in result.scalars().all():
+            inst = content.instruction
+            if inst and inst.data_sources:
+                for ds in inst.data_sources:
+                    ds_ids.add(str(ds.id))
+        return list(ds_ids)
+
     async def _filter_build_contents(
         self,
         db: AsyncSession,

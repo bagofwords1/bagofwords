@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.tools.mcp.base import MCPTool
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.membership import Membership, ROLES_PERMISSIONS
+from app.core.permission_resolver import resolve_permissions
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
 from app.schemas.mcp import (
@@ -35,23 +35,18 @@ logger = logging.getLogger(__name__)
 
 
 async def get_user_permissions(
-    db: AsyncSession, 
-    user: User, 
+    db: AsyncSession,
+    user: User,
     organization: Organization
 ) -> set:
-    """Get user's permissions in the organization."""
-    stmt = select(Membership).where(
-        Membership.user_id == user.id,
-        Membership.organization_id == organization.id
-    )
-    result = await db.execute(stmt)
-    membership = result.scalar_one_or_none()
-    return ROLES_PERMISSIONS.get(membership.role, set()) if membership else set()
+    """Get user's org-level permissions via the RBAC resolver."""
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    return set(resolved.org_permissions)
 
 
 def is_admin(permissions: set) -> bool:
-    """Check if user has admin permissions for instructions."""
-    return 'create_instructions' in permissions
+    """MVP: instruction admin = org-level manage_instructions or full_admin_access."""
+    return 'manage_instructions' in permissions or 'full_admin_access' in permissions
 
 
 class ListInstructionsMCPTool(MCPTool):
@@ -166,10 +161,8 @@ class CreateInstructionMCPTool(MCPTool):
         permissions = await get_user_permissions(db, user, organization)
         
         # Check create permission - both admins and non-admins can create
-        # Non-admins need 'suggest_instructions' or 'create_private_instructions'
         can_create = (
-            'create_instructions' in permissions or 
-            'create_private_instructions' in permissions or
+            'create_instructions' in permissions or
             'suggest_instructions' in permissions
         )
         

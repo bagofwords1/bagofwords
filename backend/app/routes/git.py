@@ -77,7 +77,7 @@ class RepositoryStatusResponse(BaseModel):
 # ==================== Repository CRUD Endpoints (Org-Level) ====================
 
 @router.get("/repositories", response_model=List[GitRepositorySchema])
-@requires_permission('view_data_source')
+@requires_permission('create_data_source')
 async def list_repositories(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
@@ -122,7 +122,7 @@ async def test_repository_connection(
 
 
 @router.get("/repositories/{repository_id}", response_model=GitRepositorySchema)
-@requires_permission('view_data_source')
+@requires_permission('create_data_source')
 async def get_repository(
     repository_id: str,
     current_user: User = Depends(current_user),
@@ -134,7 +134,7 @@ async def get_repository(
 
 
 @router.put("/repositories/{repository_id}", response_model=GitRepositorySchema)
-@requires_permission('update_data_source')
+@requires_permission('create_data_source')
 async def update_repository(
     repository_id: str,
     git_repo: GitRepositoryUpdate,
@@ -149,7 +149,7 @@ async def update_repository(
 
 
 @router.delete("/repositories/{repository_id}")
-@requires_permission('update_data_source')
+@requires_permission('create_data_source')
 async def delete_repository(
     repository_id: str,
     current_user: User = Depends(current_user),
@@ -163,7 +163,7 @@ async def delete_repository(
 
 
 @router.get("/repositories/{repository_id}/linked_instructions_count")
-@requires_permission('view_data_source')
+@requires_permission('create_data_source')
 async def get_linked_instructions_count(
     repository_id: str,
     current_user: User = Depends(current_user),
@@ -175,7 +175,7 @@ async def get_linked_instructions_count(
 
 
 @router.post("/{repo_id}/index")
-@requires_permission('update_data_source')
+@requires_permission('create_data_source')
 async def index_repository(
     repo_id: str,
     current_user: User = Depends(current_user),
@@ -187,7 +187,7 @@ async def index_repository(
 
 
 @router.get("/{repo_id}/job_status")
-@requires_permission('view_data_source')
+@requires_permission('create_data_source')
 async def get_indexing_job_status(
     repo_id: str,
     current_user: User = Depends(current_user),
@@ -201,7 +201,7 @@ async def get_indexing_job_status(
 # ==================== Sync Endpoints ====================
 
 @router.post("/{repo_id}/sync", response_model=SyncBranchResponse)
-@requires_permission('update_data_source')
+@requires_permission('create_data_source')
 async def sync_branch(
     repo_id: str,
     request: SyncBranchRequest,
@@ -242,7 +242,7 @@ async def sync_branch(
 # ==================== Push Endpoints ====================
 
 @router.post("/{repo_id}/push", response_model=PushBuildResponse)
-@requires_permission('create_builds')
+@requires_permission('manage_instructions')
 async def push_build(
     repo_id: str,
     request: PushBuildRequest,
@@ -284,7 +284,7 @@ async def push_build(
 # ==================== Status Endpoints ====================
 
 @router.get("/{repo_id}/status", response_model=RepositoryStatusResponse)
-@requires_permission('view_data_source')
+@requires_permission('create_data_source')
 async def get_repository_status(
     repo_id: str,
     current_user: User = Depends(current_user),
@@ -313,7 +313,7 @@ async def get_repository_status(
 # The primary publish endpoint is at /builds/{id}/publish
 
 @router.post("/{repo_id}/publish/{build_id}")
-@requires_permission('create_builds')
+@requires_permission('manage_instructions')
 async def publish_build_via_git(
     repo_id: str,
     build_id: str,

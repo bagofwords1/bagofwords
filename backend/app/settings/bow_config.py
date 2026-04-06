@@ -92,6 +92,36 @@ class OIDCProvider(BaseModel):
     extra_token_params: dict = {}
 
 
+class LDAPConfig(BaseModel):
+    """LDAP / Active Directory configuration for group sync and optional bind auth."""
+    enabled: bool = False
+    url: str = ""                                      # e.g. ldaps://ad.corp.com:636
+    bind_dn: Optional[str] = None                      # service account DN
+    bind_password: Optional[str] = None                # service account password
+    use_ssl: bool = True
+    start_tls: bool = False
+    base_dn: str = ""
+    user_search_base: Optional[str] = None             # defaults to base_dn
+    user_search_filter: str = "(objectClass=person)"
+    user_email_attribute: str = "mail"
+    user_name_attribute: str = "displayName"
+    group_search_base: Optional[str] = None            # defaults to base_dn
+    group_search_filter: str = "(objectClass=group)"
+    group_name_attribute: str = "cn"
+    group_member_attribute: str = "member"              # "member" (DN) or "memberUid"
+    group_member_format: str = "dn"                    # "dn" or "uid"
+    sync_interval_minutes: int = 60
+    auto_provision_users: bool = False                  # create app user on LDAP login
+    connection_timeout: int = 10
+    page_size: int = 500
+
+    @validator('bind_password', pre=True, always=True)
+    def resolve_env_var(cls, v):
+        if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
+            return os.environ.get(v[2:-1])
+        return v
+
+
 class SMTPSettings(BaseModel):
     host: str = "smtp.resend.com"
     port: int = 587
@@ -184,6 +214,7 @@ class BowConfig(BaseModel):
     features: FeatureFlags = FeatureFlags()
     auth: AuthConfig = AuthConfig()
     google_oauth: GoogleOAuth = GoogleOAuth()
+    ldap: LDAPConfig = LDAPConfig()
     oidc_providers: List[OIDCProvider] = []
     default_llm: List[LLMProvider] = []
     smtp_settings: SMTPSettings = None
