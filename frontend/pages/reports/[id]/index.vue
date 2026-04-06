@@ -193,7 +193,7 @@
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
+										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -278,6 +278,12 @@
 
 																	</div>
 
+										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
+										<KnowledgeGroup
+											v-if="(m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
+											:blocks="((m.completion_blocks || []).filter(b => (b as any).phase === 'knowledge_harness') as any)"
+										/>
+
 										<!-- Thinking dots when system is working but no visible progress - moved to end -->
 										<div v-if="shouldShowWorkingDots(m)" class="mt-2">
 											<div class="simple-dots"></div>
@@ -338,7 +344,7 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="report?.mode !== 'training' && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+									<div v-if="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
 												id: `suggestions-${m.id}`,
@@ -652,6 +658,7 @@ interface CompletionBlock {
 	id: string
 	seq?: number
 	block_index: number
+	phase?: string | null
 	status: string
 	content?: string
 	reasoning?: string
@@ -1458,53 +1465,14 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'instructions.suggest.started':
-			// Create a lightweight synthetic block to display drafts streaming
-			if (!sysMessage.completion_blocks) sysMessage.completion_blocks = []
-			// Avoid duplicating if already created in the same completion
-			if (!sysMessage.completion_blocks.some(b => b.title === 'Instruction Suggestions')) {
-				sysMessage.completion_blocks.push({
-					id: `instr-${Date.now()}`,
-					block_index: (sysMessage.completion_blocks.length || 0) + 1,
-					status: 'in_progress',
-					title: 'Instruction Suggestions',
-					icon: '📝',
-					tool_execution: {
-						id: `instr-te-${Date.now()}`,
-						tool_name: 'suggest_instructions',
-						status: 'running',
-						result_json: { drafts: [] }
-					}
-				} as any)
-			}
+			// Knowledge harness streams real create/edit_instruction blocks which
+			// the <KnowledgeGroup> component renders. No synthetic block needed.
 			break
 
 		case 'instructions.suggest.partial':
-			// Append each streamed draft to the synthetic block (keep full object for actions)
-			{
-				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
-				if (b && b.tool_execution) {
-					b.tool_execution.result_json = b.tool_execution.result_json || {}
-					const rj: any = b.tool_execution.result_json
-					rj.drafts = Array.isArray(rj.drafts) ? rj.drafts : []
-					const instr = payload?.instruction
-					if (instr && typeof instr.text === 'string') {
-						// Push the full server-sent payload so it includes id/status/global_status
-						rj.drafts.push({ ...instr })
-						b.status = 'in_progress'
-					}
-				}
-			}
-			break
-
 		case 'instructions.suggest.finished':
-			// Mark the synthetic block done
-			{
-				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
-				if (b && b.tool_execution) {
-					b.tool_execution.status = 'success'
-					b.status = 'success'
-				}
-			}
+			// Handled by the real create_instruction/edit_instruction harness blocks
+			// rendered inside <KnowledgeGroup>.
 			break
 
 		case 'block.upsert':

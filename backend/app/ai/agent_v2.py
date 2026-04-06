@@ -375,7 +375,7 @@ class AgentV2:
         (matches the existing _stream_suggestions_inline semantics).
         """
         from app.ai.agents.planner import PlannerV2
-        from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator
+        from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator, TriggerCondition
 
         MAX_HARNESS_STEPS = 5
 
@@ -449,7 +449,7 @@ class AgentV2:
             )
 
             # Format trigger reasons for prompt injection
-            trigger_block = InstructionTriggerEvaluator.format_for_prompt(conditions)
+            trigger_block = TriggerCondition.format_for_prompt(conditions)
             trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
 
             # Use existing context view (already includes full session history)
@@ -498,6 +498,49 @@ class AgentV2:
                 if not final_decision:
                     break
 
+                # === Persist the harness plan_decision + decision block ===
+                # Use a distinct loop_index namespace so the harness blocks don't
+                # collide with main-loop blocks in upsert_block_for_decision's lookup.
+                harness_loop_index = 1000 + step
+                harness_plan_decision = None
+                try:
+                    decision_seq_h = await self.project_manager.next_seq(self.db, self.current_execution)
+                    harness_plan_decision = await self.project_manager.save_plan_decision_from_model(
+                        self.db,
+                        agent_execution=self.current_execution,
+                        seq=decision_seq_h,
+                        loop_index=harness_loop_index,
+                        planner_decision_model=final_decision,
+                        phase="knowledge_harness",
+                    )
+                except Exception as _pd_exc:
+                    logger.warning(f"Knowledge harness: save_plan_decision_from_model failed: {_pd_exc!r}")
+
+                harness_decision_block = None
+                if harness_plan_decision is not None:
+                    try:
+                        harness_decision_block = await self.project_manager.upsert_block_for_decision(
+                            self.db,
+                            completion=self.system_completion,
+                            agent_execution=self.current_execution,
+                            plan_decision=harness_plan_decision,
+                        )
+                        if harness_decision_block is not None:
+                            try:
+                                block_schema = await serialize_block_v2(self.db, harness_decision_block)
+                                seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.upsert",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq_blk,
+                                    data={"block": block_schema.model_dump()},
+                                ))
+                            except Exception:
+                                pass
+                    except Exception as _blk_exc:
+                        logger.warning(f"Knowledge harness: upsert_block_for_decision failed: {_blk_exc!r}")
+
                 # Done?
                 if getattr(final_decision, "analysis_complete", False) and not getattr(final_decision, "action", None):
                     break
@@ -538,25 +581,132 @@ class AgentV2:
                     "mode": "knowledge",
                 }
 
-                async def _noop_emit(ev: dict):
-                    return None
-
+                # === Start tool execution tracking (persisted row + tool.started SSE) ===
+                tool_execution = await self.project_manager.start_tool_execution_from_models(
+                    self.db,
+                    agent_execution=self.current_execution,
+                    plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
+                    tool_name=tool_name,
+                    tool_action=getattr(action, "type", None),
+                    tool_input_model=tool_input,
+                )
                 try:
-                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _noop_emit)
+                    seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
+                    await self._emit_sse_event(SSEEvent(
+                        event="tool.started",
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
+                        seq=seq_ts,
+                        data={"tool_name": tool_name, "arguments": tool_input},
+                    ))
+                except Exception:
+                    pass
+
+                # Forward tool streaming events (tool.progress / stdout / partial / error)
+                # to the UI, same as the main loop.
+                async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input):
+                    try:
+                        await self._handle_streaming_event(_tn, ev, _ti)
+                    except Exception:
+                        pass
+                    if ev.get("type") in ("tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"):
+                        try:
+                            seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event=ev.get("type", "tool.progress"),
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq_ev,
+                                data={"tool_name": _tn, "payload": ev.get("payload", {})},
+                            ))
+                        except Exception:
+                            pass
+
+                tool_output = None
+                try:
+                    tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _harness_emit)
                 except Exception as run_err:
                     logger.warning(f"Knowledge harness tool '{tool_name}' raised: {run_err}")
                     observation = {
                         "summary": f"{tool_name} raised an error",
                         "error": {"code": "tool_error", "message": str(run_err)},
                     }
-                    continue
+                    tool_result = None
 
-                if isinstance(tool_result, dict) and "observation" in tool_result:
-                    observation = tool_result.get("observation")
-                    tool_output = tool_result.get("output")
-                else:
-                    observation = tool_result
-                    tool_output = None
+                if tool_result is not None:
+                    if isinstance(tool_result, dict) and "observation" in tool_result:
+                        observation = tool_result.get("observation")
+                        tool_output = tool_result.get("output")
+                    else:
+                        observation = tool_result
+                        tool_output = None
+
+                # === Finish tool execution tracking + upsert block + emit tool.finished ===
+                try:
+                    await self.project_manager.finish_tool_execution_from_models(
+                        self.db,
+                        tool_execution=tool_execution,
+                        result_model=tool_output,
+                        summary=observation.get("summary", "") if observation else "",
+                        error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
+                        success=bool(observation and not observation.get("error")),
+                    )
+                except Exception as _fin_err:
+                    logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
+
+                # Update the existing harness decision block with tool info (same
+                # helper used by the main loop — merges tool_execution into the
+                # decision block rather than creating a second block).
+                try:
+                    updated_block = await self.project_manager.upsert_block_for_tool(
+                        self.db,
+                        completion=self.system_completion,
+                        agent_execution=self.current_execution,
+                        tool_execution=tool_execution,
+                    )
+                    if updated_block is not None:
+                        try:
+                            block_schema = await serialize_block_v2(self.db, updated_block)
+                            seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="block.upsert",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq_blk,
+                                data={"block": block_schema.model_dump()},
+                            ))
+                        except Exception:
+                            pass
+                except Exception as _btu_exc:
+                    logger.warning(f"Knowledge harness: upsert_block_for_tool failed: {_btu_exc!r}")
+
+                try:
+                    seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
+                    safe_result_json = None
+                    if tool_output is not None:
+                        try:
+                            safe_result_json = json.loads(json.dumps(tool_output, default=str))
+                        except Exception:
+                            safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
+                    await self._emit_sse_event(SSEEvent(
+                        event="tool.finished",
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
+                        seq=seq_fin,
+                        data={
+                            "tool_name": tool_name,
+                            "status": "success" if observation and not observation.get("error") else "error",
+                            "result_summary": observation.get("summary", "") if observation else "",
+                            "result_json": safe_result_json,
+                            "duration_ms": getattr(tool_execution, "duration_ms", None),
+                        },
+                    ))
+                except Exception:
+                    pass
+
+                if tool_result is None:
+                    # tool raised — skip the rest of this iteration but loop continues
+                    continue
 
                 # Capture training_build_id if the tool created one
                 if runtime_ctx.get("training_build_id") and not self.training_build_id:
@@ -1440,19 +1590,6 @@ class AgentV2:
                                     ))
                                 completion_finished_emitted = True
                             
-                            # === INLINE: Post-analysis tasks ===
-                            if self.mode == "training":
-                                # Training mode: finalize the build with all created instructions
-                                await self._finalize_training_build()
-                            else:
-                                # Normal mode: Run knowledge harness sub-loop if triggers fired.
-                                # Harness creates/edits instructions and submits them as a draft AI build for review.
-                                res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
-                                should_trigger_suggestions = res.get("decision", False)
-                                conditions = res.get("conditions", [])
-
-                                if should_trigger_suggestions:
-                                    await self._run_knowledge_harness(conditions)
                             break
                         # Retry flow: action plan with missing action
                         if (getattr(decision, "plan_type", None) == "action") and not action:
@@ -1958,6 +2095,23 @@ class AgentV2:
                 # If planner finalized analysis, stop the outer loop as well
                 if analysis_done:
                     break
+
+            # === Post-analysis tasks ===
+            # Runs once after the outer loop exits, regardless of whether the
+            # terminating decision had an action (e.g. create_data with
+            # analysis_complete=True) or was a final_answer-only decision.
+            if self.mode == "training":
+                # Training mode: finalize the build with all created instructions
+                await self._finalize_training_build()
+            else:
+                # Normal mode: Run knowledge harness sub-loop if triggers fired.
+                # Harness creates/edits instructions and submits them as a draft AI build for review.
+                try:
+                    res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
+                    if res.get("decision", False):
+                        await self._run_knowledge_harness(res.get("conditions", []))
+                except Exception as _harness_exc:
+                    logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
 
             # Save final context snapshot (recompute metadata so counts/tokens are up to date)
             await self.context_hub.refresh_warm()

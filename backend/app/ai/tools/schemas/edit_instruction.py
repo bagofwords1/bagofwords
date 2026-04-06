@@ -113,3 +113,13 @@ class EditInstructionOutput(BaseModel):
         None,
         description="Reason if edit was rejected (e.g., not_found, permission_denied, invalid_format)"
     )
+
+    previous_text: Optional[str] = Field(
+        None,
+        description="The instruction text before this edit, when the text field was updated."
+    )
+
+    new_text: Optional[str] = Field(
+        None,
+        description="The instruction text after this edit, when the text field was updated."
+    )

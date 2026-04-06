@@ -84,6 +84,9 @@ class CompletionBlockV2Schema(BaseModel):
     block_index: int
     loop_index: Optional[int]
 
+    # Phase tag (e.g. 'knowledge_harness'); None for regular main-loop blocks
+    phase: Optional[str] = None
+
     # Render fields
     title: str
     status: str  # in_progress | completed | error | planning

@@ -71,8 +71,15 @@
                     <div class="col-span-2 border-r border-gray-200 pr-4 flex flex-col min-h-0">
                         <div class="text-xs text-gray-600 mb-2">Execution Blocks</div>
                         <div class="flex-1 min-h-0 overflow-y-auto pr-2">
-                            <div v-for="(item, index) in leftItems" :key="item.id" class="mb-2">
-                                <div :class="[
+                            <div v-for="(item, index) in visibleLeftItems" :key="item.id" :class="[item.kind === 'section' ? 'mb-0' : 'mb-2', item.phase === 'knowledge_harness' ? 'ml-4 pl-3 border-l border-gray-200' : '']">
+                                <div v-if="item.kind === 'section'"
+                                    class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 hover:text-gray-700 select-none"
+                                    @click="toggleHarnessCollapsed()">
+                                    <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3" />
+                                    <span>{{ item.title }}</span>
+                                    <span class="text-gray-400">· {{ harnessCount }}</span>
+                                </div>
+                                <div v-else :class="[
                                 'px-3 py-2 rounded border cursor-pointer text-xs',
                                 selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
                             ]" @click="selectLeftItem(item)">
@@ -121,8 +128,8 @@
                                         </span>
                                     </div>
                                 </div>
-                                <!-- Arrow between blocks -->
-                                <div v-if="index < leftItems.length - 1" class="flex justify-center my-1">
+                                <!-- Arrow between blocks (skip around section headers and after last item) -->
+                                <div v-if="item.kind !== 'section' && index < visibleLeftItems.length - 1 && visibleLeftItems[index + 1]?.kind !== 'section'" class="flex justify-center my-1">
                                     <UIcon name="i-heroicons-arrow-long-down-20-solid" class="w-5 h-5 text-gray-400" />
                                 </div>
                             </div>
@@ -431,6 +438,8 @@ import GenericTool from '../tools/GenericTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 import CreateDataTool from '../tools/CreateDataTool.vue'
 import InspectDataTool from '../tools/InspectDataTool.vue'
+import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
+import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
@@ -631,6 +640,9 @@ const isOpen = computed({
 })
 
 const systemCompletions = computed(() => [])
+const harnessCollapsed = ref(true)
+const toggleHarnessCollapsed = () => { harnessCollapsed.value = !harnessCollapsed.value }
+const harnessCount = computed(() => blocks.value.filter((b: any) => (b as any).phase === 'knowledge_harness').length)
 const leftItems = computed(() => {
     const items: any[] = []
     // 1) User prompt
@@ -642,18 +654,21 @@ const leftItems = computed(() => {
     if (instrItems?.length) {
         items.push({ id: 'instructions_summary', kind: 'instructions', title: 'Instructions', subtitle: `${instrItems.length} loaded` })
     }
-    // 2) Decisions (blocks)
-    for (const b of blocks.value) {
+    // 2) Decisions (blocks) — main-loop first, then knowledge harness
+    const mainBlocks = blocks.value.filter((b: any) => (b as any).phase !== 'knowledge_harness')
+    const harnessBlocks = blocks.value.filter((b: any) => (b as any).phase === 'knowledge_harness')
+    const pushBlock = (b: any, phase?: string) => {
         const te = (b as any).tool_execution
         const action = te?.tool_action ? te.tool_action : undefined
         const tool_call_name = action ? `${te.tool_name}.${action}` : te?.tool_name
         const data_sources = te?.data_sources || (b as any).tool_execution?.data_sources || []
-        if (tool_call_name) {
-            items.push({ id: b.id, kind: 'decision', title: `Decision: ${tool_call_name}`, subtitle: undefined, ref: b, data_sources })
-        } else {
-            // Non-tool decision, show title
-            items.push({ id: b.id, kind: 'decision', title: b.title || 'Decision', subtitle: undefined, ref: b, data_sources })
-        }
+        const title = tool_call_name ? `Decision: ${tool_call_name}` : (b.title || 'Decision')
+        items.push({ id: b.id, kind: 'decision', title, subtitle: undefined, ref: b, data_sources, phase })
+    }
+    for (const b of mainBlocks) pushBlock(b)
+    if (harnessBlocks.length) {
+        items.push({ id: 'knowledge_harness_header', kind: 'section', title: 'Knowledge Harness' })
+        for (const b of harnessBlocks) pushBlock(b, 'knowledge_harness')
     }
     // 2b) Latest feedback (if exists)
     if (traceData.value?.latest_feedback) {
@@ -668,6 +683,10 @@ const leftItems = computed(() => {
         items.push({ id: 'analysis_completed', kind: 'final', title: 'Decision: analysis_completed' })
     }
     return items
+})
+const visibleLeftItems = computed(() => {
+    if (!harnessCollapsed.value) return leftItems.value
+    return leftItems.value.filter((it: any) => it.phase !== 'knowledge_harness')
 })
 
 // Methods
@@ -867,6 +886,10 @@ function getToolComponent(toolName: string) {
             return CreateDataTool
         case 'inspect_data':
             return InspectDataTool
+        case 'create_instruction':
+            return CreateInstructionTool
+        case 'edit_instruction':
+            return EditInstructionTool
         default:
             return null
     }

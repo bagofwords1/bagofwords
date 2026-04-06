@@ -219,6 +219,10 @@ class EditInstructionTool(Tool):
                 )
                 return
 
+            # Capture previous text before we mutate, so the tool result can
+            # expose a before/after pair for diff rendering in the UI.
+            previous_text = instruction.text if data.text is not None else None
+
             # Build update data
             update_fields = {}
 
@@ -371,6 +375,8 @@ class EditInstructionTool(Tool):
                         instruction_id=str(instruction.id),
                         version_number=version_number,
                         message=f"Instruction updated successfully{version_str}",
+                        previous_text=previous_text,
+                        new_text=(data.text if data.text is not None else None),
                     ).model_dump(),
                     "observation": {
                         "summary": f"Edited instruction{version_str}: {changes_str}",
