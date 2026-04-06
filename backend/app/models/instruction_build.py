@@ -18,6 +18,11 @@ class InstructionBuild(BaseSchema):
     
     # Auto-generated or user-provided title (e.g., "Added 2 instructions")
     title = Column(String(255), nullable=True)
+
+    # Free-text rationale / "commit message" for this build. Populated by the
+    # knowledge harness from concatenated tool-call evidence strings; may also
+    # be set manually in the future. Read-only in the current UI.
+    description = Column(Text, nullable=True)
     
     # Lifecycle status: draft | pending_approval | approved | rejected
     status = Column(String(20), nullable=False, default='draft')

@@ -63,6 +63,7 @@ class PlanDecisionSchema(BaseModel):
     action_args_json: Optional[Dict[str, Any]]
     metrics_json: Optional[Dict[str, Any]]
     context_snapshot_id: Optional[str]
+    phase: Optional[str] = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 
@@ -81,6 +82,7 @@ class PlanDecisionReducedSchema(BaseModel):
     action_args_json: Optional[Dict[str, Any]]
     metrics_json: Optional[Dict[str, Any]]
     context_snapshot_id: Optional[str]
+    phase: Optional[str] = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 

@@ -193,7 +193,7 @@
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
+										<div v-for="(block, blockIndex) in (m.completion_blocks || []).filter(b => b.phase !== 'knowledge_harness')" :key="block.id">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -278,6 +278,16 @@
 
 																	</div>
 
+										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
+										<KnowledgeGroup
+											v-if="(m as any)._harness_running || (m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
+											:blocks="((m.completion_blocks || []).filter(b => (b as any).phase === 'knowledge_harness') as any)"
+											:harness-running="!!(m as any)._harness_running"
+											:knowledge-harness-build="(m as any).knowledge_harness_build || null"
+											@open-instruction="openInstructionById"
+											@published="() => loadCompletions({ skipEstimate: true })"
+										/>
+
 										<!-- Thinking dots when system is working but no visible progress - moved to end -->
 										<div v-if="shouldShowWorkingDots(m)" class="mt-2">
 											<div class="simple-dots"></div>
@@ -338,7 +348,7 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="report?.mode !== 'training' && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+									<div v-if="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
 												id: `suggestions-${m.id}`,
@@ -652,6 +662,7 @@ interface CompletionBlock {
 	id: string
 	seq?: number
 	block_index: number
+	phase?: string | null
 	status: string
 	content?: string
 	reasoning?: string
@@ -935,6 +946,12 @@ async function loadScheduledPrompts() {
         scheduledPrompts.value = (data.value as any[]) || []
     } catch {
         scheduledPrompts.value = []
+    }
+    // Start/stop the background poll based on whether this report has scheduled prompts
+    if (scheduledPrompts.value.length > 0) {
+        startScheduledCompletionsPoll()
+    } else {
+        stopScheduledCompletionsPoll()
     }
 }
 
@@ -1458,53 +1475,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'instructions.suggest.started':
-			// Create a lightweight synthetic block to display drafts streaming
-			if (!sysMessage.completion_blocks) sysMessage.completion_blocks = []
-			// Avoid duplicating if already created in the same completion
-			if (!sysMessage.completion_blocks.some(b => b.title === 'Instruction Suggestions')) {
-				sysMessage.completion_blocks.push({
-					id: `instr-${Date.now()}`,
-					block_index: (sysMessage.completion_blocks.length || 0) + 1,
-					status: 'in_progress',
-					title: 'Instruction Suggestions',
-					icon: '📝',
-					tool_execution: {
-						id: `instr-te-${Date.now()}`,
-						tool_name: 'suggest_instructions',
-						status: 'running',
-						result_json: { drafts: [] }
-					}
-				} as any)
-			}
+			// Flip a flag so <KnowledgeGroup> renders immediately in a loading
+			// state, even before the first harness block arrives.
+			;(sysMessage as any)._harness_running = true
 			break
 
 		case 'instructions.suggest.partial':
-			// Append each streamed draft to the synthetic block (keep full object for actions)
-			{
-				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
-				if (b && b.tool_execution) {
-					b.tool_execution.result_json = b.tool_execution.result_json || {}
-					const rj: any = b.tool_execution.result_json
-					rj.drafts = Array.isArray(rj.drafts) ? rj.drafts : []
-					const instr = payload?.instruction
-					if (instr && typeof instr.text === 'string') {
-						// Push the full server-sent payload so it includes id/status/global_status
-						rj.drafts.push({ ...instr })
-						b.status = 'in_progress'
-					}
-				}
-			}
 			break
-
 		case 'instructions.suggest.finished':
-			// Mark the synthetic block done
-			{
-				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
-				if (b && b.tool_execution) {
-					b.tool_execution.status = 'success'
-					b.status = 'success'
-				}
-			}
+			;(sysMessage as any)._harness_running = false
 			break
 
 		case 'block.upsert':
@@ -1995,11 +1974,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
 					}
 				}
-				// Set isStreaming = false immediately on terminal status so thumbs up and 
-				// stop→submit button appear at the same time (don't wait for [DONE])
-				if (['success', 'error', 'stopped'].includes(completionStatus)) {
-					isStreaming.value = false
-				}
+				// NOTE: do NOT flip isStreaming here. The knowledge harness continues
+				// streaming SSE events (block.upsert/tool.*) after completion.finished
+				// fires. Flipping isStreaming=false early opens a race window where
+				// polling/refetch paths can wipe messages.value mid-stream. [DONE] is
+				// the single source of truth for end-of-stream. Thumbs-up and
+				// stop→submit UI should gate on sysMessage.status, not isStreaming.
 			}
 			// Note: loadReport and refreshContextEstimate are called after [DONE] to avoid blocking
 			break
@@ -2039,6 +2019,10 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				id: b.id,
 				seq: b.seq,
 				block_index: b.block_index,
+				loop_index: b.loop_index,
+				phase: b.phase,
+				title: b.title,
+				icon: b.icon,
 				status: b.status,
 				content: b.content,
 				reasoning: b.reasoning,
@@ -2077,6 +2061,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
+				knowledge_harness_build: c.knowledge_harness_build || null,
 				_loaded_instructions: c.loaded_instructions || undefined,
 				files: c.files || [],
 				// Fork summary fields
@@ -2128,6 +2113,10 @@ async function loadPreviousCompletions() {
                 id: b.id,
                 seq: b.seq,
                 block_index: b.block_index,
+                loop_index: b.loop_index,
+                phase: b.phase,
+                title: b.title,
+                icon: b.icon,
                 status: b.status,
                 content: b.content,
                 reasoning: b.reasoning,
@@ -2139,6 +2128,7 @@ async function loadPreviousCompletions() {
                     status: (status === 'stopped' && b.tool_execution.status === 'running') ? 'stopped' : b.tool_execution.status,
                     result_summary: b.tool_execution.result_summary,
                     result_json: b.tool_execution.result_json,
+                    arguments_json: b.tool_execution.arguments_json,
                     duration_ms: b.tool_execution.duration_ms,
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
@@ -2756,6 +2746,12 @@ async function startPollingInProgressCompletion() {
 	const maxDurationMs = 2 * 60 * 1000
 
 	const tick = async () => {
+		// If SSE streaming has (re)started, stop polling — SSE is the source of truth
+		// and loadCompletions would wipe in-memory stream state.
+		if (isStreaming.value) {
+			stopPollingInProgressCompletion()
+			return
+		}
 		try {
 			await loadCompletions({ skipEstimate: true })
 			autoScrollIfNearBottom()
@@ -2786,8 +2782,11 @@ const scheduledPollIntervalMs = 15_000
 
 function startScheduledCompletionsPoll() {
 	if (scheduledPollHandle !== null) return
+	// Only poll if this report actually has scheduled prompts that can fire in the background
+	if (!scheduledPrompts.value || scheduledPrompts.value.length === 0) return
 	const tick = async () => {
-		if (isStreaming.value) {
+		// Skip while streaming (SSE is authoritative) or while tab is hidden
+		if (isStreaming.value || (typeof document !== 'undefined' && document.hidden)) {
 			scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
 			return
 		}
