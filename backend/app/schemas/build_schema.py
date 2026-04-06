@@ -22,6 +22,7 @@ class InstructionBuildSchema(BaseModel):
     id: str
     build_number: int
     title: Optional[str] = None  # Auto-generated or user-provided title
+    description: Optional[str] = None  # Commit-message style rationale
     status: str  # draft | pending_approval | approved | rejected
     source: str  # user | git | ai
     is_main: bool
@@ -72,12 +73,20 @@ class InstructionBuildListSchema(BaseModel):
     id: str
     build_number: int
     title: Optional[str] = None  # Auto-generated or user-provided title
+    description: Optional[str] = None  # Commit-message style rationale
     status: str
     source: str
     is_main: bool
     base_build_id: Optional[str] = None  # For auto-merge on deploy
     commit_sha: Optional[str] = None
     branch: Optional[str] = None
+
+    # Agent execution trigger link + resolved trace coordinates. Populated via
+    # a join on agent_executions when available, so the UI can open TraceModal
+    # directly from the build explorer.
+    agent_execution_id: Optional[str] = None
+    report_id: Optional[str] = None
+    completion_id: Optional[str] = None
     total_instructions: int = 0
     added_count: int = 0
     modified_count: int = 0

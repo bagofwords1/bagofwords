@@ -2069,6 +2069,31 @@ class InstructionService:
         """Convert instruction to schema with populated references."""
         # Convert to basic schema
         instruction_dict = InstructionSchema.from_orm(instruction).model_dump()
+
+        # Look up the latest non-main build (draft / pending_approval) that
+        # contains this instruction, so the UI can show an "unpublished build"
+        # warning and offer a "View changes" affordance. is_main builds are
+        # the live/published state and should not trigger the warning.
+        try:
+            from app.models.instruction_build import InstructionBuild
+            from app.models.build_content import BuildContent
+            build_lookup = await db.execute(
+                select(InstructionBuild.id, InstructionBuild.status)
+                .join(BuildContent, BuildContent.build_id == InstructionBuild.id)
+                .where(
+                    BuildContent.instruction_id == instruction.id,
+                    InstructionBuild.is_main == False,  # noqa: E712
+                    InstructionBuild.status.in_(['draft', 'pending_approval']),
+                )
+                .order_by(InstructionBuild.created_at.desc())
+                .limit(1)
+            )
+            latest = build_lookup.first()
+            if latest:
+                instruction_dict["current_build_id"] = str(latest[0])
+                instruction_dict["current_build_status"] = latest[1]
+        except Exception as e:
+            logger.warning(f"Failed to resolve current build for instruction {instruction.id}: {e}")
         
         # Populate the referenced objects for each reference
         if instruction.references:

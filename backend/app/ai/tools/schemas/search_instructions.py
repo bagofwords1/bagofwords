@@ -13,12 +13,36 @@ class SearchInstructionsInput(BaseModel):
     search: Optional[str] = Field(
         None,
         description=(
-            "SHORT keyword search — 1-3 tokens only (e.g. 'revenue', 'album revenue', 'status enum'). "
-            "Do NOT pass sentences, questions, or full instruction text. "
-            "Matches against instruction text and title as a simple case-insensitive substring. "
-            "Leave empty to list all instructions filtered by other params."
+            "Single keyword (1-3 tokens). Case-insensitive substring match against "
+            "instruction text and title. Use this for simple lookups; prefer `keywords` "
+            "or `regex` for thorough exploration. Leave empty to list all."
         ),
         max_length=80,
+    )
+
+    keywords: Optional[List[str]] = Field(
+        None,
+        description=(
+            "List of short keywords/phrases (1-3 tokens each) to search for. "
+            "An instruction matches if ANY keyword appears in its text or title "
+            "(case-insensitive substring OR). Prefer this over `search` when you "
+            "want to explore multiple angles of the same topic — e.g. for a clarified "
+            "'album revenue' term pass ['album', 'revenue', 'invoiceline', 'sales', "
+            "'black-elephant']. Casts a wide net in one call."
+        ),
+        max_length=10,
+    )
+
+    regex: Optional[str] = Field(
+        None,
+        description=(
+            "Optional regular expression (Python `re` syntax, case-insensitive) matched "
+            "against instruction text and title. Use when keywords are not precise enough "
+            "— e.g. `revenue\\s*>\\s*\\$?\\d+` or `\\b(album|track)_revenue\\b`. Evaluated "
+            "in-process after the DB fetch, so keep patterns cheap. Union with `search`/"
+            "`keywords` (an instruction matches if ANY of the provided filters hit)."
+        ),
+        max_length=200,
     )
 
     category: Optional[str] = Field(

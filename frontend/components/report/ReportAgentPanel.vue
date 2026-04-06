@@ -87,6 +87,27 @@
               <Icon name="heroicons:chevron-left" class="w-3 h-3" />
               All Instructions
             </button>
+            <!-- Unpublished-build warning banner -->
+            <div
+              v-if="selectedInstruction.current_build_id && ['draft', 'pending_approval'].includes(selectedInstruction.current_build_status)"
+              class="mx-4 mb-2 px-2.5 py-1.5 rounded-md border border-amber-200 bg-amber-50 flex items-start gap-2"
+            >
+              <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+              <div class="flex-1 min-w-0">
+                <div class="text-[11px] text-amber-800">
+                  {{ selectedInstruction.current_build_status === 'draft'
+                    ? 'This instruction is part of an unpublished draft build.'
+                    : 'This instruction is part of a build pending review.' }}
+                </div>
+                <button
+                  v-if="canViewBuilds"
+                  @click="openBuildExplorer(selectedInstruction.current_build_id)"
+                  class="mt-0.5 text-[11px] text-amber-700 hover:text-amber-900 underline"
+                >
+                  View changes
+                </button>
+              </div>
+            </div>
             <InstructionGlobalCreateComponent
               :key="selectedInstruction.id"
               :instruction="selectedInstruction"
@@ -329,6 +350,12 @@
         </template>
       </div>
     </div>
+
+    <BuildExplorerModal
+      v-if="canViewBuilds"
+      v-model="showBuildExplorer"
+      :build-id="buildExplorerBuildId"
+    />
   </div>
 </template>
 
@@ -337,6 +364,7 @@ import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
+import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
 import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
 
 const props = defineProps<{
@@ -345,6 +373,15 @@ const props = defineProps<{
 
 // Permissions
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
+const canViewBuilds = computed(() => useCan('view_builds'))
+
+// Build explorer modal (for "View changes" affordance on unpublished-build banner)
+const showBuildExplorer = ref(false)
+const buildExplorerBuildId = ref<string>('')
+const openBuildExplorer = (bid: string) => {
+  buildExplorerBuildId.value = bid
+  showBuildExplorer.value = true
+}
 
 // Dropdown state
 const dropdownOpen = ref(false)

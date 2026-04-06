@@ -387,6 +387,10 @@ class AgentV2:
 
         ai_build = None
         drafts: list = []
+        # Collected evidence strings from successful create/edit_instruction
+        # tool calls — concatenated into the build's description (commit
+        # message style) at the end of the harness run.
+        harness_evidence: list = []
         prior_mode = self.mode
 
         try:
@@ -712,6 +716,16 @@ class AgentV2:
                 if runtime_ctx.get("training_build_id") and not self.training_build_id:
                     self.training_build_id = runtime_ctx["training_build_id"]
 
+                # Collect evidence from successful create/edit calls so we can
+                # stitch a build description ("commit message") at the end.
+                if tool_name in ("create_instruction", "edit_instruction"):
+                    if isinstance(tool_output, dict) and tool_output.get("success") and isinstance(tool_input, dict):
+                        ev_text = tool_input.get("evidence")
+                        if ev_text:
+                            verb = "Added" if tool_name == "create_instruction" else "Edited"
+                            title = tool_output.get("title") or tool_input.get("title") or "instruction"
+                            harness_evidence.append(f"- **{verb} {title}**: {ev_text}")
+
                 # Stream a partial event for create/edit instruction successes
                 if tool_name in ("create_instruction", "edit_instruction"):
                     inst_id = None
@@ -777,6 +791,16 @@ class AgentV2:
                 try:
                     from app.services.build_service import BuildService
                     build_service = BuildService()
+                    # Attach a description built from tool-call evidence
+                    # strings, if any. Kept simple — no second LLM call.
+                    if harness_evidence:
+                        try:
+                            description = "\n".join(harness_evidence)
+                            await build_service.update_build_description(
+                                self.db, ai_build.id, description
+                            )
+                        except Exception as desc_err:
+                            logger.warning(f"Failed to set build description: {desc_err}")
                     await build_service.submit_build(self.db, ai_build.id)
                     logger.info(
                         f"Knowledge harness submitted AI build {ai_build.id} for approval "

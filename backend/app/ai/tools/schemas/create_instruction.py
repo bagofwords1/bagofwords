@@ -95,6 +95,16 @@ class CreateInstructionOutput(BaseModel):
         description="ID of the created instruction (if successful)"
     )
 
+    title: Optional[str] = Field(
+        None,
+        description="Title of the created instruction (provided or auto-generated)"
+    )
+
+    build_id: Optional[str] = Field(
+        None,
+        description="ID of the draft build this instruction was added to."
+    )
+
     message: str = Field(
         ...,
         description="Status message describing what happened"

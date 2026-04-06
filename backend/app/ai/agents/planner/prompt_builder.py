@@ -698,8 +698,12 @@ The system detected one or more conditions in this session that suggested a lear
 
 YOUR TASK
 1. Review the trigger reasons above and the session history (messages, past_observations, last_observation).
-2. Use `search_instructions` to check whether any existing instruction already covers the topic. **Always search before creating.**
-   - Pass SHORT keywords only (1-3 tokens, e.g. `"revenue"`, `"album revenue"`, `"status enum"`). Never pass sentences, questions, or full instruction text.
+2. Use `search_instructions` to check whether any existing instruction already covers the topic. **Always search before creating, and search THOROUGHLY.**
+   - Prefer the `keywords` array over a single `search` — pass 3-6 short keywords (1-3 tokens each) covering different angles of the topic in ONE call. Example for a clarified "album revenue" term: `{{"keywords": ["album revenue", "invoiceline", "sales", "black-elephant", "revenue threshold"]}}`. The tool ORs them and dedupes.
+   - Include the clarified term itself, the underlying metric, the tables involved, and any synonyms the user used.
+   - Use `regex` when keywords are not precise enough — e.g. `revenue\\s*>\\s*\\$?\\d+` to find existing revenue-threshold rules.
+   - Never pass sentences, questions, or full instruction text as a keyword.
+   - If the first search returns nothing surprising, that's your signal to create a new instruction — don't keep searching.
 3. Optionally use `describe_tables` or `inspect_data` (max 1-2 calls) to verify a specific fact you want to capture (e.g., a column name, an enum value).
 4. Then either:
    - Call `edit_instruction` to enhance an existing similar instruction (PREFERRED when one exists), OR

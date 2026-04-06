@@ -280,9 +280,10 @@
 
 										<!-- Knowledge group: harness-phase blocks rendered as a single collapsible card -->
 										<KnowledgeGroup
-											v-if="(m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
+											v-if="(m as any)._harness_running || (m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')"
 											:blocks="((m.completion_blocks || []).filter(b => (b as any).phase === 'knowledge_harness') as any)"
-											:completion-status="m.status"
+											:harness-running="!!(m as any)._harness_running"
+											@open-instruction="openInstructionById"
 										/>
 
 										<!-- Thinking dots when system is working but no visible progress - moved to end -->
@@ -1472,14 +1473,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'instructions.suggest.started':
-			// Knowledge harness streams real create/edit_instruction blocks which
-			// the <KnowledgeGroup> component renders. No synthetic block needed.
+			// Flip a flag so <KnowledgeGroup> renders immediately in a loading
+			// state, even before the first harness block arrives.
+			;(sysMessage as any)._harness_running = true
 			break
 
 		case 'instructions.suggest.partial':
+			break
 		case 'instructions.suggest.finished':
-			// Handled by the real create_instruction/edit_instruction harness blocks
-			// rendered inside <KnowledgeGroup>.
+			;(sysMessage as any)._harness_running = false
 			break
 
 		case 'block.upsert':

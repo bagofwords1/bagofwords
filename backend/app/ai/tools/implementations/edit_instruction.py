@@ -159,6 +159,26 @@ class EditInstructionTool(Tool):
         user = runtime_ctx.get("user")
         training_build_id = runtime_ctx.get("training_build_id")
         agent_execution_id = runtime_ctx.get("agent_execution_id")
+        mode = runtime_ctx.get("mode")
+
+        # Harness contract: in knowledge mode, agent_v2 seeds
+        # runtime_ctx["training_build_id"] before the harness sub-loop runs.
+        # Fail loudly rather than silently skipping add_to_build and leaving
+        # the edit unattached to any build. In training mode, the first
+        # create seeds the build, so edit-before-create is not expected.
+        if mode == "knowledge" and not training_build_id:
+            yield ToolErrorEvent(
+                type="tool.error",
+                payload={
+                    "error": (
+                        "Missing training_build_id in runtime context. "
+                        "Knowledge/training mode requires the harness to seed "
+                        "a draft build before edit_instruction runs."
+                    ),
+                    "code": "MISSING_TRAINING_BUILD",
+                }
+            )
+            return
 
         if not all([db, organization]):
             yield ToolErrorEvent(
@@ -373,7 +393,9 @@ class EditInstructionTool(Tool):
                     "output": EditInstructionOutput(
                         success=True,
                         instruction_id=str(instruction.id),
+                        title=getattr(instruction, "title", None),
                         version_number=version_number,
+                        build_id=str(training_build_id) if training_build_id else None,
                         message=f"Instruction updated successfully{version_str}",
                         previous_text=previous_text,
                         new_text=(data.text if data.text is not None else None),

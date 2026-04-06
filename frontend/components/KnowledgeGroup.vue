@@ -2,32 +2,48 @@
   <div v-if="isActive" class="mt-3">
     <!-- Status header -->
     <div
-      class="flex items-center text-xstext-gray-500 cursor-pointer hover:text-gray-700"
-      @click="isExpanded = !isExpanded"
+      class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+      @click="toggleExpanded"
     >
-      <Icon name="heroicons-light-bulb" class="w-3 h-3 mr-1.5 text-gray-400 shrink-0" />
-      <span v-if="isLoading" class="tool-shimmer flex items-center">
-        Reviewing knowledge…
+      <span v-if="isLoading" class="flex items-center flex-wrap gap-1">
+        <Spinner class="w-3 h-3 mr-1 text-gray-400 shrink-0" />
+        <span class="knowledge-shimmer">Reviewing Knowledge</span>
+        <span class="text-gray-300">·</span>
+        <Transition name="knowledge-fade" mode="out-in">
+          <span :key="currentActivity || '...'" class="knowledge-shimmer">{{ currentActivity || '…' }}</span>
+        </Transition>
       </span>
-      <span v-else class="text-gray-600 flex items-center gap-1.5 min-w-0">
+      <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
+        <Icon
+          :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+          class="w-3 h-3 mr-1 text-gray-400"
+        />
         <span>Knowledge</span>
-        <span class="text-gray-400">·</span>
-        <span class="text-gray-500">{{ changes.length }} {{ changes.length === 1 ? 'change' : 'changes' }}</span>
+        <span class="text-gray-300">·</span>
+        <span>{{ changes.length }} {{ changes.length === 1 ? 'change' : 'changes' }}</span>
+        <span v-if="stepCount > 0" class="text-gray-400">in {{ stepCount }} {{ stepCount === 1 ? 'step' : 'steps' }}</span>
         <span v-if="totalAdded > 0" class="text-[10px] font-mono text-green-600">+{{ totalAdded }}</span>
         <span v-if="totalRemoved > 0" class="text-[10px] font-mono text-red-500">−{{ totalRemoved }}</span>
         <span v-if="isBuildPublished" class="text-[10px] text-green-600 flex items-center">
           <Icon name="heroicons:check-circle-solid" class="w-3 h-3 mr-0.5" />Published
         </span>
-        <Icon
-          :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-          class="w-3 h-3 ml-0.5 text-gray-400 shrink-0"
-        />
       </span>
     </div>
 
     <!-- Expanded body -->
     <Transition name="slide">
       <div v-if="isExpanded && !isLoading" class="mt-2 ml-5 space-y-1.5">
+        <div v-if="steps.length > 0" class="space-y-0.5 mb-2">
+          <div
+            v-for="s in steps"
+            :key="s.id"
+            class="flex items-center gap-1 text-[11px] text-gray-500"
+          >
+            <span class="w-1 h-1 rounded-full bg-gray-300 shrink-0 mx-1"></span>
+            <span class="truncate">{{ s.label }}</span>
+          </div>
+        </div>
+
         <div v-if="changes.length === 0" class="text-[11px] text-gray-400 italic">
           No changes captured from this session.
         </div>
@@ -36,15 +52,17 @@
           v-for="ch in changes"
           :key="ch.id"
           :class="[
-            'flex items-start gap-2 py-1',
+            'flex items-start gap-2 py-1 px-1.5 -mx-1.5 rounded hover:bg-gray-50 cursor-pointer',
             !isBuildPublished && !selectedIds.has(ch.id) ? 'opacity-50' : ''
           ]"
+          @click="handleEdit(ch)"
         >
           <UCheckbox
             v-if="!isBuildPublished"
             :model-value="selectedIds.has(ch.id)"
             color="blue"
             @update:model-value="toggleSelection(ch.id, $event)"
+            @click.stop
             class="mt-0.5"
           />
           <div class="flex-1 min-w-0">
@@ -57,10 +75,7 @@
               >
                 {{ ch.type === 'create' ? 'new' : 'edit' }}
               </span>
-              <span
-                class="text-[12px] text-gray-700 truncate cursor-pointer hover:text-gray-900"
-                @click="!isBuildPublished ? handleEdit(ch) : null"
-              >
+              <span class="text-[12px] text-gray-700 truncate hover:text-gray-900">
                 {{ ch.title }}
               </span>
               <span v-if="ch.added > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
@@ -121,10 +136,11 @@ interface HarnessBlock {
 
 interface Props {
   blocks: HarnessBlock[]
-  completionStatus?: string
+  harnessRunning?: boolean
 }
 
 const props = defineProps<Props>()
+const emit = defineEmits<{ (e: 'open-instruction', id: string): void }>()
 
 const isExpanded = ref(true)
 const showInstructionModal = ref(false)
@@ -139,7 +155,78 @@ const canCreateInstructions = computed(() => useCan('create_instructions'))
 
 const stepCount = computed(() => props.blocks.filter(b => !!b.tool_execution).length)
 
-const isParentStreaming = computed(() => props.completionStatus === 'in_progress')
+const isHarnessRunning = computed(() => !!props.harnessRunning)
+
+const TOOL_LABELS: Record<string, string> = {
+  search_instructions: 'Searching instructions',
+  describe_tables: 'Reading tables',
+  inspect_data: 'Inspecting data',
+  create_instruction: 'Creating instruction',
+  edit_instruction: 'Editing instruction',
+}
+
+interface Step {
+  id: string
+  label: string
+}
+
+const steps = computed<Step[]>(() => {
+  const out: Step[] = []
+  for (const b of props.blocks || []) {
+    const te = b.tool_execution
+    if (!te?.tool_name) continue
+    const args = te.arguments_json || {}
+    const rj = te.result_json || {}
+    let label = ''
+    switch (te.tool_name) {
+      case 'search_instructions': {
+        const q = args.search || args.query || ''
+        label = q ? `Searched "${q}"` : 'Searched instructions'
+        break
+      }
+      case 'describe_tables': {
+        const q = args.query
+        const names = Array.isArray(q) ? q.join(', ') : (q || '')
+        label = names ? `Read ${names}` : 'Read tables'
+        break
+      }
+      case 'inspect_data':
+        label = 'Inspected data'
+        break
+      case 'create_instruction': {
+        const title = rj.title || args.title || String(args.text || '').split('\n')[0].replace(/^#+\s*/, '').trim()
+        label = `Created ${title || 'instruction'}`
+        break
+      }
+      case 'edit_instruction': {
+        const title = rj.title || args.title || String(rj.new_text || args.text || '').split('\n')[0].replace(/^#+\s*/, '').trim()
+        label = `Edited ${title || 'instruction'}`
+        break
+      }
+      default:
+        label = te.tool_name
+    }
+    out.push({ id: b.id, label })
+  }
+  return out
+})
+
+const currentActivity = computed<string>(() => {
+  const blocks = props.blocks || []
+  // Prefer a currently-running tool
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const te = blocks[i]?.tool_execution
+    if (te && (te.status === 'running' || te.status === 'in_progress')) {
+      return TOOL_LABELS[te.tool_name] || te.tool_name
+    }
+  }
+  // Otherwise the most recent tool in the stream
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const te = blocks[i]?.tool_execution
+    if (te?.tool_name) return TOOL_LABELS[te.tool_name] || te.tool_name
+  }
+  return ''
+})
 
 interface Change {
   id: string
@@ -163,10 +250,11 @@ const changes = computed<Change[]>(() => {
     if (te.tool_name === 'create_instruction' && rj.success === true) {
       const text = String(args.text || '')
       const firstLine = text.split('\n')[0].replace(/^#+\s*/, '').trim()
+      const resolvedTitle = String(rj.title || args.title || firstLine || 'New instruction').trim()
       out.push({
         id: b.id,
         type: 'create',
-        title: firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : (firstLine || 'New instruction'),
+        title: resolvedTitle.length > 80 ? resolvedTitle.slice(0, 77) + '…' : resolvedTitle,
         preview: text,
         added: text.length,
         removed: 0,
@@ -180,10 +268,11 @@ const changes = computed<Change[]>(() => {
       const added = Math.max(next.length - prev.length, 0)
       const removed = Math.max(prev.length - next.length, 0)
       const firstLine = next.split('\n')[0].replace(/^#+\s*/, '').trim()
+      const resolvedTitle = String(rj.title || args.title || firstLine || 'Edit instruction').trim()
       out.push({
         id: b.id,
         type: 'edit',
-        title: firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : (firstLine || 'Edit instruction'),
+        title: resolvedTitle.length > 80 ? resolvedTitle.slice(0, 77) + '…' : resolvedTitle,
         preview: next || prev,
         added,
         removed,
@@ -204,14 +293,14 @@ const isLoading = computed(() => {
   )) return true
   // Parent completion is still streaming and harness hasn't produced a change yet:
   // treat as loading so we don't flash "0 changes · No changes captured" mid-stream.
-  if (isParentStreaming.value && changes.value.length === 0) return true
+  if (isHarnessRunning.value && changes.value.length === 0) return true
   return false
 })
 
 const totalAdded = computed(() => changes.value.reduce((s, c) => s + c.added, 0))
 const totalRemoved = computed(() => changes.value.reduce((s, c) => s + c.removed, 0))
 
-const isActive = computed(() => props.blocks.length > 0)
+const isActive = computed(() => isHarnessRunning.value || props.blocks.length > 0)
 
 // Derive build_id from the first change (all harness instructions share one draft build)
 const buildId = computed(() => {
@@ -233,6 +322,10 @@ const publishButtonText = computed(() => {
   return `Publish ${n} Changes`
 })
 
+const toggleExpanded = () => {
+  if (!isLoading.value) isExpanded.value = !isExpanded.value
+}
+
 const toggleSelection = (id: string, checked: boolean) => {
   const next = new Set(selectedIds.value)
   if (checked) next.add(id)
@@ -253,60 +346,46 @@ watch(changes, (newCh, oldCh) => {
   selectedIds.value = next
 }, { immediate: true })
 
-const handleEdit = async (ch: Change) => {
+const handleEdit = (ch: Change) => {
   if (!ch.instructionId) return
-  try {
-    const { data, error } = await useMyFetch(`/instructions/${ch.instructionId}`)
-    if (!error.value && data.value) {
-      editingInstruction.value = data.value
-    } else {
-      editingInstruction.value = { id: ch.instructionId, text: ch.text }
-    }
-  } catch {
-    editingInstruction.value = { id: ch.instructionId, text: ch.text }
-  }
-  showInstructionModal.value = true
+  emit('open-instruction', ch.instructionId)
 }
 
 const handlePublishBuild = async () => {
+  const targetBuildId = buildId.value
+  const selectedInstructionIds = changes.value
+    .filter(c => selectedIds.value.has(c.id) && c.instructionId)
+    .map(c => c.instructionId as string)
+
+  if (!targetBuildId) {
+    // Harness contract says all changes in a session share one draft build;
+    // missing means the tool result never carried build_id — a real bug.
+    console.error('Publish aborted: no build_id found on any harness change.')
+    toast.add({ title: 'Error', description: 'Cannot publish: draft build id missing', color: 'red' })
+    return
+  }
+
+  // Sanity check: every change in this harness session should share the same build.
+  const distinctBuildIds = new Set(changes.value.map(c => c.buildId).filter(Boolean))
+  if (distinctBuildIds.size > 1) {
+    console.error('Publish aborted: harness changes span multiple builds', Array.from(distinctBuildIds))
+    toast.add({ title: 'Error', description: 'Inconsistent build ids in changes', color: 'red' })
+    return
+  }
+
+  if (selectedInstructionIds.length === 0) return
+
   isPublishingBuild.value = true
   try {
-    let targetBuildId = buildId.value
-    const selectedInstructionIds = changes.value
-      .filter(c => selectedIds.value.has(c.id) && c.instructionId)
-      .map(c => c.instructionId as string)
-
-    if (!targetBuildId && selectedInstructionIds[0]) {
-      const { data } = await useMyFetch<any>(`/instructions/${selectedInstructionIds[0]}`)
-      if (data.value?.current_build_id) targetBuildId = data.value.current_build_id
-    }
-
-    if (targetBuildId) {
-      for (const iid of selectedInstructionIds) {
-        await useMyFetch(`/instructions/${iid}`, {
-          method: 'PUT',
-          body: { status: 'published', target_build_id: targetBuildId },
-        })
-      }
-      const response = await useMyFetch(`/builds/${targetBuildId}/publish`, {
-        method: 'POST',
-        body: { instruction_ids: selectedInstructionIds },
-      })
-      if (response.status.value === 'success') {
-        localPublishOverride.value = true
-        toast.add({ title: 'Success', description: 'Changes published', color: 'green' })
-      } else {
-        throw new Error('Failed to publish build')
-      }
-    } else {
-      for (const iid of selectedInstructionIds) {
-        await useMyFetch(`/instructions/${iid}`, {
-          method: 'PUT',
-          body: { status: 'published' },
-        })
-      }
+    const response = await useMyFetch(`/builds/${targetBuildId}/publish`, {
+      method: 'POST',
+      body: { instruction_ids: selectedInstructionIds },
+    })
+    if (response.status.value === 'success') {
       localPublishOverride.value = true
       toast.add({ title: 'Success', description: 'Changes published', color: 'green' })
+    } else {
+      throw new Error('Failed to publish build')
     }
   } catch (e) {
     console.error('Error publishing knowledge changes:', e)
@@ -323,6 +402,27 @@ const handleInstructionSaved = () => {
 </script>
 
 <style scoped>
+.knowledge-shimmer {
+  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: knowledge-shimmer-anim 2s linear infinite;
+}
+@keyframes knowledge-shimmer-anim {
+  0% { background-position: -100% 0; }
+  100% { background-position: 100% 0; }
+}
+.knowledge-fade-enter-active,
+.knowledge-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.knowledge-fade-enter-from,
+.knowledge-fade-leave-to {
+  opacity: 0;
+}
+
 .tool-shimmer {
   animation: shimmer 1.6s linear infinite;
   background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);

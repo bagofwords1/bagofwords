@@ -276,7 +276,29 @@ class BuildService:
             
             for run in runs:
                 test_runs_by_build[run.build_id] = run
-        
+
+        # Batch-resolve trace coordinates (report_id, completion_id) for any
+        # builds that were created by an agent execution, so the UI can wire
+        # a "View trace" button without an extra round-trip per row.
+        trace_by_exec_id: Dict[str, Dict[str, Optional[str]]] = {}
+        exec_ids = [str(b.agent_execution_id) for b in builds if getattr(b, 'agent_execution_id', None)]
+        if exec_ids:
+            from app.models.agent_execution import AgentExecution
+            exec_stmt = (
+                select(
+                    AgentExecution.id,
+                    AgentExecution.report_id,
+                    AgentExecution.completion_id,
+                )
+                .where(AgentExecution.id.in_(exec_ids))
+            )
+            exec_result = await db.execute(exec_stmt)
+            for row in exec_result.all():
+                trace_by_exec_id[str(row[0])] = {
+                    "report_id": str(row[1]) if row[1] else None,
+                    "completion_id": str(row[2]) if row[2] else None,
+                }
+
         # Enrich builds with test run data and user info
         enriched_items = []
         for build in builds:
@@ -289,10 +311,17 @@ class BuildService:
             if build.approved_by_user:
                 approved_by_name = getattr(build.approved_by_user, 'full_name', None) or getattr(build.approved_by_user, 'name', None)
             
+            exec_id = str(build.agent_execution_id) if getattr(build, 'agent_execution_id', None) else None
+            trace_coords = trace_by_exec_id.get(exec_id) if exec_id else None
+
             build_dict = {
                 "id": str(build.id),
                 "build_number": build.build_number,
                 "title": build.title,
+                "description": build.description,
+                "agent_execution_id": exec_id,
+                "report_id": trace_coords.get("report_id") if trace_coords else None,
+                "completion_id": trace_coords.get("completion_id") if trace_coords else None,
                 "status": build.status,
                 "source": build.source,
                 "is_main": build.is_main,
@@ -419,8 +448,26 @@ class BuildService:
 
         return await self.create_build(db, org_id, source=source, user_id=user_id)
     
+    async def update_build_description(
+        self,
+        db: AsyncSession,
+        build_id: str,
+        description: Optional[str],
+    ) -> Optional[InstructionBuild]:
+        """Set a build's free-text description. Used by the knowledge harness
+        to attach a commit-message style rationale derived from tool-call
+        evidence. Safe to call on any build status — the description field is
+        metadata, not part of the instruction snapshot."""
+        build = await self.get_build(db, build_id)
+        if not build:
+            return None
+        build.description = description
+        await db.commit()
+        await db.refresh(build)
+        return build
+
     # ==================== Draft Editing ====================
-    
+
     async def add_to_build(
         self,
         db: AsyncSession,

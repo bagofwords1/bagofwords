@@ -204,15 +204,35 @@ class CreateInstructionTool(Tool):
             instruction_service = InstructionService()
             build_service = BuildService()
 
-            # Get or create the training session's draft build
+            # Harness contract: in knowledge mode, agent_v2 seeds
+            # runtime_ctx["training_build_id"] before the harness sub-loop runs.
+            # Every create/edit within a single harness invocation shares that
+            # build. Fail loudly if the contract is violated rather than silently
+            # spawning an orphan build that the Publish button can't find.
+            # (training mode intentionally allows lazy build creation on first
+            # use — agent_v2's main loop then captures the id back.)
+            if mode == "knowledge" and not training_build_id:
+                yield ToolErrorEvent(
+                    type="tool.error",
+                    payload={
+                        "error": (
+                            "Missing training_build_id in runtime context. "
+                            "Knowledge/training mode requires the harness to seed "
+                            "a draft build before create_instruction runs."
+                        ),
+                        "code": "MISSING_TRAINING_BUILD",
+                    }
+                )
+                return
+
+            # Fetch the pre-seeded build (or, outside harness mode, create one).
             build = None
             if training_build_id:
-                # Fetch existing build
                 build = await build_service.get_build(db, training_build_id)
 
             if not build:
-                # Create a new draft build for this training session
-                # Pass agent_execution_id to scope build to this specific session
+                # Only reachable outside knowledge/training mode — e.g. direct
+                # tool invocation from tests or a future caller.
                 build = await build_service.get_or_create_draft_build(
                     db=db,
                     org_id=str(organization.id),
@@ -220,7 +240,6 @@ class CreateInstructionTool(Tool):
                     user_id=str(user.id) if user else None,
                     agent_execution_id=agent_execution_id,
                 )
-                # Store in runtime context for subsequent calls
                 runtime_ctx["training_build_id"] = str(build.id)
                 logger.info(f"Created training build {build.id} for training session (agent_execution_id={agent_execution_id})")
 
@@ -330,6 +349,8 @@ class CreateInstructionTool(Tool):
             output_dict = CreateInstructionOutput(
                 success=True,
                 instruction_id=str(instruction.id),
+                title=title,
+                build_id=str(build.id) if build else None,
                 message=f"Instruction created successfully: {title}",
             ).model_dump()
             output_dict["data_source_ids"] = [str(d) for d in data_source_ids] if data_source_ids else []
