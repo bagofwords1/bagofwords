@@ -354,9 +354,8 @@ const sourceOptions = computed(() => {
 
 const statusOptions: FilterOption[] = [
     { value: null, label: 'All Status' },
-    { value: 'published', label: 'Published' },
-    { value: 'draft', label: 'Draft' },
-    { value: 'archived', label: 'Archived' },
+    { value: 'published', label: 'Active' },
+    { value: 'draft', label: 'Inactive' },
 ]
 
 const loadModeOptions: FilterOption[] = [

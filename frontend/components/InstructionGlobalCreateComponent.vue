@@ -1292,20 +1292,31 @@ const filteredMentionableOptions = computed(() => {
 })
 
 // Status options (simplified - no more suggestion workflow)
+// Labels are user-facing; backend enum values unchanged.
 const statusOptions = computed(() => {
     return [
-        { label: 'Draft', value: 'draft' },
-        { label: 'Published', value: 'published' },
-        { label: 'Archived', value: 'archived' }
+        { label: 'Active', value: 'published' },
+        { label: 'Inactive', value: 'draft' }
     ]
 })
 
-// Helper function to get the right display text for the currently selected status
+// True when the instruction has an in-flight change in an unpublished build.
+// When true, the badge single-replaces the underlying Active/Inactive label
+// with "Pending review" so the user isn't misled about live vs. pending state.
+const isPendingReview = computed(() => {
+    const inst: any = props.instruction
+    if (!inst?.current_build_id) return false
+    const bs = inst.current_build_status
+    return bs === 'draft' || bs === 'pending_approval'
+})
+
+// Display text for the currently-selected status badge.
 const getCurrentStatusDisplayText = () => {
+    if (isPendingReview.value) return 'Pending review'
     const currentStatus = instructionForm.value.status
     const statusMap: Record<string, string> = {
-        draft: 'Draft',
-        published: 'Published', 
+        draft: 'Inactive',
+        published: 'Active',
         archived: 'Archived'
     }
     return statusMap[currentStatus] || formatStatus(currentStatus)
@@ -1385,8 +1396,8 @@ const handleDataSourceToggle = (dataSourceId: string) => {
 // Helper functions
 const formatStatus = (status: string) => {
     const statusMap = {
-        draft: 'Draft',
-        published: 'Published',
+        draft: 'Inactive',
+        published: 'Active',
         archived: 'Archived'
     }
     return statusMap[status as keyof typeof statusMap] || status
@@ -1405,6 +1416,11 @@ const formatCategory = (category: string) => {
 }
 
 const getStatusClass = (status: string) => {
+    // Read-only display path: when the instruction is pending review, the
+    // badge replaces the underlying Active/Inactive color with amber.
+    if (isPendingReview.value && status === instructionForm.value.status) {
+        return 'bg-amber-100 text-amber-800'
+    }
     const statusClasses = {
         draft: 'bg-yellow-100 text-yellow-800',
         published: 'bg-green-100 text-green-800',

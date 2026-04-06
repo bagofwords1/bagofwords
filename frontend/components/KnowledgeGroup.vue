@@ -8,10 +8,12 @@
       <span v-if="isLoading" class="flex items-center flex-wrap gap-1">
         <Spinner class="w-3 h-3 mr-1 text-gray-400 shrink-0" />
         <span class="knowledge-shimmer">Reviewing Knowledge</span>
-        <span class="text-gray-300">·</span>
-        <Transition name="knowledge-fade" mode="out-in">
-          <span :key="currentActivity || '...'" class="knowledge-shimmer">{{ currentActivity || '…' }}</span>
-        </Transition>
+        <template v-if="currentActivity">
+          <span class="text-gray-300">·</span>
+          <Transition name="knowledge-fade" mode="out-in">
+            <span :key="currentActivity" class="knowledge-shimmer">{{ currentActivity }}</span>
+          </Transition>
+        </template>
       </span>
       <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
         <Icon

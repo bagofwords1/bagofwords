@@ -240,7 +240,7 @@
                       <span
                         :class="helpers.getStatusClass(inst)"
                         class="text-[9px] px-1 py-0.5 rounded font-medium"
-                      >{{ helpers.formatStatus(inst.status) }}</span>
+                      >{{ helpers.getStatusLabel(inst) }}</span>
                       <span
                         :class="helpers.getLoadModeClass(inst.load_mode)"
                         class="text-[9px] px-1 py-0.5 rounded font-medium"

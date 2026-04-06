@@ -210,10 +210,10 @@
                                 <!-- Status -->
                                 <td v-if="showStatus" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2.5', 'text-center']">
                                     <UTooltip :text="helpers.getStatusTooltip(instruction)">
-                                        <span 
+                                        <span
                                             :class="[compact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', 'rounded font-medium', helpers.getStatusClass(instruction)]"
                                         >
-                                            {{ helpers.formatStatus(instruction.status) }}
+                                            {{ helpers.getStatusLabel(instruction) }}
                                         </span>
                                     </UTooltip>
                                 </td>

@@ -35,14 +35,15 @@ class SearchInstructionsTool(Tool):
         return ToolMetadata(
             name="search_instructions",
             description=(
-                "RESEARCH: Search existing organization instructions by keyword(s), "
-                "regex, category, or data source. Supports three search inputs — "
-                "`search` (single keyword), `keywords` (OR list of keywords), and "
-                "`regex` (case-insensitive pattern) — all unioned into one result set. "
-                "Use BEFORE create_instruction to check for duplicates, or to find an "
-                "existing instruction to edit instead. Cast a wide net: run multiple "
-                "keywords in one call rather than one keyword per call. Returns full "
-                "instruction text so no separate read step is needed."
+                "RESEARCH: Search existing organization instructions by a list of "
+                "keyword OR regex queries (case-insensitive, unioned). Each `query` "
+                "entry can be a plain keyword/phrase (matched as a literal substring) "
+                "or a regex pattern (auto-detected by regex metacharacters, e.g. "
+                "`revenue\\s*>\\s*\\$?\\d+`, `.*cancel.*`). Use BEFORE create_instruction "
+                "to check for duplicates or to find an existing instruction to edit. "
+                "Cast a wide net: pass 3-6 queries in ONE call covering different "
+                "angles of the topic. Returns full instruction text so no separate "
+                "read step is needed."
             ),
             category="research",
             version="1.0.0",
@@ -56,29 +57,29 @@ class SearchInstructionsTool(Tool):
             allowed_modes=["training", "knowledge"],
             examples=[
                 {
-                    "input": {"search": "revenue", "limit": 10},
+                    "input": {"query": ["revenue"], "limit": 10},
                     "description": "Simple single-keyword lookup",
                 },
                 {
                     "input": {
-                        "keywords": ["album revenue", "invoiceline", "sales", "black-elephant"],
+                        "query": ["album revenue", "invoiceline", "sales", "black-elephant", "revenue threshold"],
                         "limit": 20,
                     },
                     "description": (
-                        "Thorough search across multiple angles of the same topic — "
-                        "preferred when exploring whether a clarified term is already captured"
+                        "Thorough multi-angle search — preferred when checking whether "
+                        "a clarified term is already captured"
                     ),
                 },
                 {
-                    "input": {"regex": r"revenue\s*>\s*\$?\d+", "limit": 20},
-                    "description": "Regex search for existing revenue-threshold rules",
+                    "input": {"query": [r"revenue\s*>\s*\$?\d+", r"\b(album|track)_revenue\b"], "limit": 20},
+                    "description": "Regex queries (auto-detected by metacharacters)",
                 },
                 {
                     "input": {
-                        "keywords": ["cancelled order", "refund"],
+                        "query": ["cancelled order", "refund", ".*cancel.*"],
                         "category": "code_gen",
                     },
-                    "description": "Multi-keyword search scoped to code-gen instructions",
+                    "description": "Mixed literal + regex queries scoped to code-gen instructions",
                 },
             ],
         )
@@ -106,9 +107,7 @@ class SearchInstructionsTool(Tool):
         yield ToolStartEvent(
             type="tool.start",
             payload={
-                "search": data.search,
-                "keywords": data.keywords,
-                "regex": data.regex,
+                "query": data.query,
                 "category": data.category,
                 "limit": data.limit,
             },
@@ -135,106 +134,68 @@ class SearchInstructionsTool(Tool):
             service = InstructionService()
             categories = [data.category] if data.category else None
 
-            # --- Normalize keyword inputs ---
-            # Collapse `search` to 1-3 short tokens to keep the DB substring match tight.
-            def _normalize_keyword(kw: str) -> str | None:
-                toks = [t for t in kw.strip().lower().split() if len(t) >= 2]
-                if not toks:
-                    return None
-                return " ".join(toks[:3])
+            # --- Resolve each query into a compiled pattern ---
+            # Mirrors describe_tables: literal substrings are escaped and wrapped
+            # as case-insensitive regexes; entries with regex metacharacters are
+            # also compiled as raw patterns (best-effort — invalid regex is
+            # silently skipped and the literal form still matches).
+            queries: list[str] = [q for q in (data.query or []) if isinstance(q, str) and q.strip()]
 
-            normalized_search = _normalize_keyword(data.search) if data.search else None
-
-            keyword_list: list[str] = []
-            if data.keywords:
-                for kw in data.keywords:
-                    n = _normalize_keyword(kw) if kw else None
-                    if n and n not in keyword_list:
-                        keyword_list.append(n)
-
-            # Compile the regex once; fall back to a message on error rather than
-            # throwing the whole tool call away.
-            compiled_regex = None
-            regex_error = None
-            if data.regex:
+            special = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
+            compiled_patterns: list[re.Pattern] = []
+            pattern_errors: list[str] = []
+            for q in queries:
+                stripped = q.strip()
+                # Always include a case-insensitive literal substring match.
                 try:
-                    compiled_regex = re.compile(data.regex, re.IGNORECASE)
-                except re.error as re_err:
-                    regex_error = f"Invalid regex '{data.regex}': {re_err}"
+                    compiled_patterns.append(re.compile(re.escape(stripped), re.IGNORECASE))
+                except re.error:
+                    pass
+                # Also compile as raw regex if it looks like one.
+                if special.search(stripped):
+                    try:
+                        compiled_patterns.append(re.compile(stripped, re.IGNORECASE))
+                    except re.error as re_err:
+                        pattern_errors.append(f"'{stripped}': {re_err}")
 
-            # --- Fetch candidates ---
-            # Strategy:
-            #  * If a single `search` keyword is provided, push it to the DB.
-            #  * If `keywords` is provided, run one DB query per keyword and union
-            #    the results in-memory (limit*N upper bound, deduped by id).
-            #  * If only `regex` is provided (or in addition), fetch a broader
-            #    candidate set unfiltered and apply the regex in-process.
-            #  * All three filters combine as an OR union — an instruction is
-            #    returned if it matches ANY of them.
-            seen_ids: set[str] = set()
-            merged_items: list = []
-            union_total = 0
+            # --- Fetch candidate window ---
+            # We intentionally pull a broad window once (no DB-level LIKE) and
+            # apply all patterns in-process. This matches the describe_tables
+            # approach and keeps the hot path simple: one SQL round-trip regardless
+            # of how many queries the agent passes.
+            window = max(data.limit * 5, 100) if compiled_patterns else data.limit
 
-            async def _fetch(search_arg: str | None, per_query_limit: int):
-                return await service.get_instructions(
-                    db=db,
-                    organization=organization,
-                    current_user=user,
-                    skip=0,
-                    limit=per_query_limit,
-                    status="published",
-                    categories=categories,
-                    data_source_ids=data.data_source_ids,
-                    search=search_arg,
-                    include_global=True,
-                )
+            result = await service.get_instructions(
+                db=db,
+                organization=organization,
+                current_user=user,
+                skip=0,
+                limit=window,
+                status="published",
+                categories=categories,
+                data_source_ids=data.data_source_ids,
+                search=None,
+                include_global=True,
+            )
 
-            def _merge(result):
-                nonlocal union_total
-                items = result.get("items", []) if isinstance(result, dict) else []
-                total = result.get("total", len(items)) if isinstance(result, dict) else len(items)
-                union_total = max(union_total, total)
-                for it in items:
-                    iid = str(getattr(it, "id", ""))
-                    if iid and iid not in seen_ids:
-                        seen_ids.add(iid)
-                        merged_items.append(it)
+            candidates = result.get("items", []) if isinstance(result, dict) else []
+            candidate_total = result.get("total", len(candidates)) if isinstance(result, dict) else len(candidates)
 
-            any_keyword_filter = bool(normalized_search or keyword_list)
-
-            # 1. Keyword-driven DB fetches (each pushes substring match to SQL).
-            if normalized_search:
-                _merge(await _fetch(normalized_search, data.limit))
-            for kw in keyword_list:
-                _merge(await _fetch(kw, data.limit))
-
-            # 2. Regex path: fetch a broader unfiltered window and keep rows
-            #    whose text/title match the pattern. Unioned with keyword hits.
-            regex_matched_ids: set[str] = set()
-            if compiled_regex is not None:
-                broad = await _fetch(None, max(data.limit * 3, 50))
-                broad_items = broad.get("items", []) if isinstance(broad, dict) else []
-                broad_total = broad.get("total", len(broad_items)) if isinstance(broad, dict) else len(broad_items)
-                union_total = max(union_total, broad_total)
-                for it in broad_items:
+            # --- Apply patterns (union) ---
+            if compiled_patterns:
+                matched: list = []
+                for it in candidates:
                     haystack = (
                         (getattr(it, "text", "") or "") + "\n" +
                         (getattr(it, "title", "") or "")
                     )
-                    if compiled_regex.search(haystack):
-                        iid = str(getattr(it, "id", ""))
-                        regex_matched_ids.add(iid)
-                        if iid and iid not in seen_ids:
-                            seen_ids.add(iid)
-                            merged_items.append(it)
-
-            # 3. No filters at all → plain listing.
-            if not any_keyword_filter and compiled_regex is None:
-                _merge(await _fetch(None, data.limit))
-
-            # Truncate after union + dedup.
-            items = merged_items[: data.limit]
-            total = union_total if union_total else len(items)
+                    if any(p.search(haystack) for p in compiled_patterns):
+                        matched.append(it)
+                items = matched[: data.limit]
+                total = len(matched)
+            else:
+                items = candidates[: data.limit]
+                total = candidate_total
 
             search_items = []
             for it in items:
@@ -250,8 +211,8 @@ class SearchInstructionsTool(Tool):
                 )
 
             msg = f"Found {len(search_items)} instruction(s) (total matching: {total})"
-            if regex_error:
-                msg = f"{msg}. Note: {regex_error} — regex filter skipped."
+            if pattern_errors:
+                msg = f"{msg}. Invalid regex(es) skipped: {'; '.join(pattern_errors)}"
 
             output = SearchInstructionsOutput(
                 success=True,
@@ -262,8 +223,7 @@ class SearchInstructionsTool(Tool):
 
             summary = (
                 f"Found {len(search_items)} instruction(s) matching "
-                f"search='{data.search or ''}' keywords={keyword_list} "
-                f"regex='{data.regex or ''}' category='{data.category or ''}'"
+                f"query={queries} category='{data.category or ''}'"
             )
 
             yield ToolEndEvent(

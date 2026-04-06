@@ -10,39 +10,22 @@ class SearchInstructionsInput(BaseModel):
     or to find a related instruction to edit instead of creating one.
     """
 
-    search: Optional[str] = Field(
+    query: Optional[List[str]] = Field(
         None,
         description=(
-            "Single keyword (1-3 tokens). Case-insensitive substring match against "
-            "instruction text and title. Use this for simple lookups; prefer `keywords` "
-            "or `regex` for thorough exploration. Leave empty to list all."
-        ),
-        max_length=80,
-    )
-
-    keywords: Optional[List[str]] = Field(
-        None,
-        description=(
-            "List of short keywords/phrases (1-3 tokens each) to search for. "
-            "An instruction matches if ANY keyword appears in its text or title "
-            "(case-insensitive substring OR). Prefer this over `search` when you "
-            "want to explore multiple angles of the same topic — e.g. for a clarified "
-            "'album revenue' term pass ['album', 'revenue', 'invoiceline', 'sales', "
-            "'black-elephant']. Casts a wide net in one call."
+            "List of keywords OR regex patterns to search for (case-insensitive). "
+            "An instruction matches if ANY query hits its text or title. Each entry "
+            "can be: "
+            "(1) a plain keyword/phrase — matched as a literal substring (e.g. 'revenue', "
+            "'album revenue', 'black-elephant'); or "
+            "(2) a regex pattern — detected automatically by the presence of regex "
+            "metacharacters (`^$.*+?[](){}|`), e.g. `revenue\\s*>\\s*\\$?\\d+`, "
+            "`\\b(album|track)_revenue\\b`, `.*cancel.*`. "
+            "Cast a wide net: pass 3-6 queries in ONE call covering different angles "
+            "of the topic (the clarified term, the metric, the tables involved, "
+            "synonyms). Leave empty to list all instructions filtered by other params."
         ),
         max_length=10,
-    )
-
-    regex: Optional[str] = Field(
-        None,
-        description=(
-            "Optional regular expression (Python `re` syntax, case-insensitive) matched "
-            "against instruction text and title. Use when keywords are not precise enough "
-            "— e.g. `revenue\\s*>\\s*\\$?\\d+` or `\\b(album|track)_revenue\\b`. Evaluated "
-            "in-process after the DB fetch, so keep patterns cheap. Union with `search`/"
-            "`keywords` (an instruction matches if ANY of the provided filters hit)."
-        ),
-        max_length=200,
     )
 
     category: Optional[str] = Field(

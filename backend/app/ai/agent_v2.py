@@ -377,7 +377,11 @@ class AgentV2:
         from app.ai.agents.planner import PlannerV2
         from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator, TriggerCondition
 
-        MAX_HARNESS_STEPS = 5
+        # Budget: 1 search + up to 2 verify (inspect_data/describe_tables) + up to
+        # 4 create/edit + 1 exit. The knowledge prompt biases toward capturing, so
+        # the harness needs enough room to search, optionally verify, then write
+        # one or more instructions.
+        MAX_HARNESS_STEPS = 10
 
         # Skip if training mode (training mode finalizes its own build via _finalize_training_build)
         if self.mode == "training":

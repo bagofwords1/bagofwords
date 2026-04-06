@@ -44,7 +44,7 @@
                         >
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-1.5 min-w-0">
-                                    <span class="text-xs font-medium text-gray-800 truncate">{{ build.title || `Build #${build.build_number}` }}</span>
+                                    <span class="text-xs font-medium text-gray-800 truncate">{{ buildDisplayTitle(build) }}</span>
                                     <!-- Git indicator with tooltip -->
                                     <UTooltip 
                                         v-if="build.git_pr_url" 
@@ -76,7 +76,7 @@
                                 <span>#{{ build.build_number }}</span>
                                 <span>•</span>
                                 <span>{{ formatDate(build.created_at) }}</span>
-                                <span v-if="build.created_by_user_name" class="truncate">• {{ build.created_by_user_name }}</span>
+                                <span v-if="build.created_by_user_name" class="truncate">• {{ build.source === 'ai' ? `AI for ${build.created_by_user_name}` : build.created_by_user_name }}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5">
                                 <span class="text-[10px] text-gray-400">
@@ -111,54 +111,57 @@
                     <template v-else>
                         <!-- Build Header -->
                         <div class="px-4 py-3 border-b border-gray-200 bg-white shrink-0">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <h4 class="text-sm font-semibold text-gray-900">
-                                        {{ selectedBuild.title || `Build #${selectedBuild.build_number}` }}
-                                    </h4>
-                                    <div class="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
-                                        <span>#{{ selectedBuild.build_number }} • {{ formatDateTime(selectedBuild.created_at) }}</span>
-                                        <span v-if="selectedBuild.created_by_user_name" class="flex items-center gap-1">
-                                            <UIcon name="i-heroicons-user" class="w-2.5 h-2.5" />
-                                            {{ selectedBuild.created_by_user_name }}
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <h4 class="text-sm font-semibold text-gray-900 truncate">
+                                            {{ buildDisplayTitle(selectedBuild) }}
+                                        </h4>
+                                        <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full shrink-0">
+                                            Active
                                         </span>
-                                        <span v-if="selectedBuild.approved_by_user_name" class="flex items-center gap-1 text-green-600">
-                                            <UIcon name="i-heroicons-check-badge" class="w-2.5 h-2.5" />
-                                            Approved by {{ selectedBuild.approved_by_user_name }}
+                                        <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full shrink-0">
+                                            Pending
+                                        </span>
+                                        <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full shrink-0">
+                                            Rejected
                                         </span>
                                     </div>
-                                    <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-0.5">
-                                        <span>Build ID:</span>
+                                    <div class="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
+                                        <span>#{{ selectedBuild.build_number }} • {{ formatDateTime(selectedBuild.created_at) }}</span>
+                                        <span v-if="selectedBuild.created_by_user_name">
+                                            • {{ selectedBuild.source === 'ai' ? `AI for ${selectedBuild.created_by_user_name}` : selectedBuild.created_by_user_name }}
+                                        </span>
+                                        <span v-if="selectedBuild.approved_by_user_name" class="text-green-600">• Approved by {{ selectedBuild.approved_by_user_name }}</span>
                                         <button
                                             @click="copyBuildId"
-                                            class="flex items-center gap-1 font-mono text-gray-500 hover:text-gray-900 cursor-pointer transition-colors"
-                                            title="Click to copy"
+                                            class="flex items-center text-gray-400 hover:text-gray-700 transition-colors"
+                                            :title="`Copy Build ID: ${selectedBuild.id}`"
                                         >
-                                            {{ selectedBuild.id }}
                                             <UIcon name="i-heroicons-clipboard-document" class="w-3 h-3" />
                                         </button>
                                     </div>
                                     <!-- Build description ("commit message") — read-only -->
                                     <div
                                         v-if="selectedBuild.description"
-                                        class="mt-2 px-2 py-1.5 bg-gray-50 border border-gray-100 rounded text-[11px] text-gray-600 whitespace-pre-wrap"
+                                        class="mt-3 mb-3 text-[13px] text-gray-700 markdown-wrapper"
                                     >
-                                        {{ selectedBuild.description }}
+                                        <MDC :value="selectedBuild.description" class="markdown-content" />
                                     </div>
+                                    <!-- View source trace link -->
+                                    <button
+                                        v-if="canViewConsole && selectedBuild.agent_execution_id && selectedBuild.report_id && selectedBuild.completion_id"
+                                        @click="openTraceForSelectedBuild"
+                                        class="mt-1 mb-2 flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-900 transition-colors"
+                                    >
+                                        <Icon name="heroicons-bug-ant" class="w-3.5 h-3.5" />
+                                        View source trace
+                                    </button>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
-                                        Active
-                                    </span>
-                                    <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
-                                        Pending Approval
-                                    </span>
-                                    <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full">
-                                        Rejected
-                                    </span>
-                                    
+                                <div class="flex items-center gap-1.5 shrink-0">
+
                                     <!-- Git Status Badge -->
-                                    <a 
+                                    <a
                                         v-if="selectedBuild.git_pr_url"
                                         :href="selectedBuild.git_pr_url"
                                         target="_blank"
@@ -167,23 +170,13 @@
                                         <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" />
                                         PR
                                     </a>
-                                    <span 
+                                    <span
                                         v-else-if="selectedBuild.git_branch_name"
                                         class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full flex items-center gap-1"
                                     >
                                         <UIcon name="i-heroicons-code-bracket" class="w-2.5 h-2.5" />
                                         {{ selectedBuild.git_branch_name }}
                                     </span>
-                                    
-                                    <!-- View trace button - links to the agent execution that produced this build -->
-                                    <button
-                                        v-if="canViewConsole && selectedBuild.agent_execution_id && selectedBuild.report_id && selectedBuild.completion_id"
-                                        @click="openTraceForSelectedBuild"
-                                        class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 rounded-md transition-colors group"
-                                        title="View Agent Trace"
-                                    >
-                                        <Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
-                                    </button>
 
                                     <!-- Push to Git button - only for non-git-sourced builds -->
                                     <UButton
@@ -628,6 +621,21 @@
                     />
                 </div>
             </template>
+            <div
+                v-if="selectedBuild?.status === 'pending_approval'"
+                class="mx-4 mt-3 mb-1 flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-[12px] text-amber-800"
+            >
+                <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                    This instruction is part of a build pending approval. Changes here will update the pending build — they won't go live until the build is published.
+                    <button
+                        @click="closeEditInstruction"
+                        class="ml-1 font-medium text-amber-900 underline hover:text-amber-950"
+                    >
+                        View build #{{ selectedBuild.build_number }}
+                    </button>
+                </span>
+            </div>
             <InstructionGlobalCreateComponent
                 v-if="editingInstruction"
                 :instruction="editingInstruction"
@@ -1181,13 +1189,21 @@ const publishBuild = async () => {
             icon: 'i-heroicons-rocket-launch'
         })
         
-        // Refresh builds list
+        // Refresh builds list and the currently-selected build's data.
+        // In suggestionsMode the list only contains pending_approval builds,
+        // so the just-published build will drop out — refetch it by id so
+        // the detail pane reflects the new status instead of staying stale.
+        const publishedId = selectedBuild.value.id
         await fetchBuilds()
-        
-        // Select the new main build
-        const newMainBuild = builds.value.find(b => b.is_main)
-        if (newMainBuild) {
-            await selectBuild(newMainBuild)
+
+        try {
+            const r = await useMyFetch<Build>(`/builds/${publishedId}`)
+            if (r.data.value) {
+                selectedBuild.value = r.data.value as Build
+                await Promise.all([fetchInstructions(), fetchDiff()])
+            }
+        } catch (refreshErr) {
+            console.warn('Failed to refresh published build:', refreshErr)
         }
     } catch (e: any) {
         console.error('Publish failed:', e)
@@ -1441,6 +1457,26 @@ const handlePageChange = (page: number) => {
 const handleInstructionClick = (instruction: Instruction) => {
     // Could emit an event or open a detail view
     console.log('Clicked instruction:', instruction.id)
+}
+
+const buildDisplayTitle = (build: any): string => {
+    if (build?.title) return build.title
+    if (build?.description) {
+        // Use the first non-empty line of the description, stripped of markdown list markers/emphasis
+        const firstLine = String(build.description)
+            .split('\n')
+            .map((l: string) => l.trim())
+            .find((l: string) => l.length > 0)
+        if (firstLine) {
+            const cleaned = firstLine
+                .replace(/^[-*+]\s+/, '')        // leading list marker
+                .replace(/\*\*(.+?)\*\*/g, '$1') // bold
+                .replace(/[*_`]/g, '')           // stray emphasis chars
+                .trim()
+            if (cleaned) return cleaned.length > 80 ? cleaned.slice(0, 77) + '…' : cleaned
+        }
+    }
+    return `Build #${build?.build_number ?? ''}`
 }
 
 const formatDate = (dateStr: string) => {
