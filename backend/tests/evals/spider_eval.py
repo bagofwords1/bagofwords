@@ -79,6 +79,18 @@ class BowClient:
         r.raise_for_status()
         return r.json()
 
+    def create_data_source(self, name: str, sqlite_path: str) -> dict:
+        payload = {
+            "name": name,
+            "type": "sqlite",
+            "config": {"database": sqlite_path},
+            "credentials": {},
+            "auth_policy": "system_only",
+        }
+        r = self.s.post(f"{self.base_url}/api/data_sources", json=payload, timeout=120)
+        r.raise_for_status()
+        return r.json()
+
     def create_report(self, title: str, data_source_id: str) -> dict:
         r = self.s.post(
             f"{self.base_url}/api/reports",
@@ -226,6 +238,8 @@ def main() -> None:
     ap.add_argument("--spider-dir", default="backend/tests/evals/spider", type=Path)
     ap.add_argument("--limit", type=int, default=None, help="Max questions to run")
     ap.add_argument("--out", default="backend/tests/evals/spider_results.jsonl", type=Path)
+    ap.add_argument("--register", action="store_true",
+                    help="Auto-register any missing Spider SQLite DBs as BoW data sources before running")
     ap.add_argument("--report-per-db", action="store_true",
                     help="Reuse one report per db_id (faster, but context can bleed)")
     ap.add_argument("--download-url", default=None,
@@ -241,6 +255,20 @@ def main() -> None:
     # db_id -> data_source_id (exact name match)
     ds_by_name = {ds["name"]: ds["id"] for ds in client.list_data_sources()}
     log.info("Found %d data sources", len(ds_by_name))
+
+    if args.register:
+        needed = {q["db_id"] for q in questions} - set(ds_by_name)
+        for db_id in sorted(needed):
+            sqlite_file = sqlite_path(args.spider_dir, db_id)
+            if not sqlite_file.exists():
+                log.warning("register: sqlite missing for %s at %s", db_id, sqlite_file)
+                continue
+            try:
+                ds = client.create_data_source(name=db_id, sqlite_path=str(sqlite_file.resolve()))
+                ds_by_name[db_id] = ds["id"]
+                log.info("registered data source %s -> %s", db_id, ds["id"])
+            except Exception as e:
+                log.error("register %s failed: %s", db_id, e)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     out_f = args.out.open("a", encoding="utf-8")
