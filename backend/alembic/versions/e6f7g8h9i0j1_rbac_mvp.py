@@ -1,12 +1,14 @@
-"""add rbac tables
+"""rbac mvp: tables, system roles, membership + ds-membership backfill, ds creator grants
 
-Revision ID: a1b2c3d4e5f6
-Revises: z0a1b2c3d4e5
-Create Date: 2026-03-23 00:00:00.000000
+Revision ID: e6f7g8h9i0j1
+Revises: a1b2c3d4e5f6, d5e6f7g8h9i0
+Create Date: 2026-04-06 00:00:00.000000
 
-Creates roles, groups, group_memberships, role_assignments, and resource_grants
-tables for the enterprise RBAC system. Seeds system admin/member roles and
-migrates existing membership roles and data_source_memberships to the new tables.
+Creates the RBAC tables (roles, groups, group_memberships, role_assignments,
+resource_grants), seeds system admin/member roles with the MVP permission set,
+backfills role_assignments from existing memberships, backfills resource_grants
+from data_source_memberships, and grants `manage` on each data_source to its
+owner_user_id. Also serves as a merge of the two outstanding alembic heads.
 """
 from typing import Sequence, Union
 
@@ -17,27 +19,26 @@ from datetime import datetime
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, None] = 'z0a1b2c3d4e5'
+revision: str = 'e6f7g8h9i0j1'
+down_revision: Union[str, Sequence[str], None] = ('a1b2c3d4e5f6', 'd5e6f7g8h9i0')
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# Current member permissions (copied from membership.py for migration stability)
+# MVP default member permissions (mirrors permissions_registry.DEFAULT_MEMBER_PERMISSIONS)
 _MEMBER_PERMISSIONS = [
-    'view_data_source', 'view_reports', 'create_reports', 'update_reports',
-    'delete_reports', 'publish_reports', 'rerun_report_steps', 'view_files',
-    'upload_files', 'delete_files', 'export_widgets', 'create_text_widgets',
-    'update_text_widgets', 'view_text_widgets', 'delete_text_widgets',
-    'create_widgets', 'update_widgets', 'delete_widgets', 'view_widgets',
-    'view_organizations', 'view_llm_settings', 'view_organization_members',
-    'manage_organization_external_platforms', 'view_instructions',
-    'create_private_instructions', 'update_private_instructions',
-    'delete_private_instructions', 'view_global_instructions',
-    'view_private_instructions', 'suggest_instructions',
-    'create_completion_feedback', 'view_entities', 'refresh_entities',
-    'suggest_entities', 'withdraw_entities', 'view_builds',
+    'view_reports',
+    'create_reports',
+    'update_reports',
+    'delete_reports',
+    'publish_reports',
+    'manage_files',
+    'view_members',
 ]
+
+# Legacy data_source_membership perms → MVP data_source resource grants.
+# Old DSMs only ever conveyed read/query access, so the MVP equivalent is `view`+`view_schema`.
+_LEGACY_DSM_GRANT = ['view', 'view_schema']
 
 
 def upgrade() -> None:
@@ -149,10 +150,14 @@ def upgrade() -> None:
         },
     ])
 
-    # --- Migrate existing memberships to role_assignments ---
     conn = op.get_bind()
+
+    # --- Backfill role_assignments from memberships ---
     memberships = conn.execute(
-        sa.text("SELECT id, user_id, organization_id, role FROM memberships WHERE user_id IS NOT NULL AND deleted_at IS NULL")
+        sa.text(
+            "SELECT user_id, organization_id, role FROM memberships "
+            "WHERE user_id IS NOT NULL AND deleted_at IS NULL"
+        )
     ).fetchall()
 
     role_assignments_table = sa.table(
@@ -166,32 +171,22 @@ def upgrade() -> None:
         sa.column('principal_id', sa.String),
     )
 
-    assignment_rows = []
-    for m in memberships:
-        role_id = admin_role_id if m.role == 'admin' else member_role_id
-        assignment_rows.append({
+    assignment_rows = [
+        {
             'id': str(uuid.uuid4()),
             'created_at': now,
             'updated_at': now,
             'organization_id': m.organization_id,
-            'role_id': role_id,
+            'role_id': admin_role_id if m.role == 'admin' else member_role_id,
             'principal_type': 'user',
             'principal_id': m.user_id,
-        })
-
+        }
+        for m in memberships
+    ]
     if assignment_rows:
         op.bulk_insert(role_assignments_table, assignment_rows)
 
-    # --- Migrate data_source_memberships to resource_grants ---
-    ds_memberships = conn.execute(
-        sa.text("""
-            SELECT dsm.id, dsm.data_source_id, dsm.principal_type, dsm.principal_id, ds.organization_id
-            FROM data_source_memberships dsm
-            JOIN data_sources ds ON ds.id = dsm.data_source_id
-            WHERE dsm.deleted_at IS NULL
-        """)
-    ).fetchall()
-
+    # --- Backfill resource_grants from data_source_memberships ---
     resource_grants_table = sa.table(
         'resource_grants',
         sa.column('id', sa.String),
@@ -205,9 +200,19 @@ def upgrade() -> None:
         sa.column('permissions', sa.JSON),
     )
 
-    grant_rows = []
-    for dsm in ds_memberships:
-        grant_rows.append({
+    ds_memberships = conn.execute(
+        sa.text(
+            """
+            SELECT dsm.data_source_id, dsm.principal_type, dsm.principal_id, ds.organization_id
+            FROM data_source_memberships dsm
+            JOIN data_sources ds ON ds.id = dsm.data_source_id
+            WHERE dsm.deleted_at IS NULL
+            """
+        )
+    ).fetchall()
+
+    grant_rows = [
+        {
             'id': str(uuid.uuid4()),
             'created_at': now,
             'updated_at': now,
@@ -216,8 +221,43 @@ def upgrade() -> None:
             'resource_id': dsm.data_source_id,
             'principal_type': dsm.principal_type,
             'principal_id': dsm.principal_id,
-            'permissions': ['query', 'view_schema'],
+            'permissions': list(_LEGACY_DSM_GRANT),
+        }
+        for dsm in ds_memberships
+    ]
+
+    # --- Backfill data_source creator grants (manage) ---
+    # Track (resource_id, principal_id) to dedupe against any DSM row above.
+    seen = {(g['resource_id'], g['principal_id']) for g in grant_rows}
+
+    creators = conn.execute(
+        sa.text(
+            "SELECT id, organization_id, owner_user_id FROM data_sources "
+            "WHERE owner_user_id IS NOT NULL"
+        )
+    ).fetchall()
+
+    for ds in creators:
+        key = (ds.id, ds.owner_user_id)
+        if key in seen:
+            # Owner already has a row from DSM backfill — upgrade it to `manage`.
+            for row in grant_rows:
+                if row['resource_id'] == ds.id and row['principal_id'] == ds.owner_user_id:
+                    row['permissions'] = ['manage']
+                    break
+            continue
+        grant_rows.append({
+            'id': str(uuid.uuid4()),
+            'created_at': now,
+            'updated_at': now,
+            'organization_id': ds.organization_id,
+            'resource_type': 'data_source',
+            'resource_id': ds.id,
+            'principal_type': 'user',
+            'principal_id': ds.owner_user_id,
+            'permissions': ['manage'],
         })
+        seen.add(key)
 
     if grant_rows:
         op.bulk_insert(resource_grants_table, grant_rows)

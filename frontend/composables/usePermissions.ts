@@ -10,6 +10,27 @@ export const useResourcePermissions = () => {
   return useState<Record<string, string[]>>('resourcePermissions', () => ({}))
 }
 
+// Mirror of backend ORG_PERM_IMPLIES_RESOURCE in app/core/permission_resolver.py.
+// Holding any of these org perms implies the corresponding per-resource perm
+// on every resource of that type.
+const ORG_PERM_IMPLIES_RESOURCE: Record<string, Record<string, string[]>> = {
+  manage_instructions: { data_source: ['create_instructions'] },
+  manage_entities:     { data_source: ['create_entities'] },
+  manage_evals:        { data_source: ['manage_evals'] },
+}
+
+const isImpliedByOrgPerm = (
+  orgPerms: string[],
+  resourceType: string,
+  permission: string,
+): boolean => {
+  for (const orgPerm of orgPerms) {
+    const implied = ORG_PERM_IMPLIES_RESOURCE[orgPerm]?.[resourceType]
+    if (implied && implied.includes(permission)) return true
+  }
+  return false
+}
+
 // Check org-level or resource-level permissions
 // Org-level:      useCan('view_reports')
 // Resource-level: useCan('query', { type: 'data_source', id: '<uuid>' })
@@ -27,7 +48,9 @@ export const useCan = (permission: string, resource?: { type: string; id: string
     return permissions.value.includes(permission)
   }
 
-  // Resource-level check
+  // Resource-level check (with org-perm implication tier)
+  if (isImpliedByOrgPerm(permissions.value, resource.type, permission)) return true
+
   const resourcePerms = useResourcePermissions()
   const key = `${resource.type}:${resource.id}`
   return resourcePerms.value[key]?.includes(permission) ?? false
@@ -47,6 +70,9 @@ export const useCanAny = (permission: string, resourceType?: string) => {
   if (permissions.value.includes(permission)) return true
 
   if (!resourceType) return false
+
+  // Implied by an admin org perm on this resource type
+  if (isImpliedByOrgPerm(permissions.value, resourceType, permission)) return true
 
   // Check if ANY resource grant of this type includes the permission
   for (const [key, perms] of Object.entries(resourcePerms.value)) {

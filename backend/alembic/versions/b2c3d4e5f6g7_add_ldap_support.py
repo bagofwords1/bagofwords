@@ -1,7 +1,7 @@
 """add ldap_dn to users and index on groups.external_provider
 
 Revision ID: b2c3d4e5f6g7
-Revises: a1b2c3d4e5f6
+Revises: e6f7g8h9i0j1
 Create Date: 2026-03-24 00:00:00.000000
 
 Adds LDAP integration support:
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'b2c3d4e5f6g7'
-down_revision: str = 'a1b2c3d4e5f6'
+down_revision: str = 'e6f7g8h9i0j1'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

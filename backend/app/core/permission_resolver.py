@@ -16,7 +16,6 @@ from app.models.role import Role
 from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.group_membership import GroupMembership
-from app.models.membership import Membership, ROLES_PERMISSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -195,26 +194,6 @@ async def _resolve_permissions_inner(
             resource_permissions[key] = set()
         if isinstance(perms, list):
             resource_permissions[key].update(perms)
-
-    # 5. Dual-read fallback: if no role_assignments exist, use old Membership.role
-    if not role_rows:
-        membership_stmt = (
-            select(Membership.role)
-            .where(
-                Membership.user_id == user_id,
-                Membership.organization_id == org_id,
-                Membership.deleted_at.is_(None),
-            )
-        )
-        membership_result = await db.execute(membership_stmt)
-        membership_row = membership_result.scalar_one_or_none()
-        if membership_row:
-            role_names = [membership_row]
-            org_permissions = set(ROLES_PERMISSIONS.get(membership_row, set()))
-            logger.debug(
-                "RBAC fallback: using Membership.role=%s for user=%s org=%s",
-                membership_row, user_id, org_id,
-            )
 
     return ResolvedPermissions(
         org_permissions=org_permissions,

@@ -4,7 +4,6 @@ from app.core.permissions_registry import (
     DEFAULT_ADMIN_PERMISSIONS,
     DEFAULT_MEMBER_PERMISSIONS,
     MERGED_CATEGORIES,
-    MVP_OLD_TO_NEW_PERM_MAP,
     PERMISSION_CATEGORIES,
     RESOURCE_PERMISSIONS,
     RESOURCE_SCOPED_GROUPS,
@@ -63,29 +62,6 @@ def test_default_member_permissions_are_valid():
 
 def test_default_admin_uses_wildcard():
     assert DEFAULT_ADMIN_PERMISSIONS == ["full_admin_access"]
-
-
-def test_mvp_map_targets_are_valid_or_none():
-    for old, new in MVP_OLD_TO_NEW_PERM_MAP.items():
-        if new is None:
-            continue
-        assert new in ALL_PERMISSIONS, (
-            f"MVP_OLD_TO_NEW_PERM_MAP[{old!r}] -> {new!r} is not a valid MVP permission"
-        )
-
-
-def test_mvp_map_covers_key_legacy_perms():
-    # Sanity: the perms referenced by existing decorators must all have a mapping
-    legacy_must_map = [
-        "view_data_source", "update_data_source", "delete_data_source",
-        "view_instructions", "create_instructions", "update_instructions", "delete_instructions",
-        "view_files", "upload_files", "delete_files",
-        "view_organization_members", "add_organization_members",
-        "run_evals", "view_evals",
-        "train_mode", "export_query",
-    ]
-    for perm in legacy_must_map:
-        assert perm in MVP_OLD_TO_NEW_PERM_MAP, f"{perm} missing from MVP_OLD_TO_NEW_PERM_MAP"
 
 
 def test_categories_flat_equals_all_permissions():
