@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.355 (April 6, 2026)
+- Show instruction usage and attribution per turn
+- New sidebar in report page to show summary, dashboard and current agent
+- Refactor knowledgement system and learnings to use a dedicated harness
+- Faster instructions management
+- UI improvements across report and dashboard views
+
 ## Version 0.0.354 (April 5, 2026)
 - New Scheduled Tasks: set up recurring or scheduled tasks within reports
 - New "Add to Dashboard" button to instantly add widgets to an artifact
