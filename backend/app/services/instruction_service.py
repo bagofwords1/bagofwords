@@ -1428,6 +1428,7 @@ class InstructionService:
         label_ids: Optional[List[str]],
     ):
         """Replace label associations for an instruction."""
+        await db.refresh(instruction, ["labels"])
         instruction.labels.clear()
 
         if label_ids:
