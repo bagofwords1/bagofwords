@@ -16,7 +16,6 @@ router = APIRouter(tags=["organization_settings"])
 settings_service = OrganizationSettingsService()
 
 @router.get("/organization/settings", response_model=OrganizationSettingsSchema)
-@requires_permission('manage_settings')
 async def get_organization_settings(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),

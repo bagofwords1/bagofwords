@@ -13,6 +13,7 @@ from app.core.auth import current_user
 from app.models.organization import Organization
 from app.models.datasource_table import DataSourceTable
 from app.models.connection_table import ConnectionTable
+from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
 from app.core.permissions_decorator import requires_permission
@@ -62,7 +63,6 @@ async def _user_can_access_connection(
 # ==================== Routes ====================
 
 @router.get("", response_model=List[ConnectionSchema])
-@requires_permission('manage_connections')
 async def list_connections(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -71,7 +71,9 @@ async def list_connections(
     """List connections the user has access to.
 
     Admins (manage_connections or full_admin_access) see all connections.
-    Other users only see connections they have resource grants on.
+    Members see connections they have an explicit resource grant on, or
+    connections backing a data source they can access (public DSes or DSes
+    with an explicit grant).
     """
     connections = await connection_service.get_connections(db, organization)
 
@@ -84,7 +86,27 @@ async def list_connections(
             rid for (rtype, rid) in resolved.resource_permissions
             if rtype == "connection"
         }
-        connections = [c for c in connections if str(c.id) in granted_conn_ids]
+        granted_ds_ids = {
+            rid for (rtype, rid) in resolved.resource_permissions
+            if rtype == "data_source"
+        }
+        # Public DSes in this org are visible to every member.
+        public_ds_rows = await db.execute(
+            select(DataSource.id).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.is_public.is_(True),
+            )
+        )
+        accessible_ds_ids = granted_ds_ids | {str(r) for (r,) in public_ds_rows.all()}
+
+        def _conn_visible(c):
+            if str(c.id) in granted_conn_ids:
+                return True
+            if c.data_sources:
+                return any(str(ds.id) in accessible_ds_ids for ds in c.data_sources)
+            return False
+
+        connections = [c for c in connections if _conn_visible(c)]
 
     result = []
     for conn in connections:

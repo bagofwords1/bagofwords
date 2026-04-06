@@ -104,7 +104,6 @@ async def delete_provider(
     return await llm_service.delete_provider(db, organization, current_user, provider_id)
 
 @router.get("/llm/models", response_model=List[LLMModelSchemaWithProvider])
-@requires_permission('manage_llm')
 async def get_models(
     is_enabled: bool = None,
     current_user: User = Depends(current_user),

@@ -3,9 +3,11 @@
 ## Version 0.0.355 (April 6, 2026)
 - Show instruction usage and attribution per turn
 - New sidebar in report page to show summary, dashboard and current agent
-- Refactor knowledge system and learnings to use a dedicated harness
+- Refactor knowledge system and learings to use a dedicated harness
 - Faster instructions management
 - UI improvements across report and dashboard views
+- Rbac
+- Spider benchmark
 
 ## Version 0.0.354 (April 5, 2026)
 - New Scheduled Tasks: set up recurring or scheduled tasks within reports

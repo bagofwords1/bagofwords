@@ -93,7 +93,7 @@ async def delete_role(
 
 @router.get("/organizations/{organization_id}/groups", response_model=List[GroupSchema])
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_members")
+@requires_permission("view_members")
 async def list_groups(
     organization_id: str,
     organization: Organization = Depends(get_current_organization),

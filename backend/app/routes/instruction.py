@@ -69,8 +69,10 @@ async def create_global_instruction(
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
 
 # LIST INSTRUCTIONS
+# No org-level perm gate: instruction visibility is derived from data_source
+# access (public DSes are visible to every member). The service applies
+# user-permission-based filtering internally via _get_user_permissions.
 @router.get("/instructions")
-@requires_permission('manage_instructions')
 async def get_instructions(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
