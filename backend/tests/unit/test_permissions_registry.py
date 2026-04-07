@@ -20,13 +20,13 @@ EXPECTED_ORG_PERMS = {
     "manage_evals",
     "view_members", "manage_members",
     "manage_settings", "manage_llm",
-    "view_audit_logs", "manage_scim", "manage_ldap",
+    "view_audit_logs", "manage_identity_providers",
 }
 
 
 def test_all_permissions_is_exactly_mvp_set():
     assert ALL_PERMISSIONS == EXPECTED_ORG_PERMS
-    assert len(ALL_PERMISSIONS) == 18
+    assert len(ALL_PERMISSIONS) == 17
 
 
 def test_full_admin_access_is_not_in_all_permissions():

@@ -58,7 +58,7 @@
                         <UBadge
                             v-if="role.permissions?.includes('full_admin_access')"
                             size="xs"
-                            color="primary"
+                            color="blue"
                         >
                             Full Admin
                         </UBadge>
@@ -199,7 +199,7 @@
                 <!-- Actions -->
                 <div class="flex justify-end gap-2 mt-6">
                     <UButton variant="ghost" @click="showModal = false">Cancel</UButton>
-                    <UButton color="blue" @click="saveRole" :loading="saving">
+                    <UButton color="blue" @click="saveRole" :loading="saving" :disabled="!form.name.trim()">
                         {{ editingRole ? 'Save' : 'Create' }}
                     </UButton>
                 </div>
@@ -464,8 +464,7 @@ const PERMISSION_LABELS: Record<string, string> = {
     manage_settings: 'Manage settings',
     manage_llm: 'Manage LLM',
     view_audit_logs: 'View audit logs',
-    manage_scim: 'Manage SCIM',
-    manage_ldap: 'Manage LDAP',
+    manage_identity_providers: 'Manage identity providers',
     // Per-resource (data source)
     view: 'View',
     view_schema: 'View schema',

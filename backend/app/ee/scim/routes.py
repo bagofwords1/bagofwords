@@ -168,7 +168,7 @@ scim_admin_router = APIRouter(prefix="/enterprise/scim", tags=["enterprise", "sc
 
 @scim_admin_router.post("/tokens", response_model=ScimTokenCreated, status_code=201)
 @require_enterprise(feature="scim")
-@requires_permission("manage_scim")
+@requires_permission("manage_identity_providers")
 async def create_scim_token(
     data: ScimTokenCreate,
     current_user: User = Depends(current_user),
@@ -185,7 +185,7 @@ async def create_scim_token(
 
 @scim_admin_router.get("/tokens", response_model=list[ScimTokenResponse])
 @require_enterprise(feature="scim")
-@requires_permission("manage_scim")
+@requires_permission("manage_identity_providers")
 async def list_scim_tokens(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -199,7 +199,7 @@ async def list_scim_tokens(
 
 @scim_admin_router.delete("/tokens/{token_id}", status_code=204)
 @require_enterprise(feature="scim")
-@requires_permission("manage_scim")
+@requires_permission("manage_identity_providers")
 async def revoke_scim_token(
     token_id: str,
     current_user: User = Depends(current_user),

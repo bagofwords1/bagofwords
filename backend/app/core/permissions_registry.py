@@ -47,8 +47,7 @@ PERMISSION_CATEGORIES = {
     ],
     "Enterprise": [
         "view_audit_logs",
-        "manage_scim",
-        "manage_ldap",
+        "manage_identity_providers",
     ],
 }
 

@@ -37,7 +37,7 @@ def _get_ldap_config():
 
 @ldap_admin_router.post("/sync", response_model=SyncResult)
 @require_enterprise(feature="ldap")
-@requires_permission("manage_ldap")
+@requires_permission("manage_identity_providers")
 async def trigger_sync(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -53,7 +53,7 @@ async def trigger_sync(
 
 @ldap_admin_router.get("/sync/status", response_model=SyncStatus)
 @require_enterprise(feature="ldap")
-@requires_permission("manage_ldap")
+@requires_permission("manage_identity_providers")
 async def get_sync_status(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -70,7 +70,7 @@ async def get_sync_status(
 
 @ldap_admin_router.get("/sync/preview", response_model=LDAPSyncPreview)
 @require_enterprise(feature="ldap")
-@requires_permission("manage_ldap")
+@requires_permission("manage_identity_providers")
 async def preview_sync(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -84,7 +84,7 @@ async def preview_sync(
 
 @ldap_admin_router.get("/test-connection", response_model=LDAPTestResult)
 @require_enterprise(feature="ldap")
-@requires_permission("manage_ldap")
+@requires_permission("manage_identity_providers")
 async def test_connection(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),

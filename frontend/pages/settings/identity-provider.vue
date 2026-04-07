@@ -356,7 +356,7 @@ import { useLdapSync, type SyncResult as LDAPSyncResult } from '~/ee/composables
 
 definePageMeta({
   auth: true,
-  permissions: ['manage_scim'],
+  permissions: ['manage_identity_providers'],
   layout: 'settings'
 })
 

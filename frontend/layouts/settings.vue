@@ -45,7 +45,7 @@ const allTabs = [
     { name: 'general', label: 'General', requiredPermission: "view_settings" },
     { name: "integrations", label: "Integrations", requiredPermission: "manage_organization_external_platforms" },
     { name: 'audit', label: 'Audit Logs', requiredPermission: "view_audit_logs" },
-    { name: 'identity-provider', label: 'Identity Provider', requiredPermission: "manage_scim" },
+    { name: 'identity-provider', label: 'Identity Provider', requiredPermission: "manage_identity_providers" },
     { name: 'license', label: 'License', requiredPermission: "view_settings" },
 ]
 
