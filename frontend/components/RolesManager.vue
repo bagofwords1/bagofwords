@@ -127,61 +127,20 @@
                             </div>
                             <span class="text-xs text-gray-400">Org-wide permissions</span>
                         </div>
-                        <div class="p-3 space-y-2.5">
-                            <div
-                                v-for="(catNames, groupLabel) in mergedCategories"
-                                :key="groupLabel"
-                                class="flex items-center justify-between"
-                            >
-                                <span class="text-sm text-gray-700">{{ groupLabel }}</span>
-                                <div class="flex items-center gap-1">
-                                    <button
-                                        v-for="tier in ['Read', 'Full'] as const"
-                                        :key="tier"
-                                        class="px-2.5 py-0.5 text-xs rounded-full border transition-colors"
-                                        :class="getMergedTier(catNames) === tier.toLowerCase()
-                                            ? (tier === 'Read'
-                                                ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
-                                                : 'bg-green-50 border-green-300 text-green-700 font-medium')
-                                            : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-500'"
-                                        @click="setMergedTier(catNames, tier.toLowerCase() as 'read' | 'full')"
-                                    >{{ tier }}</button>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Expand to see all individual permissions -->
-                        <div class="border-t">
-                            <button
-                                class="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 text-left flex items-center gap-1"
-                                @click="showOrgDetails = !showOrgDetails"
-                            >
-                                <UIcon
-                                    :name="showOrgDetails ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                                    class="w-3 h-3"
-                                />
-                                {{ showOrgDetails ? 'Hide details' : 'Customize individual permissions' }}
-                            </button>
-                            <div v-if="showOrgDetails" class="px-3 pb-3 space-y-2">
-                                <div
-                                    v-for="(perms, category) in allCategories"
-                                    :key="category"
+                        <div class="p-3">
+                            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                                <label
+                                    v-for="perm in flatOrgPermissions"
+                                    :key="perm"
+                                    class="flex items-center gap-2 text-sm cursor-pointer py-0.5"
                                 >
-                                    <p class="text-xs font-semibold text-gray-400 uppercase mb-0.5">{{ category }}</p>
-                                    <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                                        <label
-                                            v-for="perm in perms"
-                                            :key="perm"
-                                            class="flex items-center gap-1.5 text-xs cursor-pointer py-0.5"
-                                        >
-                                            <UCheckbox
-                                                :model-value="form.permissions.includes(perm)"
-                                                @update:model-value="togglePermission(perm, $event)"
-                                                size="xs"
-                                            />
-                                            <span class="text-gray-600">{{ formatPermission(perm) }}</span>
-                                        </label>
-                                    </div>
-                                </div>
+                                    <UCheckbox
+                                        :model-value="form.permissions.includes(perm)"
+                                        @update:model-value="togglePermission(perm, $event)"
+                                        size="xs"
+                                    />
+                                    <span class="text-gray-700">{{ formatPermission(perm) }}</span>
+                                </label>
                             </div>
                         </div>
                     </div>
@@ -194,9 +153,7 @@
                     >
                         <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <UBadge size="xs" :color="grant.resource_type === 'data_source' ? 'blue' : 'green'">
-                                    {{ grant.resource_type === 'data_source' ? 'DS' : 'Conn' }}
-                                </UBadge>
+                                <UBadge size="xs" color="blue">DS</UBadge>
                                 <span class="text-sm font-medium">{{ grant.resource_name }}</span>
                             </div>
                             <UButton
@@ -208,46 +165,21 @@
                             />
                         </div>
                         <div class="p-3">
-                            <template v-if="isCheckboxResource(grant.resource_type)">
-                                <!-- Checkbox mode for resources with no read/write distinction (connections) -->
-                                <div class="flex flex-wrap gap-3">
-                                    <label
-                                        v-for="(groupPerms, groupLabel) in getResourceGroups(grant.resource_type)"
-                                        :key="groupLabel"
-                                        class="flex items-center gap-1.5 text-sm cursor-pointer"
-                                    >
-                                        <UCheckbox
-                                            :model-value="grant.permissions.includes(groupPerms[0])"
-                                            @update:model-value="toggleResourcePerm(grant, groupPerms[0], $event)"
-                                            size="xs"
-                                        />
-                                        <span class="text-gray-700">{{ formatPermission(groupLabel as string) }}</span>
-                                    </label>
-                                </div>
-                            </template>
-                            <template v-else>
-                                <!-- Read/Full tier mode for data sources -->
-                                <div
-                                    v-for="(groupPerms, groupLabel) in getResourceGroups(grant.resource_type)"
-                                    :key="groupLabel"
-                                    class="flex items-center justify-between py-1"
+                            <!-- Flat checkbox UI for all resource permissions -->
+                            <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                                <label
+                                    v-for="perm in getResourcePermissions(grant.resource_type)"
+                                    :key="perm"
+                                    class="flex items-center gap-1.5 text-sm cursor-pointer py-0.5"
                                 >
-                                    <span class="text-sm text-gray-700">{{ groupLabel }}</span>
-                                    <div class="flex items-center gap-1">
-                                        <button
-                                            v-for="tier in ['Read', 'Full'] as const"
-                                            :key="tier"
-                                            class="px-2.5 py-0.5 text-xs rounded-full border transition-colors"
-                                            :class="getResourceGroupTier(grant, groupPerms) === tier.toLowerCase()
-                                                ? (tier === 'Read'
-                                                    ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
-                                                    : 'bg-green-50 border-green-300 text-green-700 font-medium')
-                                                : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-500'"
-                                            @click="setResourceGroupTier(grant, groupPerms, tier.toLowerCase() as 'read' | 'full')"
-                                        >{{ tier }}</button>
-                                    </div>
-                                </div>
-                            </template>
+                                    <UCheckbox
+                                        :model-value="grant.permissions.includes(perm)"
+                                        @update:model-value="toggleResourcePerm(grant, perm, $event)"
+                                        size="xs"
+                                    />
+                                    <span class="text-gray-700">{{ formatPermission(perm) }}</span>
+                                </label>
+                            </div>
                         </div>
                     </div>
 
@@ -258,7 +190,7 @@
                         option-attribute="label"
                         value-attribute="value"
                         searchable
-                        placeholder="+ Add data source or connection..."
+                        placeholder="+ Add data source..."
                         @update:model-value="addResource"
                         size="sm"
                     />
@@ -337,6 +269,7 @@ const isFullAdmin = computed({
 const allCategories = ref<Record<string, string[]>>({})
 const mergedCategories = ref<Record<string, string[]>>({})
 const resourceScopedGroups = ref<Record<string, Record<string, string[]>>>({})
+const resourcePermissions = ref<Record<string, string[]>>({})
 
 async function loadPermissionsRegistry() {
     try {
@@ -351,11 +284,24 @@ async function loadPermissionsRegistry() {
             allCategories.value = registry.categories
             mergedCategories.value = registry.merged_categories
             resourceScopedGroups.value = registry.resource_scoped_groups
+            resourcePermissions.value = registry.resource_permissions
         }
     } catch (e) {
         console.error('Failed to load permissions registry', e)
     }
 }
+
+function getResourcePermissions(resourceType: string): string[] {
+    return resourcePermissions.value[resourceType] || []
+}
+
+const flatOrgPermissions = computed(() => {
+    const out: string[] = []
+    for (const perms of Object.values(allCategories.value)) {
+        out.push(...perms)
+    }
+    return out
+})
 
 // ── Merged category tier logic (org-wide card) ───────────────────────────
 
@@ -460,10 +406,7 @@ const availableResources = ref<{ label: string; value: string; type: string; id:
 
 async function loadResources() {
     try {
-        const [dsResult, connResult] = await Promise.all([
-            useMyFetch(`/data_sources/active`),
-            useMyFetch(`/connections`),
-        ])
+        const dsResult = await useMyFetch(`/data_sources/active`)
         const resources: any[] = []
         if (dsResult.data.value) {
             for (const ds of dsResult.data.value as any[]) {
@@ -472,16 +415,6 @@ async function loadResources() {
                     value: `data_source:${ds.id}`,
                     type: 'data_source',
                     id: ds.id,
-                })
-            }
-        }
-        if (connResult.data.value) {
-            for (const conn of connResult.data.value as any[]) {
-                resources.push({
-                    label: `Connection: ${conn.name}`,
-                    value: `connection:${conn.id}`,
-                    type: 'connection',
-                    id: conn.id,
                 })
             }
         }
@@ -518,8 +451,33 @@ function togglePermission(perm: string, checked: boolean) {
     }
 }
 
+const PERMISSION_LABELS: Record<string, string> = {
+    // Org-level
+    manage_files: 'Manage files',
+    create_data_source: 'Create data source',
+    manage_connections: 'Manage connections',
+    manage_instructions: 'Manage instructions',
+    manage_entities: 'Manage entities',
+    manage_evals: 'Manage evals',
+    view_members: 'View members',
+    manage_members: 'Manage members',
+    manage_settings: 'Manage settings',
+    manage_llm: 'Manage LLM',
+    view_audit_logs: 'View audit logs',
+    manage_scim: 'Manage SCIM',
+    manage_ldap: 'Manage LDAP',
+    // Per-resource (data source)
+    view: 'View',
+    view_schema: 'View schema',
+    create_instructions: 'Create instructions',
+    create_entities: 'Create entities',
+    manage: 'Manage settings',
+}
+
 function formatPermission(perm: string) {
-    return perm.replace(/_/g, ' ')
+    if (PERMISSION_LABELS[perm]) return PERMISSION_LABELS[perm]
+    // Fallback: snake_case → Title Case
+    return perm.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 const filteredRoles = computed(() => {

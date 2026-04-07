@@ -224,7 +224,7 @@ def requires_resource_permission(resource_type: str, permission: str):
                 return await func(*args, **kwargs)
 
             # Tier 4: public data sources are readable by any org member
-            if resource_type == "data_source" and permission in ("view", "view_schema", "query"):
+            if resource_type == "data_source" and permission in ("view", "view_schema"):
                 from app.models.data_source import DataSource
                 ds_row = await db.execute(
                     select(DataSource).where(DataSource.id == str(resource_id))

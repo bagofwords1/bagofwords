@@ -2667,7 +2667,7 @@ class DataSourceService:
                     resource_id=data_source_id,
                     principal_type=member.principal_type,
                     principal_id=member.principal_id,
-                    permissions=["query", "view_schema"],
+                    permissions=["view", "view_schema"],
                 )
                 db.add(grant)
         except Exception:

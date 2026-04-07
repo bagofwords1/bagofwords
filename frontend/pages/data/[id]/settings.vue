@@ -293,7 +293,22 @@ const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const { hasFeature } = useEnterprise()
 const isEnterprise = computed(() => hasFeature('custom_roles'))
 
-const dsPermOptions = ['query', 'view_schema', 'upload_files', 'manage', 'manage_members']
+// Sourced from /permissions/registry to stay in sync with backend (loaded in onMounted)
+const dsPermOptions = ref<string[]>([
+    'view', 'view_schema', 'create_instructions', 'create_entities', 'manage_evals', 'manage', 'manage_members'
+])
+
+async function loadDsPermOptions() {
+    try {
+        const { data } = await useMyFetch('/permissions/registry')
+        const reg = data.value as any
+        if (reg?.resource_permissions?.data_source) {
+            dsPermOptions.value = reg.resource_permissions.data_source
+        }
+    } catch {
+        // keep fallback defaults
+    }
+}
 
 // ── Member types ────────────────────────────────────────────────────────
 
@@ -335,7 +350,7 @@ async function loadMembers() {
         principal_type: m.principal_type || 'user',
         principal_id: m.principal_id,
         principal_name: m.principal_name || undefined,
-        permissions: m.permissions || ['query', 'view_schema'],
+        permissions: m.permissions || ['view', 'view_schema'],
     }))
 }
 
@@ -443,7 +458,7 @@ const showAddModal = ref(false)
 const addPrincipalType = ref<'user' | 'group'>('user')
 const selectedUsers = ref<string[]>([])
 const selectedGroups = ref<string[]>([])
-const addPermissions = ref<string[]>(['query', 'view_schema'])
+const addPermissions = ref<string[]>(['view', 'view_schema'])
 
 const addTabs = computed(() => {
     const tabs: { key: 'user' | 'group'; label: string }[] = [
@@ -486,7 +501,7 @@ async function openAdd() {
     await Promise.all([loadUsers(), loadGroups()])
     selectedUsers.value = []
     selectedGroups.value = []
-    addPermissions.value = ['query', 'view_schema']
+    addPermissions.value = ['view', 'view_schema']
     addPrincipalType.value = 'user'
     showAddModal.value = true
 }
@@ -574,6 +589,6 @@ async function confirmDelete() {
 
 // Load members on mount
 onMounted(async () => {
-    await Promise.all([loadMembers(), loadUsers(), loadGroups()])
+    await Promise.all([loadMembers(), loadUsers(), loadGroups(), loadDsPermOptions()])
 })
 </script>

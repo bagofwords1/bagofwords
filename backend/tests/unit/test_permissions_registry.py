@@ -3,6 +3,7 @@ from app.core.permissions_registry import (
     ALL_PERMISSIONS,
     DEFAULT_ADMIN_PERMISSIONS,
     DEFAULT_MEMBER_PERMISSIONS,
+    HIDDEN_PERMISSION_CATEGORIES,
     MERGED_CATEGORIES,
     PERMISSION_CATEGORIES,
     RESOURCE_PERMISSIONS,
@@ -66,4 +67,17 @@ def test_default_admin_uses_wildcard():
 
 def test_categories_flat_equals_all_permissions():
     flat = {p for perms in PERMISSION_CATEGORIES.values() for p in perms}
+    flat |= {p for perms in HIDDEN_PERMISSION_CATEGORIES.values() for p in perms}
     assert flat == ALL_PERMISSIONS
+
+
+def test_reports_are_hidden_from_visible_categories():
+    assert "Reports" not in PERMISSION_CATEGORIES
+    assert "Reports" in HIDDEN_PERMISSION_CATEGORIES
+
+
+def test_instructions_and_entities_are_separate_categories():
+    assert "Instructions" in PERMISSION_CATEGORIES
+    assert "Entities" in PERMISSION_CATEGORIES
+    assert PERMISSION_CATEGORIES["Instructions"] == ["manage_instructions"]
+    assert PERMISSION_CATEGORIES["Entities"] == ["manage_entities"]
