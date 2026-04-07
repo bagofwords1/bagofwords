@@ -69,6 +69,37 @@
       </button>
     </div>
 
+    <!-- WhatsApp Integration Row -->
+    <div
+      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+      @click="showWhatsAppModal = true"
+    >
+      <div class="flex items-center">
+        <img src="/icons/whatsapp.png" alt="WhatsApp" class="w-8 h-8 mr-4" />
+        <div>
+          <div class="font-medium">WhatsApp</div>
+          <div class="text-sm text-gray-500">
+            <span v-if="whatsappIntegrated">
+                <span class="text-green-600">Connected</span>
+            </span>
+            <span v-else>
+                <span class="text-gray-400">Not connected</span>
+            </span>
+          </div>
+          <div v-if="whatsappConfig && whatsappIntegrated" class="text-xs text-gray-400 mt-1">
+            <span>{{ whatsappConfig.verified_name || 'Business' }}</span>
+            <span class="ml-2">{{ whatsappConfig.display_phone_number }}</span>
+          </div>
+        </div>
+      </div>
+      <button
+        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+        @click.stop="showWhatsAppModal = true"
+      >
+        {{ whatsappIntegrated ? 'Settings' : 'Integrate' }}
+      </button>
+    </div>
+
     <!-- MCP Integration Row -->
     <div
       class="flex items-center justify-between p-4 border rounded-lg"
@@ -110,6 +141,16 @@
         @updated="fetchIntegrations"
       />
     </UModal>
+
+    <!-- WhatsApp Integration Modal -->
+    <UModal v-model="showWhatsAppModal" :ui="{ width: 'max-w-lg' }">
+      <WhatsAppIntegrationModal
+        :integrated="whatsappIntegrated"
+        :integration-data="whatsappIntegrationData"
+        @close="showWhatsAppModal = false"
+        @updated="fetchIntegrations"
+      />
+    </UModal>
   </div>
 </template>
 
@@ -117,6 +158,7 @@
 import { ref, onMounted } from 'vue'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
+import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_organization_external_platforms'], layout: 'settings' })
@@ -130,6 +172,11 @@ const showTeamsModal = ref(false)
 const teamsIntegrated = ref(false)
 const teamsConfig = ref<{ tenant_id?: string; app_id?: string } | null>(null)
 const teamsIntegrationData = ref<any>(null)
+
+const showWhatsAppModal = ref(false)
+const whatsappIntegrated = ref(false)
+const whatsappConfig = ref<{ phone_number_id?: string; display_phone_number?: string; verified_name?: string; waba_id?: string } | null>(null)
+const whatsappIntegrationData = ref<any>(null)
 
 // MCP state
 const mcpEnabled = ref(false)
@@ -150,6 +197,11 @@ async function fetchIntegrations() {
   teamsIntegrated.value = !!teams
   teamsConfig.value = teams?.platform_config || null
   teamsIntegrationData.value = teams || null
+
+  const whatsapp = integrations.find((i: any) => i.platform_type === 'whatsapp' && i.is_active)
+  whatsappIntegrated.value = !!whatsapp
+  whatsappConfig.value = whatsapp?.platform_config || null
+  whatsappIntegrationData.value = whatsapp || null
 }
 
 async function loadMcpState() {
