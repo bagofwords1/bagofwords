@@ -225,16 +225,6 @@ class TableUsageService:
         # If no user context provided, accept as valid (system emission)
         if not user_id:
             return True
-        # If DS is public, access is allowed
-        if getattr(ds, 'is_public', False):
-            return True
-        # Otherwise require explicit membership
-        mem_stmt = select(DataSourceMembership).where(
-            DataSourceMembership.data_source_id == data_source_id,
-            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-            DataSourceMembership.principal_id == user_id,
-        )
-        mem_res = await db.execute(mem_stmt)
-        membership = mem_res.scalar_one_or_none()
-        return membership is not None
+        from app.core.permission_resolver import user_can_access_data_source
+        return await user_can_access_data_source(db, str(user_id), str(org_id), ds)
 

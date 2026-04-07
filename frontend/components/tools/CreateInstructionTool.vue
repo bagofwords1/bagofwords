@@ -194,7 +194,7 @@ const isDeleting = ref(false)
 const localGlobalStatus = ref<string | null>(null)
 
 const canCreateInstructions = computed(() => {
-  return useCan('create_instructions')
+  return useCan('manage_instructions')
 })
 
 const status = computed<string>(() => props.toolExecution?.status || '')

@@ -25,7 +25,7 @@ FULL_ADMIN = "full_admin_access"
 # E.g. holding `manage_instructions` at the org level means the user can
 # create/edit instructions on any data source, without needing per-DS grants.
 ORG_PERM_IMPLIES_RESOURCE: dict[str, dict[str, set[str]]] = {
-    "manage_instructions": {"data_source": {"create_instructions"}},
+    "manage_instructions": {"data_source": {"manage_instructions"}},
     "manage_entities":     {"data_source": {"create_entities"}},
     "manage_evals":        {"data_source": {"manage_evals"}},
 }
@@ -46,17 +46,24 @@ class ResolvedPermissions:
     def has_resource_permission(self, resource_type: str, resource_id: str, permission: str) -> bool:
         """Check if user has a specific resource-level permission.
 
-        Tiers: full_admin → org-perm implications (ORG_PERM_IMPLIES_RESOURCE) → explicit grant.
+        Tiers: full_admin → implicit view/view_schema (any grant) →
+        org-perm implications (ORG_PERM_IMPLIES_RESOURCE) → explicit grant.
         """
         if FULL_ADMIN in self.org_permissions:
             return True
+        key = (resource_type, resource_id)
+        # `view` and `view_schema` are implicit: any grant on the resource
+        # implies the holder can see the resource and its schema. They are
+        # no longer surfaced as explicit checkbox permissions.
+        if resource_type == "data_source" and permission in ("view", "view_schema"):
+            if key in self.resource_permissions:
+                return True
         # Implied by an org-level admin permission
         for org_perm in self.org_permissions:
             implied = ORG_PERM_IMPLIES_RESOURCE.get(org_perm, {}).get(resource_type)
             if implied and permission in implied:
                 return True
         # Explicit grant
-        key = (resource_type, resource_id)
         return permission in self.resource_permissions.get(key, set())
 
     def has_resource_membership(self, resource_type: str, resource_id: str) -> bool:
@@ -132,7 +139,7 @@ async def _resolve_permissions_inner(
 
     # 3. Fetch role assignments with joined role data
     role_stmt = (
-        select(Role.name, Role.permissions)
+        select(Role.id, Role.name, Role.permissions)
         .join(RoleAssignment, RoleAssignment.role_id == Role.id)
         .where(
             or_(*principal_conditions),
@@ -152,12 +159,14 @@ async def _resolve_permissions_inner(
     # Union all permissions from all assigned roles
     org_permissions = set()
     role_names = []
-    for role_name, permissions_list in role_rows:
+    role_ids = []
+    for role_id, role_name, permissions_list in role_rows:
+        role_ids.append(role_id)
         role_names.append(role_name)
         if isinstance(permissions_list, list):
             org_permissions.update(permissions_list)
 
-    # 4. Fetch resource grants
+    # 4. Fetch resource grants (user, groups, and roles the user has)
     grant_principal_conditions = [
         and_(
             ResourceGrant.principal_type == "user",
@@ -169,6 +178,13 @@ async def _resolve_permissions_inner(
             and_(
                 ResourceGrant.principal_type == "group",
                 ResourceGrant.principal_id.in_(group_ids),
+            )
+        )
+    if role_ids:
+        grant_principal_conditions.append(
+            and_(
+                ResourceGrant.principal_type == "role",
+                ResourceGrant.principal_id.in_(role_ids),
             )
         )
 
@@ -200,6 +216,51 @@ async def _resolve_permissions_inner(
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
+
+
+async def get_accessible_data_source_ids(
+    db: AsyncSession, user_id: str, org_id: str,
+) -> tuple:
+    """
+    Returns (is_admin, accessible_ds_ids).
+
+    - is_admin=True means the user has full_admin_access; callers should not filter.
+    - accessible_ds_ids is a list of data_source ids the user can see via:
+      legacy DataSourceMembership (user) OR ResourceGrant (user/group/role).
+      Public data sources are NOT included here — callers must OR them in.
+    """
+    from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+    resolved = await resolve_permissions(db, str(user_id), str(org_id))
+    is_admin = FULL_ADMIN in resolved.org_permissions
+    if is_admin:
+        return True, []
+    ds_ids = {
+        rid for (rtype, rid) in resolved.resource_permissions.keys()
+        if rtype == "data_source"
+    }
+    # Union legacy memberships
+    mem_result = await db.execute(
+        select(DataSourceMembership.data_source_id).where(
+            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+            DataSourceMembership.principal_id == str(user_id),
+        )
+    )
+    for (ds_id,) in mem_result.all():
+        ds_ids.add(ds_id)
+    return False, list(ds_ids)
+
+
+async def user_can_access_data_source(
+    db: AsyncSession, user_id: str, org_id: str, ds, ds_id: str = None,
+) -> bool:
+    """Check if a user can access a single data source (public bypass + grants/memberships)."""
+    if ds is not None and getattr(ds, 'is_public', False):
+        return True
+    is_admin, accessible = await get_accessible_data_source_ids(db, user_id, org_id)
+    if is_admin:
+        return True
+    target = ds_id if ds_id is not None else (str(ds.id) if ds is not None else None)
+    return target in set(accessible)
 
 
 async def get_resolved_permissions(request, db: AsyncSession, user, organization) -> ResolvedPermissions:

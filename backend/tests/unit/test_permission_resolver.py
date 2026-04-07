@@ -24,23 +24,23 @@ def test_full_admin_bypasses_org_check():
 
 def test_full_admin_bypasses_resource_check():
     rp = ResolvedPermissions(org_permissions={FULL_ADMIN})
-    assert rp.has_resource_permission("data_source", "ds-1", "create_instructions")
+    assert rp.has_resource_permission("data_source", "ds-1", "manage_instructions")
     assert rp.has_resource_permission("data_source", "ds-1", "manage")
 
 
 # ── has_resource_permission: tier 2 (ORG_PERM_IMPLIES_RESOURCE) ──────────
 
-def test_manage_instructions_implies_create_instructions_on_any_ds():
+def test_manage_instructions_implies_manage_instructions_on_any_ds():
     rp = ResolvedPermissions(org_permissions={"manage_instructions"})
-    assert rp.has_resource_permission("data_source", "ds-1", "create_instructions")
-    assert rp.has_resource_permission("data_source", "ds-999", "create_instructions")
+    assert rp.has_resource_permission("data_source", "ds-1", "manage_instructions")
+    assert rp.has_resource_permission("data_source", "ds-999", "manage_instructions")
 
 
 def test_manage_entities_implies_create_entities_on_any_ds():
     rp = ResolvedPermissions(org_permissions={"manage_entities"})
     assert rp.has_resource_permission("data_source", "ds-1", "create_entities")
     # Does NOT cross over to instructions
-    assert not rp.has_resource_permission("data_source", "ds-1", "create_instructions")
+    assert not rp.has_resource_permission("data_source", "ds-1", "manage_instructions")
 
 
 def test_manage_evals_implies_manage_evals_on_any_ds():
@@ -59,21 +59,21 @@ def test_org_perm_implication_does_not_grant_unrelated_resource_perms():
 
 def test_explicit_grant_allows_resource_permission():
     rp = ResolvedPermissions(
-        resource_permissions={("data_source", "ds-1"): {"create_instructions"}},
+        resource_permissions={("data_source", "ds-1"): {"manage_instructions"}},
     )
-    assert rp.has_resource_permission("data_source", "ds-1", "create_instructions")
+    assert rp.has_resource_permission("data_source", "ds-1", "manage_instructions")
 
 
 def test_explicit_grant_is_scoped_to_resource_id():
     rp = ResolvedPermissions(
-        resource_permissions={("data_source", "ds-1"): {"create_instructions"}},
+        resource_permissions={("data_source", "ds-1"): {"manage_instructions"}},
     )
-    assert not rp.has_resource_permission("data_source", "ds-2", "create_instructions")
+    assert not rp.has_resource_permission("data_source", "ds-2", "manage_instructions")
 
 
 def test_no_grant_no_org_perm_denies():
     rp = ResolvedPermissions()
-    assert not rp.has_resource_permission("data_source", "ds-1", "create_instructions")
+    assert not rp.has_resource_permission("data_source", "ds-1", "manage_instructions")
 
 
 # ── has_resource_membership ──────────────────────────────────────────────

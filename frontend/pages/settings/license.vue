@@ -122,7 +122,7 @@
 <script setup lang="ts">
 definePageMeta({
   auth: true,
-  permissions: ['view_settings'],
+  permissions: ['manage_settings'],
   layout: 'settings'
 })
 

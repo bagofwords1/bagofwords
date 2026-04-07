@@ -119,7 +119,7 @@ import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
-definePageMeta({ auth: true, permissions: ['manage_organization_external_platforms'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
 const showSlackModal = ref(false)
 const slackIntegrated = ref(false)

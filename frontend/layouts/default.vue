@@ -76,7 +76,7 @@
         </li>
 
         <template v-for="item in mainNavItems" :key="item.href">
-        <li v-if="!item.adminOnly || isAdmin" :class="{ hidden: item.hidden }">
+        <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="{ hidden: item.hidden }">
           <a :href="item.href" :class="[
             'flex items-center px-2 py-2 w-full rounded-lg',
             isRouteActive(item.href) ? 'text-black bg-gray-200' : 'text-gray-600 hover:text-black hover:bg-gray-200',
@@ -198,13 +198,22 @@
     return route.path === path || route.path.startsWith(path + '/')
   }
 
-  const mainNavItems = [
+  interface NavItem {
+    href: string
+    label: string
+    icon?: string
+    component?: any
+    hidden?: boolean
+    adminOnly?: boolean
+    permission?: string
+  }
+  const mainNavItems: NavItem[] = [
     { href: '/reports', icon: 'heroicons-chart-pie', label: 'Reports' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'Files', hidden: true },
     { href: '/instructions', icon: 'heroicons-cube', label: 'Instructions' },
     { href: '/queries', component: LibraryIcon, label: 'Queries' },
     { href: '/monitoring', component: ActivityIcon, label: 'Monitoring', adminOnly: true },
-    { href: '/evals', icon: 'heroicons-check-circle', label: 'Evals', adminOnly: true },
+    { href: '/evals', icon: 'heroicons-check-circle', label: 'Evals', permission: 'manage_evals' },
   ]
 
   const bottomNavItems = [
@@ -227,7 +236,7 @@
   const { organization } = useOrganization()
   const { onboarding, fetchOnboarding } = useOnboarding()
   const { useCan } = await import('~/composables/usePermissions')
-  const canModifySettings = computed(() => useCan('modify_settings'))
+  const canModifySettings = computed(() => useCan('manage_settings'))
   const showGlobalOnboardingBanner = computed(() => {
     if (!canModifySettings.value) return false
     const ob = onboarding.value as any

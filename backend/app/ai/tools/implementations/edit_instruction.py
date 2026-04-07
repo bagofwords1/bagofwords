@@ -52,7 +52,7 @@ class EditInstructionTool(Tool):
             max_retries=1,
             timeout_seconds=30,
             idempotent=False,
-            required_permissions=["create_instructions"],
+            required_permissions=["manage_instructions"],
             tags=["training", "instruction", "semantic-learning"],
             allowed_modes=["training", "knowledge"],
             examples=[

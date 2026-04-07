@@ -147,7 +147,7 @@ def test_analyst_role_resolution(test_client, create_user, login_user, whoami, d
 
     # Create analyst role
     analyst_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Analyst", [
-        "view_reports", "view_instructions", "view_entities", "view_evals", "export_query",
+        "view_reports", "view_entities", "view_evals", "export_query",
     ])
 
     # Assign to member
@@ -165,13 +165,13 @@ def test_analyst_role_resolution(test_client, create_user, login_user, whoami, d
 
     # Should have org-level view permissions
     assert "view_reports" in perms["permissions"]
-    assert "view_instructions" in perms["permissions"]
+    assert  in perms["permissions"]
     assert "view_entities" in perms["permissions"]
     assert "view_evals" in perms["permissions"]
     assert "export_query" in perms["permissions"]
 
     # Should NOT have create/manage permissions
-    assert "create_instructions" not in perms["permissions"]
+    assert "manage_instructions" not in perms["permissions"]
     assert "create_entities" not in perms["permissions"]
     assert "manage_evals" not in perms["permissions"]
 
@@ -236,17 +236,17 @@ def test_instruction_author_scoped_to_ds(test_client, create_user, login_user, w
     )
     ds_denied_id = str(uuid.uuid4())  # Fake DS — no grant exists
 
-    # Create role with view-level org permissions (no org-level create_instructions)
+    # Create role with view-level org permissions (no org-level manage_instructions)
     author_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Instruction Author", [
-        "view_reports", "view_instructions", "view_entities", "view_evals",
+        "view_reports", "view_entities", "view_evals",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], author_role["id"], "user", ctx["member_id"])
 
-    # Grant create_instructions on the specific DS
+    # Grant manage_instructions on the specific DS
     _grant_resource(
         test_client, ctx["admin_token"], ctx["org_id"],
         "data_source", ds_granted["id"], "user", ctx["member_id"],
-        ["query", "view_schema", "view_instructions", "create_instructions"],
+        ["query", "view_schema", "manage_instructions"],
     )
 
     # Author creates instruction on granted DS — should succeed
@@ -275,8 +275,8 @@ def test_instruction_author_scoped_to_ds(test_client, create_user, login_user, w
 
 
 @pytest.mark.e2e
-def test_org_level_create_instructions_bypasses_resource_check(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
-    """User with org-level create_instructions can create on ANY DS (two-tier OR)."""
+def test_org_level_manage_instructions_bypasses_resource_check(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """User with org-level manage_instructions can create on ANY DS (two-tier OR)."""
     ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
 
     if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
@@ -291,9 +291,9 @@ def test_org_level_create_instructions_bypasses_resource_check(test_client, crea
         org_id=ctx["org_id"],
     )
 
-    # Role with org-level create_instructions (wildcard for all DS)
+    # Role with org-level manage_instructions (wildcard for all DS)
     wildcard_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Instruction Wildcard", [
-        "view_reports", "view_instructions", "create_instructions",
+        "view_reports", "manage_instructions",
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], wildcard_role["id"], "user", ctx["member_id"])
 
@@ -387,9 +387,9 @@ def test_role_stacking_unions_permissions(test_client, create_user, login_user, 
         "view_reports", "view_evals", "export_query",
     ])
 
-    # Role 2: Instruction Author (adds create_instructions)
+    # Role 2: Instruction Author (adds manage_instructions)
     author = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Stacking Author", [
-        "view_instructions", "create_instructions",
+        "manage_instructions",
     ])
 
     # Assign both roles to the member
@@ -405,10 +405,10 @@ def test_role_stacking_unions_permissions(test_client, create_user, login_user, 
     assert "export_query" in perms["permissions"]
 
     # From author role
-    assert "view_instructions" in perms["permissions"]
-    assert "create_instructions" in perms["permissions"]
+    assert  in perms["permissions"]
+    assert "manage_instructions" in perms["permissions"]
 
-    # org-level create_instructions → can create on any DS (two-tier OR)
+    # org-level manage_instructions → can create on any DS (two-tier OR)
     resp = test_client.post(
         "/api/instructions",
         json={
@@ -435,7 +435,7 @@ def test_group_role_inheritance(test_client, create_user, login_user, whoami):
 
     # Create a custom role
     viewer_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Group Viewer", [
-        "view_reports", "view_evals", "view_instructions", "view_entities",
+        "view_reports", "view_evals", "view_entities",
     ])
 
     # Create a group
@@ -463,7 +463,7 @@ def test_group_role_inheritance(test_client, create_user, login_user, whoami):
     perms = _get_whoami_perms(whoami, ctx["member_token"], ctx["org_id"])
     assert "view_reports" in perms["permissions"]
     assert "view_evals" in perms["permissions"]
-    assert "view_instructions" in perms["permissions"]
+    assert  in perms["permissions"]
     assert "view_entities" in perms["permissions"]
 
     # Still should NOT have admin perms
@@ -510,12 +510,12 @@ def test_group_resource_grant_inheritance(test_client, create_user, login_user, 
     _grant_resource(
         test_client, ctx["admin_token"], ctx["org_id"],
         "data_source", ds["id"], "group", group_id,
-        ["query", "view_schema", "create_instructions"],
+        ["query", "view_schema", "manage_instructions"],
     )
 
     # Also give the member a role with view_instructions so they can hit the create endpoint
     viewer_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Instruction Viewer", [
-        "view_instructions",
+        
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], viewer_role["id"], "user", ctx["member_id"])
 
@@ -525,7 +525,7 @@ def test_group_resource_grant_inheritance(test_client, create_user, login_user, 
     assert ds_key in perms["resource_permissions"]
     ds_perms = set(perms["resource_permissions"][ds_key])
     assert "query" in ds_perms
-    assert "create_instructions" in ds_perms
+    assert "manage_instructions" in ds_perms
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -551,7 +551,7 @@ def test_ds_admin_full_resource_access(test_client, create_user, login_user, who
 
     # Minimal org-level permissions
     ds_admin_role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Admin", [
-        "view_reports", "view_data_source", "view_instructions",
+        "view_reports", "view_data_source", 
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], ds_admin_role["id"], "user", ctx["member_id"])
 
@@ -560,7 +560,7 @@ def test_ds_admin_full_resource_access(test_client, create_user, login_user, who
         test_client, ctx["admin_token"], ctx["org_id"],
         "data_source", ds["id"], "user", ctx["member_id"],
         ["query", "view_schema", "manage", "manage_members",
-         "create_instructions", "view_instructions",
+         "manage_instructions", 
          "create_entities", "view_entities",
          "run_evals", "view_evals"],
     )
@@ -578,7 +578,7 @@ def test_ds_admin_full_resource_access(test_client, create_user, login_user, who
     ds_perms = set(perms["resource_permissions"][ds_key])
     assert ds_perms == {
         "query", "view_schema", "manage", "manage_members",
-        "create_instructions", "view_instructions",
+        "manage_instructions", 
         "create_entities", "view_entities",
         "run_evals", "view_evals",
     }
@@ -595,7 +595,7 @@ def test_ds_admin_full_resource_access(test_client, create_user, login_user, who
     )
     assert resp.status_code == 200
 
-    # But denied on a different DS (no grant, no org-level create_instructions)
+    # But denied on a different DS (no grant, no org-level manage_instructions)
     resp = test_client.post(
         "/api/instructions",
         json={
@@ -675,7 +675,7 @@ def test_mixed_grants_on_multiple_ds(test_client, create_user, login_user, whoam
     _grant_resource(
         test_client, ctx["admin_token"], ctx["org_id"],
         "data_source", ds1["id"], "user", ctx["member_id"],
-        ["query", "view_schema", "create_instructions"],
+        ["query", "view_schema", "manage_instructions"],
     )
     _grant_resource(
         test_client, ctx["admin_token"], ctx["org_id"],
@@ -687,13 +687,13 @@ def test_mixed_grants_on_multiple_ds(test_client, create_user, login_user, whoam
 
     # DS1 has full grant
     ds1_key = f"data_source:{ds1['id']}"
-    assert "create_instructions" in perms["resource_permissions"].get(ds1_key, [])
+    assert "manage_instructions" in perms["resource_permissions"].get(ds1_key, [])
 
     # DS2 has only query
     ds2_key = f"data_source:{ds2_id}"
     ds2_perms = set(perms["resource_permissions"].get(ds2_key, []))
     assert "query" in ds2_perms
-    assert "create_instructions" not in ds2_perms
+    assert "manage_instructions" not in ds2_perms
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -720,15 +720,15 @@ def test_instruction_mixed_ds_list_denied(test_client, create_user, login_user, 
 
     # Give user view perms org-wide
     role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Mixed Instr Author", [
-        "view_instructions",
+        
     ])
     _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
 
-    # Grant create_instructions on only one DS
+    # Grant manage_instructions on only one DS
     _grant_resource(
         test_client, ctx["admin_token"], ctx["org_id"],
         "data_source", ds_granted["id"], "user", ctx["member_id"],
-        ["query", "view_schema", "create_instructions"],
+        ["query", "view_schema", "manage_instructions"],
     )
 
     # Single granted DS — should succeed

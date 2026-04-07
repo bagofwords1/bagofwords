@@ -99,7 +99,6 @@ async def list_entities(
 
 
 @router.get("/{entity_id}", response_model=EntitySchema)
-@requires_permission('manage_entities', model=Entity)
 async def get_entity(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),

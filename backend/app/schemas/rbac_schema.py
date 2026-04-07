@@ -4,10 +4,21 @@ from typing import List, Optional
 
 # --- Roles ---
 
+class RoleResourceGrantInput(BaseModel):
+    resource_type: str  # "data_source" | "connection"
+    resource_id: str
+    permissions: List[str] = []
+
+
+class RoleResourceGrantOutput(RoleResourceGrantInput):
+    pass
+
+
 class RoleCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     permissions: List[str] = []
+    resource_grants: List[RoleResourceGrantInput] = []
 
     @field_validator("name")
     @classmethod
@@ -22,6 +33,7 @@ class RoleUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     permissions: Optional[List[str]] = None
+    resource_grants: Optional[List[RoleResourceGrantInput]] = None
 
     @field_validator("name")
     @classmethod
@@ -34,8 +46,12 @@ class RoleUpdate(BaseModel):
         return v
 
 
-class RoleSchema(RoleCreate):
+class RoleSchema(BaseModel):
     id: str
+    name: str
+    description: Optional[str] = None
+    permissions: List[str] = []
+    resource_grants: List[RoleResourceGrantOutput] = []
     organization_id: Optional[str] = None
     is_system: bool = False
 

@@ -37,8 +37,7 @@ def test_full_admin_access_is_not_in_all_permissions():
 def test_resource_permissions_only_data_source_in_mvp():
     assert set(RESOURCE_PERMISSIONS.keys()) == {"data_source"}
     assert set(RESOURCE_PERMISSIONS["data_source"]) == {
-        "view", "view_schema",
-        "create_instructions",
+        "manage_instructions",
         "create_entities",
         "manage_evals",
         "manage", "manage_members",

@@ -4,6 +4,7 @@ RBAC service — CRUD for roles, groups, role assignments, and resource grants.
 import logging
 from typing import List, Optional
 from sqlalchemy import select, func, and_, or_, delete
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
@@ -16,7 +17,7 @@ from app.models.resource_grant import ResourceGrant
 from app.models.user import User
 from app.core.permission_resolver import assert_full_admin_exists, FULL_ADMIN
 from app.schemas.rbac_schema import (
-    RoleCreate, RoleUpdate, RoleSchema,
+    RoleCreate, RoleUpdate, RoleSchema, RoleResourceGrantInput, RoleResourceGrantOutput,
     GroupCreate, GroupUpdate, GroupSchema, GroupMemberSchema,
     RoleAssignmentCreate, RoleAssignmentSchema,
     ResourceGrantCreate, ResourceGrantUpdate, ResourceGrantSchema,
@@ -40,7 +41,10 @@ class RBACService:
 
         result = await db.execute(select(Role).where(*conditions).order_by(Role.is_system.desc(), Role.name))
         roles = result.scalars().all()
-        return [RoleSchema.model_validate(r) for r in roles]
+        # Bulk fetch role-scoped resource grants
+        role_ids = [r.id for r in roles]
+        grants_by_role = await self._fetch_role_grants(db, role_ids)
+        return [self._role_to_schema(r, grants_by_role.get(r.id, [])) for r in roles]
 
     async def create_role(self, db: AsyncSession, org_id: str, data: RoleCreate) -> RoleSchema:
         role = Role(
@@ -51,9 +55,12 @@ class RBACService:
             is_system=False,
         )
         db.add(role)
+        await db.flush()
+        await self._sync_role_grants(db, org_id, role.id, data.resource_grants or [])
         await db.commit()
         await db.refresh(role)
-        return RoleSchema.model_validate(role)
+        grants = (await self._fetch_role_grants(db, [role.id])).get(role.id, [])
+        return self._role_to_schema(role, grants)
 
     async def update_role(self, db: AsyncSession, org_id: str, role_id: str, data: RoleUpdate) -> RoleSchema:
         role = await self._get_role(db, org_id, role_id)
@@ -72,11 +79,73 @@ class RBACService:
         if data.description is not None:
             role.description = data.description
         if data.permissions is not None:
-            role.permissions = data.permissions
+            role.permissions = list(data.permissions)
+            flag_modified(role, "permissions")
+
+        if data.resource_grants is not None:
+            await self._sync_role_grants(db, org_id, role.id, data.resource_grants)
 
         await db.commit()
         await db.refresh(role)
-        return RoleSchema.model_validate(role)
+        grants = (await self._fetch_role_grants(db, [role.id])).get(role.id, [])
+        return self._role_to_schema(role, grants)
+
+    async def _sync_role_grants(
+        self, db: AsyncSession, org_id: str, role_id: str,
+        grants: List[RoleResourceGrantInput],
+    ) -> None:
+        """Replace all role-scoped resource grants for the given role."""
+        # Hard-delete existing role grants for this role (idempotent replace)
+        await db.execute(
+            delete(ResourceGrant).where(
+                ResourceGrant.organization_id == org_id,
+                ResourceGrant.principal_type == "role",
+                ResourceGrant.principal_id == role_id,
+            )
+        )
+        for g in grants:
+            db.add(ResourceGrant(
+                organization_id=org_id,
+                resource_type=g.resource_type,
+                resource_id=g.resource_id,
+                principal_type="role",
+                principal_id=role_id,
+                permissions=list(g.permissions or []),
+            ))
+        await db.flush()
+
+    async def _fetch_role_grants(
+        self, db: AsyncSession, role_ids: List[str],
+    ) -> dict:
+        """Return {role_id: [RoleResourceGrantOutput, ...]}."""
+        if not role_ids:
+            return {}
+        result = await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.principal_type == "role",
+                ResourceGrant.principal_id.in_(role_ids),
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )
+        out: dict = {}
+        for g in result.scalars().all():
+            out.setdefault(g.principal_id, []).append(RoleResourceGrantOutput(
+                resource_type=g.resource_type,
+                resource_id=g.resource_id,
+                permissions=list(g.permissions or []),
+            ))
+        return out
+
+    def _role_to_schema(self, role: Role, grants: List[RoleResourceGrantOutput]) -> RoleSchema:
+        return RoleSchema(
+            id=role.id,
+            name=role.name,
+            description=role.description,
+            permissions=list(role.permissions or []),
+            resource_grants=grants,
+            organization_id=role.organization_id,
+            is_system=role.is_system,
+        )
 
     async def delete_role(self, db: AsyncSession, org_id: str, role_id: str) -> None:
         role = await self._get_role(db, org_id, role_id)
@@ -87,6 +156,13 @@ class RBACService:
         if isinstance(role.permissions, list) and FULL_ADMIN in role.permissions:
             await assert_full_admin_exists(db, org_id, exclude_role_id=role_id)
 
+        # Drop role-scoped resource grants
+        await db.execute(
+            delete(ResourceGrant).where(
+                ResourceGrant.principal_type == "role",
+                ResourceGrant.principal_id == role_id,
+            )
+        )
         await db.delete(role)
         await db.commit()
 

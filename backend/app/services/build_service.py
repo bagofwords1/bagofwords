@@ -207,19 +207,49 @@ class BuildService:
         skip: int = 0,
         limit: int = 50,
         created_by_user_id: Optional[str] = None,
+        accessible_data_source_ids: Optional[List[str]] = None,
+        data_source_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """List builds for an organization with optional status filter."""
+        """List builds for an organization with optional status filter.
+
+        If ``accessible_data_source_ids`` is provided (i.e. the caller is not
+        an org-level admin), exclude any build that contains an instruction
+        scoped to a data source the user cannot access. Builds whose
+        instructions are all global (no DS) or whose touched DSs are a subset
+        of ``accessible_data_source_ids`` are included.
+        """
         # Base conditions
         conditions = [
             InstructionBuild.organization_id == org_id,
             InstructionBuild.deleted_at == None
         ]
-        
+
         if status:
             conditions.append(InstructionBuild.status == status)
-        
+
         if created_by_user_id:
             conditions.append(InstructionBuild.created_by_user_id == created_by_user_id)
+
+        if accessible_data_source_ids is not None:
+            from app.models.instruction import instruction_data_source_association as idsa
+            allowed = list(accessible_data_source_ids)
+            # Exclude builds containing any instruction scoped to a DS not in `allowed`.
+            forbidden_subq = (
+                select(BuildContent.build_id)
+                .join(idsa, idsa.c.instruction_id == BuildContent.instruction_id)
+                .where(idsa.c.data_source_id.notin_(allowed) if allowed else True)
+            )
+            conditions.append(InstructionBuild.id.notin_(forbidden_subq))
+
+        if data_source_id:
+            from app.models.instruction import instruction_data_source_association as idsa
+            # Restrict to builds that contain at least one instruction scoped to this DS.
+            included_subq = (
+                select(BuildContent.build_id)
+                .join(idsa, idsa.c.instruction_id == BuildContent.instruction_id)
+                .where(idsa.c.data_source_id == data_source_id)
+            )
+            conditions.append(InstructionBuild.id.in_(included_subq))
         
         # Count total
         count_query = select(func.count()).select_from(
@@ -601,7 +631,7 @@ class BuildService:
         """Return distinct data_source_ids touched by all instructions in a build.
 
         Used for strict per-DS permission enforcement on build publish/submit/rollback:
-        the acting user must hold `create_instructions` on every returned DS (admin
+        the acting user must hold `manage_instructions` on every returned DS (admin
         bypass via `manage_instructions` is handled in the resolver).
         """
         result = await db.execute(

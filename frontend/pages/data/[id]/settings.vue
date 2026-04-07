@@ -295,7 +295,7 @@ const isEnterprise = computed(() => hasFeature('custom_roles'))
 
 // Sourced from /permissions/registry to stay in sync with backend (loaded in onMounted)
 const dsPermOptions = ref<string[]>([
-    'view', 'view_schema', 'create_instructions', 'create_entities', 'manage_evals', 'manage', 'manage_members'
+    'manage_instructions', 'create_entities', 'manage_evals', 'manage', 'manage_members'
 ])
 
 async function loadDsPermOptions() {
@@ -350,7 +350,7 @@ async function loadMembers() {
         principal_type: m.principal_type || 'user',
         principal_id: m.principal_id,
         principal_name: m.principal_name || undefined,
-        permissions: m.permissions || ['view', 'view_schema'],
+        permissions: m.permissions || [],
     }))
 }
 
@@ -458,7 +458,7 @@ const showAddModal = ref(false)
 const addPrincipalType = ref<'user' | 'group'>('user')
 const selectedUsers = ref<string[]>([])
 const selectedGroups = ref<string[]>([])
-const addPermissions = ref<string[]>(['view', 'view_schema'])
+const addPermissions = ref<string[]>([])
 
 const addTabs = computed(() => {
     const tabs: { key: 'user' | 'group'; label: string }[] = [
@@ -501,7 +501,7 @@ async function openAdd() {
     await Promise.all([loadUsers(), loadGroups()])
     selectedUsers.value = []
     selectedGroups.value = []
-    addPermissions.value = ['view', 'view_schema']
+    addPermissions.value = []
     addPrincipalType.value = 'user'
     showAddModal.value = true
 }
