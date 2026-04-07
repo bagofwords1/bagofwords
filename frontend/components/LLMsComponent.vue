@@ -12,7 +12,7 @@
             </div>
             <div class="space-x-2">
                 <button 
-                    v-if="useCan('manage_llm')"
+                    v-if="useCan('manage_llm_settings')"
                     @click="providerModalOpen = true" 
                     class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
                 >
@@ -27,7 +27,7 @@
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Provider</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" v-if="useCan('manage_llm')">Actions</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" v-if="useCan('manage_llm_settings')">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
@@ -60,10 +60,10 @@
                             <UToggle 
                                 v-model="model.is_enabled" 
                                 @change="toggleModel(model.id, $event)" 
-                                :disabled="!useCan('manage_llm') || model.is_default || model.is_small_default" 
+                                :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default" 
                             />
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="useCan('manage_llm')">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="useCan('manage_llm_settings')">
                             <UDropdown :items="getDropdownItems(model)">
                                 <UButton class="text-gray-500 hover:text-gray-900 font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
                             </UDropdown>
@@ -81,7 +81,7 @@
             <h3 class="text-lg font-medium text-gray-900 mb-2">No LLMs Integrated</h3>
             <p class="text-sm text-gray-500 mb-6">Get started by integrating your LLM provider and models</p>
             <button 
-                v-if="useCan('manage_llm')"
+                v-if="useCan('manage_llm_settings')"
                 @click="providerModalOpen = true" 
                 class="bg-blue-500 text-white text-sm px-4 py-2 rounded-md hover:bg-blue-600 transition-colors"
             >
@@ -231,7 +231,7 @@ const getDropdownItems = (model: Model) => {
             }
         }
     ]];
-    if (useCan('manage_llm')) {
+    if (useCan('manage_llm_settings')) {
         items[0].push({
             label: 'Manage Provider',
             click: () => {
