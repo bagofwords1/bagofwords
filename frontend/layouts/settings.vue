@@ -40,7 +40,7 @@ const route = useRoute()
 // All available tabs with their required permissions
 const allTabs = [
     { name: 'members', label: 'Members', requiredPermission: "view_organization_members" },
-    { name: 'models', label: 'LLM', requiredPermission: "modify_settings" },
+    { name: 'models', label: 'LLM', requiredPermission: null },
     { name: 'ai_settings', label: 'AI Settings', requiredPermission: "view_settings" },
     { name: 'general', label: 'General', requiredPermission: "view_settings" },
     { name: "integrations", label: "Integrations", requiredPermission: "manage_organization_external_platforms" },
@@ -52,6 +52,7 @@ const allTabs = [
 // Filter tabs based on user permissions
 const visibleTabs = computed(() => {
     return allTabs.filter(tab => {
+        if (!tab.requiredPermission) return true
         return useCan(tab.requiredPermission)
     })
 })
