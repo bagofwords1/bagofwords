@@ -7,6 +7,7 @@ backend/backend_venv/
 backend/tests/integrations/integrations.json
 test_data_sources/
 excel-add-in/hi/node_modules/
+backend/tests/evals/spider_results.jsonl
 
 frontend/.nuxt/cache/
 # Nuxt dev/build outputs
