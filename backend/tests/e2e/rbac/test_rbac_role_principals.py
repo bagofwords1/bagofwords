@@ -194,8 +194,6 @@ def test_group_role_assignment_grants_member_permissions(
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
     grp_resp = create_group(name="data-team", user_token=admin["token"], org_id=org_id)
-    if grp_resp.status_code == 402:
-        pytest.skip("enterprise license stub did not take effect for groups")
     assert grp_resp.status_code == 200, grp_resp.text
     group = grp_resp.json()
 
@@ -213,8 +211,6 @@ def test_group_role_assignment_grants_member_permissions(
         user_token=admin["token"],
         org_id=org_id,
     )
-    if role_resp.status_code == 402:
-        pytest.skip("enterprise license stub did not take effect for custom roles")
     assert role_resp.status_code == 200, role_resp.text
     role = role_resp.json()
 
@@ -261,8 +257,6 @@ def test_group_resource_grant_grants_per_ds_access(
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
     grp_resp = create_group(name="ds-readers", user_token=admin["token"], org_id=org_id)
-    if grp_resp.status_code == 402:
-        pytest.skip("enterprise license stub did not take effect for groups")
     assert grp_resp.status_code == 200, grp_resp.text
     group = grp_resp.json()
 
@@ -408,8 +402,6 @@ def test_role_as_principal_resource_grant(
         json=role_payload,
         headers=_hdr(admin["token"], org_id),
     )
-    if create_resp.status_code == 402:
-        pytest.skip("enterprise license stub did not take effect for custom roles")
     assert create_resp.status_code == 200, create_resp.text
     role = create_resp.json()
     assert role["resource_grants"], f"role response missing resource_grants: {role}"
@@ -470,8 +462,6 @@ def test_role_as_principal_grant_via_group_assignment(
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
     grp_resp = create_group(name="instr-team", user_token=admin["token"], org_id=org_id)
-    if grp_resp.status_code == 402:
-        pytest.skip("enterprise license stub did not take effect for groups")
     assert grp_resp.status_code == 200, grp_resp.text
     group = grp_resp.json()
 
@@ -499,8 +489,6 @@ def test_role_as_principal_grant_via_group_assignment(
         json=role_payload,
         headers=_hdr(admin["token"], org_id),
     )
-    if create_resp.status_code == 402:
-        pytest.skip("enterprise license stub did not take effect for custom roles")
     assert create_resp.status_code == 200, create_resp.text
     role = create_resp.json()
 
