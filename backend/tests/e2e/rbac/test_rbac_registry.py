@@ -282,6 +282,24 @@ def test_check_resource_permissions_uses_known_resource_perms():
 
 
 @pytest.mark.e2e
+def test_view_and_view_schema_not_explicit_resource_perms():
+    """``view`` and ``view_schema`` are implicit on any grant, not explicit
+    checkbox permissions. They must not appear in RESOURCE_PERMISSIONS or
+    the role-editor groups.
+    """
+    ds_perms = set(registry.RESOURCE_PERMISSIONS.get("data_source", []))
+    assert "view" not in ds_perms, (
+        "view should not be a grantable resource permission — it is implicit "
+        "on any other grant via ResolvedPermissions.has_resource_permission"
+    )
+    assert "view_schema" not in ds_perms
+
+    for group_name, perms in registry.RESOURCE_SCOPED_GROUPS.get("data_source", {}).items():
+        assert "view" not in perms
+        assert "view_schema" not in perms
+
+
+@pytest.mark.e2e
 def test_org_perm_implies_resource_uses_known_org_perms():
     """Every org-level perm that triggers a resource implication must be registered."""
     for org_perm, mapping in resolver.ORG_PERM_IMPLIES_RESOURCE.items():

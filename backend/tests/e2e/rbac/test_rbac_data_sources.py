@@ -58,7 +58,7 @@ def ds_world(
         resource_id=ds_a["id"],
         principal_type="user",
         principal_id=ds_a_manager["user_id"],
-        permissions=["view", "view_schema", "create_instructions", "manage"],
+        permissions=["manage_instructions", "manage"],
         user_token=admin["token"],
         org_id=org_id,
     )
@@ -69,7 +69,7 @@ def ds_world(
         resource_id=ds_b["id"],
         principal_type="user",
         principal_id=ds_b_manager["user_id"],
-        permissions=["view", "view_schema", "create_instructions", "manage"],
+        permissions=["manage_instructions", "manage"],
         user_token=admin["token"],
         org_id=org_id,
     )
@@ -142,16 +142,15 @@ def test_data_source_access_matrix(test_client, ds_world):
 
 @pytest.mark.e2e
 def test_data_source_list_basic_filter_and_invariant(test_client, ds_world):
-    """List filtering + list/detail invariant for the cases that *do* work today.
+    """List filtering + forward list/detail invariant.
 
     Specifically:
-      - admin (auto-added to DataSourceMembership when creating each DS) sees both
+      - admin bypasses filtering (full_admin_access) and sees both DSes
       - member_no_grants sees nothing
-      - every DS that a principal *does* see in the list must open via GET /{id}
-        (the inverse direction of the invariant — exposed IDs must be reachable)
+      - every DS that a principal does see in the list must open via GET /{id}
 
-    The dual to this test — a user with only a ResourceGrant should also
-    appear in the list — is captured separately in the xfail'd test below.
+    The dual direction — per-DS grantees must see *their* DS in the list —
+    is covered by ``test_data_source_grant_appears_in_list`` below.
     """
     org_id = ds_world["org_id"]
     ds_a_id = ds_world["ds_a"]["id"]
@@ -191,35 +190,44 @@ def test_data_source_list_basic_filter_and_invariant(test_client, ds_world):
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known bug surfaced by these tests: data_source_service.get_data_sources "
-        "filters the list by the legacy DataSourceMembership table only — it "
-        "ignores ResourceGrant rows. As a result, a user with a per-DS RBAC "
-        "grant but no DataSourceMembership can open the DS in detail (which "
-        "uses the resolver path) but never sees it in the list. The reverse of "
-        "the list/detail invariant is broken. See test_data_source_access_matrix "
-        "above for the detail-side coverage."
-    ),
-)
 def test_data_source_grant_appears_in_list(test_client, ds_world):
-    """A ResourceGrant on a DS should make it visible in the user's list response."""
+    """A ResourceGrant on a DS must make it visible in the holder's list response.
+
+    This used to be xfail'd against the previous revision of the service
+    layer which filtered /data_sources by the legacy DataSourceMembership
+    table only. The fix landed in the latest ``rbac improvements`` commit
+    (data_source_service now delegates to ``get_accessible_data_source_ids``
+    which unions ResourceGrant with DataSourceMembership), and this test
+    is the regression guard against it regressing again.
+
+    ds_a_manager sees ds_a only (never ds_b).
+    ds_b_manager sees ds_b only (never ds_a).
+    """
     org_id = ds_world["org_id"]
     ds_a_id = ds_world["ds_a"]["id"]
     ds_b_id = ds_world["ds_b"]["id"]
 
-    expected = {
-        "ds_a_manager": ds_a_id,
-        "ds_b_manager": ds_b_id,
+    expectations = {
+        "ds_a_manager": {"must_see": {ds_a_id}, "must_not_see": {ds_b_id}},
+        "ds_b_manager": {"must_see": {ds_b_id}, "must_not_see": {ds_a_id}},
     }
 
-    for name, must_see in expected.items():
+    failures = []
+    for name, want in expectations.items():
         p = ds_world["principals"][name]
         list_resp = test_client.get("/api/data_sources", headers=_hdr(p["token"], org_id))
-        assert list_resp.status_code == 200, list_resp.text
+        if list_resp.status_code != 200:
+            failures.append(f"{name}: list returned {list_resp.status_code}")
+            continue
         got_ids = {d["id"] for d in list_resp.json()}
-        assert must_see in got_ids, f"{name}: {must_see!r} missing from list {sorted(got_ids)}"
+        missing = want["must_see"] - got_ids
+        leaked = want["must_not_see"] & got_ids
+        if missing:
+            failures.append(f"{name}: list missing {missing}")
+        if leaked:
+            failures.append(f"{name}: list leaked {leaked}")
+
+    assert not failures, "\n".join(failures)
 
 
 # ────────────────────────────────────────────────────────────────────

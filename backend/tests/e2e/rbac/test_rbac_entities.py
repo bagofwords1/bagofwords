@@ -44,7 +44,7 @@ def entity_world(
         resource_id=ds_a["id"],
         principal_type="user",
         principal_id=ds_a_grantee["user_id"],
-        permissions=["view", "view_schema", "create_entities"],
+        permissions=["create_entities"],
         user_token=admin["token"],
         org_id=org_id,
     )

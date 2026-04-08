@@ -9,8 +9,12 @@ Walks every path that produces effective permissions for a user:
   3. Group → role assignment (user inherits via group membership)
   4. Direct user resource-grant (per-DS access)
   5. Group resource-grant (per-DS access via group)
-  6. full_admin_access wildcard bypass for resource permissions
-  7. Mutation freshness — newly-assigned permissions take effect on next request
+  6. Role-as-principal resource grant (resource_grant.principal_type='role';
+     the user inherits the grant transitively through any role they
+     hold via direct or group assignment)
+  7. full_admin_access wildcard bypass for resource permissions
+  8. ``view`` / ``view_schema`` implicit on any grant
+  9. Mutation freshness — newly-assigned permissions take effect on next request
 
 The tests assert behaviour through the public API only — they read
 ``GET /users/whoami`` to inspect the resolver's output.
@@ -145,7 +149,7 @@ def test_user_resource_grant_appears_in_whoami(
         resource_id=ds["id"],
         principal_type="user",
         principal_id=member["user_id"],
-        permissions=["view", "view_schema", "create_instructions"],
+        permissions=["manage_instructions"],
         user_token=admin["token"],
         org_id=org_id,
     )
@@ -155,7 +159,14 @@ def test_user_resource_grant_appears_in_whoami(
     rp = org["resource_permissions"]
     key = f"data_source:{ds['id']}"
     assert key in rp, f"resource_permissions missing {key}: {rp}"
-    assert {"view", "view_schema", "create_instructions"} <= set(rp[key])
+    assert "manage_instructions" in set(rp[key])
+
+    # And the member can open the DS detail — view is implicit on any grant.
+    detail = test_client.get(
+        f"/api/data_sources/{ds['id']}",
+        headers=_hdr(member["token"], org_id),
+    )
+    assert detail.status_code == 200, detail.text
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -268,7 +279,7 @@ def test_group_resource_grant_grants_per_ds_access(
         resource_id=ds["id"],
         principal_type="group",
         principal_id=group["id"],
-        permissions=["view", "view_schema"],
+        permissions=["manage_instructions"],
         user_token=admin["token"],
         org_id=org_id,
     )
@@ -278,7 +289,7 @@ def test_group_resource_grant_grants_per_ds_access(
     rp = org["resource_permissions"]
     key = f"data_source:{ds['id']}"
     assert key in rp, f"resource_permissions missing {key}: {rp}"
-    assert {"view", "view_schema"} <= set(rp[key])
+    assert "manage_instructions" in set(rp[key])
 
     # And the user can now open the DS detail endpoint.
     detail = test_client.get(
@@ -333,3 +344,240 @@ def test_role_assignment_removal_takes_effect(
     after = _whoami_org(whoami, member["token"], org_id)
     assert "full_admin_access" not in set(after["permissions"])
     assert "admin" not in after["roles"]
+
+
+# ────────────────────────────────────────────────────────────────────
+# Path 6 — role-as-principal resource grant
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_role_as_principal_resource_grant(
+    test_client,
+    bootstrap_admin,
+    invite_user_to_org,
+    sqlite_data_source,
+    enterprise_license,
+    create_role,
+    assign_role,
+    whoami,
+):
+    """A resource_grant whose principal is a role should propagate to every
+    user assigned that role.
+
+    This is the path the resolver started supporting in the latest
+    ``rbac improvements`` commit: when computing a user's resource
+    permissions, the resolver now also queries ResourceGrant rows whose
+    ``principal_type='role'`` and ``principal_id`` is in the user's
+    role IDs (direct or via groups).
+
+    We exercise this end-to-end by:
+      1. Creating a custom role that carries an inline ``resource_grants``
+         payload (the route persists this via rbac_service._sync_role_grants)
+      2. Assigning the role to a member directly
+      3. Asserting whoami exposes the per-DS permission AND the member
+         can open the DS detail (view is implicit on any grant)
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+
+    ds = sqlite_data_source(name="role_grant_ds", user_token=admin["token"], org_id=org_id)
+    test_client.put(
+        f"/api/data_sources/{ds['id']}",
+        json={"is_public": False},
+        headers=_hdr(admin["token"], org_id),
+    )
+
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+
+    # Create the role WITH an inline resource grant. The /roles route
+    # accepts ``resource_grants`` and persists them via rbac_service.
+    role_payload = {
+        "name": "ds-instructions-mgr",
+        "permissions": ["view_members"],
+        "resource_grants": [
+            {
+                "resource_type": "data_source",
+                "resource_id": ds["id"],
+                "permissions": ["manage_instructions"],
+            }
+        ],
+    }
+    create_resp = test_client.post(
+        f"/api/organizations/{org_id}/roles",
+        json=role_payload,
+        headers=_hdr(admin["token"], org_id),
+    )
+    if create_resp.status_code == 402:
+        pytest.skip("enterprise license stub did not take effect for custom roles")
+    assert create_resp.status_code == 200, create_resp.text
+    role = create_resp.json()
+    assert role["resource_grants"], f"role response missing resource_grants: {role}"
+
+    # Assign that role to the member directly
+    assign = assign_role(
+        role_id=role["id"],
+        principal_type="user",
+        principal_id=member["user_id"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert assign.status_code == 200, assign.text
+
+    # Resolver must surface the role-attached grant on the member's whoami
+    org = _whoami_org(whoami, member["token"], org_id)
+    rp = org["resource_permissions"]
+    key = f"data_source:{ds['id']}"
+    assert key in rp, f"role-as-principal grant missing from whoami: {rp}"
+    assert "manage_instructions" in set(rp[key])
+
+    # And the member can open the DS detail — view is implicit on the grant.
+    detail = test_client.get(
+        f"/api/data_sources/{ds['id']}",
+        headers=_hdr(member["token"], org_id),
+    )
+    assert detail.status_code == 200, detail.text
+
+
+@pytest.mark.e2e
+def test_role_as_principal_grant_via_group_assignment(
+    test_client,
+    bootstrap_admin,
+    invite_user_to_org,
+    sqlite_data_source,
+    enterprise_license,
+    create_role,
+    create_group,
+    add_user_to_group,
+    assign_role,
+    whoami,
+):
+    """A user inherits a role-attached grant via group → role assignment.
+
+    Resolver chain: user → group_membership → role_assignment(group→role)
+    → role_id → resource_grant(principal_type=role, principal_id=role_id).
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+
+    ds = sqlite_data_source(name="grp_role_ds", user_token=admin["token"], org_id=org_id)
+    test_client.put(
+        f"/api/data_sources/{ds['id']}",
+        json={"is_public": False},
+        headers=_hdr(admin["token"], org_id),
+    )
+
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+
+    grp_resp = create_group(name="instr-team", user_token=admin["token"], org_id=org_id)
+    if grp_resp.status_code == 402:
+        pytest.skip("enterprise license stub did not take effect for groups")
+    assert grp_resp.status_code == 200, grp_resp.text
+    group = grp_resp.json()
+
+    add_resp = add_user_to_group(
+        group_id=group["id"],
+        user_id=member["user_id"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert add_resp.status_code in (200, 201), add_resp.text
+
+    role_payload = {
+        "name": "team-instructions-mgr",
+        "permissions": [],
+        "resource_grants": [
+            {
+                "resource_type": "data_source",
+                "resource_id": ds["id"],
+                "permissions": ["manage_instructions"],
+            }
+        ],
+    }
+    create_resp = test_client.post(
+        f"/api/organizations/{org_id}/roles",
+        json=role_payload,
+        headers=_hdr(admin["token"], org_id),
+    )
+    if create_resp.status_code == 402:
+        pytest.skip("enterprise license stub did not take effect for custom roles")
+    assert create_resp.status_code == 200, create_resp.text
+    role = create_resp.json()
+
+    assign = assign_role(
+        role_id=role["id"],
+        principal_type="group",
+        principal_id=group["id"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert assign.status_code == 200, assign.text
+
+    org = _whoami_org(whoami, member["token"], org_id)
+    rp = org["resource_permissions"]
+    key = f"data_source:{ds['id']}"
+    assert key in rp, f"transitive role-as-principal grant missing from whoami: {rp}"
+    assert "manage_instructions" in set(rp[key])
+
+
+# ────────────────────────────────────────────────────────────────────
+# Path 8 — view / view_schema implicit on any grant
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_view_and_view_schema_are_implicit_on_any_grant(
+    test_client,
+    bootstrap_admin,
+    invite_user_to_org,
+    sqlite_data_source,
+    grant_resource,
+):
+    """Holding any non-empty grant on a DS should imply view + view_schema.
+
+    The resolver special-cases ``view`` and ``view_schema`` for data
+    sources: if the user has any entry in ``resource_permissions`` for
+    that DS, those two perms return True automatically. They are no
+    longer surfaced as explicit checkboxes in the registry.
+
+    We grant ONLY ``manage_instructions`` (no view, no view_schema) and
+    assert the holder can:
+      - GET /data_sources/{id}    (route requires 'view')
+      - GET /data_sources/{id}/full_schema  (route requires 'view_schema')
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+
+    ds = sqlite_data_source(name="implicit_view_ds", user_token=admin["token"], org_id=org_id)
+    test_client.put(
+        f"/api/data_sources/{ds['id']}",
+        json={"is_public": False},
+        headers=_hdr(admin["token"], org_id),
+    )
+
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+
+    grant_resp = grant_resource(
+        resource_type="data_source",
+        resource_id=ds["id"],
+        principal_type="user",
+        principal_id=member["user_id"],
+        permissions=["manage_instructions"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert grant_resp.status_code == 200, grant_resp.json()
+
+    # GET /data_sources/{id} — requires_resource_permission('data_source', 'view')
+    detail = test_client.get(
+        f"/api/data_sources/{ds['id']}",
+        headers=_hdr(member["token"], org_id),
+    )
+    assert detail.status_code == 200, detail.text
+
+    # GET /data_sources/{id}/full_schema — requires_resource_permission('data_source', 'view_schema')
+    schema = test_client.get(
+        f"/api/data_sources/{ds['id']}/full_schema",
+        headers=_hdr(member["token"], org_id),
+    )
+    assert schema.status_code == 200, schema.text

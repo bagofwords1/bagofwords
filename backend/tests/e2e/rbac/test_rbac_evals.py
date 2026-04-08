@@ -50,7 +50,7 @@ def evals_world(
         resource_id=ds_a["id"],
         principal_type="user",
         principal_id=ds_a_evaluator["user_id"],
-        permissions=["view", "view_schema", "manage_evals"],
+        permissions=["manage_evals"],
         user_token=admin["token"],
         org_id=org_id,
     )

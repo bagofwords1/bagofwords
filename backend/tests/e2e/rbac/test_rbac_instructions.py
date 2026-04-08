@@ -2,8 +2,8 @@
 RBAC end-to-end coverage for /api/instructions.
 
 Covers:
-  - Per-DS create_instructions grantee can create + edit instructions on
-    their DS, but not on someone else's.
+  - Per-DS ``manage_instructions`` grantee can create + edit instructions
+    on their DS, but not on someone else's.
   - Org-level manage_instructions wildcard works.
   - Member with no grants can still POST /instructions (the route is
     resource_scoped) but only if they pass no data_source_ids; otherwise
@@ -42,13 +42,13 @@ def ins_world(
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     ds_a_author = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
-    # Per-DS create_instructions grant for ds_a_author on ds_a only.
+    # Per-DS manage_instructions grant for ds_a_author on ds_a only.
     grant_resp = grant_resource(
         resource_type="data_source",
         resource_id=ds_a["id"],
         principal_type="user",
         principal_id=ds_a_author["user_id"],
-        permissions=["view", "view_schema", "create_instructions"],
+        permissions=["manage_instructions"],
         user_token=admin["token"],
         org_id=org_id,
     )

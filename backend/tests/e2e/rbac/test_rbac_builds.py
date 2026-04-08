@@ -2,13 +2,19 @@
 RBAC end-to-end coverage for /api/builds.
 
 The build endpoints are the area the task brief flagged as the highest
-risk for resolver bugs:
+risk for resolver bugs.
 
-  - GET /builds is gated by ``manage_instructions`` org-perm only (no
-    ``resource_scoped`` flag), so per-DS managers cannot list at all.
+After the latest ``rbac improvements`` commit:
+
+  - GET /builds is **open to every authenticated org member**. The route
+    no longer carries ``@requires_permission('manage_instructions')`` —
+    instead the service applies a per-DS filter via
+    ``get_accessible_data_source_ids``: admins (full_admin_access)
+    bypass the filter, everyone else only sees builds whose instructions
+    all touch DSes they can access.
   - Per-DS-touching mutations (submit, publish, rollback, reject) all
     use ``resource_scoped=True`` and then call ``_enforce_build_ds_access``
-    which requires the caller to hold ``create_instructions`` on every
+    which requires the caller to hold ``manage_instructions`` on every
     DS the build touches.
 """
 import pytest
@@ -47,7 +53,7 @@ def builds_world(
         resource_id=ds_a["id"],
         principal_type="user",
         principal_id=ds_a_author["user_id"],
-        permissions=["view", "view_schema", "create_instructions"],
+        permissions=["manage_instructions"],
         user_token=admin["token"],
         org_id=org_id,
     )
@@ -105,30 +111,25 @@ def builds_world(
 
 
 # ────────────────────────────────────────────────────────────────────
-# Listing
+# Listing — every authenticated org member can list, with per-DS filter
 # ────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.e2e
-def test_list_builds_admin_only(test_client, builds_world):
-    """GET /builds is org-permission gated by ``manage_instructions``.
+def test_list_builds_open_to_org_members(test_client, builds_world):
+    """GET /builds is no longer admin-only — every org member gets a 200.
 
-    Members and per-DS authors do NOT have org-level manage_instructions
-    and the route is not ``resource_scoped``, so they get 403.
+    The service applies a per-DS filter on top: admin sees everything,
+    per-DS authors only see builds touching DSes they can reach, and
+    members with no grants only see builds tied to public DSes (none in
+    this fixture, so they should get an empty list).
     """
     org_id = builds_world["org_id"]
 
-    # Admin: 200, sees pending_approval build
-    r = test_client.get("/api/builds", headers=_hdr(builds_world["principals"]["admin"]["token"], org_id))
-    assert r.status_code == 200, r.text
-
-    # Member: 403
-    r = test_client.get("/api/builds", headers=_hdr(builds_world["principals"]["member"]["token"], org_id))
-    assert r.status_code == 403, r.text
-
-    # Per-DS author: 403 (same path — no resource_scoped on the list endpoint)
-    r = test_client.get("/api/builds", headers=_hdr(builds_world["principals"]["ds_a_author"]["token"], org_id))
-    assert r.status_code == 403, r.text
+    for principal in ("admin", "ds_a_author", "member"):
+        token = builds_world["principals"][principal]["token"]
+        r = test_client.get("/api/builds", headers=_hdr(token, org_id))
+        assert r.status_code == 200, f"{principal}: {r.text}"
 
 
 @pytest.mark.e2e
@@ -166,7 +167,7 @@ def test_list_builds_status_filter(test_client, builds_world):
 def test_publish_build_requires_per_ds_grant(test_client, builds_world):
     """Per-DS author can publish a build that only touches their DS.
 
-    The author owns 'create_instructions' on ds_a; the pending build
+    The author owns ``manage_instructions`` on ds_a; the pending build
     only touches ds_a; therefore _enforce_build_ds_access should pass
     and publish should succeed.
     """
@@ -186,7 +187,7 @@ def test_publish_build_requires_per_ds_grant(test_client, builds_world):
     )
     assert r_member.status_code == 403, r_member.text
 
-    # Per-DS author can publish (build touches only ds_a, they hold create_instructions on ds_a)
+    # Per-DS author can publish (build touches only ds_a, they hold manage_instructions on ds_a)
     r_author = test_client.post(
         f"/api/builds/{build_id}/publish",
         json={},
@@ -207,7 +208,7 @@ def test_publish_build_denied_when_touching_unauthorized_ds(
 
     # Admin creates an instruction tied to ds_b (sits in main once admin auto-publishes)
     # then a non-admin author writes one tied to ds_b → that build will require
-    # create_instructions on ds_b, which author does not have.
+    # manage_instructions on ds_b, which author does not have.
     inst_resp = test_client.post(
         "/api/instructions",
         json={
@@ -218,7 +219,7 @@ def test_publish_build_denied_when_touching_unauthorized_ds(
         },
         headers=_hdr(author["token"], org_id),
     )
-    # The create itself is denied at the create_instructions gate.
+    # The create itself is denied at the manage_instructions resource gate.
     assert inst_resp.status_code == 403, inst_resp.text
 
     # And as a fallback path: even if a build with ds_b instructions ended up
