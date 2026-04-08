@@ -182,6 +182,7 @@ class EntityService:
         payload: EntityCreate,
         current_user: User,
         organization: Organization,
+        force_global: bool = False,
     ) -> Entity:
         entity = Entity(
             organization_id=str(organization.id),
