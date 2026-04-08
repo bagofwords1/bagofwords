@@ -105,7 +105,7 @@ async def create_case(suite_id: str, payload: TestCaseCreate, db: AsyncSession =
     if payload.data_source_ids_json:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "data_source", payload.data_source_ids_json, "create_evals",
+            "data_source", payload.data_source_ids_json, "manage_evals",
         )
     case = await case_service.create_case(db, str(organization.id), current_user, suite_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json)
     return case
@@ -146,7 +146,7 @@ async def update_case(case_id: str, payload: TestCaseUpdate, db: AsyncSession = 
     if payload.data_source_ids_json:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "data_source", payload.data_source_ids_json, "create_evals",
+            "data_source", payload.data_source_ids_json, "manage_evals",
         )
     return await case_service.update_case(db, str(organization.id), current_user, case_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json)
 

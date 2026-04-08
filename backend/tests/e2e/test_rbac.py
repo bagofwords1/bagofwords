@@ -393,7 +393,10 @@ def test_permissions_registry_endpoint(test_client, create_user, login_user):
     data = resp.json()
     assert "categories" in data
     assert "resource_permissions" in data
-    assert "Reports" in data["categories"]
+    # Reports lives in HIDDEN_PERMISSION_CATEGORIES on purpose — the role
+    # editor UI should not render meaningless checkboxes for it. The
+    # permission strings themselves are still valid (see test_rbac_registry).
+    assert "Reports" not in data["categories"]
     assert "data_source" in data["resource_permissions"]
 
 
