@@ -217,6 +217,7 @@ interface RoleData {
     name: string
     description?: string
     permissions: string[]
+    resource_grants?: { resource_type: string; resource_id: string; permissions: string[] }[]
     is_system: boolean
     organization_id?: string
 }
@@ -468,7 +469,6 @@ const PERMISSION_LABELS: Record<string, string> = {
     // Per-resource (data source)
     view: 'View',
     view_schema: 'View schema',
-    create_instructions: 'Create instructions',
     create_entities: 'Create entities',
     manage: 'Manage settings',
 }
@@ -493,8 +493,11 @@ const filteredRoles = computed(() => {
 async function loadRoles() {
     isLoading.value = true
     try {
-        const { data } = await useMyFetch(`/organizations/${props.organization.id}/roles`)
-        if (data.value) {
+        const { data, error } = await useMyFetch(`/organizations/${props.organization.id}/roles`)
+        if (error.value) {
+            const detail = (error.value as any)?.data?.detail || 'Failed to load roles'
+            toast.add({ title: detail, color: 'red' })
+        } else if (data.value) {
             roles.value = data.value as RoleData[]
         }
     } finally {
@@ -513,7 +516,7 @@ function openCreateModal() {
     loadResources()
 }
 
-function openEditModal(role: RoleData) {
+async function openEditModal(role: RoleData) {
     editingRole.value = role
     form.name = role.name
     form.description = role.description || ''
@@ -521,7 +524,18 @@ function openEditModal(role: RoleData) {
     form.resourceGrants = []
     showOrgDetails.value = false
     showModal.value = true
-    loadResources()
+    await loadResources()
+    form.resourceGrants = (role.resource_grants || []).map((g) => {
+        const found = availableResources.value.find(
+            (r) => r.type === g.resource_type && r.id === g.resource_id
+        )
+        return {
+            resource_type: g.resource_type,
+            resource_id: g.resource_id,
+            resource_name: found ? found.label.replace(/^(Data Source|Connection): /, '') : g.resource_id,
+            permissions: [...(g.permissions || [])],
+        }
+    })
 }
 
 async function saveRole() {
@@ -531,6 +545,11 @@ async function saveRole() {
             name: form.name,
             description: form.description || null,
             permissions: isFullAdmin.value ? ['full_admin_access'] : form.permissions,
+            resource_grants: form.resourceGrants.map((g) => ({
+                resource_type: g.resource_type,
+                resource_id: g.resource_id,
+                permissions: g.permissions,
+            })),
         }
 
         if (editingRole.value) {

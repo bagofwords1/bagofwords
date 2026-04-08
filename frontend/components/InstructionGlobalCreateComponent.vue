@@ -1175,11 +1175,33 @@ const instructionForm = ref<InstructionForm>({
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
 
-// Permission-derived mode: users with only `suggest_instructions` can propose edits,
-// which flow through the build system and land as pending_approval for admin review.
-const canEditInstructions = computed(() => useCan('create_instructions') || useCan('update_instructions'))
-const canDeleteInstructions = computed(() => useCan('delete_instructions'))
-const canSuggestInstructions = computed(() => useCan('suggest_instructions'))
+// Permission-derived mode: users without manage_instructions on every targeted
+// data source propose edits, which flow through the build system and land as
+// pending_approval for admin review.
+const { selectedDomains: editorSelectedDomains, domains: editorAllDomains } = useDomain()
+const editorTargetDsIds = computed<string[]>(() => {
+    // Prefer the instruction's own data sources when editing
+    const instDs = (props.instruction as any)?.data_sources
+    if (Array.isArray(instDs) && instDs.length > 0) {
+        return instDs.map((d: any) => d.id).filter(Boolean)
+    }
+    // Otherwise use the form's selected data sources, then domain selection, then all
+    if (selectedDataSources.value && selectedDataSources.value.length > 0) {
+        return [...selectedDataSources.value]
+    }
+    if (editorSelectedDomains.value && editorSelectedDomains.value.length > 0) {
+        return [...editorSelectedDomains.value]
+    }
+    return (editorAllDomains.value || []).map((d: any) => d.id)
+})
+const canEditInstructions = computed(() => {
+    if (useCan('manage_instructions')) return true
+    const ids = editorTargetDsIds.value
+    if (ids.length === 0) return false
+    return ids.every(id => useCan('manage_instructions', { type: 'data_source', id }))
+})
+const canDeleteInstructions = canEditInstructions
+const canSuggestInstructions = computed(() => true)
 const isSuggestMode = computed(() => !canEditInstructions.value && canSuggestInstructions.value)
 
 const createdAtDisplay = computed(() => {

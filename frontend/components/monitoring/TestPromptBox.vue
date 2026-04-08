@@ -20,6 +20,7 @@
           :placeholder="placeholder"
           :rows="6"
           :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
+          :permission="permission"
         />
       </div>
     </div>
@@ -30,7 +31,7 @@
       <div class="flex items-center gap-2">
         <div class="text-[11px] text-gray-500 flex-none w-28 whitespace-nowrap">Data sources</div>
         <div class="flex-1 min-w-[460px] flex items-center min-h-[32px]">
-          <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" />
+          <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" :permission="permission" />
         </div>
       </div>
 
@@ -95,6 +96,8 @@ const props = defineProps({
   textareaContent: { type: String, default: '' },
   // Allow parent to control initial/ongoing selection for edit flows
   selectedDataSources: { type: Array, default: () => [] },
+  // Optional permission gate for the data source selector
+  permission: { type: String, default: '' },
 })
 
 const emit = defineEmits([

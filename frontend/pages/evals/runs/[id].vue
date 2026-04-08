@@ -211,7 +211,7 @@
 definePageMeta({
   auth: true,
   layout: 'default',
-  permissions: ['manage_tests']
+  permissions: ['manage_evals']
 })
 
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'

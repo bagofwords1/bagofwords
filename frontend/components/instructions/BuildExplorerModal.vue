@@ -21,6 +21,55 @@
             <div class="flex h-[600px]">
                 <!-- Left Pane: Builds List -->
                 <div class="w-56 border-r border-gray-200 flex flex-col bg-gray-50/50">
+                    <div class="px-2 py-2 border-b border-gray-200 bg-white relative" ref="dsFilterRef">
+                        <button
+                            @click="dsFilterDropdownOpen = !dsFilterDropdownOpen"
+                            class="w-full flex items-center gap-2 px-2 py-1.5 border border-gray-200 rounded-md text-xs hover:bg-gray-50 transition-colors bg-white"
+                        >
+                            <DataSourceIcon
+                                v-if="selectedDsFilter"
+                                :type="(selectedDsFilter as any).type || (selectedDsFilter as any).connections?.[0]?.type"
+                                class="h-4 flex-shrink-0"
+                            />
+                            <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            <span class="truncate flex-1 text-left font-medium text-gray-900">
+                                {{ selectedDsFilter ? (selectedDsFilter as any).name : 'All data sources' }}
+                            </span>
+                            <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 flex-shrink-0" />
+                        </button>
+                        <Transition
+                            enter-active-class="transition ease-out duration-100"
+                            enter-from-class="opacity-0 scale-95"
+                            enter-to-class="opacity-100 scale-100"
+                            leave-active-class="transition ease-in duration-75"
+                            leave-from-class="opacity-100 scale-100"
+                            leave-to-class="opacity-0 scale-95"
+                        >
+                            <div
+                                v-if="dsFilterDropdownOpen"
+                                class="absolute z-20 mt-1 left-2 right-2 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden max-h-64 overflow-y-auto"
+                            >
+                                <button
+                                    @click="dsFilterId = null; dsFilterDropdownOpen = false"
+                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-left"
+                                >
+                                    <Icon name="heroicons:funnel" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                                    <span class="truncate flex-1 font-medium">All data sources</span>
+                                    <Icon v-if="dsFilterId === null" name="heroicons:check" class="w-3 h-3 text-blue-500" />
+                                </button>
+                                <button
+                                    v-for="d in agentDomains"
+                                    :key="d.id"
+                                    @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
+                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-left border-t border-gray-100"
+                                >
+                                    <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" class="h-4 flex-shrink-0" />
+                                    <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
+                                    <Icon v-if="dsFilterId === d.id" name="heroicons:check" class="w-3 h-3 text-blue-500" />
+                                </button>
+                            </div>
+                        </Transition>
+                    </div>
                     <div class="px-3 py-2 border-b border-gray-200 bg-white">
                         <span class="text-xs font-medium text-gray-600">{{ suggestionsMode ? 'Pending' : 'Builds' }}</span>
                     </div>
@@ -662,8 +711,11 @@ import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
-import { useCan } from '~/composables/usePermissions'
+import { useCan, useCanAny } from '~/composables/usePermissions'
+import { useDomain } from '~/composables/useDomain'
+import { onClickOutside } from '@vueuse/core'
 
 interface Build {
     id: string
@@ -808,6 +860,15 @@ const publishingBuild = ref(false)
 const rejectingBuild = ref(false)
 const builds = ref<Build[]>([])
 const selectedBuild = ref<Build | null>(null)
+
+// DS filter (top of left pane). null = all data sources.
+const { domains: agentDomains } = useDomain()
+const dsFilterId = ref<string | null>(null)
+const dsFilterDropdownOpen = ref(false)
+const dsFilterRef = ref<HTMLElement | null>(null)
+const selectedDsFilter = computed(() => agentDomains.value.find(d => d.id === dsFilterId.value) || null)
+onClickOutside(dsFilterRef, () => { dsFilterDropdownOpen.value = false })
+watch(dsFilterId, () => { fetchBuilds() })
 const mainBuild = ref<Build | null>(null)  // Stored separately for diff comparison
 const instructions = ref<Instruction[]>([])
 const diffData = ref<BuildDiffDetailedResponse | null>(null)
@@ -866,7 +927,10 @@ const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
 const toast = useToast()
 
 // Permission check - use computed for reactivity
-const canCreateBuilds = computed(() => useCan('create_builds'))
+// Approve/reject/publish/rollback are allowed for users with manage_instructions
+// on at least one data source. The backend additionally enforces per-DS access
+// on every build operation via _enforce_build_ds_access.
+const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canManageTests = computed(() => useCan('manage_tests'))
 const canViewConsole = computed(() => useCan('view_console'))
 
@@ -1004,9 +1068,19 @@ const fetchBuilds = async () => {
         // Otherwise fetch all builds for the Version Explorer
         const statusParam = props.suggestionsMode ? 'pending_approval' : 'all'
         const createdByParam = props.userOnly ? '&created_by=me' : ''
-        const response = await useMyFetch<{ items: Build[], total: number }>(`/builds?limit=50&status=${statusParam}${createdByParam}`)
+        const dsParam = dsFilterId.value ? `&data_source_id=${dsFilterId.value}` : ''
+        const response = await useMyFetch<{ items: Build[], total: number }>(`/builds?limit=50&status=${statusParam}${createdByParam}${dsParam}`)
         if (response.data.value) {
             builds.value = response.data.value.items || []
+        }
+        if (!builds.value.length) {
+            selectedBuild.value = null
+            instructions.value = []
+            diffData.value = null
+        } else if (selectedBuild.value && !builds.value.find(b => b.id === selectedBuild.value!.id)) {
+            selectedBuild.value = null
+            instructions.value = []
+            diffData.value = null
         }
     } catch (e) {
         console.error('Failed to fetch builds:', e)

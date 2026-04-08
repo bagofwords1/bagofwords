@@ -77,9 +77,7 @@ for perms in HIDDEN_PERMISSION_CATEGORIES.values():
 
 RESOURCE_PERMISSIONS = {
     "data_source": [
-        "view",
-        "view_schema",
-        "create_instructions",
+        "manage_instructions",
         "create_entities",
         "manage_evals",
         "manage",
@@ -103,9 +101,7 @@ MERGED_CATEGORIES = {
 RESOURCE_SCOPED_GROUPS = {
     "data_source": {
         "Permissions": [
-            "view",
-            "view_schema",
-            "create_instructions",
+            "manage_instructions",
             "create_entities",
             "manage_evals",
             "manage",

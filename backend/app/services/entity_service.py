@@ -258,25 +258,20 @@ class EntityService:
         limit: int = 100,
     ) -> List[Entity]:
         # Get user's accessible data sources
-        from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
         from sqlalchemy import exists, and_
-        
-        accessible_ds_subquery = (
-            select(DataSource.id)
-            .filter(DataSource.organization_id == organization.id)
-            .filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
-            )
+        from app.core.permission_resolver import get_accessible_data_source_ids
+
+        is_admin, accessible_ids = await get_accessible_data_source_ids(
+            db, str(current_user.id), str(organization.id)
         )
+        accessible_ds_subquery = (
+            select(DataSource.id).filter(DataSource.organization_id == organization.id)
+        )
+        if not is_admin:
+            clauses = [DataSource.is_public == True]
+            if accessible_ids:
+                clauses.append(DataSource.id.in_(accessible_ids))
+            accessible_ds_subquery = accessible_ds_subquery.filter(or_(*clauses))
         
         # Subquery to check if entity has any inaccessible data sources
         has_inaccessible_ds = exists(
@@ -344,22 +339,12 @@ class EntityService:
         
         # Check if user has access to all data sources of this entity
         if entity.data_sources:
-            from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
-            
+            from app.core.permission_resolver import user_can_access_data_source
             for ds in entity.data_sources:
-                # Check if data source is public or user has membership
-                if not ds.is_public:
-                    has_membership = await db.execute(
-                        select(DataSourceMembership)
-                        .where(
-                            DataSourceMembership.data_source_id == ds.id,
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )
-                    if not has_membership.scalar_one_or_none():
-                        # User doesn't have access to this data source
-                        return None
+                if not await user_can_access_data_source(
+                    db, str(current_user.id), str(organization.id), ds
+                ):
+                    return None
         
         return entity
 

@@ -3,7 +3,7 @@ RBAC policy enforcement tests.
 
 Tests cover:
 - Two-tier OR logic: org-level permission grants blanket access, resource-level scopes to specific resources
-- Resource permission enforcement on data sources (query, create_instructions, create_entities, etc.)
+- Resource permission enforcement on data sources (query, manage_instructions, create_entities, etc.)
 - Enforcement gaps fixed: entity update, entity from_step, instruction update
 - Connection resource permissions (manage_data_sources)
 - Permission registry returns correct categories and resource permissions
@@ -94,7 +94,7 @@ def test_registry_data_source_resource_permissions(test_client, create_user, log
 
     expected = {
         "query", "view_schema", "view_entities", "create_entities",
-        "view_instructions", "create_instructions",
+        "manage_instructions",
         "manage", "manage_members",
     }
     assert set(ds_perms) == expected
@@ -255,13 +255,13 @@ def test_resource_grant_with_new_ds_permissions(test_client, create_user, login_
             "resource_id": fake_ds_id,
             "principal_type": "user",
             "principal_id": ctx["member_id"],
-            "permissions": ["query", "view_schema", "view_entities", "create_instructions"],
+            "permissions": ["query", "view_schema", "view_entities", "manage_instructions"],
         },
         headers=_headers(ctx["admin_token"], ctx["org_id"]),
     )
     assert resp.status_code == 200
     grant = resp.json()
-    assert set(grant["permissions"]) == {"query", "view_schema", "view_entities", "create_instructions"}
+    assert set(grant["permissions"]) == {"query", "view_schema", "view_entities", "manage_instructions"}
 
     # Cleanup
     test_client.delete(
@@ -354,7 +354,7 @@ def test_instruction_update_checks_data_source_permissions(test_client, create_u
         json={"data_source_ids": [fake_ds_id]},
         headers=_headers(ctx["member_token"], ctx["org_id"]),
     )
-    # Should be denied — member lacks both org-level and resource-level create_instructions
+    # Should be denied — member lacks both org-level and resource-level manage_instructions
     assert resp.status_code == 403
 
     # Cleanup

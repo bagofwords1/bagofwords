@@ -1825,22 +1825,23 @@ class InstructionService:
             target_data_source_ids = [ds_id.strip() for ds_id in data_source_ids.split(",") if ds_id.strip()]
         
         # Build data source access subquery once
-        data_source_access_subquery = (
-            select(DataSource.id)
-            .filter(DataSource.organization_id == organization.id)
-            .filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
-            )
+        from app.core.permission_resolver import get_accessible_data_source_ids
+        _is_admin, _accessible_ids = await get_accessible_data_source_ids(
+            db, str(current_user.id), str(organization.id)
         )
+        if _is_admin:
+            data_source_access_subquery = (
+                select(DataSource.id).filter(DataSource.organization_id == organization.id)
+            )
+        else:
+            _clauses = [DataSource.is_public == True]
+            if _accessible_ids:
+                _clauses.append(DataSource.id.in_(_accessible_ids))
+            data_source_access_subquery = (
+                select(DataSource.id)
+                .filter(DataSource.organization_id == organization.id)
+                .filter(or_(*_clauses))
+            )
         
         # Apply data source filtering to subquery
         if target_data_source_ids:
@@ -2006,23 +2007,16 @@ class InstructionService:
         organization: Organization
     ) -> List[str]:
         """Get list of data source IDs that the user has access to"""
-        # Query for data sources the user has access to (same logic as data_source_service)
-        query = (
-            select(DataSource.id)
-            .filter(DataSource.organization_id == organization.id)
-            .filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
-            )
+        from app.core.permission_resolver import get_accessible_data_source_ids
+        is_admin, accessible_ids = await get_accessible_data_source_ids(
+            db, str(current_user.id), str(organization.id)
         )
+        query = select(DataSource.id).filter(DataSource.organization_id == organization.id)
+        if not is_admin:
+            clauses = [DataSource.is_public == True]
+            if accessible_ids:
+                clauses.append(DataSource.id.in_(accessible_ids))
+            query = query.filter(or_(*clauses))
         result = await db.execute(query)
         return [row[0] for row in result.fetchall()]
 

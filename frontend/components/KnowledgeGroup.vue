@@ -163,7 +163,7 @@ const selectedIds = ref<Set<string>>(new Set())
 
 const toast = useToast()
 
-const canCreateInstructions = computed(() => useCan('create_instructions'))
+const canCreateInstructions = computed(() => useCan('manage_instructions'))
 
 const stepCount = computed(() => props.blocks.filter(b => !!b.tool_execution).length)
 

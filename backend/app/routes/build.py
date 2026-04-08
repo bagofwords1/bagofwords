@@ -32,26 +32,26 @@ async def _enforce_build_ds_access(
     user_id: str,
     org_id: str,
 ) -> None:
-    """Strict per-DS gate for build write ops: user must hold `create_instructions`
+    """Strict per-DS gate for build write ops: user must hold `manage_instructions`
     on every DS touched by the build's instructions. Admin bypass (`manage_instructions`)
     is handled inside the resolver via ORG_PERM_IMPLIES_RESOURCE.
     """
     ds_ids = await build_service.get_build_data_source_ids(db, build_id)
     if ds_ids:
         await check_resource_permissions(
-            db, user_id, org_id, "data_source", ds_ids, "create_instructions",
+            db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
         )
 
 
 # ==================== List and Get ====================
 
 @router.get("", response_model=PaginatedBuildResponse)
-@requires_permission('manage_instructions')
 async def list_builds(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = Query(None, description="Filter by status: draft | pending_approval | approved | rejected (defaults to approved)"),
     created_by: Optional[str] = Query(None, description="Filter by creator: 'me' for current user's builds only"),
+    data_source_id: Optional[str] = Query(None, description="Restrict to builds that touch this data source"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -69,7 +69,16 @@ async def list_builds(
     
     # Handle created_by filter
     created_by_user_id = current_user.id if created_by == 'me' else None
-    
+
+    # Restrict to builds touching only data sources the user can access.
+    # Org-level admins (manage_instructions / full_admin_access) bypass the
+    # filter via get_accessible_data_source_ids returning is_admin=True.
+    from app.core.permission_resolver import get_accessible_data_source_ids
+    is_admin, accessible_ds_ids = await get_accessible_data_source_ids(
+        db, str(current_user.id), str(organization.id)
+    )
+    accessible_filter = None if is_admin else accessible_ds_ids
+
     result = await build_service.list_builds(
         db=db,
         org_id=organization.id,
@@ -77,6 +86,8 @@ async def list_builds(
         skip=skip,
         limit=limit,
         created_by_user_id=created_by_user_id,
+        accessible_data_source_ids=accessible_filter,
+        data_source_id=data_source_id,
     )
     
     # Convert to list schemas
@@ -92,7 +103,6 @@ async def list_builds(
 
 
 @router.get("/main", response_model=InstructionBuildSchema)
-@requires_permission('manage_instructions')
 async def get_main_build(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -108,7 +118,6 @@ async def get_main_build(
 
 
 @router.get("/{build_id}", response_model=InstructionBuildSchema)
-@requires_permission('manage_instructions')
 async def get_build(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -128,7 +137,6 @@ async def get_build(
 
 
 @router.get("/{build_id}/contents")
-@requires_permission('manage_instructions')
 async def get_build_contents(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -308,7 +316,6 @@ async def remove_build_content(
 # ==================== Diff and Rollback ====================
 
 @router.get("/{build_id}/diff", response_model=BuildDiffSchema)
-@requires_permission('manage_instructions')
 async def diff_builds(
     build_id: str,
     compare_to: str = Query(..., description="ID of the build to compare against"),
@@ -335,7 +342,6 @@ async def diff_builds(
 
 
 @router.get("/{build_id}/diff/details", response_model=BuildDiffDetailedSchema)
-@requires_permission('manage_instructions')
 async def diff_builds_detailed(
     build_id: str,
     compare_to: str = Query(..., description="ID of the parent build to compare against"),

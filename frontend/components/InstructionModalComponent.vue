@@ -35,7 +35,7 @@
                         <div class="flex flex-col h-full overflow-y-auto min-w-0">
                             <!-- Conditional rendering based on the computed selectedInstructionType -->
                             <InstructionGlobalCreateComponent
-                                v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
+                                v-if="selectedInstructionType === 'global'"
                                 :instruction="instruction"
                                 :analyzing="isAnalyzing"
                                 :shared-form="sharedForm"
@@ -255,7 +255,7 @@ const isInViewMode = ref(true)
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
-const isReadOnly = computed(() => isEditing.value && !useCan('create_instructions'))
+const isReadOnly = computed(() => isEditing.value && !useCan('manage_instructions'))
 
 // Modal title based on current state
 const modalTitle = computed(() => {
@@ -442,7 +442,7 @@ const impactTotalCount = ref(0)
 const isLoadingImpact = ref(false)
 const isLoadingRelated = ref(false)
 
-const canCreateInstructions = computed(() => useCanAny('create_instructions', 'data_source'))
+const canCreateInstructions = computed(() => useCanAny('manage_instructions', 'data_source'))
 
 const selectedInstructionType = computed(() => {
     // Check permissions first - admins always use the global component for consistent UI
@@ -452,7 +452,7 @@ const selectedInstructionType = computed(() => {
         return 'private'
     }
 
-    // Users with create_instructions (org-wide OR on any data source) use the global component
+    // Users with manage_instructions (org-wide OR on any data source) use the global component
     if (canCreateInstructions.value) {
         return 'global'
     }
@@ -461,7 +461,7 @@ const selectedInstructionType = computed(() => {
     return 'private'
 })
 
-// Users without create_instructions default to suggestions when creating
+// Users without manage_instructions default to suggestions when creating
 const effectiveIsSuggestion = computed(() => {
     if (props.isSuggestion !== undefined) return props.isSuggestion
     return !canCreateInstructions.value
@@ -601,7 +601,7 @@ watch(instructionModalOpen, (isOpen) => {
     if (isOpen) {
         // Reset view mode state when modal opens
         isInViewMode.value = true
-        if (useCan('create_instructions')) {
+        if (useCan('manage_instructions')) {
             //isAnalyzing.value = true
             //refreshAnalysis()
         }

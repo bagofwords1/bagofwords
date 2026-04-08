@@ -42,7 +42,7 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
     Usage:
     @requires_permission("delete_reports", model=Report, owner_only=True)  # Only owner can delete
     @requires_permission("view_reports", model=Report, owner_only=True, allow_public=True)  # Owner or public
-    @requires_permission("create_instructions", resource_scoped=True)  # Defers to check_resource_permissions in route
+    @requires_permission("manage_instructions", resource_scoped=True)  # Defers to check_resource_permissions in route
     """
     def decorator(func):
         @wraps(func)
@@ -257,7 +257,7 @@ async def check_resource_permissions(
     2. Org-level `permission` held → allow on ALL resources (blanket)
     3. Per-resource grant must include `permission` for every resource_id
 
-    Admin bypasses (e.g. `manage_instructions` ⇒ all `create_instructions`)
+    Admin bypasses (e.g. `manage_instructions` ⇒ all `manage_instructions`)
     are handled inside `resolved.has_resource_permission` via the
     ORG_PERM_IMPLIES_RESOURCE map in permission_resolver.
 

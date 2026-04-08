@@ -52,10 +52,12 @@ async def _user_can_access_connection(
     db: AsyncSession, user: User, connection
 ) -> bool:
     """Non-admin accessibility check: user must have access to at least one linked data source."""
+    from app.core.permission_resolver import user_can_access_data_source
+    org_id = str(connection.organization_id) if getattr(connection, 'organization_id', None) else None
     for ds in (connection.data_sources or []):
         if getattr(ds, "is_public", False):
             return True
-        if await ds.has_membership_async(user.id, db):
+        if org_id and await user_can_access_data_source(db, str(user.id), org_id, ds):
             return True
     return False
 

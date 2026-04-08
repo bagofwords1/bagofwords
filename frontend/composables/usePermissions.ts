@@ -14,7 +14,7 @@ export const useResourcePermissions = () => {
 // Holding any of these org perms implies the corresponding per-resource perm
 // on every resource of that type.
 const ORG_PERM_IMPLIES_RESOURCE: Record<string, Record<string, string[]>> = {
-  manage_instructions: { data_source: ['create_instructions'] },
+  manage_instructions: { data_source: ['manage_instructions'] },
   manage_entities:     { data_source: ['create_entities'] },
   manage_evals:        { data_source: ['manage_evals'] },
 }
@@ -59,7 +59,7 @@ export const useCan = (permission: string, resource?: { type: string; id: string
 // Two-tier OR check: org-level permission OR has it on ANY resource of given type.
 // Use this for UI decisions like "show Create vs Suggest" where the user might
 // have the permission scoped to specific data sources rather than org-wide.
-// Usage: useCanAny('create_instructions', 'data_source')
+// Usage: useCanAny('manage_instructions', 'data_source')
 export const useCanAny = (permission: string, resourceType?: string) => {
   const permissions = usePermissions()
   const permissionsLoaded = usePermissionsLoaded()

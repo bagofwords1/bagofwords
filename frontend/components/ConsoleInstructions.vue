@@ -200,7 +200,7 @@ import BulkScopeModal from '~/components/instructions/BulkScopeModal.vue'
 import BulkLabelsModal from '~/components/instructions/BulkLabelsModal.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
-import { useCan } from '~/composables/usePermissions'
+import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useInstructions } from '~/composables/useInstructions'
 import { useDomain } from '~/composables/useDomain'
 import type { Instruction } from '~/composables/useInstructionHelpers'
@@ -264,10 +264,26 @@ const availableBuilds = ref<{ value: string; label: string; buildNumber: number;
 const loadingBuilds = ref(false)
 
 // Computed
-const canCreate = computed(() => useCan('create_instructions'))
-const canUpdateInstructions = computed(() => useCan('update_instructions'))
+// Create requires manage_instructions on EVERY selected data source.
+// If no domains are selected ("All"), require it on every available domain.
+// Falls back to org-level via useCan's implication tier.
+const { domains: allDomains } = useDomain()
+const canCreate = computed(() => {
+    // Org-wide manage short-circuits everything
+    if (useCan('manage_instructions')) return true
+
+    const targetIds = (selectedDomains.value && selectedDomains.value.length > 0)
+        ? selectedDomains.value
+        : (allDomains.value || []).map(d => d.id)
+
+    if (targetIds.length === 0) return false
+    return targetIds.every(id => useCan('manage_instructions', { type: 'data_source', id }))
+})
+const canUpdateInstructions = computed(() => useCan('manage_instructions'))
 const canViewBuilds = computed(() => useCan('view_builds'))
-const canApproveSuggestions = computed(() => useCan('create_builds'))
+// Approve/reject is allowed for users with manage_instructions on at least
+// one data source (backend list/approve/reject already enforce per-DS access).
+const canApproveSuggestions = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canModifySettings = computed(() => useCan('modify_settings'))
 const addButtonLabel = computed(() => canCreate.value ? 'Add Instruction' : 'Suggest')
 

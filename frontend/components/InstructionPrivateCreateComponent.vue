@@ -459,7 +459,7 @@ Examples:
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
-import { useCan } from '~/composables/usePermissions'
+import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useDomain } from '~/composables/useDomain'
 
 // Define interfaces
@@ -527,14 +527,14 @@ const codeView = ref(false)
 
 // Show build approval notice for non-admins creating new instructions
 // (Non-admin created builds need admin approval before being deployed)
-const isNonAdmin = computed(() => !useCan('create_instructions'))
+const isNonAdmin = computed(() => !useCanAny('manage_instructions', 'data_source'))
 const showBuildApprovalNotice = computed(() => !isEditing.value && isNonAdmin.value)
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
 
 // Read-only mode: non-admin users viewing an existing instruction
-const isReadOnly = computed(() => isEditing.value && !useCan('create_instructions'))
+const isReadOnly = computed(() => isEditing.value && !useCanAny('manage_instructions', 'data_source'))
 
 // Get file path from instruction (git path or title)
 const filePath = computed(() => {

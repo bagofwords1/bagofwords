@@ -55,9 +55,9 @@ async def visible_data_source_ids(
     )
     visible: set[str] = {str(r[0]) for r in public_result.all()}
 
-    # Plus any DS the user has an explicit `view` grant on
+    # Plus any DS the user has any grant on (any per-DS permission implies view)
     for (rtype, rid), perms in resolved.resource_permissions.items():
-        if rtype == "data_source" and "view" in perms:
+        if rtype == "data_source" and perms:
             visible.add(str(rid))
 
     return visible

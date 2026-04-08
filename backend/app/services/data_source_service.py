@@ -143,7 +143,7 @@ class DataSourceService:
             return
 
         from app.models.resource_grant import ResourceGrant
-        grant_perms = list(permissions) if permissions is not None else ["view", "view_schema"]
+        grant_perms = list(permissions) if permissions is not None else []
 
         data_source_memberships = [
             DataSourceMembership(
@@ -755,6 +755,11 @@ class DataSourceService:
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
         # Table count is fetched separately via COUNT query in _build_connections_list
+        from app.core.permission_resolver import get_accessible_data_source_ids
+        is_admin, accessible_ids = await get_accessible_data_source_ids(
+            db, str(current_user.id), str(organization.id)
+        )
+
         query = (
             select(DataSource)
             .options(
@@ -763,19 +768,12 @@ class DataSourceService:
                 selectinload(DataSource.connections),
             )
             .filter(DataSource.organization_id == organization.id)
-            .filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
-            )
         )
+        if not is_admin:
+            clauses = [DataSource.is_public == True]
+            if accessible_ids:
+                clauses.append(DataSource.id.in_(accessible_ids))
+            query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Build list with connection info (no live test for list to keep it fast)
@@ -826,18 +824,15 @@ class DataSourceService:
         
         # Apply access control if user is provided (same logic as get_data_sources)
         if current_user:
-            stmt = stmt.filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
+            from app.core.permission_resolver import get_accessible_data_source_ids
+            is_admin, accessible_ids = await get_accessible_data_source_ids(
+                db, str(current_user.id), str(organization.id)
             )
+            if not is_admin:
+                clauses = [DataSource.is_public == True]
+                if accessible_ids:
+                    clauses.append(DataSource.id.in_(accessible_ids))
+                stmt = stmt.filter(or_(*clauses))
             
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
@@ -2667,7 +2662,7 @@ class DataSourceService:
                     resource_id=data_source_id,
                     principal_type=member.principal_type,
                     principal_id=member.principal_id,
-                    permissions=["view", "view_schema"],
+                    permissions=[],
                 )
                 db.add(grant)
         except Exception:

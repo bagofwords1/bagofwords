@@ -37,7 +37,7 @@ instruction_label_service = InstructionLabelService()
 
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
-@requires_permission('create_instructions', resource_scoped=True)
+@requires_permission('manage_instructions', resource_scoped=True)
 async def create_private_instruction(
     instruction: InstructionCreate,
     current_user: User = Depends(current_user),
@@ -48,12 +48,12 @@ async def create_private_instruction(
     if instruction.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "data_source", instruction.data_source_ids, "create_instructions",
+            "data_source", instruction.data_source_ids, "manage_instructions",
         )
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=False)
 
 @router.post("/instructions/global", response_model=InstructionSchema)
-@requires_permission('create_instructions', resource_scoped=True)
+@requires_permission('manage_instructions', resource_scoped=True)
 async def create_global_instruction(
     instruction: InstructionCreate,
     current_user: User = Depends(current_user),
@@ -64,7 +64,7 @@ async def create_global_instruction(
     if instruction.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "data_source", instruction.data_source_ids, "create_instructions",
+            "data_source", instruction.data_source_ids, "manage_instructions",
         )
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
 
@@ -185,7 +185,7 @@ async def bulk_delete_instructions(
 
 # ENHANCE INSTRUCTION (kept - not part of suggestion workflow)
 @router.post("/instructions/enhance", response_model=str)
-@requires_permission('create_instructions', resource_scoped=True)
+@requires_permission('manage_instructions', resource_scoped=True)
 async def enhance_instruction(
     instruction_data: InstructionCreate,
     current_user: User = Depends(current_user),
@@ -196,7 +196,6 @@ async def enhance_instruction(
     return await instruction_service.enhance_instruction(db, instruction_data, organization, current_user)
 
 @router.get("/instructions/available-references", response_model=List[dict])
-@requires_permission('manage_instructions')
 async def get_available_references(
     q: Optional[str] = Query(None, description="search text"),
     types: Optional[str] = Query(None, description="comma-separated types: metadata_resource,datasource_table,memory"),
@@ -217,7 +216,6 @@ async def get_available_references(
 
 # UTILITY ROUTES
 @router.get("/instructions/source-types", response_model=List[dict])
-@requires_permission('manage_instructions')
 async def get_instruction_source_types(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -228,13 +226,11 @@ async def get_instruction_source_types(
 
 
 @router.get("/instructions/categories", response_model=List[str])
-@requires_permission('manage_instructions')
 async def get_instruction_categories():
     """Get all available instruction categories"""
     return [category.value for category in InstructionCategory]
 
 @router.get("/instructions/statuses", response_model=List[str])
-@requires_permission('manage_instructions')
 async def get_instruction_statuses():
     """Get all available instruction statuses"""
     return [status.value for status in InstructionStatus]
@@ -242,7 +238,6 @@ async def get_instruction_statuses():
 
 # LABEL MANAGEMENT
 @router.get("/instructions/labels", response_model=List[InstructionLabelSchema])
-@requires_permission('manage_instructions')
 async def list_instruction_labels(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -293,7 +288,6 @@ async def delete_instruction_label(
 
 
 @router.post("/instructions/analysis", response_model=InstructionAnalysisResponse)
-@requires_permission('manage_instructions')
 async def analyze_instruction_endpoint(
     body: InstructionAnalysisRequest,
     current_user: User = Depends(current_user),
@@ -311,7 +305,6 @@ async def analyze_instruction_endpoint(
 
 # STANDARD CRUD
 @router.get("/instructions/{instruction_id}", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction)
 async def get_instruction(
     instruction_id: str,
     current_user: User = Depends(current_user),
@@ -343,12 +336,12 @@ async def update_instruction(
     if existing_ds_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "create_instructions",
+            "data_source", existing_ds_ids, "manage_instructions",
         )
     if instruction.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "data_source", instruction.data_source_ids, "create_instructions",
+            "data_source", instruction.data_source_ids, "manage_instructions",
         )
     updated_instruction = await instruction_service.update_instruction(
         db, instruction_id, instruction, organization, current_user
@@ -365,7 +358,7 @@ async def delete_instruction(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Delete an instruction (admins or users with per-DS create_instructions grant)"""
+    """Delete an instruction (admins or users with per-DS manage_instructions grant)"""
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise HTTPException(status_code=404, detail="Instruction not found")
@@ -373,7 +366,7 @@ async def delete_instruction(
     if existing_ds_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "create_instructions",
+            "data_source", existing_ds_ids, "manage_instructions",
         )
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
@@ -394,7 +387,6 @@ instruction_version_service = InstructionVersionService()
 
 
 @router.get("/instructions/{instruction_id}/versions")
-@requires_permission('manage_instructions')
 async def get_instruction_versions(
     instruction_id: str,
     skip: int = Query(0, ge=0),
@@ -429,7 +421,6 @@ async def get_instruction_versions(
 
 
 @router.get("/instructions/{instruction_id}/versions/{version_id}", response_model=InstructionVersionSchema)
-@requires_permission('manage_instructions')
 async def get_instruction_version(
     instruction_id: str,
     version_id: str,

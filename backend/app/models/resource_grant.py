@@ -13,6 +13,6 @@ class ResourceGrant(BaseSchema):
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False)
     resource_type = Column(String, nullable=False)    # "data_source" | "connection"
     resource_id = Column(String(36), nullable=False)
-    principal_type = Column(String, nullable=False)   # "user" | "group"
+    principal_type = Column(String, nullable=False)   # "user" | "group" | "role"
     principal_id = Column(String(36), nullable=False)
     permissions = Column(JSON, nullable=False, default=list)  # ["query", "view_schema", "manage"]

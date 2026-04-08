@@ -195,7 +195,7 @@ const isLoading = computed(() => {
 })
 
 const canCreateInstructions = computed(() => {
-  return useCan('create_instructions')
+  return useCan('manage_instructions')
 })
 
 // Check if build is published - from data (persists on refresh) or local override (immediate feedback)

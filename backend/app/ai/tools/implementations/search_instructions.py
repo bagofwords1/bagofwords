@@ -52,7 +52,7 @@ class SearchInstructionsTool(Tool):
             max_retries=1,
             timeout_seconds=20,
             idempotent=True,
-            required_permissions=["view_instructions"],
+            required_permissions=[],
             tags=["instruction", "search", "knowledge"],
             allowed_modes=["training", "knowledge"],
             examples=[
