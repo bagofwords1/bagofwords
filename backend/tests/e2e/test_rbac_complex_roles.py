@@ -165,7 +165,6 @@ def test_analyst_role_resolution(test_client, create_user, login_user, whoami, d
 
     # Should have org-level view permissions
     assert "view_reports" in perms["permissions"]
-    assert  in perms["permissions"]
     assert "view_entities" in perms["permissions"]
     assert "view_evals" in perms["permissions"]
     assert "export_query" in perms["permissions"]
@@ -405,7 +404,6 @@ def test_role_stacking_unions_permissions(test_client, create_user, login_user, 
     assert "export_query" in perms["permissions"]
 
     # From author role
-    assert  in perms["permissions"]
     assert "manage_instructions" in perms["permissions"]
 
     # org-level manage_instructions → can create on any DS (two-tier OR)
@@ -463,7 +461,6 @@ def test_group_role_inheritance(test_client, create_user, login_user, whoami):
     perms = _get_whoami_perms(whoami, ctx["member_token"], ctx["org_id"])
     assert "view_reports" in perms["permissions"]
     assert "view_evals" in perms["permissions"]
-    assert  in perms["permissions"]
     assert "view_entities" in perms["permissions"]
 
     # Still should NOT have admin perms
