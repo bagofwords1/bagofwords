@@ -84,9 +84,8 @@ def enterprise_license(monkeypatch):
     monkeypatch.setattr(ee_license, "get_license_info", lambda force_refresh=False: fake_info)
     monkeypatch.setattr(ee_license, "is_enterprise_licensed", lambda: True)
     monkeypatch.setattr(ee_license, "has_feature", lambda feature: True)
-    # Also patch the re-exports in services / routes that imported at module load
+    # Also patch the re-exports in routes that imported at module load
     import app.routes.rbac as rbac_routes
-    import app.services.organization_service as org_service
     monkeypatch.setattr(rbac_routes, "require_enterprise", lambda feature=None: (lambda fn: fn), raising=False)
     # Clear cached instances
     ee_license._cached_license = fake_info
@@ -313,13 +312,28 @@ def grant_resource(test_client):
 
 
 @pytest.fixture
-def sqlite_data_source(create_data_source):
-    """Create a SQLite data source pointing at the bundled chinook fixture."""
+def sqlite_data_source(test_client, create_data_source):
+    """Create a SQLite data source pointing at the bundled chinook fixture.
+
+    ``is_public`` defaults to ``False`` because almost every RBAC test
+    needs a *private* DS so per-DS grants actually matter. The fixture
+    creates via the shared ``create_data_source`` fixture and then flips
+    ``is_public`` to the requested value via PUT, asserting the flip
+    succeeds so downstream tests never run against the wrong visibility
+    model.
+    """
     if not CHINOOK_PATH.exists():
         pytest.skip(f"Missing SQLite fixture at {CHINOOK_PATH}")
 
-    def _create(*, name: str, user_token: str, org_id: str, database: str = None):
-        return create_data_source(
+    def _create(
+        *,
+        name: str,
+        user_token: str,
+        org_id: str,
+        database: str = None,
+        is_public: bool = False,
+    ):
+        ds = create_data_source(
             name=name,
             type="sqlite",
             config={"database": database or str(CHINOOK_PATH)},
@@ -327,6 +341,20 @@ def sqlite_data_source(create_data_source):
             user_token=user_token,
             org_id=org_id,
         )
+        put_resp = test_client.put(
+            f"/api/data_sources/{ds['id']}",
+            json={"is_public": is_public},
+            headers={
+                "Authorization": f"Bearer {user_token}",
+                "X-Organization-Id": str(org_id),
+            },
+        )
+        assert put_resp.status_code == 200, (
+            f"failed to set is_public={is_public} on {ds['id']}: {put_resp.text}"
+        )
+        assert put_resp.json()["is_public"] is is_public, put_resp.json()
+        ds["is_public"] = is_public
+        return ds
 
     return _create
 

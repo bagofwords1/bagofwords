@@ -38,16 +38,10 @@ def ds_world(
     admin = bootstrap_admin("admin")
     org_id = admin["org_id"]
 
+    # The sqlite_data_source fixture defaults to is_public=False, asserting
+    # the flip succeeds — access here therefore requires explicit grants.
     ds_a = sqlite_data_source(name="ds_a", user_token=admin["token"], org_id=org_id)
     ds_b = sqlite_data_source(name="ds_b", user_token=admin["token"], org_id=org_id)
-
-    # Force both private so access requires explicit grants.
-    for ds in (ds_a, ds_b):
-        test_client.put(
-            f"/api/data_sources/{ds['id']}",
-            json={"is_public": False},
-            headers=_hdr(admin["token"], org_id),
-        )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     ds_a_manager = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
@@ -242,11 +236,11 @@ def test_public_data_source_visibility(
     """is_public DSes are readable by every member but writes still need manage."""
     admin = bootstrap_admin()
     org_id = admin["org_id"]
-    ds = sqlite_data_source(name="public_ds", user_token=admin["token"], org_id=org_id)
-    test_client.put(
-        f"/api/data_sources/{ds['id']}",
-        json={"is_public": True},
-        headers=_hdr(admin["token"], org_id),
+    ds = sqlite_data_source(
+        name="public_ds",
+        user_token=admin["token"],
+        org_id=org_id,
+        is_public=True,
     )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])

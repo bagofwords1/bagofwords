@@ -136,11 +136,6 @@ def test_user_resource_grant_appears_in_whoami(
     admin = bootstrap_admin()
     org_id = admin["org_id"]
     ds = sqlite_data_source(name="rp_ds", user_token=admin["token"], org_id=org_id)
-    test_client.put(
-        f"/api/data_sources/{ds['id']}",
-        json={"is_public": False},
-        headers=_hdr(admin["token"], org_id),
-    )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
@@ -248,11 +243,6 @@ def test_group_resource_grant_grants_per_ds_access(
     org_id = admin["org_id"]
 
     ds = sqlite_data_source(name="grp_ds", user_token=admin["token"], org_id=org_id)
-    test_client.put(
-        f"/api/data_sources/{ds['id']}",
-        json={"is_public": False},
-        headers=_hdr(admin["token"], org_id),
-    )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
@@ -376,11 +366,6 @@ def test_role_as_principal_resource_grant(
     org_id = admin["org_id"]
 
     ds = sqlite_data_source(name="role_grant_ds", user_token=admin["token"], org_id=org_id)
-    test_client.put(
-        f"/api/data_sources/{ds['id']}",
-        json={"is_public": False},
-        headers=_hdr(admin["token"], org_id),
-    )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
@@ -453,11 +438,6 @@ def test_role_as_principal_grant_via_group_assignment(
     org_id = admin["org_id"]
 
     ds = sqlite_data_source(name="grp_role_ds", user_token=admin["token"], org_id=org_id)
-    test_client.put(
-        f"/api/data_sources/{ds['id']}",
-        json={"is_public": False},
-        headers=_hdr(admin["token"], org_id),
-    )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 
@@ -537,11 +517,6 @@ def test_view_and_view_schema_are_implicit_on_any_grant(
     org_id = admin["org_id"]
 
     ds = sqlite_data_source(name="implicit_view_ds", user_token=admin["token"], org_id=org_id)
-    test_client.put(
-        f"/api/data_sources/{ds['id']}",
-        json={"is_public": False},
-        headers=_hdr(admin["token"], org_id),
-    )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
 

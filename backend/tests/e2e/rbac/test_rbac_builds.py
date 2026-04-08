@@ -35,15 +35,9 @@ def builds_world(
     admin = bootstrap_admin("admin")
     org_id = admin["org_id"]
 
+    # sqlite_data_source defaults to is_public=False and asserts the flip.
     ds_a = sqlite_data_source(name="b_ds_a", user_token=admin["token"], org_id=org_id)
     ds_b = sqlite_data_source(name="b_ds_b", user_token=admin["token"], org_id=org_id)
-
-    for ds in (ds_a, ds_b):
-        test_client.put(
-            f"/api/data_sources/{ds['id']}",
-            json={"is_public": False},
-            headers=_hdr(admin["token"], org_id),
-        )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     ds_a_author = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
@@ -147,8 +141,11 @@ def test_list_builds_status_filter(test_client, builds_world):
     body = pending.json()
     assert "items" in body and "total" in body
     assert body["total"] >= 1
-    # Make sure the count matches what's in the items list (modal parity)
-    assert body["total"] == sum(1 for _ in body["items"]) or body["total"] >= len(body["items"])
+    # Paginated response: ``total`` is the full match count, ``items`` is
+    # the current page, so items must fit inside total. We also expect at
+    # least one item to come back since total >= 1.
+    assert len(body["items"]) <= body["total"]
+    assert len(body["items"]) >= 1
 
     approved = test_client.get(
         "/api/builds",

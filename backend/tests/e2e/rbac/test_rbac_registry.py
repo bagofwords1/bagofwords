@@ -349,6 +349,7 @@ def test_registry_hides_reports_category(test_client, create_user, login_user):
         "/api/permissions/registry",
         headers={"Authorization": f"Bearer {token}"},
     )
+    assert resp.status_code == 200, resp.text
     data = resp.json()
     assert "Reports" not in data["categories"], (
         "Reports should not appear in the visible categories response; it is "

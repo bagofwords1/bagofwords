@@ -28,16 +28,9 @@ def ins_world(
     admin = bootstrap_admin("admin")
     org_id = admin["org_id"]
 
+    # sqlite_data_source defaults to is_public=False, asserts the flip.
     ds_a = sqlite_data_source(name="ins_ds_a", user_token=admin["token"], org_id=org_id)
     ds_b = sqlite_data_source(name="ins_ds_b", user_token=admin["token"], org_id=org_id)
-
-    # Force private so create_instructions only works via per-DS grant.
-    for ds in (ds_a, ds_b):
-        test_client.put(
-            f"/api/data_sources/{ds['id']}",
-            json={"is_public": False},
-            headers=_hdr(admin["token"], org_id),
-        )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     ds_a_author = invite_user_to_org(org_id=org_id, admin_token=admin["token"])

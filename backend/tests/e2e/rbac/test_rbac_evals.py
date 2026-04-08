@@ -32,15 +32,9 @@ def evals_world(
     admin = bootstrap_admin("admin")
     org_id = admin["org_id"]
 
+    # sqlite_data_source defaults to is_public=False and asserts the flip.
     ds_a = sqlite_data_source(name="ev_ds_a", user_token=admin["token"], org_id=org_id)
     ds_b = sqlite_data_source(name="ev_ds_b", user_token=admin["token"], org_id=org_id)
-
-    for ds in (ds_a, ds_b):
-        test_client.put(
-            f"/api/data_sources/{ds['id']}",
-            json={"is_public": False},
-            headers=_hdr(admin["token"], org_id),
-        )
 
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     ds_a_evaluator = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
