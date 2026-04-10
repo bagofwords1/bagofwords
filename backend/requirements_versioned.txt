@@ -97,6 +97,7 @@ openpyxl==3.1.5
 ordered-set==4.1.0
 orjson==3.10.12
 packaging==24.0
+pathspec==1.0.4
 pandas==2.2.2
 parso==0.8.3
 partialjson==0.0.8
