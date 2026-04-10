@@ -69,8 +69,8 @@ def test_create_instruction_matrix(test_client, ins_world):
     """Validate the create matrix in one shot.
 
     admin            → can create on ds_a, ds_b, and global (no ds)
-    ds_a_author      → can create on ds_a, denied on ds_b, allowed without ds (resource_scoped)
-    member           → denied with any ds, allowed with no ds (resource_scoped)
+    ds_a_author      → can create on ds_a, denied on ds_b, allowed without ds (has grant)
+    member           → denied everywhere (no manage_instructions grant at all)
     """
     org_id = ins_world["org_id"]
     ds_a_id = ins_world["ds_a"]["id"]
@@ -86,7 +86,7 @@ def test_create_instruction_matrix(test_client, ins_world):
         ("ds_a_author", [], 200),
         ("member", [ds_a_id], 403),
         ("member", [ds_b_id], 403),
-        ("member", [], 200),
+        ("member", [], 403),
     ]
 
     failures = []
