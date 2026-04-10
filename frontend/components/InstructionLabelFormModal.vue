@@ -152,9 +152,9 @@ const isOpen = computed({
 const editingLabelId = computed(() => props.label?.id || null)
 const title = computed(() => editingLabelId.value ? 'Edit Label' : 'New Label')
 
-const canCreate = computed(() => permissionsLoaded.value && useCan('create_instructions'))
-const canEdit = computed(() => permissionsLoaded.value && useCan('update_instructions'))
-const canDelete = computed(() => permissionsLoaded.value && useCan('delete_instructions'))
+const canCreate = computed(() => permissionsLoaded.value && useCan('manage_instructions'))
+const canEdit = computed(() => permissionsLoaded.value && useCan('manage_instructions'))
+const canDelete = computed(() => permissionsLoaded.value && useCan('manage_instructions'))
 
 const canSubmit = computed(() => {
     const hasPermission = editingLabelId.value ? canEdit.value : canCreate.value

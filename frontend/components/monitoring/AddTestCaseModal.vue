@@ -57,6 +57,7 @@
                         <TestPromptBox
                             :textareaContent="promptText"
                             :selectedDataSources="testSelectedDataSources"
+                            permission="manage_evals"
                             @update:modelValue="(v:string) => promptText = v"
                             @update:selectedDataSources="(v:any[]) => testSelectedDataSources = v"
                             @update:selectedModelId="(v:string) => testSelectedModelId = v"

@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
 
+import pathspec
+
 logger = logging.getLogger(__name__)
 
 # Extensions we index
@@ -132,6 +134,9 @@ def walk_repo_files(
     # Detect dbt project
     is_dbt_project = (repo_root / 'dbt_project.yml').is_file()
 
+    # Load .bowignore patterns (if present)
+    bowignore_spec = _load_bowignore(repo_root)
+
     files: List[GitFileInfo] = []
 
     for dirpath, dirnames, filenames in os.walk(repo_root):
@@ -146,6 +151,11 @@ def walk_repo_files(
             ext = fpath.suffix.lower()
 
             if ext not in ALLOWED_EXTENSIONS:
+                continue
+
+            # .bowignore check (before expensive I/O)
+            rel = fpath.relative_to(repo_root)
+            if bowignore_spec and bowignore_spec.match_file(rel.as_posix()):
                 continue
 
             # Size guard
@@ -163,7 +173,6 @@ def walk_repo_files(
 
             content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
 
-            rel = fpath.relative_to(repo_root)
             prefixed_path = f"{repo_name}/{rel.as_posix()}"
 
             resource_type = classify_file(ext, content, is_dbt_project)
@@ -182,6 +191,19 @@ def walk_repo_files(
         f"(dbt_project={is_dbt_project})"
     )
     return files
+
+
+def _load_bowignore(repo_root: Path) -> Optional[pathspec.PathSpec]:
+    """Load .bowignore from the repo root, returning a PathSpec or None."""
+    bowignore_path = repo_root / ".bowignore"
+    if not bowignore_path.is_file():
+        return None
+    try:
+        lines = bowignore_path.read_text(encoding="utf-8").splitlines()
+        return pathspec.PathSpec.from_lines("gitignore", lines)
+    except Exception as e:
+        logger.warning(f"Failed to parse .bowignore: {e}")
+        return None
 
 
 def _read_file(path: Path) -> Optional[str]:

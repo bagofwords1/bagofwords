@@ -266,7 +266,7 @@
 definePageMeta({
     auth: true,
     layout: 'default',
-    permissions: ['manage_tests']
+    permissions: ['manage_evals']
 })
 
 interface TestMetrics {

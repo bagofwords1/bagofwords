@@ -6,12 +6,14 @@ from fastapi import APIRouter
 from app.ee.license import get_license_info, LicenseInfo
 from app.ee.audit.routes import router as audit_router
 from app.ee.scim.routes import scim_admin_router
+from app.ee.ldap.routes import ldap_admin_router
 
 router = APIRouter(tags=["enterprise"])
 
 # Include sub-routers
 router.include_router(audit_router)
 router.include_router(scim_admin_router)
+router.include_router(ldap_admin_router)
 
 
 @router.get("/license", response_model=LicenseInfo)

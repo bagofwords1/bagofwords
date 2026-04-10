@@ -143,24 +143,12 @@ class DescribeEntityTool(Tool):
             # No data sources attached - access granted
             return True, ""
 
-        from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+        from app.core.permission_resolver import user_can_access_data_source
 
         inaccessible_ds: List[str] = []
-
+        org_id = str(entity.organization_id)
         for ds in entity.data_sources:
-            # Check if data source is public
-            if ds.is_public:
-                continue
-
-            # Check if user has explicit membership
-            membership_result = await db.execute(
-                select(DataSourceMembership).where(
-                    DataSourceMembership.data_source_id == ds.id,
-                    DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                    DataSourceMembership.principal_id == user.id,
-                )
-            )
-            if not membership_result.scalar_one_or_none():
+            if not await user_can_access_data_source(db, str(user.id), org_id, ds):
                 inaccessible_ds.append(ds.name or str(ds.id))
 
         if inaccessible_ds:

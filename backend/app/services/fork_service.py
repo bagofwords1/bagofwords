@@ -91,10 +91,13 @@ class ForkService:
                     return ForkEligibility(False, "user_auth_required")
 
         # Check user has access to all data sources
+        from app.core.permission_resolver import user_can_access_data_source
         for ds in report.data_sources:
             if ds.is_public:
                 continue
-            if not ds.has_membership(str(user.id)):
+            if not await user_can_access_data_source(
+                db, str(user.id), str(ds.organization_id), ds
+            ):
                 return ForkEligibility(False, "no_data_source_access")
 
         return ForkEligibility(True)

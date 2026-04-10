@@ -27,7 +27,7 @@ router = APIRouter(tags=["console"])
 console_service = ConsoleService()
 
 @router.get("/console/metrics", response_model=SimpleMetrics)
-@requires_permission('view_organization_overview')
+@requires_permission('manage_settings')
 async def get_console_metrics(
     params: MetricsQueryParams = Depends(),
     db: AsyncSession = Depends(get_async_db),
@@ -38,7 +38,7 @@ async def get_console_metrics(
     return await console_service.get_organization_metrics(db, organization, params)
 
 @router.get("/console/metrics/comparison", response_model=MetricsComparison)
-@requires_permission('view_organization_overview')
+@requires_permission('manage_settings')
 async def get_console_metrics_comparison(
     params: MetricsQueryParams = Depends(),
     db: AsyncSession = Depends(get_async_db),
@@ -49,7 +49,7 @@ async def get_console_metrics_comparison(
     return await console_service.get_metrics_with_comparison(db, organization, params)
 
 @router.get("/console/recent-widgets")
-@requires_permission('view_organization_overview')
+@requires_permission('manage_settings')
 async def get_recent_widgets(
     offset: int = 0,
     limit: int = 10,
@@ -61,7 +61,7 @@ async def get_recent_widgets(
     return await console_service.get_recent_widgets(db, organization, current_user, offset, limit)
 
 @router.get("/console/metrics/timeseries", response_model=TimeSeriesMetrics)
-@requires_permission('view_organization_overview')
+@requires_permission('manage_settings')
 async def get_timeseries_metrics(
     params: MetricsQueryParams = Depends(),
     db: AsyncSession = Depends(get_async_db),
@@ -72,7 +72,7 @@ async def get_timeseries_metrics(
     return await console_service.get_timeseries_metrics(db, organization, params)
 
 @router.get("/console/metrics/table-usage", response_model=TableUsageMetrics)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_table_usage(
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),
@@ -83,7 +83,7 @@ async def get_table_usage(
     return await console_service.get_table_usage_metrics(db, organization, params)
 
 @router.get("/console/metrics/table-joins-heatmap", response_model=TableJoinsHeatmap)
-@requires_permission("view_organization_overview") 
+@requires_permission("manage_settings") 
 async def get_table_joins_heatmap(
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),
@@ -94,7 +94,7 @@ async def get_table_joins_heatmap(
     return await console_service.get_table_joins_heatmap(db, organization, params)
 
 @router.get("/console/metrics/top-users", response_model=TopUsersMetrics)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_top_users(
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),
@@ -105,7 +105,7 @@ async def get_top_users(
     return await console_service.get_top_users_metrics(db, organization, params)
 
 @router.get("/console/metrics/tool-usage", response_model=ToolUsageMetrics)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_tool_usage(
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),
@@ -116,7 +116,7 @@ async def get_tool_usage(
     return await console_service.get_tool_usage_metrics(db, organization, params)
 
 @router.get("/console/metrics/llm-usage", response_model=LLMUsageMetrics)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_llm_usage(
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),
@@ -127,7 +127,7 @@ async def get_llm_usage(
     return await console_service.get_llm_usage_metrics(db, organization, params)
 
 @router.get("/console/metrics/recent-negative-feedback", response_model=RecentNegativeFeedbackMetrics)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_recent_negative_feedback(
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),
@@ -141,7 +141,7 @@ async def get_recent_negative_feedback(
 
 
 @router.get("/console/trace/{report_id}/{completion_id}", response_model=TraceData)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_trace_data(
     report_id: str,
     completion_id: str,
@@ -153,7 +153,7 @@ async def get_trace_data(
     return await console_service.get_trace_data(db, organization, report_id, completion_id)
 
 @router.get("/console/issues/compact", response_model=CompactIssuesResponse)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_compact_issues(
     params: MetricsQueryParams = Depends(),
     page: int = 1,
@@ -168,7 +168,7 @@ async def get_compact_issues(
 
 
 @router.get("/console/agent_executions/summaries", response_model=AgentExecutionSummariesResponse)
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_agent_execution_summaries(
     params: MetricsQueryParams = Depends(),
     page: int = 1,
@@ -182,7 +182,7 @@ async def get_agent_execution_summaries(
     return await console_service.get_agent_execution_summaries(db, organization, params, page, page_size, filter)
 
 @router.get("/console/diagnosis/metrics")
-@requires_permission("view_organization_overview")
+@requires_permission("manage_settings")
 async def get_diagnosis_dashboard_metrics(
     params: MetricsQueryParams = Depends(),
     organization: Organization = Depends(get_current_organization),

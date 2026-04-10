@@ -41,56 +41,8 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 14.00
     },
     {
-        "name": "GPT-5.1",
-        "model_id": "gpt-5.1",
-        "provider_type": "openai",
-        "is_preset": True,
-        "is_enabled": False,
-        "is_default": False,
-        "supports_vision": True,
-        "context_window_tokens": 400000,
-        "input_cost_per_million_tokens_usd": 1.25,
-        "output_cost_per_million_tokens_usd": 10.00
-    },
-    {
-        "name": "GPT-5",
-        "model_id": "gpt-5",
-        "provider_type": "openai",
-        "is_preset": True,
-        "is_enabled": False,
-        "is_default": False,
-        "supports_vision": True,
-        "context_window_tokens": 400000,
-        "input_cost_per_million_tokens_usd": 1.25,
-        "output_cost_per_million_tokens_usd": 10.00
-    },
-    {
-        "name": "GPT-4.1",
-        "model_id": "gpt-4.1",
-        "provider_type": "openai",
-        "is_preset": True,
-        "is_enabled": False,
-        "is_default": False,
-        "supports_vision": True,
-        "context_window_tokens": 1047576,
-        "input_cost_per_million_tokens_usd": 2.00,
-        "output_cost_per_million_tokens_usd": 8.00
-    },
-    {
-        "name": "GPT-4.1 Mini",
-        "model_id": "gpt-4.1-mini",
-        "provider_type": "openai",
-        "is_preset": True,
-        "is_enabled": False,
-        "is_default": False,
-        "supports_vision": True,
-        "context_window_tokens": 1047576,
-        "input_cost_per_million_tokens_usd": 0.40,
-        "output_cost_per_million_tokens_usd": 1.60
-    },
-    {
-        "name": "Claude 4.5 Sonnet",
-        "model_id": "claude-sonnet-4-5-20250929",
+        "name": "Claude 4.6 Sonnet",
+        "model_id": "claude-sonnet-4-6",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
@@ -100,17 +52,30 @@ LLM_MODEL_DETAILS = [
         "input_cost_per_million_tokens_usd": 3.00,
         "output_cost_per_million_tokens_usd": 15.00
     },
+  
     {
         "name": "Claude 4.6 Opus",
         "model_id": "claude-opus-4-6",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 5.00,
         "output_cost_per_million_tokens_usd": 25.00
+    },
+  {
+        "name": "Claude 4.5 Sonnet",
+        "model_id": "claude-sonnet-4-5-20250929",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 3.00,
+        "output_cost_per_million_tokens_usd": 15.00
     },
     {
         "name": "Claude 4.5 Opus",

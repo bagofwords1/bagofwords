@@ -227,7 +227,7 @@ const fetchedInstruction = ref<any>(null)
 const previousText = ref<string | null>(null)
 
 const canCreateInstructions = computed(() => {
-  return useCan('create_instructions')
+  return useCan('manage_instructions')
 })
 
 const status = computed<string>(() => props.toolExecution?.status || '')

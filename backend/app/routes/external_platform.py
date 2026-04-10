@@ -15,6 +15,7 @@ from app.schemas.external_platform_schema import (
     ExternalPlatformSchema,
     SlackConfig,
     TeamsConfig,
+    WhatsAppConfig,
 )
 from app.models.external_platform import ExternalPlatform
 from app.ee.audit.service import audit_service
@@ -23,7 +24,7 @@ router = APIRouter(tags=["organization_settings"])
 external_platform_service = ExternalPlatformService()
 
 @router.get("/settings/integrations", response_model=List[ExternalPlatformSchema])
-@requires_permission('view_organization_settings')
+@requires_permission('manage_settings')
 async def get_integrations(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
@@ -33,7 +34,7 @@ async def get_integrations(
     return await external_platform_service.get_platforms(db, organization)
 
 @router.get("/settings/integrations/{platform_id}", response_model=ExternalPlatformSchema)
-@requires_permission('view_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def get_integration(
     platform_id: str,
     current_user: User = Depends(current_user),
@@ -47,7 +48,7 @@ async def get_integration(
     return ExternalPlatformSchema.from_orm(platform)
 
 @router.put("/settings/integrations/{platform_id}", response_model=ExternalPlatformSchema)
-@requires_permission('manage_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def update_integration(
     platform_id: str,
     platform_data: ExternalPlatformUpdate,
@@ -61,7 +62,7 @@ async def update_integration(
     )
 
 @router.delete("/settings/integrations/{platform_id}")
-@requires_permission('manage_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def delete_integration(
     platform_id: str,
     request: Request,
@@ -88,7 +89,7 @@ async def delete_integration(
     return result
 
 @router.post("/settings/integrations/{platform_id}/test", response_model=dict)
-@requires_permission('view_organization_settings', model=ExternalPlatform)
+@requires_permission('manage_settings', model=ExternalPlatform)
 async def test_integration(
     platform_id: str,
     current_user: User = Depends(current_user),
@@ -101,7 +102,7 @@ async def test_integration(
     )
 
 @router.post("/settings/integrations/slack", response_model=ExternalPlatformSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def create_slack_integration(
     data: SlackConfig,
     request: Request,
@@ -128,8 +129,43 @@ async def create_slack_integration(
         pass
     return result
 
+@router.post("/settings/integrations/whatsapp", response_model=ExternalPlatformSchema)
+@requires_permission('manage_settings')
+async def create_whatsapp_integration(
+    data: WhatsAppConfig,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Create a new WhatsApp integration"""
+    result = await external_platform_service.create_whatsapp_platform(
+        db,
+        organization,
+        data.access_token,
+        data.phone_number_id,
+        data.waba_id,
+        data.app_secret,
+        data.verify_token,
+        current_user,
+    )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.created",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=result.id if hasattr(result, "id") else None,
+            details={"type": "whatsapp"},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
+
 @router.post("/settings/integrations/teams", response_model=ExternalPlatformSchema)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def create_teams_integration(
     data: TeamsConfig,
     request: Request,

@@ -52,11 +52,12 @@ class InstructionContextBuilder:
     # Default max instructions in context
     DEFAULT_MAX_INSTRUCTIONS = 50
 
-    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
         self.organization_settings = organization_settings
+        self.data_source_ids = data_source_ids
     
     def _get_max_instructions(self) -> int:
         """Get max instructions limit from org settings or default."""
@@ -132,6 +133,10 @@ class InstructionContextBuilder:
         """
         stmt = (
             select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.labels),
+            )
             .where(
                 and_(
                     Instruction.status == "published",
@@ -151,11 +156,20 @@ class InstructionContextBuilder:
         elif category is not None:
             stmt = stmt.where(Instruction.category == category)
 
-        # TODO: Add data source filtering when needed
-        # For now, return all 'always' instructions
-
         result = await self.db.execute(stmt)
-        return result.scalars().all()
+        instructions = result.scalars().all()
+
+        # Filter by data sources: include global instructions (no data sources assigned)
+        # and instructions associated with the specified data sources
+        if data_source_ids is not None:
+            filtered = []
+            for inst in instructions:
+                inst_ds_ids = {str(ds.id) for ds in inst.data_sources} if inst.data_sources else set()
+                if not inst_ds_ids or inst_ds_ids.intersection(data_source_ids):
+                    filtered.append(inst)
+            return filtered
+
+        return instructions
 
     async def load_instructions_by_ids(
         self,
@@ -164,7 +178,7 @@ class InstructionContextBuilder:
         load_mode_filter: Optional[str] = "intelligent",
     ) -> List[InstructionItem]:
         """
-        Load instructions by their IDs, optionally filtering by load_mode.
+        Load instructions by their IDs, only if they exist in the active build.
 
         Parameters
         ----------
@@ -182,8 +196,100 @@ class InstructionContextBuilder:
         if not instruction_ids:
             return []
 
+        # Only load instructions that exist in the main build
+        build_result = await self.db.execute(
+            select(InstructionBuild).where(
+                and_(
+                    InstructionBuild.organization_id == self.organization.id,
+                    InstructionBuild.is_main == True,
+                    InstructionBuild.deleted_at == None,
+                )
+            )
+        )
+        build = build_result.scalar_one_or_none()
+        if not build:
+            # No build exists — fall back to direct query
+            return await self._load_instructions_by_ids_direct(instruction_ids, load_mode_filter=load_mode_filter)
+
+        # Load via build contents — only instructions present in the build
+        contents_result = await self.db.execute(
+            select(BuildContent)
+            .options(
+                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                selectinload(BuildContent.instruction).selectinload(Instruction.labels),
+                selectinload(BuildContent.instruction_version),
+            )
+            .where(
+                and_(
+                    BuildContent.build_id == build.id,
+                    BuildContent.instruction_id.in_(instruction_ids),
+                )
+            )
+        )
+        contents = contents_result.scalars().all()
+        if not contents:
+            return []
+
+        # Filter and build items
+        all_ids = []
+        valid_entries = []
+        for content in contents:
+            instruction = content.instruction
+            version = content.instruction_version
+            if not instruction or not version:
+                continue
+            if instruction.status != "published":
+                continue
+            if version.load_mode == "disabled":
+                continue
+            if load_mode_filter and version.load_mode != load_mode_filter:
+                continue
+            # Apply data source filtering
+            if self.data_source_ids is not None:
+                inst_ds_ids = {str(ds.id) for ds in instruction.data_sources} if instruction.data_sources else set()
+                if inst_ds_ids and not inst_ds_ids.intersection(self.data_source_ids):
+                    continue
+            all_ids.append(str(instruction.id))
+            valid_entries.append((content, instruction, version, build))
+
+        if not valid_entries:
+            return []
+
+        usage_counts = await self._batch_load_usage_counts(all_ids)
+        items: List[InstructionItem] = []
+        for content, instruction, version, bld in valid_entries:
+            inst_id = str(instruction.id)
+            items.append(InstructionItem(
+                id=inst_id,
+                category=instruction.category,
+                text=version.text or "",
+                load_mode=version.load_mode or "intelligent",
+                load_reason="table_reference",
+                source_type=instruction.source_type,
+                title=version.title,
+                labels=self._extract_labels(instruction),
+                usage_count=usage_counts.get(inst_id),
+                version_id=str(version.id),
+                version_number=version.version_number,
+                content_hash=version.content_hash,
+                build_number=bld.build_number,
+            ))
+
+        return items
+
+    async def _load_instructions_by_ids_direct(
+        self,
+        instruction_ids: List[str],
+        *,
+        load_mode_filter: Optional[str] = None,
+    ) -> List[InstructionItem]:
+        """Fallback: load instructions directly when no build exists."""
         stmt = (
             select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.labels),
+            )
             .where(
                 and_(
                     Instruction.id.in_(instruction_ids),
@@ -193,22 +299,23 @@ class InstructionContextBuilder:
                 )
             )
         )
-
         if load_mode_filter:
             stmt = stmt.where(Instruction.load_mode == load_mode_filter)
 
         result = await self.db.execute(stmt)
         instructions = result.scalars().all()
-
         if not instructions:
             return []
 
-        # Batch load usage counts
         all_ids = [str(inst.id) for inst in instructions]
         usage_counts = await self._batch_load_usage_counts(all_ids)
 
         items: List[InstructionItem] = []
         for inst in instructions:
+            if self.data_source_ids is not None:
+                inst_ds_ids = {str(ds.id) for ds in inst.data_sources} if inst.data_sources else set()
+                if inst_ds_ids and not inst_ds_ids.intersection(self.data_source_ids):
+                    continue
             inst_id = str(inst.id)
             items.append(InstructionItem(
                 id=inst_id,
@@ -263,6 +370,9 @@ class InstructionContextBuilder:
         # Load all intelligent instructions
         stmt = (
             select(Instruction)
+            .options(
+                selectinload(Instruction.data_sources),
+            )
             .where(
                 and_(
                     Instruction.status == "published",
@@ -281,7 +391,14 @@ class InstructionContextBuilder:
 
         result = await self.db.execute(stmt)
         all_instructions = result.scalars().all()
-        
+
+        # Filter by data sources
+        if data_source_ids is not None:
+            all_instructions = [
+                inst for inst in all_instructions
+                if not inst.data_sources or {str(ds.id) for ds in inst.data_sources}.intersection(data_source_ids)
+            ]
+
         # Score and filter by keyword match (or include all if no keywords)
         scored: List[Tuple[Instruction, float]] = []
         for instruction in all_instructions:
@@ -339,12 +456,15 @@ class InstructionContextBuilder:
             Instructions section with proper load_mode and load_reason tracking.
         """
         max_instructions = self._get_max_instructions()
+        # Use explicitly passed data_source_ids, or fall back to builder default
+        effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
 
         # Try to load from build if build_id is provided or main build exists
         build_items = await self._load_from_build(
             build_id=build_id,
             query=query or "",
             max_instructions=max_instructions,
+            data_source_ids=effective_ds_ids,
         )
 
         if build_items is not None:
@@ -354,7 +474,7 @@ class InstructionContextBuilder:
         # Fallback to legacy behavior (direct instruction query)
         return await self._build_legacy(
             query=query,
-            data_source_ids=data_source_ids,
+            data_source_ids=effective_ds_ids,
             category=category,
             categories=categories,
             max_instructions=max_instructions,
@@ -365,6 +485,7 @@ class InstructionContextBuilder:
         build_id: Optional[str] = None,
         query: str = "",
         max_instructions: int = 50,
+        data_source_ids: Optional[List[str]] = None,
     ) -> Optional[List[InstructionItem]]:
         """
         Load instructions from a specific build or the main build.
@@ -409,7 +530,8 @@ class InstructionContextBuilder:
         contents_result = await self.db.execute(
             select(BuildContent)
             .options(
-                selectinload(BuildContent.instruction),
+                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                 selectinload(BuildContent.instruction_version),
             )
             .where(BuildContent.build_id == build.id)
@@ -435,7 +557,14 @@ class InstructionContextBuilder:
                 continue
             if version.load_mode == "disabled":
                 continue
-            
+
+            # Filter by data sources: include global instructions (no data sources)
+            # and instructions associated with the report's data sources
+            if data_source_ids is not None:
+                inst_ds_ids = {str(ds.id) for ds in instruction.data_sources} if instruction.data_sources else set()
+                if inst_ds_ids and not inst_ds_ids.intersection(data_source_ids):
+                    continue
+
             # Categorize by load_mode
             if version.load_mode == "intelligent":
                 intelligent_contents.append((content, instruction, version))
@@ -663,7 +792,8 @@ class InstructionContextBuilder:
             contents_result = await self.db.execute(
                 select(BuildContent)
                 .options(
-                    selectinload(BuildContent.instruction),
+                    selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                    selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                     selectinload(BuildContent.instruction_version),
                 )
                 .where(

@@ -4,9 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 from functools import wraps
 from inspect import signature
-from app.models.membership import Membership, ROLES_PERMISSIONS
+from app.models.membership import Membership
 from app.models.instruction import Instruction
 from app.settings.config import settings
+from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 
 _perm_logger = _logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ async def _audit_access_denied(db, user, organization, permission: str, endpoint
         _perm_logger.debug("_audit_access_denied failed", exc_info=True)
 
 
-def requires_permission(permission, model=None, owner_only=False, allow_public=False):
+def requires_permission(permission, model=None, owner_only=False, allow_public=False, resource_scoped=False):
     """
     Enhanced decorator that checks:
     1. User has sufficient role-based permission
@@ -35,11 +36,13 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
     3. If model is provided, checks if object belongs to organization
     4. If owner_only=True, checks if user is the owner of the object
     5. If allow_public=True, allows access to published reports even for non-owners
-    
+    6. If resource_scoped=True, skips denial when user lacks org-level permission —
+       the route body must call check_resource_permissions() to enforce per-resource access
+
     Usage:
     @requires_permission("delete_reports", model=Report, owner_only=True)  # Only owner can delete
     @requires_permission("view_reports", model=Report, owner_only=True, allow_public=True)  # Owner or public
-    @requires_permission("create:project")  # For general permission checks
+    @requires_permission("manage_instructions", resource_scoped=True)  # Defers to check_resource_permissions in route
     """
     def decorator(func):
         @wraps(func)
@@ -110,8 +113,13 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     else:
                         raise HTTPException(status_code=500, detail="Object does not support ownership checks")
 
-            # Check role-based permission, with special-case for Instruction owner updates on unpublished
-            has_role_permission = permission in ROLES_PERMISSIONS.get(membership.role, set())
+            # Check role-based permission via RBAC resolver
+            # `permission` may be a single string or a list/tuple (ANY-of semantics)
+            resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+            if isinstance(permission, (list, tuple, set)):
+                has_role_permission = any(resolved.has_org_permission(p) for p in permission)
+            else:
+                has_role_permission = resolved.has_org_permission(permission)
             if not has_role_permission:
                 # Special owner allowance: Instruction owner may modify/delete when not published
                 if isinstance(obj, Instruction):
@@ -121,6 +129,19 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     if not_approved and (is_owner or is_ai_orphan):
                         # allow without role permission
                         return await func(*args, **kwargs)
+                # resource_scoped: the user lacks org-level permission, but may
+                # hold a per-resource grant. Verify they have the permission on
+                # at least one resource before deferring the specific-resource
+                # check to the route body. This blocks users who have zero
+                # grants from creating resources with empty data_source_ids.
+                if resource_scoped:
+                    perm_to_check = permission if isinstance(permission, str) else list(permission)[0]
+                    has_any_resource = any(
+                        perm_to_check in perms
+                        for perms in resolved.resource_permissions.values()
+                    )
+                    if has_any_resource:
+                        return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="Permission denied")
 
@@ -129,24 +150,40 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
     return decorator
 
 
-def requires_data_source_access(permission, allow_public=False, membership_required=False):
+
+# Map resource_type to the route parameter name holding the resource ID.
+# Extend when new resource types land (post-MVP: connection, report).
+_RESOURCE_PARAM_MAP = {
+    "data_source": "data_source_id",
+}
+
+
+def requires_resource_permission(resource_type: str, permission: str):
     """
-    Data source specific permission decorator that checks:
-    1. User has sufficient role-based permission in the organization
-    2. User belongs to the organization 
-    3. Data source belongs to organization
-    4. If allow_public=True, allows access to public data sources
-    5. If membership_required=True, requires explicit membership for non-public data sources
-    
+    Decorator for resource-level permission checks.
+
+    MVP logic (two-tier OR, mirrors check_resource_permissions):
+    1. full_admin_access wildcard → allow
+    2. Org-level `permission` held → allow (blanket)
+    3. Per-resource grant for (resource_type, resource_id, permission) → allow
+    4. Otherwise → 403
+
+    Resource ID is pulled from the route path parameter named in _RESOURCE_PARAM_MAP.
+    If the resource_type has no mapping, raises at decoration time.
+
     Usage:
-    @requires_data_source_access("view_data_sources", allow_public=True)  # Can view public or member data sources
-    @requires_data_source_access("edit_data_sources", membership_required=True)  # Must be member to edit
-    @requires_data_source_access("delete_data_sources")  # Admin permission required
+        @requires_resource_permission("data_source", "view")
+        @requires_resource_permission("data_source", "manage")
     """
+    if resource_type not in _RESOURCE_PARAM_MAP:
+        raise ValueError(
+            f"requires_resource_permission: unknown resource_type {resource_type!r}. "
+            f"Add it to _RESOURCE_PARAM_MAP."
+        )
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Extract arguments
             sig = signature(func)
             bound_args = sig.bind(*args, **kwargs)
             bound_args.apply_defaults()
@@ -155,7 +192,6 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
             user = all_args.get('current_user')
             organization = all_args.get('organization')
             db = all_args.get('db')
-            data_source_id = all_args.get('data_source_id')
 
             if not all([user, organization, db]):
                 raise HTTPException(status_code=400, detail="Missing required parameters")
@@ -163,68 +199,98 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
             if not user.is_verified and settings.bow_config.features.verify_emails:
                 raise HTTPException(status_code=403, detail="User is not verified")
 
-            # Check user membership and role in organization
+            # Org membership check
             stmt = select(Membership).where(
                 Membership.user_id == user.id,
-                Membership.organization_id == organization.id
+                Membership.organization_id == organization.id,
             )
             result = await db.execute(stmt)
             membership = result.scalar_one_or_none()
-
             if not membership:
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
-            # Check role-based permission
-            if permission not in ROLES_PERMISSIONS.get(membership.role, set()):
+            resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+
+            # Tier 1: full_admin_access wildcard
+            if FULL_ADMIN in resolved.org_permissions:
+                return await func(*args, **kwargs)
+
+            # Tier 2: org-level permission grants blanket access
+            if resolved.has_org_permission(permission):
+                return await func(*args, **kwargs)
+
+            # Tier 3: per-resource grant
+            param_name = _RESOURCE_PARAM_MAP[resource_type]
+            resource_id = all_args.get(param_name)
+            if not resource_id:
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
-                raise HTTPException(status_code=403, detail="Permission denied")
-
-            # If data_source_id is provided, check data source specific access
-            if data_source_id:
-                from app.models.data_source import DataSource
-                
-                stmt = select(DataSource).where(
-                    DataSource.id == data_source_id,
-                    DataSource.organization_id == organization.id
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing {param_name} in route for resource permission check",
                 )
-                result = await db.execute(stmt)
-                data_source = result.scalar_one_or_none()
-                
-                if not data_source:
-                    raise HTTPException(status_code=404, detail="Data source not found")
-                
-                # Check data source access rules
-                has_access = False
-                
-                # Check if user has admin-level permissions (update_data_source or manage_data_source_memberships)
-                # Admins can access all data sources in their org
-                is_admin = "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set())
-                
-                # If data source is public and allow_public flag is set
-                if allow_public and data_source.is_public:
-                    has_access = True
-                
-                # If user is an org admin, they can access all data sources
-                elif is_admin:
-                    has_access = True
-                
-                # If data source is private and allow_public flag is set, require membership
-                elif allow_public and not data_source.is_public:
-                    has_access = await data_source.has_membership_async(user.id, db)
-                
-                # If membership is explicitly required, check for membership
-                elif membership_required:
-                    has_access = await data_source.has_membership_async(user.id, db)
-                
-                # No access control flags - allow based on role permission only (already checked above)
-                else:
-                    has_access = True
-                
-                if not has_access:
-                    await _audit_access_denied(db, user, organization, permission, func.__name__)
-                    raise HTTPException(status_code=403, detail="Access denied to this data source")
 
-            return await func(*args, **kwargs)
+            if resolved.has_resource_permission(resource_type, str(resource_id), permission):
+                return await func(*args, **kwargs)
+
+            # Tier 4: public data sources are readable by any org member
+            if resource_type == "data_source" and permission in ("view", "view_schema"):
+                from app.models.data_source import DataSource
+                ds_row = await db.execute(
+                    select(DataSource).where(DataSource.id == str(resource_id))
+                )
+                ds_obj = ds_row.scalar_one_or_none()
+                if ds_obj is not None and getattr(ds_obj, "is_public", False) and str(ds_obj.organization_id) == str(organization.id):
+                    return await func(*args, **kwargs)
+
+            await _audit_access_denied(db, user, organization, permission, func.__name__)
+            raise HTTPException(status_code=403, detail="Access denied to this resource")
+
         return wrapper
     return decorator
+
+
+async def check_resource_permissions(
+    db: AsyncSession,
+    user_id: str,
+    org_id: str,
+    resource_type: str,
+    resource_ids: list[str],
+    permission: str,
+) -> None:
+    """
+    Imperative resource-permission check for cases where resource IDs come
+    from the request body rather than route params.
+
+    Three-tier OR logic (mirrors @requires_resource_permission):
+    1. full_admin_access wildcard → allow
+    2. Org-level `permission` held → allow on ALL resources (blanket)
+    3. Per-resource grant must include `permission` for every resource_id
+
+    Admin bypasses (e.g. `manage_instructions` ⇒ all `manage_instructions`)
+    are handled inside `resolved.has_resource_permission` via the
+    ORG_PERM_IMPLIES_RESOURCE map in permission_resolver.
+
+    Raises HTTPException 403 if the user lacks the permission on ANY of
+    the listed resources. Fails the whole batch on the first miss.
+    """
+    if not resource_ids:
+        return
+
+    resolved = await resolve_permissions(db, user_id, org_id)
+
+    # Tier 1: full_admin_access wildcard
+    if FULL_ADMIN in resolved.org_permissions:
+        return
+
+    # Tier 2: org-level permission grants blanket access
+    if resolved.has_org_permission(permission):
+        return
+
+    # Tier 3: per-resource grant check (admin implications handled in resolver)
+    for rid in resource_ids:
+        if not resolved.has_resource_permission(resource_type, str(rid), permission):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied to {resource_type} {rid} for '{permission}'",
+            )

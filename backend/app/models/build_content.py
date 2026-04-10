@@ -22,9 +22,9 @@ class BuildContent(BaseSchema):
     instruction_version_id = Column(String(36), ForeignKey('instruction_versions.id'), nullable=False)
     
     # Relationships
-    build = relationship("InstructionBuild", back_populates="contents", lazy="selectin")
-    instruction = relationship("Instruction", lazy="selectin")
-    instruction_version = relationship("InstructionVersion", lazy="selectin")
+    build = relationship("InstructionBuild", back_populates="contents", lazy="raise")
+    instruction = relationship("Instruction", lazy="raise")
+    instruction_version = relationship("InstructionVersion", lazy="raise")
     
     # Ensure only one version of each instruction per build
     __table_args__ = (

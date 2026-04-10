@@ -1,7 +1,7 @@
 <template>
     <div class="flex-shrink-0 p-4 pb-8 bg-white">
-        <!-- Query pills + Excel hint (above container) -->
-        <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)" class="mb-2 flex items-center justify-between">
+        <!-- Query pills + Excel hint (above container) — hidden for now -->
+        <div v-if="false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed))" class="mb-2 flex items-center justify-between">
             <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0" class="flex items-center gap-2">
                 <!-- Query pill with hover dropdown -->
                 <div
@@ -393,16 +393,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
-import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
+import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import { useCan } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
 import { useExcel } from '@/composables/useExcel'
@@ -449,12 +449,17 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions','update:selectedDataSources'])
 
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
+
+// Emit whenever selected data sources change (for parent sync, e.g. agent panel)
+watch(selectedDataSources, (val) => {
+    emit('update:selectedDataSources', val)
+}, { deep: true })
 const isHydratingDataSources = ref(!!props.report_id && selectedDataSources.value.length === 0)
 const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
@@ -994,10 +999,17 @@ const fileUploadRef = ref<any | null>(null)
 const instructionsListModalRef = ref<any | null>(null)
 const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(null)
 
+const attrs = useAttrs()
+
+const instance = getCurrentInstance()
+
 function openInstructions() {
-    // Pass selected data source IDs to filter instructions (shows selected + global)
-    const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
-    instructionsListModalRef.value?.openModal?.(dataSourceIds)
+    if (instance?.vnode.props?.onOpenInstructions) {
+        emit('openInstructions')
+    } else {
+        const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
+        instructionsListModalRef.value?.openModal?.(dataSourceIds)
+    }
 }
 
 function openImagePreview(file: any) {

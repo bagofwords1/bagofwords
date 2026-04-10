@@ -137,7 +137,10 @@ class ReportService:
         ic_result = await db.execute(
             select(func.count(Instruction.id))
             .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
-            .where(AgentExecution.report_id == report.id)
+            .where(
+                AgentExecution.report_id == report.id,
+                Instruction.deleted_at == None,
+            )
         )
         report_schema.instruction_count = ic_result.scalar() or 0
 

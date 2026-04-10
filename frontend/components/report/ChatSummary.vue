@@ -1,6 +1,11 @@
 <template>
-  <div class="h-full overflow-y-auto">
-    <div class="max-w-xl mx-auto px-4 py-6 space-y-6">
+  <div class="h-full overflow-y-auto bg-white">
+    <!-- Header -->
+    <div class="px-4 pt-4 pb-6 bg-gradient-to-b from-amber-50 to-white">
+      <h2 class="text-sm font-semibold text-gray-900">Summary</h2>
+    </div>
+
+    <div class="max-w-xl mx-auto px-4 py-4 space-y-6">
 
       <!-- Empty state -->
       <div v-if="!hasAnything" class="flex flex-col items-center justify-center h-64 text-gray-400">

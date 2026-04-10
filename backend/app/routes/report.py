@@ -132,7 +132,7 @@ async def bulk_archive_reports(
     return await report_service.bulk_archive_reports(db, report_ids, current_user, organization)
 
 @router.post("/reports/{report_id}/rerun", response_model=ReportSchema)
-@requires_permission('rerun_report_steps', model=Report, owner_only=True)
+@requires_permission('update_reports', model=Report, owner_only=True)
 async def rerun_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await report_service.rerun_report_steps(db, report_id, current_user, organization)
 

@@ -7,7 +7,7 @@ from app.dependencies import get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, requires_resource_permission
 from app.ee.audit.service import audit_service
 
 from sqlalchemy import select
@@ -34,7 +34,7 @@ async def _load_datasource(db: AsyncSession, organization: Organization, data_so
 
 
 @router.get("/data_sources/{data_source_id}/my-credentials", response_model=UserDataSourceCredentialsSchema | None)
-@requires_permission('view_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'view')
 async def get_my_credentials(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -46,7 +46,7 @@ async def get_my_credentials(
 
 
 @router.post("/data_sources/{data_source_id}/my-credentials", response_model=UserDataSourceCredentialsSchema)
-@requires_permission('view_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'view')
 async def upsert_my_credentials(
     data_source_id: str,
     payload: UserDataSourceCredentialsCreate,
@@ -73,7 +73,7 @@ async def upsert_my_credentials(
 
 
 @router.patch("/data_sources/{data_source_id}/my-credentials", response_model=UserDataSourceCredentialsSchema)
-@requires_permission('view_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'view')
 async def patch_my_credentials(
     data_source_id: str,
     payload: UserDataSourceCredentialsUpdate,
@@ -86,7 +86,7 @@ async def patch_my_credentials(
 
 
 @router.delete("/data_sources/{data_source_id}/my-credentials", status_code=204)
-@requires_permission('view_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'view')
 async def delete_my_credentials(
     data_source_id: str,
     request: Request,
@@ -112,7 +112,7 @@ async def delete_my_credentials(
 
 
 @router.post("/data_sources/{data_source_id}/my-credentials/test", response_model=dict)
-@requires_permission('view_data_source', model=DataSource)
+@requires_resource_permission('data_source', 'view')
 async def test_my_credentials(
     data_source_id: str,
     payload: UserDataSourceCredentialsCreate,

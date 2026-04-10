@@ -834,10 +834,10 @@ class ProjectManager:
         await db.refresh(execution)
         return execution
 
-    async def save_plan_decision(self, db, agent_execution, seq, loop_index, plan_type=None, 
-                               analysis_complete=False, reasoning=None, assistant=None, 
-                               final_answer=None, action_name=None, action_args_json=None, 
-                               metrics_json=None, context_snapshot_id=None):
+    async def save_plan_decision(self, db, agent_execution, seq, loop_index, plan_type=None,
+                               analysis_complete=False, reasoning=None, assistant=None,
+                               final_answer=None, action_name=None, action_args_json=None,
+                               metrics_json=None, context_snapshot_id=None, phase=None):
         """Upsert a planner decision frame by (agent_execution_id, seq)."""
         stmt = select(PlanDecision).where(
             PlanDecision.agent_execution_id == agent_execution.id,
@@ -856,6 +856,7 @@ class ProjectManager:
             existing.action_args_json = action_args_json
             existing.metrics_json = metrics_json
             existing.context_snapshot_id = context_snapshot_id
+            existing.phase = phase
             db.add(existing)
             await self._commit_with_timeout(db, "save_plan_decision.update")
             await self._refresh_with_timeout(db, existing, "save_plan_decision.update")
@@ -874,6 +875,7 @@ class ProjectManager:
             action_args_json=action_args_json,
             metrics_json=metrics_json,
             context_snapshot_id=context_snapshot_id,
+            phase=phase,
         )
         db.add(decision)
         await self._commit_with_timeout(db, "save_plan_decision.insert")
@@ -943,7 +945,8 @@ class ProjectManager:
 
     # Pydantic-friendly helpers
     async def save_plan_decision_from_model(self, db, agent_execution, seq: int, loop_index: int,
-                                           planner_decision_model, context_snapshot_id: str | None = None):
+                                           planner_decision_model, context_snapshot_id: str | None = None,
+                                           phase: str | None = None):
         to_dict = planner_decision_model.model_dump() if hasattr(planner_decision_model, 'model_dump') else dict(planner_decision_model)
         action = to_dict.get('action') or {}
         metrics = to_dict.get('metrics') or None
@@ -961,6 +964,7 @@ class ProjectManager:
             action_args_json=(action.get('arguments') if isinstance(action, dict) else getattr(action, 'arguments', None)),
             metrics_json=(metrics.model_dump() if hasattr(metrics, 'model_dump') else metrics),
             context_snapshot_id=context_snapshot_id,
+            phase=phase,
         )
 
     async def save_plan_decision_with_retry(

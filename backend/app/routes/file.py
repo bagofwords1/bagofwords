@@ -24,7 +24,7 @@ router = APIRouter(tags=["files"])
 file_service = FileService()
 
 @router.post("/files", response_model=FileSchema)
-@requires_permission('upload_files')
+@requires_permission('manage_files')
 async def upload_file(request: Request, file: UploadFile = File(...), report_id: Optional[str] = Form(None), current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     result = await file_service.upload_file(db, file, current_user, organization, report_id)
     try:
@@ -43,22 +43,22 @@ async def upload_file(request: Request, file: UploadFile = File(...), report_id:
     return result
 
 @router.get("/reports/{report_id}/files", response_model=list[FileSchemaWithCompletionId])
-@requires_permission('view_files', model=Report)
+@requires_permission('manage_files', model=Report)
 async def get_files_by_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await file_service.get_files_by_report(db, report_id, organization)
 
 @router.delete("/reports/{report_id}/files/{file_id}")
-@requires_permission('delete_files', model=Report)
+@requires_permission('manage_files', model=Report)
 async def remove_file_from_report(file_id: str, report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await file_service.remove_file_from_report(db, file_id, report_id, organization, current_user)
 
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
-@requires_permission('view_files')
+@requires_permission('manage_files')
 async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await file_service.get_files(db, organization)
 
 @router.get("/files/{file_id}/content")
-@requires_permission('view_files')
+@requires_permission('manage_files')
 async def get_file_content(file_id: str, request: Request, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Serve file content (for displaying images in chat)."""
     stmt = select(FileModel).filter(FileModel.id == file_id, FileModel.organization_id == organization.id)

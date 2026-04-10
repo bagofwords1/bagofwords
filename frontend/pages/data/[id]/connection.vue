@@ -46,8 +46,9 @@
                                 <span v-if="getLastChecked(conn)" class="text-[10px] text-gray-400">
                                     {{ getLastChecked(conn) }}
                                 </span>
-                                <!-- Test/Refresh button -->
+                                <!-- Test button (admin only) -->
                                 <button
+                                    v-if="canManageConnections"
                                     @click="testConnection(conn.id)"
                                     :disabled="testingConnectionId === conn.id"
                                     class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-50"

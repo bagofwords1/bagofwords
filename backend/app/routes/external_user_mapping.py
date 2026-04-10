@@ -20,7 +20,7 @@ router = APIRouter(tags=["organization_settings"])
 external_user_mapping_service = ExternalUserMappingService()
 
 @router.get("/settings/integrations/{platform_id}/users", response_model=List[ExternalUserMappingSchema])
-@requires_permission('view_organization_members')
+@requires_permission('view_members')
 async def get_integration_users(
     platform_id: str,
     current_user: User = Depends(current_user),
@@ -33,7 +33,7 @@ async def get_integration_users(
     )
 
 @router.post("/settings/integrations/{platform_id}/users", response_model=ExternalUserMappingSchema)
-@requires_permission('add_organization_members')
+@requires_permission('manage_members')
 async def create_integration_user(
     platform_id: str,
     mapping_data: ExternalUserMappingCreate,
@@ -47,7 +47,7 @@ async def create_integration_user(
     )
 
 @router.put("/settings/integrations/{platform_id}/users/{mapping_id}", response_model=ExternalUserMappingSchema)
-@requires_permission('update_organization_members')
+@requires_permission('manage_members')
 async def update_integration_user(
     platform_id: str,
     mapping_id: str,
@@ -62,7 +62,7 @@ async def update_integration_user(
     )
 
 @router.delete("/settings/integrations/{platform_id}/users/{mapping_id}")
-@requires_permission('remove_organization_members')
+@requires_permission('manage_members')
 async def delete_integration_user(
     platform_id: str,
     mapping_id: str,
@@ -76,7 +76,7 @@ async def delete_integration_user(
     )
 
 @router.post("/settings/integrations/{platform_id}/users/{mapping_id}/verify", response_model=dict)
-@requires_permission('update_organization_members')
+@requires_permission('manage_members')
 async def generate_verification_token(
     platform_id: str,
     mapping_id: str,
