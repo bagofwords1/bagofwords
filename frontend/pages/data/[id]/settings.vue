@@ -16,12 +16,12 @@
                         <input
                             v-model="form.name"
                             type="text"
-                            :disabled="!canUpdateDataSource"
+                            :disabled="!canManageDs"
                             class="border border-gray-200 rounded-lg px-3 py-2 w-full max-w-md h-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-50 disabled:text-gray-500"
                             placeholder="Name"
                         />
                         <button
-                            v-if="canUpdateDataSource"
+                            v-if="canManageDs"
                             @click="saveName"
                             :disabled="saving.name || form.name.trim() === '' || form.name === original.name"
                             :class="['px-3 py-1.5 text-xs rounded-lg border transition-colors', (saving.name || form.name.trim() === '' || form.name === original.name) ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed' : 'border-gray-300 text-gray-700 hover:bg-gray-50']"
@@ -35,7 +35,7 @@
                 <div class="space-y-2">
                     <label class="block text-sm font-medium text-gray-800">Access</label>
                     <div class="flex items-center space-x-3">
-                        <UToggle v-model="form.isPublic" @update:model-value="onTogglePublic" :disabled="!canUpdateDataSource" />
+                        <UToggle v-model="form.isPublic" @update:model-value="onTogglePublic" :disabled="!canManageDs" />
                         <span class="text-xs text-gray-500">
                             Public access allows all organization members to use this domain.
                         </span>
@@ -50,7 +50,7 @@
                             <p class="text-xs text-gray-500 mt-0.5">Users and groups with access to this domain</p>
                         </div>
                         <button
-                            v-if="canUpdateDataSource"
+                            v-if="canManageDsMembers"
                             @click="openAdd"
                             class="px-2.5 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600"
                         >
@@ -64,7 +64,7 @@
                                 <tr>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">User / Group</th>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Permissions</th>
-                                    <th v-if="canUpdateDataSource" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                    <th v-if="canManageDsMembers" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
@@ -72,7 +72,7 @@
                                     <td class="px-4 py-3">
                                         <div class="flex items-center gap-1.5">
                                             <UIcon
-                                                :name="m.principal_type === 'group' ? 'i-heroicons-user-group' : 'i-heroicons-user'"
+                                                :name="principalIcon(m)"
                                                 class="w-3.5 h-3.5 text-gray-400 flex-shrink-0"
                                             />
                                             <div class="min-w-0">
@@ -107,9 +107,9 @@
                                     </td>
                                     <td class="px-4 py-3">
                                         <UDropdown
-                                            v-if="canUpdateDataSource && isEnterprise"
+                                            v-if="canManageDsMembers && isEnterprise"
                                             :items="[dsPermOptions.map(p => ({
-                                                label: p,
+                                                label: formatPermission(p),
                                                 icon: m.permissions.includes(p) ? 'i-heroicons-check' : undefined,
                                                 click: () => {
                                                     const newPerms = m.permissions.includes(p)
@@ -121,7 +121,18 @@
                                             :popper="{ placement: 'bottom-start' }"
                                         >
                                             <UButton size="xs" color="white" trailing-icon="i-heroicons-chevron-down-20-solid">
-                                                {{ m.permissions.join(', ') || 'None' }}
+                                                <span v-if="m.permissions?.length" class="flex items-center gap-1 flex-wrap">
+                                                    <UBadge
+                                                        v-for="p in m.permissions"
+                                                        :key="p"
+                                                        size="xs"
+                                                        color="gray"
+                                                        variant="subtle"
+                                                    >
+                                                        {{ formatPermission(p) }}
+                                                    </UBadge>
+                                                </span>
+                                                <span v-else class="text-gray-400">None</span>
                                             </UButton>
                                         </UDropdown>
                                         <div v-else class="flex gap-1 flex-wrap">
@@ -130,18 +141,19 @@
                                                 :key="p"
                                                 size="xs"
                                                 color="gray"
+                                                variant="subtle"
                                             >
-                                                {{ p }}
+                                                {{ formatPermission(p) }}
                                             </UBadge>
                                             <span v-if="!m.permissions?.length" class="text-xs text-gray-400">Member</span>
                                         </div>
                                     </td>
-                                    <td v-if="canUpdateDataSource" class="px-4 py-3">
+                                    <td v-if="canManageDsMembers" class="px-4 py-3">
                                         <button @click="removeMember(m)" class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-0.5 hover:bg-gray-50">Remove</button>
                                     </td>
                                 </tr>
                                 <tr v-if="members.length === 0">
-                                    <td :colspan="canUpdateDataSource ? 3 : 2" class="px-4 py-6 text-xs text-gray-500 text-center">
+                                    <td :colspan="canManageDsMembers ? 3 : 2" class="px-4 py-6 text-xs text-gray-500 text-center">
                                         No members yet. All organization members have access by default.
                                     </td>
                                 </tr>
@@ -151,7 +163,7 @@
                 </div>
 
                 <!-- Danger zone -->
-                <div v-if="canUpdateDataSource" class="max-w-md border border-red-200 p-4 rounded-lg bg-red-50/40">
+                <div v-if="canManageDs" class="max-w-md border border-red-200 p-4 rounded-lg bg-red-50/40">
                     <div class="text-sm font-medium text-red-700">Danger zone</div>
                     <div class="text-xs text-gray-600 mt-1">Removing this domain will disconnect it from the data source. You can reconnect later.</div>
                     <div class="mt-3">
@@ -289,7 +301,11 @@ const deleting = ref(false)
 const ready = computed(() => !injectedLoading.value && !!injectedIntegration.value)
 const showDelete = ref(false)
 const adding = ref(false)
-const canUpdateDataSource = computed(() => useCan('update_data_source'))
+// Per-DS gates. The page renders for any user with `view` access to the DS,
+// but write controls require explicit per-DS grants.
+const dsResource = computed(() => ({ type: 'data_source', id: route.params.id as string }))
+const canManageDs = computed(() => useCan('manage', dsResource.value))
+const canManageDsMembers = computed(() => useCan('manage', dsResource.value))
 const { hasFeature } = useEnterprise()
 const isEnterprise = computed(() => hasFeature('custom_roles'))
 
@@ -322,9 +338,10 @@ interface MemberGrant {
 
 const members = ref<MemberGrant[]>([])
 
-// User/group lookup data
+// User/group/role lookup data
 const allUsers = ref<{ id: string; display_name: string; email?: string }[]>([])
 const allGroups = ref<{ id: string; name: string; member_count: number }[]>([])
+const allRoles = ref<{ id: string; name: string }[]>([])
 const expandedGroups = ref<Set<string>>(new Set())
 const groupMembers = ref<Record<string, { user_id: string; user_name: string; user_email: string }[]>>({})
 
@@ -376,6 +393,18 @@ async function loadGroups() {
     }
 }
 
+async function loadRoles() {
+    if (!organization.value?.id) return
+    try {
+        const { data } = await useMyFetch(`/organizations/${organization.value.id}/roles`)
+        if (data.value) {
+            allRoles.value = (data.value as any[]).map(r => ({ id: r.id, name: r.name }))
+        }
+    } catch {
+        // Roles endpoint may not be available
+    }
+}
+
 async function toggleGroupExpand(groupId: string) {
     if (expandedGroups.value.has(groupId)) {
         expandedGroups.value.delete(groupId)
@@ -401,10 +430,37 @@ function groupMemberCount(m: MemberGrant): number {
 
 // ── Display helpers ─────────────────────────────────────────────────────
 
+// Mirrors PERMISSION_LABELS in RolesManager so per-DS rows render the same
+// human-readable names as the role editor.
+const PERMISSION_LABELS: Record<string, string> = {
+    manage_instructions: 'Manage instructions',
+    create_entities: 'Create entities',
+    manage_evals: 'Manage evals',
+    manage: 'Manage settings',
+    manage_members: 'Manage members',
+    view: 'View',
+    view_schema: 'View schema',
+}
+
+function formatPermission(perm: string): string {
+    if (PERMISSION_LABELS[perm]) return PERMISSION_LABELS[perm]
+    return perm.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function principalIcon(m: MemberGrant): string {
+    if (m.principal_type === 'group') return 'i-heroicons-user-group'
+    if (m.principal_type === 'role') return 'i-heroicons-shield-check'
+    return 'i-heroicons-user'
+}
+
 function principalDisplayName(m: MemberGrant): string {
     if (m.principal_type === 'group') {
         const group = allGroups.value.find(g => g.id === m.principal_id)
         return group?.name || m.principal_name || 'Unknown group'
+    }
+    if (m.principal_type === 'role') {
+        const role = allRoles.value.find(r => r.id === m.principal_id)
+        return role?.name || m.principal_name || 'Unknown role'
     }
     const user = allUsers.value.find(u => u.id === m.principal_id)
     return user?.display_name || user?.email || m.principal_name || 'Unknown user'
@@ -589,6 +645,6 @@ async function confirmDelete() {
 
 // Load members on mount
 onMounted(async () => {
-    await Promise.all([loadMembers(), loadUsers(), loadGroups(), loadDsPermOptions()])
+    await Promise.all([loadMembers(), loadUsers(), loadGroups(), loadRoles(), loadDsPermOptions()])
 })
 </script>

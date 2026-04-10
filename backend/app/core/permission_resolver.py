@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from app.models.role import Role
 from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
+from app.models.group import Group
 from app.models.group_membership import GroupMembership
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,11 @@ async def _resolve_permissions_inner(
     # 1. Get user's group IDs in this org
     group_stmt = (
         select(GroupMembership.group_id)
-        .where(GroupMembership.user_id == user_id)
+        .join(Group, Group.id == GroupMembership.group_id)
+        .where(
+            GroupMembership.user_id == user_id,
+            Group.organization_id == org_id,
+        )
     )
     group_result = await db.execute(group_stmt)
     group_ids = [row[0] for row in group_result.all()]

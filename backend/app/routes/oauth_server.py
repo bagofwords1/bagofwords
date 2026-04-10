@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.core.auth import current_user
+from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.models.user import User
 from app.models.organization import Organization
@@ -246,8 +247,9 @@ async def token_endpoint(
 # ── Client CRUD (used by McpModal) ─────────────────────────────────
 
 @router.get("/clients")
+@requires_permission("manage_settings")
 async def list_clients(
-    user: User = Depends(current_user),
+    current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -257,9 +259,10 @@ async def list_clients(
 
 
 @router.post("/clients")
+@requires_permission("manage_settings")
 async def create_client(
     request: Request,
-    user: User = Depends(current_user),
+    current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -291,9 +294,10 @@ async def get_client_info(
 
 
 @router.delete("/clients/{client_db_id}")
+@requires_permission("manage_settings")
 async def delete_client(
     client_db_id: str,
-    user: User = Depends(current_user),
+    current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -306,9 +310,10 @@ async def delete_client(
 
 
 @router.post("/clients/{client_db_id}/rotate")
+@requires_permission("manage_settings")
 async def rotate_client_secret(
     client_db_id: str,
-    user: User = Depends(current_user),
+    current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):

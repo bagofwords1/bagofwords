@@ -38,7 +38,6 @@ PERMISSION_CATEGORIES = {
         "manage_evals",
     ],
     "Members": [
-        "view_members",
         "manage_members",
     ],
     "Settings": [
@@ -61,6 +60,11 @@ HIDDEN_PERMISSION_CATEGORIES = {
         "update_reports",
         "delete_reports",
         "publish_reports",
+    ],
+    # view_members is baseline for any authenticated org member — seeded on the
+    # default member role, hidden from the role editor.
+    "Members": [
+        "view_members",
     ],
 }
 

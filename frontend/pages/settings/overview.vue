@@ -1,6 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
-    layout: 'settings'
+    layout: 'settings',
+    permissions: ['manage_settings'],
 })
 </script>
 

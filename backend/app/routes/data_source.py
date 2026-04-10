@@ -328,7 +328,7 @@ async def get_data_source_members(
     return await data_source_service.get_data_source_members(db, data_source_id, organization, current_user)
 
 @router.post("/data_sources/{data_source_id}/members", response_model=DataSourceMembershipSchema)
-@requires_resource_permission('data_source', 'manage_members')
+@requires_resource_permission('data_source', 'manage')
 async def add_data_source_member(
     data_source_id: str,
     member: DataSourceMembershipCreate,
@@ -339,7 +339,7 @@ async def add_data_source_member(
     return await data_source_service.add_data_source_member(db, data_source_id, member, organization, current_user)
 
 @router.delete("/data_sources/{data_source_id}/members/{user_id}", status_code=204)
-@requires_resource_permission('data_source', 'manage_members')
+@requires_resource_permission('data_source', 'manage')
 async def remove_data_source_member(
     data_source_id: str,
     user_id: str,

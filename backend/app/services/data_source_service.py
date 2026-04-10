@@ -2737,6 +2737,7 @@ class DataSourceService:
                 # Resolve principal names
                 user_ids = [g.principal_id for g in grants if g.principal_type == "user"]
                 group_ids = [g.principal_id for g in grants if g.principal_type == "group"]
+                role_ids = [g.principal_id for g in grants if g.principal_type == "role"]
 
                 user_names = {}
                 if user_ids:
@@ -2752,9 +2753,18 @@ class DataSourceService:
                     for gid, name in group_result.all():
                         group_names[gid] = name
 
+                role_names = {}
+                if role_ids:
+                    from app.models.role import Role
+                    role_result = await db.execute(select(Role.id, Role.name).where(Role.id.in_(role_ids)))
+                    for rid, name in role_result.all():
+                        role_names[rid] = name
+
                 def _resolve_name(g):
                     if g.principal_type == "group":
                         return group_names.get(g.principal_id)
+                    if g.principal_type == "role":
+                        return role_names.get(g.principal_id)
                     return user_names.get(g.principal_id)
 
                 return [

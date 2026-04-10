@@ -119,7 +119,7 @@
             </template>
           </a>
         </li>
-        <li v-if="isMcpEnabled">
+        <li v-if="isMcpEnabled && useCan('manage_settings')">
           <button
             @click="showMcpModal = true"
             :class="[
@@ -301,12 +301,7 @@
     }]
   ])
 
-  const isAdmin = computed<boolean>(() => {
-    const user = currentUser.value as any
-    const orgs = user?.organizations || []
-    const role = orgs[0]?.role
-    return role === 'admin'
-  })
+  const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
  
   if (environment === 'production' && intercom) {
     $intercom.boot()

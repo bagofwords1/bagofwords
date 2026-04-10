@@ -49,5 +49,6 @@ const visibleTabs = computed(() =>
 
 definePageMeta({
     layout: 'settings',
+    permissions: ['view_members'],
 })
 </script>

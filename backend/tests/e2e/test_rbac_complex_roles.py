@@ -969,3 +969,363 @@ def test_connection_manage_data_sources_granted(test_client, create_user, login_
         headers=_headers(ctx["member_token"], ctx["org_id"]),
     )
     assert resp.status_code != 403, f"Should succeed with manage_data_sources grant: {resp.text}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 10. Resource-grant escalation prevention
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.e2e
+def test_manage_members_cannot_create_resource_grant(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """User with org-level manage_members but no per-DS manage cannot create grants on a DS."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    ds = create_data_source(
+        name="escalation-test-ds",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Role with org-level manage_members — but NO per-DS manage
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Org Member Manager", [
+        "manage_members",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+
+    # Give member manage_members on the DS (not manage)
+    _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "data_source", ds["id"], "user", ctx["member_id"],
+        ["manage_members"],
+    )
+
+    # Member tries to create a grant on the DS — should be denied (needs per-DS manage)
+    resp = test_client.post(
+        f"/api/organizations/{ctx['org_id']}/resource-grants",
+        json={
+            "resource_type": "data_source",
+            "resource_id": ds["id"],
+            "principal_type": "user",
+            "principal_id": ctx["member_id"],
+            "permissions": ["manage"],
+        },
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 403, f"Org manage_members should not allow creating per-DS grants: {resp.text}"
+
+
+@pytest.mark.e2e
+def test_manage_members_cannot_update_resource_grant(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """User with per-DS manage_members cannot escalate by updating their own grant to include manage."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    ds = create_data_source(
+        name="escalation-update-ds",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Role with org-level manage_members
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Escalation Updater", [
+        "manage_members",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+
+    # Admin creates a grant for the member with only manage_members
+    grant = _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "data_source", ds["id"], "user", ctx["member_id"],
+        ["manage_members"],
+    )
+
+    # Member tries to update their own grant to add manage — should be denied
+    resp = test_client.put(
+        f"/api/organizations/{ctx['org_id']}/resource-grants/{grant['id']}",
+        json={"permissions": ["manage_members", "manage"]},
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 403, f"Should not be able to self-escalate via grant update: {resp.text}"
+
+
+@pytest.mark.e2e
+def test_manage_members_cannot_delete_resource_grant(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """User with per-DS manage_members cannot delete other grants on the DS."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    ds = create_data_source(
+        name="escalation-delete-ds",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Role with org-level manage_members
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Escalation Deleter", [
+        "manage_members",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+
+    # Grant member manage_members on the DS
+    _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "data_source", ds["id"], "user", ctx["member_id"],
+        ["manage_members"],
+    )
+
+    # Admin also has a grant on this DS (as owner) — find it
+    resp = test_client.get(
+        f"/api/organizations/{ctx['org_id']}/resource-grants?resource_type=data_source&resource_id={ds['id']}",
+        headers=_headers(ctx["admin_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 200
+    grants = resp.json()
+    admin_grant = next((g for g in grants if g["principal_id"] == ctx["admin_id"]), None)
+
+    if admin_grant:
+        # Member tries to delete admin's grant — should be denied
+        resp = test_client.delete(
+            f"/api/organizations/{ctx['org_id']}/resource-grants/{admin_grant['id']}",
+            headers=_headers(ctx["member_token"], ctx["org_id"]),
+        )
+        assert resp.status_code == 403, f"Should not be able to delete grants without per-DS manage: {resp.text}"
+
+
+@pytest.mark.e2e
+def test_ds_manage_holder_can_crud_grants(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """User with per-DS manage CAN create/update/delete grants on that DS."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    ds = create_data_source(
+        name="ds-manage-crud-ds",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Create a second member to be the target of grants
+    target_email = f"target_{uuid.uuid4().hex[:8]}@test.com"
+    test_client.post(
+        f"/api/organizations/{ctx['org_id']}/members",
+        json={"organization_id": ctx["org_id"], "email": target_email, "role": "member"},
+        headers=_headers(ctx["admin_token"], ctx["org_id"]),
+    )
+    create_user(email=target_email, password="test123")
+    target_token = login_user(target_email, "test123")
+    target_info = whoami(target_token)
+    target_id = target_info["id"]
+
+    # Give first member per-DS manage (the right perm for grant CRUD)
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Manager", [
+        "manage_members",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+    _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "data_source", ds["id"], "user", ctx["member_id"],
+        ["manage"],
+    )
+
+    # Member creates a grant for the target user — should succeed
+    resp = test_client.post(
+        f"/api/organizations/{ctx['org_id']}/resource-grants",
+        json={
+            "resource_type": "data_source",
+            "resource_id": ds["id"],
+            "principal_type": "user",
+            "principal_id": target_id,
+            "permissions": ["manage_instructions"],
+        },
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 200, f"DS manage holder should create grants: {resp.text}"
+    new_grant_id = resp.json()["id"]
+
+    # Member updates the grant — should succeed
+    resp = test_client.put(
+        f"/api/organizations/{ctx['org_id']}/resource-grants/{new_grant_id}",
+        json={"permissions": ["manage_instructions", "create_entities"]},
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 200, f"DS manage holder should update grants: {resp.text}"
+
+    # Member deletes the grant — should succeed
+    resp = test_client.delete(
+        f"/api/organizations/{ctx['org_id']}/resource-grants/{new_grant_id}",
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 204, f"DS manage holder should delete grants: {resp.text}"
+
+
+@pytest.mark.e2e
+def test_ds_manage_cannot_crud_grants_on_other_ds(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """User with per-DS manage on DS-A cannot create/update grants on DS-B."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    ds_a = create_data_source(
+        name="cross-ds-a",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+    ds_b = create_data_source(
+        name="cross-ds-b",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Member gets manage on DS-A only
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "Cross DS Manager", [
+        "manage_members",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+    _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "data_source", ds_a["id"], "user", ctx["member_id"],
+        ["manage"],
+    )
+
+    # Member tries to create a grant on DS-B — should be denied
+    resp = test_client.post(
+        f"/api/organizations/{ctx['org_id']}/resource-grants",
+        json={
+            "resource_type": "data_source",
+            "resource_id": ds_b["id"],
+            "principal_type": "user",
+            "principal_id": ctx["member_id"],
+            "permissions": ["manage_instructions"],
+        },
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 403, f"Should not create grants on DS without manage: {resp.text}"
+
+
+@pytest.mark.e2e
+def test_add_ds_member_requires_manage(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """POST /data_sources/{id}/members requires per-DS manage, not just manage_members."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    ds = create_data_source(
+        name="add-member-gate-ds",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Member gets manage_members on the DS but NOT manage
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Member Adder", [
+        "manage_members",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+    _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "data_source", ds["id"], "user", ctx["member_id"],
+        ["manage_members"],
+    )
+
+    # Create target user
+    target_email = f"target_{uuid.uuid4().hex[:8]}@test.com"
+    test_client.post(
+        f"/api/organizations/{ctx['org_id']}/members",
+        json={"organization_id": ctx["org_id"], "email": target_email, "role": "member"},
+        headers=_headers(ctx["admin_token"], ctx["org_id"]),
+    )
+    create_user(email=target_email, password="test123")
+    target_info = whoami(login_user(target_email, "test123"))
+    target_id = target_info["id"]
+
+    # Member tries to add a user to the DS — should be denied (needs manage, not manage_members)
+    resp = test_client.post(
+        f"/api/data_sources/{ds['id']}/members",
+        json={"principal_type": "user", "principal_id": target_id},
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 403, f"Should require per-DS manage to add members: {resp.text}"
+
+
+@pytest.mark.e2e
+def test_remove_ds_member_requires_manage(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_data_source):
+    """DELETE /data_sources/{id}/members/{uid} requires per-DS manage, not just manage_members."""
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    ds = create_data_source(
+        name="remove-member-gate-ds",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Add a target user to the DS as a member (admin does this)
+    target_email = f"target_{uuid.uuid4().hex[:8]}@test.com"
+    test_client.post(
+        f"/api/organizations/{ctx['org_id']}/members",
+        json={"organization_id": ctx["org_id"], "email": target_email, "role": "member"},
+        headers=_headers(ctx["admin_token"], ctx["org_id"]),
+    )
+    create_user(email=target_email, password="test123")
+    target_info = whoami(login_user(target_email, "test123"))
+    target_id = target_info["id"]
+
+    test_client.post(
+        f"/api/data_sources/{ds['id']}/members",
+        json={"principal_type": "user", "principal_id": target_id},
+        headers=_headers(ctx["admin_token"], ctx["org_id"]),
+    )
+
+    # Member gets manage_members on the DS but NOT manage
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Member Remover", [
+        "manage_members",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+    _grant_resource(
+        test_client, ctx["admin_token"], ctx["org_id"],
+        "data_source", ds["id"], "user", ctx["member_id"],
+        ["manage_members"],
+    )
+
+    # Member tries to remove the target — should be denied
+    resp = test_client.delete(
+        f"/api/data_sources/{ds['id']}/members/{target_id}",
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code == 403, f"Should require per-DS manage to remove members: {resp.text}"
