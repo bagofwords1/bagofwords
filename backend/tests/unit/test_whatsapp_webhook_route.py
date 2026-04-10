@@ -33,7 +33,7 @@ def _install_route_stubs():
 
     deps_mod.get_async_db = _fake_db
     sys.modules.setdefault("app", types.ModuleType("app"))
-    sys.modules["app.dependencies"] = deps_mod
+    sys.modules.setdefault("app.dependencies", deps_mod)
 
     # Stub services.external_platform_manager with a module containing a
     # controllable class.
@@ -47,8 +47,8 @@ def _install_route_stubs():
             return {"success": True, "action": "message_processed"}
 
     epm_mod.ExternalPlatformManager = ExternalPlatformManager
-    sys.modules["app.services"] = types.ModuleType("app.services")
-    sys.modules["app.services.external_platform_manager"] = epm_mod
+    sys.modules.setdefault("app.services", types.ModuleType("app.services"))
+    sys.modules.setdefault("app.services.external_platform_manager", epm_mod)
 
     # Stub external_platform_service
     eps_mod = types.ModuleType("app.services.external_platform_service")
@@ -57,7 +57,7 @@ def _install_route_stubs():
         pass
 
     eps_mod.ExternalPlatformService = ExternalPlatformService
-    sys.modules["app.services.external_platform_service"] = eps_mod
+    sys.modules.setdefault("app.services.external_platform_service", eps_mod)
 
     # Stub models.external_platform
     models_mod = types.ModuleType("app.models")
@@ -75,9 +75,8 @@ def _install_route_stubs():
             return dict(self._credentials)
 
     ep_mod.ExternalPlatform = ExternalPlatform
-    # Force-replace even if a previous test file already stubbed these.
-    sys.modules["app.models"] = models_mod
-    sys.modules["app.models.external_platform"] = ep_mod
+    sys.modules.setdefault("app.models", models_mod)
+    sys.modules.setdefault("app.models.external_platform", ep_mod)
     return ExternalPlatform
 
 
