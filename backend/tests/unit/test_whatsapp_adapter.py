@@ -41,11 +41,11 @@ def _install_stubs():
     config_mod.settings = types.SimpleNamespace(bow_config=bow_cfg)
 
     sys.modules.setdefault("app", types.ModuleType("app"))
-    sys.modules["app.models"] = models_pkg
-    sys.modules["app.models.external_platform"] = ep_mod
-    sys.modules["app.models.external_user_mapping"] = eum_mod
-    sys.modules["app.settings"] = settings_pkg
-    sys.modules["app.settings.config"] = config_mod
+    sys.modules.setdefault("app.models", models_pkg)
+    sys.modules.setdefault("app.models.external_platform", ep_mod)
+    sys.modules.setdefault("app.models.external_user_mapping", eum_mod)
+    sys.modules.setdefault("app.settings", settings_pkg)
+    sys.modules.setdefault("app.settings.config", config_mod)
 
 
 _install_stubs()
@@ -71,9 +71,9 @@ _base = _load(
 pa_pkg = types.ModuleType("app.services")
 pa_pkg2 = types.ModuleType("app.services.platform_adapters")
 pa_pkg2.__path__ = [str(BACKEND_ROOT / "app" / "services" / "platform_adapters")]
-sys.modules["app.services"] = pa_pkg
-sys.modules["app.services.platform_adapters"] = pa_pkg2
-sys.modules["app.services.platform_adapters.base_adapter"] = _base
+sys.modules.setdefault("app.services", pa_pkg)
+sys.modules.setdefault("app.services.platform_adapters", pa_pkg2)
+sys.modules.setdefault("app.services.platform_adapters.base_adapter", _base)
 
 wa_mod = _load(
     "app.services.platform_adapters.whatsapp_adapter",
