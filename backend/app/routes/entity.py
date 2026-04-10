@@ -166,6 +166,7 @@ async def delete_entity(
 
 
 @router.post("/from_step/{step_id}", response_model=EntitySchema)
+@requires_permission('create_entities', resource_scoped=True)
 async def create_entity_from_step(
     step_id: str,
     payload: EntityFromStepCreate,

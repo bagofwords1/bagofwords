@@ -146,7 +146,7 @@ async def list_connections(
 
 
 @router.post("", response_model=ConnectionSchema)
-@requires_permission('create_data_source')  # Admin-only
+@requires_permission('manage_connections')
 async def create_connection(
     data: ConnectionCreate,
     current_user: User = Depends(current_user),

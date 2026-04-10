@@ -129,9 +129,19 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     if not_approved and (is_owner or is_ai_orphan):
                         # allow without role permission
                         return await func(*args, **kwargs)
-                # resource_scoped: defer to check_resource_permissions() in the route body
+                # resource_scoped: the user lacks org-level permission, but may
+                # hold a per-resource grant. Verify they have the permission on
+                # at least one resource before deferring the specific-resource
+                # check to the route body. This blocks users who have zero
+                # grants from creating resources with empty data_source_ids.
                 if resource_scoped:
-                    return await func(*args, **kwargs)
+                    perm_to_check = permission if isinstance(permission, str) else list(permission)[0]
+                    has_any_resource = any(
+                        perm_to_check in perms
+                        for perms in resolved.resource_permissions.values()
+                    )
+                    if has_any_resource:
+                        return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="Permission denied")
 
