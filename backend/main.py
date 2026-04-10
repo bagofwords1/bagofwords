@@ -61,6 +61,7 @@ from app.routes import (
     external_user_mapping,
     slack_webhook,
     teams_webhook,
+    whatsapp_webhook,
     step,
     instruction,
     onboarding,
@@ -202,6 +203,7 @@ app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
 app.include_router(teams_webhook.router)
+app.include_router(whatsapp_webhook.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
 app.include_router(build.router, prefix="/api")

@@ -15,6 +15,7 @@ from app.schemas.external_platform_schema import (
     ExternalPlatformSchema,
     SlackConfig,
     TeamsConfig,
+    WhatsAppConfig,
 )
 from app.models.external_platform import ExternalPlatform
 from app.ee.audit.service import audit_service
@@ -122,6 +123,41 @@ async def create_slack_integration(
             resource_type="integration",
             resource_id=result.id if hasattr(result, "id") else None,
             details={"type": "slack"},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
+
+@router.post("/settings/integrations/whatsapp", response_model=ExternalPlatformSchema)
+@requires_permission('manage_settings')
+async def create_whatsapp_integration(
+    data: WhatsAppConfig,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Create a new WhatsApp integration"""
+    result = await external_platform_service.create_whatsapp_platform(
+        db,
+        organization,
+        data.access_token,
+        data.phone_number_id,
+        data.waba_id,
+        data.app_secret,
+        data.verify_token,
+        current_user,
+    )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.created",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=result.id if hasattr(result, "id") else None,
+            details={"type": "whatsapp"},
             request=request,
         )
     except Exception:

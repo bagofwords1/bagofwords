@@ -6,6 +6,7 @@ from enum import Enum
 class PlatformType(str, Enum):
     SLACK = "slack"
     TEAMS = "teams"
+    WHATSAPP = "whatsapp"
     EMAIL = "email"
     MCP = "mcp"
 
@@ -39,6 +40,14 @@ class TeamsConfig(BaseModel):
     app_id: str
     client_secret: str
     tenant_id: str
+    webhook_url: Optional[str] = None
+
+class WhatsAppConfig(BaseModel):
+    access_token: str
+    phone_number_id: str
+    waba_id: str
+    app_secret: str
+    verify_token: str
     webhook_url: Optional[str] = None
 
 class EmailConfig(BaseModel):
