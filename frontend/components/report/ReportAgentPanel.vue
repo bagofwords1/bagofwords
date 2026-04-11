@@ -6,10 +6,17 @@
         No agents attached to this report
       </div>
       <div v-else-if="agents.length === 1" class="flex items-center gap-2">
+        <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">
+          <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+        </button>
         <DataSourceIcon :type="agents[0].type || agents[0].connections?.[0]?.type" class="h-5 flex-shrink-0" />
         <span class="text-sm font-semibold text-gray-900 truncate">{{ agents[0].name }}</span>
       </div>
-      <div v-else class="relative" ref="dropdownRef">
+      <div v-else class="flex items-center gap-2">
+        <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded flex-shrink-0">
+          <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+        </button>
+        <div class="relative flex-1" ref="dropdownRef">
         <button
           @click="dropdownOpen = !dropdownOpen"
           class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors bg-white/80"
@@ -42,6 +49,7 @@
             </button>
           </div>
         </Transition>
+        </div>
       </div>
     </div>
 
@@ -369,7 +377,10 @@ import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
 
 const props = defineProps<{
   agents: Array<{ id: string; name: string; type?: string; connections?: any[] }>
+  showClose?: boolean
 }>()
+
+const emit = defineEmits(['close'])
 
 // Permissions
 const canUpdateDataSource = computed(() => useCan('update_data_source'))

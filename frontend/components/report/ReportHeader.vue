@@ -40,6 +40,13 @@
                 <Icon :name="tab.icon" class="w-3 h-3" />
                 {{ tab.label }}
             </button>
+            <button
+                v-if="mobileView !== 'chat'"
+                @click="$emit('update:mobileView', 'chat')"
+                class="ml-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+                <Icon name="heroicons:x-mark" class="w-4 h-4" />
+            </button>
         </div>
     </header>
 </template>

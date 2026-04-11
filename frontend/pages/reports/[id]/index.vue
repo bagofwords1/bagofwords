@@ -448,7 +448,7 @@
 					@scrollToMessage="scrollToMessage"
 					@editScheduledPrompt="editScheduledPrompt"
 					@editTrainingInstruction="editTrainingInstruction"
-					@openInstructions="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; }"
+					@openInstructions="() => { if (isMobile) { mobileView = 'agent'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; } }"
 					@update:selectedDataSources="(val: any[]) => currentAgents = val"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
@@ -513,17 +513,16 @@
 					{{ currentAgents.length > 1 ? 'Agents' : (currentAgents[0]?.name || 'Agent') }}
 				</button>
 			</div>
+			<button
+				@click="toggleSplitScreen"
+				class="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+			>
+				<Icon name="heroicons:x-mark" class="w-4 h-4" />
+			</button>
 		</template>
 		<template #right>
 			<!-- Summary View -->
 			<div v-if="rightPanelView === 'summary'" class="h-full flex flex-col">
-				<div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 to-white border-b">
-					<UTooltip text="Back to chat">
-						<button @click="toggleSplitScreen" class="hover:bg-gray-100 p-1 rounded">
-							<Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
-						</button>
-					</UTooltip>
-				</div>
 				<div class="flex-1 overflow-y-auto">
 					<ChatSummary
 						:scheduledPrompts="scheduledPrompts"
@@ -531,6 +530,8 @@
 						:queryList="queryList"
 						:queryExecutions="summaryQueries"
 						:trainingInstructions="summaryInstructions"
+						:showClose="true"
+						@close="toggleSplitScreen"
 						@editScheduledPrompt="editScheduledPrompt"
 						@openArtifact="handleOpenArtifact"
 						@scrollToMessage="scrollToMessage"
@@ -540,15 +541,8 @@
 
 			<!-- Agent View -->
 			<div v-else-if="rightPanelView === 'agent'" class="h-full flex flex-col">
-				<div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 to-white border-b">
-					<UTooltip text="Back to chat">
-						<button @click="toggleSplitScreen" class="hover:bg-gray-100 p-1 rounded">
-							<Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
-						</button>
-					</UTooltip>
-				</div>
 				<div class="flex-1 overflow-y-auto">
-					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" />
+					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" />
 				</div>
 			</div>
 
