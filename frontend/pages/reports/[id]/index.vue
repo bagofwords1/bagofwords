@@ -77,7 +77,7 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
 			<div class="pl-4 pr-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
@@ -441,13 +441,14 @@
 					:scheduledPrompts="scheduledPrompts"
 					:trainingInstructions="summaryInstructions"
 					:hasArtifacts="hasArtifacts"
+					:compact="isExcel"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
 					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
 					@scrollToMessage="scrollToMessage"
 					@editScheduledPrompt="editScheduledPrompt"
 					@editTrainingInstruction="editTrainingInstruction"
-					@openInstructions="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; }"
+					@openInstructions="() => { if (isMobile) { mobileView = 'agent'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; } }"
 					@update:selectedDataSources="(val: any[]) => currentAgents = val"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
@@ -512,25 +513,37 @@
 					{{ currentAgents.length > 1 ? 'Agents' : (currentAgents[0]?.name || 'Agent') }}
 				</button>
 			</div>
+			<button
+				@click="toggleSplitScreen"
+				class="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+			>
+				<Icon name="heroicons:x-mark" class="w-4 h-4" />
+			</button>
 		</template>
 		<template #right>
 			<!-- Summary View -->
-			<div v-if="rightPanelView === 'summary'" class="h-full overflow-y-auto">
-				<ChatSummary
-					:scheduledPrompts="scheduledPrompts"
-					:artifactList="reportArtifacts"
-					:queryList="queryList"
-					:queryExecutions="summaryQueries"
-					:trainingInstructions="summaryInstructions"
-					@editScheduledPrompt="editScheduledPrompt"
-					@openArtifact="handleOpenArtifact"
-					@scrollToMessage="scrollToMessage"
-				/>
+			<div v-if="rightPanelView === 'summary'" class="h-full flex flex-col">
+				<div class="flex-1 overflow-y-auto">
+					<ChatSummary
+						:scheduledPrompts="scheduledPrompts"
+						:artifactList="reportArtifacts"
+						:queryList="queryList"
+						:queryExecutions="summaryQueries"
+						:trainingInstructions="summaryInstructions"
+						:showClose="true"
+						@close="toggleSplitScreen"
+						@editScheduledPrompt="editScheduledPrompt"
+						@openArtifact="handleOpenArtifact"
+						@scrollToMessage="scrollToMessage"
+					/>
+				</div>
 			</div>
 
 			<!-- Agent View -->
-			<div v-else-if="rightPanelView === 'agent'" class="h-full overflow-y-auto">
-				<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" />
+			<div v-else-if="rightPanelView === 'agent'" class="h-full flex flex-col">
+				<div class="flex-1 overflow-y-auto">
+					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" />
+				</div>
 			</div>
 
 			<!-- Grid View (DashboardComponent - Edit Mode) -->
@@ -714,6 +727,9 @@ interface ChatMessage {
 
 const route = useRoute()
 const report_id = (route.params.id as string) || ''
+
+// Excel add-in mode detection (for compact UI)
+const { isExcel } = useExcel()
 
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
@@ -3013,6 +3029,32 @@ onMounted(async () => {
 }
 
 
+
+/* Compact mode (Excel add-in) — smaller text throughout */
+.compact-messages .block-content {
+	font-size: 11px;
+}
+.compact-messages .markdown-wrapper :deep(.markdown-content) {
+	font-size: 11px;
+}
+.compact-messages .markdown-wrapper :deep(.markdown-content pre code) {
+	font-size: 11px;
+}
+.compact-messages .markdown-wrapper :deep(.markdown-content code) {
+	font-size: 10px;
+}
+.compact-messages .thinking-header {
+	font-size: 10px;
+}
+.compact-messages .thinking-content,
+.compact-messages .thinking-content :deep(*),
+.compact-messages .thinking-content :deep(.markdown-content),
+.compact-messages .thinking-content :deep(p) {
+	font-size: 10px !important;
+}
+.compact-messages li {
+	font-size: 11px;
+}
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
 .simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }

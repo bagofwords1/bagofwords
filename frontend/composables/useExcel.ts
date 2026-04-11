@@ -1,12 +1,42 @@
 import { ref, readonly, onMounted } from 'vue'
 
 const globalIsExcel = ref(false)
-let isInitialized = false
+let isInitialized = false // tracks whether ensureInitialized has run (reads storage, sets flags)
+let listenerInstalled = false // tracks whether the window postMessage listener is attached
 let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null
+
+// Sticky mode: once we know we're in Excel via the ?excel=true query param,
+// stay in Excel mode for the life of the session regardless of postMessage
+// heartbeat state. The query param is authoritative — it's set by the taskpane
+// on the iframe src URL and doesn't depend on postMessage timing or hydration.
+let isExcelSticky = false
 
 // How long to wait without a heartbeat before assuming we're no longer in Excel.
 // The taskpane sends heartbeats every 5 s, so 12 s gives comfortable margin.
+// Only applies to the legacy postMessage-driven path; sticky mode never expires.
 const HEARTBEAT_TIMEOUT_MS = 12_000
+
+// Read the ?excel=true query param as early as possible — at module load time,
+// before any middleware or navigation has a chance to rewrite the URL.
+// Because nuxt.config.ts has `ssr: false`, this runs exactly once in the browser
+// when the composable module is first imported. If a redirect later strips the
+// query param from the URL, the sticky flag in localStorage still wins.
+if (typeof window !== 'undefined') {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const excelParam = params.get('excel')
+    if (excelParam === 'true') {
+      localStorage.setItem('excelStatus', JSON.stringify(true))
+      localStorage.setItem('excelSticky', '1')
+    } else if (excelParam === 'false') {
+      // Explicit opt-out for local testing / debugging.
+      localStorage.removeItem('excelStatus')
+      localStorage.removeItem('excelSticky')
+    }
+  } catch {
+    // localStorage unavailable (SSR, private mode, etc.) — ignore silently.
+  }
+}
 
 export interface ExcelSelection {
   address: string
@@ -22,6 +52,14 @@ export interface ExcelSelection {
 const globalExcelSelection = ref<ExcelSelection | null>(null)
 
 function resetHeartbeatTimer() {
+  // Sticky mode (query-param-driven) never expires — skip the heartbeat entirely.
+  if (isExcelSticky) {
+    if (heartbeatTimeout) {
+      clearTimeout(heartbeatTimeout)
+      heartbeatTimeout = null
+    }
+    return
+  }
   if (heartbeatTimeout) clearTimeout(heartbeatTimeout)
   heartbeatTimeout = setTimeout(() => {
     globalIsExcel.value = false
@@ -112,16 +150,54 @@ function handleExcelMessage(event: MessageEvent) {
 }
 
 function setupExcelListener() {
-  if (process.client && !isInitialized) {
+  if (process.client && !listenerInstalled) {
     // Remove old handler if exists (HMR safety)
     if (currentHandler) window.removeEventListener('message', currentHandler)
     currentHandler = handleExcelMessage
     window.addEventListener('message', handleExcelMessage, false)
-    isInitialized = true
+    listenerInstalled = true
   }
 }
 
+function ensureInitialized() {
+  if (!process.client) return
+  if (isInitialized) return
+  isInitialized = true
+
+  try {
+    // 1) Sticky flag from localStorage (set either by the module-load query-param
+    //    check above, or by a previous session that saw ?excel=true). This is
+    //    authoritative — survives the 12 s heartbeat and client-side nav that
+    //    may drop the query string from the URL.
+    if (localStorage.getItem('excelSticky') === '1') {
+      isExcelSticky = true
+      globalIsExcel.value = true
+    } else {
+      // 2) Legacy postMessage-driven status. Starts the heartbeat as before —
+      //    if no postMessage arrives within HEARTBEAT_TIMEOUT_MS, the flag
+      //    clears, matching the old behavior for non-sticky sessions.
+      const storedStatus = localStorage.getItem('excelStatus')
+      if (storedStatus !== null) {
+        globalIsExcel.value = JSON.parse(storedStatus)
+        resetHeartbeatTimer()
+      }
+    }
+  } catch {
+    // localStorage unavailable — silently continue; postMessage listener still runs.
+  }
+
+  // 3) Install the postMessage listener regardless — it's still the only source
+  //    of `cellSelected` data, and it's a belt-and-suspenders fallback for old
+  //    taskpane builds that don't set the query param.
+  setupExcelListener()
+}
+
 export const useExcel = () => {
+  // Run sync init on every call; gated internally by `isInitialized` so it
+  // only does real work once per session. This means any component that reads
+  // `isExcel` gets the correct value immediately, without waiting for mount.
+  ensureInitialized()
+
   const setExcelStatus = (value: boolean) => {
     globalIsExcel.value = value
     if (process.client) {
@@ -129,23 +205,17 @@ export const useExcel = () => {
         localStorage.setItem('excelStatus', JSON.stringify(true))
       } else {
         localStorage.removeItem('excelStatus')
+        // Clearing status also clears sticky — callers that want to force-exit
+        // Excel mode (e.g. debug tools) should see a clean slate.
+        localStorage.removeItem('excelSticky')
+        isExcelSticky = false
       }
     }
   }
 
-  const initExcelStatus = () => {
-    if (process.client) {
-      const storedStatus = localStorage.getItem('excelStatus')
-      if (storedStatus !== null) {
-        globalIsExcel.value = JSON.parse(storedStatus)
-        // Start the timeout — if no heartbeat arrives, we'll clear the stale flag
-        resetHeartbeatTimer()
-      }
-      setupExcelListener()
-    }
-  }
-
-  onMounted(initExcelStatus)
+  // Safety net: if somehow useExcel is called before `process.client` is true
+  // (shouldn't happen with ssr: false, but cheap to keep), re-try on mount.
+  onMounted(ensureInitialized)
 
   return {
     isExcel: readonly(globalIsExcel),

@@ -1,7 +1,10 @@
 <template>
   <div class="h-full overflow-y-auto bg-white">
     <!-- Header -->
-    <div class="px-4 pt-4 pb-6 bg-gradient-to-b from-amber-50 to-white">
+    <div class="px-4 pt-4 pb-6 bg-gradient-to-b from-amber-50 to-white flex items-center gap-2">
+      <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">
+        <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+      </button>
       <h2 class="text-sm font-semibold text-gray-900">Summary</h2>
     </div>
 
@@ -124,6 +127,7 @@ const props = defineProps<{
   queryList: any[]
   queryExecutions: any[]
   trainingInstructions: any[]
+  showClose?: boolean
 }>()
 
 const showAllArtifacts = ref(false)
@@ -135,6 +139,7 @@ const emit = defineEmits([
   'editScheduledPrompt',
   'openArtifact',
   'scrollToMessage',
+  'close',
 ])
 
 const hasAnything = computed(() =>

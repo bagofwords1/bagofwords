@@ -3,7 +3,10 @@
     <div
       ref="inputRef"
       contenteditable="true"
-      class="w-full text-sm outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 min-h-[40px] text-left"
+      :class="[
+        'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-left',
+        props.compact ? 'text-[11px] leading-[16px]' : 'text-sm min-h-[40px]'
+      ]"
       :style="{ minHeight: minHeight, maxHeight: maxHeight }"
       @input="handleInput"
       @keydown="handleKeydown"
@@ -189,6 +192,10 @@ const props = defineProps({
     type: Number,
     default: 2
   },
+  compact: {
+    type: Boolean,
+    default: false
+  },
   categories: {
     type: Array as () => string[],
     default: () => ['data_sources', 'tables', 'files', 'entities']
@@ -225,9 +232,9 @@ const isLoadingMentions = ref(false)
 const orgPermsState = usePermissions()
 const resourcePermsState = useResourcePermissions()
 
-const lineHeightPx = 24
-const minHeight = computed(() => `${Math.max(2, props.rows) * lineHeightPx}px`)
-const maxHeight = computed(() => `${Math.max(2, props.rows) * lineHeightPx}px`)
+const lineHeightPx = computed(() => props.compact ? 18 : 24)
+const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
+const maxHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
 
 const filteredCategories = computed(() => {
   if (currentMentionStartIndex.value === -1) return []
