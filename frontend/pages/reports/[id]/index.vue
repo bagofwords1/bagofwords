@@ -77,7 +77,7 @@
 		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
 			<div class="pl-4 pr-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
@@ -3029,6 +3029,32 @@ onMounted(async () => {
 }
 
 
+
+/* Compact mode (Excel add-in) — smaller text throughout */
+.compact-messages .block-content {
+	font-size: 11px;
+}
+.compact-messages .markdown-wrapper :deep(.markdown-content) {
+	font-size: 11px;
+}
+.compact-messages .markdown-wrapper :deep(.markdown-content pre code) {
+	font-size: 11px;
+}
+.compact-messages .markdown-wrapper :deep(.markdown-content code) {
+	font-size: 10px;
+}
+.compact-messages .thinking-header {
+	font-size: 10px;
+}
+.compact-messages .thinking-content,
+.compact-messages .thinking-content :deep(*),
+.compact-messages .thinking-content :deep(.markdown-content),
+.compact-messages .thinking-content :deep(p) {
+	font-size: 10px !important;
+}
+.compact-messages li {
+	font-size: 11px;
+}
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
 .simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }
