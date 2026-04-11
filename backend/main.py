@@ -78,6 +78,7 @@ from app.routes import (
     oauth_server,
     rbac,
     scheduled_prompt,
+    excel,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -218,6 +219,7 @@ app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
+app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
 # SCIM 2.0 provisioning endpoints (mounted at /scim/v2, not under /api)

@@ -101,8 +101,6 @@ class PowerBIClient(DataSourceClient):
         self._http = requests.Session()
 
     def test_connection(self) -> Dict:
-        import logging
-
         # Phase 1: Authenticate
         try:
             self.connect()
@@ -112,9 +110,13 @@ class PowerBIClient(DataSourceClient):
                 "message": f"Authentication failed: {e}",
             }
 
-        # Phase 2: List workspaces
+        # Phase 2: Get first page of workspaces only (don't follow pagination)
         try:
-            workspaces = self.list_workspaces()
+            headers = self._build_headers()
+            resp = self._http.get(f"{self.BASE_URL}/groups", headers=headers, timeout=30)
+            if resp.status_code >= 300:
+                raise RuntimeError(f"HTTP {resp.status_code} {resp.text}")
+            workspaces = (resp.json() or {}).get("value") or []
         except Exception as e:
             return {
                 "success": False,
@@ -127,15 +129,11 @@ class PowerBIClient(DataSourceClient):
                 "message": "Connected but no workspaces found. Ensure the service principal has access to at least one workspace.",
             }
 
-        # Phase 3: List datasets
-        datasets_by_ws = {}
-        dataset_count = 0
+        # Phase 3: Get datasets from first workspace only
+        first_ws = workspaces[0]
+        first_ws_id = first_ws.get("id")
         try:
-            for ws in workspaces:
-                ds_list = self.list_datasets(ws["id"])
-                if ds_list:
-                    datasets_by_ws[ws["id"]] = ds_list
-                dataset_count += len(ds_list)
+            ds_list = self.list_datasets(first_ws_id)
         except Exception as e:
             return {
                 "success": False,
@@ -143,20 +141,18 @@ class PowerBIClient(DataSourceClient):
                 "connectivity": True,
             }
 
-        if dataset_count == 0:
+        if not ds_list:
             return {
                 "success": False,
-                "message": f"Connected to {len(workspaces)} workspace(s) but no datasets found. Ensure the service principal is a Member/Contributor of your workspaces.",
+                "message": f"Connected to {len(workspaces)}+ workspace(s) but no datasets found in first workspace. Ensure the service principal is a Member/Contributor of your workspaces.",
                 "connectivity": True,
             }
 
         # Phase 4: Try DAX query on the first dataset to verify query access
-        first_ws_id = next(iter(datasets_by_ws))
-        first_ds = datasets_by_ws[first_ws_id][0]
+        first_ds = ds_list[0]
         first_ds_id = first_ds["id"]
         first_ds_name = first_ds.get("name") or first_ds_id
         try:
-            headers = self._build_headers()
             url = f"{self.BASE_URL}/groups/{first_ws_id}/datasets/{first_ds_id}/executeQueries"
             body = {
                 "queries": [{"query": "EVALUATE ROW(\"test\", 1)"}],
@@ -194,9 +190,9 @@ class PowerBIClient(DataSourceClient):
 
         return {
             "success": True,
-            "message": f"Connected to Power BI. Found {len(workspaces)} workspace(s), {dataset_count} dataset(s).",
+            "message": f"Connected to Power BI. Found {len(workspaces)}+ workspace(s), {len(ds_list)} dataset(s) in first workspace.",
             "workspaces": len(workspaces),
-            "datasets": dataset_count,
+            "datasets": len(ds_list),
         }
 
     def list_workspaces(self) -> List[Dict]:
@@ -285,51 +281,30 @@ class PowerBIClient(DataSourceClient):
 
     def get_dataset_tables(self, workspace_id: str, dataset_id: str) -> tuple:
         """
-        Get tables and columns for a dataset.
-        Tries multiple approaches in order for tables:
-        1. REST API /tables endpoint (works for Push datasets)
-        2. DAX COLUMNSTATISTICS() function (works for most datasets)
-        3. Admin Scanner API (works for all datasets with admin permissions)
-
-        Then tries Admin Scanner API separately for relationships (if not already fetched).
+        Get tables and columns for a single dataset.
+        Uses COLUMNSTATISTICS (no relationships) with REST API fallback.
+        For bulk discovery with relationships, use _batch_admin_scan() instead.
 
         Returns:
             tuple: (tables_list, relationships_list)
         """
-        import logging
-
         self.connect()
         headers = self._build_headers()
-        tables = []
-        relationships = []
 
-        # Step 1: Get tables from first method that works
+        # Try COLUMNSTATISTICS first (works for most datasets without admin perms)
+        tables, _ = self._get_tables_via_column_stats(workspace_id, dataset_id)
+        if tables:
+            return tables, []
 
-        # Try REST API first (only works for Push datasets)
+        # Fallback: REST API /tables (only works for Push datasets)
         url = f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/tables"
         resp = self._http.get(url, headers=headers, timeout=30)
         if resp.status_code < 300:
             rest_tables = (resp.json() or {}).get("value") or []
             if rest_tables and any(t.get("columns") for t in rest_tables):
-                tables = rest_tables
+                return rest_tables, []
 
-        # Try DAX COLUMNSTATISTICS() if REST API didn't work
-        if not tables:
-            tables, _ = self._get_tables_via_column_stats(workspace_id, dataset_id)
-
-        # Try Admin Scanner API if nothing else worked
-        if not tables:
-            tables, relationships = self._get_tables_via_admin_scan(workspace_id, dataset_id)
-
-        # Step 2: If we have tables but no relationships, try Admin Scanner for relationships
-        if tables and not relationships:
-            try:
-                _, relationships = self._get_tables_via_admin_scan(workspace_id, dataset_id)
-            except Exception as e:
-                logging.debug(f"Admin Scanner failed for relationships (continuing without): {e}")
-                relationships = []
-
-        return tables, relationships
+        return [], []
 
     def _get_tables_via_column_stats(self, workspace_id: str, dataset_id: str) -> tuple:
         """
@@ -494,123 +469,247 @@ class PowerBIClient(DataSourceClient):
 
         return list(tables_dict.values()), relationships
 
+    def _batch_admin_scan(self, workspace_ids: List[str]) -> Dict[str, Dict]:
+        """
+        Batch admin scan: up to 100 workspaces per request.
+        Returns dict keyed by dataset_id -> (tables, relationships) from _parse_admin_scan_tables.
+        """
+        import time
+        import logging
+
+        self.connect()
+        headers = self._build_headers()
+        # ds_id -> (tables, relationships)
+        results: Dict[str, tuple] = {}
+
+        # Batch in chunks of 100 (API limit)
+        for i in range(0, len(workspace_ids), 100):
+            batch = workspace_ids[i:i + 100]
+
+            try:
+                scan_url = f"{self.BASE_URL}/admin/workspaces/getInfo?datasetSchema=true"
+                resp = self._http.post(scan_url, json={"workspaces": batch}, headers=headers, timeout=30)
+                if resp.status_code >= 300:
+                    logging.debug(f"Batch admin scan failed: HTTP {resp.status_code}")
+                    continue
+
+                scan_id = (resp.json() or {}).get("id")
+                if not scan_id:
+                    continue
+
+                # Poll for completion (max 60s for batch)
+                status_url = f"{self.BASE_URL}/admin/workspaces/scanStatus/{scan_id}"
+                succeeded = False
+                for _ in range(30):
+                    time.sleep(2)
+                    status_resp = self._http.get(status_url, headers=headers, timeout=30)
+                    if status_resp.status_code < 300:
+                        if (status_resp.json() or {}).get("status") == "Succeeded":
+                            succeeded = True
+                            break
+                if not succeeded:
+                    continue
+
+                # Fetch results
+                result_url = f"{self.BASE_URL}/admin/workspaces/scanResult/{scan_id}"
+                result_resp = self._http.get(result_url, headers=headers, timeout=60)
+                if result_resp.status_code >= 300:
+                    continue
+
+                for ws in (result_resp.json() or {}).get("workspaces") or []:
+                    for ds in ws.get("datasets") or []:
+                        ds_id = ds.get("id")
+                        if ds_id:
+                            results[ds_id] = self._parse_admin_scan_tables(ds)
+
+            except Exception as e:
+                logging.debug(f"Batch admin scan error: {e}")
+                continue
+
+        return results
+
     def get_schemas(self) -> List[Table]:
         """
         Build Table objects representing all internal tables across all datasets.
         Each internal Power BI table becomes one BOW Table named "{Dataset}/{Table}".
+
+        Strategy:
+        1. Fetch datasets and reports for all workspaces in parallel
+        2. Try batch admin scan (up to 100 workspaces per call) — gets tables + relationships
+        3. For datasets not covered by admin scan, fall back to parallel COLUMNSTATISTICS
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import logging
+
         workspaces = self.list_workspaces()
         tables: List[Table] = []
 
+        # Phase 1: Fetch datasets and reports for all workspaces in parallel
+        ws_datasets: Dict[str, List[Dict]] = {}  # ws_id -> datasets
+        ws_reports: Dict[str, List[Dict]] = {}    # ws_id -> reports
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            ds_futures = {pool.submit(self.list_datasets, ws["id"]): ws for ws in workspaces}
+            rpt_futures = {pool.submit(self.list_reports, ws["id"]): ws for ws in workspaces}
+
+            for fut in as_completed(ds_futures):
+                ws = ds_futures[fut]
+                try:
+                    ws_datasets[ws["id"]] = fut.result()
+                except Exception:
+                    ws_datasets[ws["id"]] = []
+
+            for fut in as_completed(rpt_futures):
+                ws = rpt_futures[fut]
+                try:
+                    ws_reports[ws["id"]] = fut.result()
+                except Exception:
+                    ws_reports[ws["id"]] = []
+
+        # Collect all (workspace, dataset) pairs
+        all_ds_tasks: List[Tuple[Dict, Dict, str]] = []
         for ws in workspaces:
             ws_id = ws.get("id")
+            for ds in ws_datasets.get(ws_id, []):
+                all_ds_tasks.append((ws, ds, ws_id))
+
+        # Phase 2: Try batch admin scan for all workspaces (tables + relationships in bulk)
+        ws_ids = [ws["id"] for ws in workspaces]
+        admin_scan_results: Dict[str, tuple] = {}  # ds_id -> (tables, relationships)
+        try:
+            admin_scan_results = self._batch_admin_scan(ws_ids)
+        except Exception as e:
+            logging.debug(f"Batch admin scan unavailable, falling back to COLUMNSTATISTICS: {e}")
+
+        # Phase 3: For datasets not covered by admin scan, use parallel COLUMNSTATISTICS
+        ds_table_results: Dict[str, tuple] = {}  # "ws_id:ds_id" -> (tables, relationships)
+        fallback_tasks = []
+
+        for ws, ds, ws_id in all_ds_tasks:
+            ds_id = ds.get("id")
+            key = f"{ws_id}:{ds_id}"
+            if ds_id in admin_scan_results:
+                ds_table_results[key] = admin_scan_results[ds_id]
+            else:
+                fallback_tasks.append((ws, ds, ws_id, key))
+
+        if fallback_tasks:
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                tbl_futures = {}
+                for ws, ds, ws_id, key in fallback_tasks:
+                    ds_id = ds.get("id")
+                    tbl_futures[pool.submit(self.get_dataset_tables, ws_id, ds_id)] = key
+
+                for fut in as_completed(tbl_futures):
+                    key = tbl_futures[fut]
+                    try:
+                        ds_table_results[key] = fut.result()
+                    except Exception:
+                        ds_table_results[key] = ([], [])
+
+        # Phase 4: Assemble Table objects (CPU-only, no I/O)
+        for ws, ds, ws_id in all_ds_tasks:
             ws_name = ws.get("name") or ws_id
+            ds_id = ds.get("id")
+            ds_name = ds.get("name") or ds_id
+            key = f"{ws_id}:{ds_id}"
 
-            # Get datasets and reports for this workspace
-            datasets = self.list_datasets(ws_id)
-            reports = self.list_reports(ws_id)
-
-            # Build a map of datasetId -> list of reports
+            # Build reports map for this workspace
             reports_by_dataset: Dict[str, List[Dict]] = {}
-            for rpt in reports:
-                ds_id = rpt.get("datasetId")
-                if ds_id:
-                    if ds_id not in reports_by_dataset:
-                        reports_by_dataset[ds_id] = []
-                    reports_by_dataset[ds_id].append({
+            for rpt in ws_reports.get(ws_id, []):
+                rpt_ds_id = rpt.get("datasetId")
+                if rpt_ds_id:
+                    if rpt_ds_id not in reports_by_dataset:
+                        reports_by_dataset[rpt_ds_id] = []
+                    reports_by_dataset[rpt_ds_id].append({
                         "id": rpt.get("id"),
                         "name": rpt.get("name"),
                         "webUrl": rpt.get("webUrl"),
                     })
 
-            for ds in datasets:
-                ds_id = ds.get("id")
-                ds_name = ds.get("name") or ds_id
+            ds_tables, ds_relationships = ds_table_results.get(key, ([], []))
 
-                # Get tables/columns and relationships for this dataset
-                ds_tables, ds_relationships = self.get_dataset_tables(ws_id, ds_id)
+            # Create one BOW Table per internal Power BI table
+            for tbl in ds_tables:
+                tbl_name = tbl.get("name") or ""
+                if not tbl_name:
+                    continue
 
-                # Create one BOW Table per internal Power BI table
-                for tbl in ds_tables:
-                    tbl_name = tbl.get("name") or ""
-                    if not tbl_name:
-                        continue
+                # Clean up display name for SharePoint URL tables
+                tbl_display_name = _clean_table_display_name(tbl_name)
 
-                    # Clean up display name for SharePoint URL tables
-                    tbl_display_name = _clean_table_display_name(tbl_name)
+                # 2-level naming: Dataset/Table (like Snowflake's schema.table)
+                full_name = f"{ds_name}/{tbl_display_name}"
 
-                    # 2-level naming: Dataset/Table (like Snowflake's schema.table)
-                    full_name = f"{ds_name}/{tbl_display_name}"
+                # Columns for this table only
+                columns: List[TableColumn] = []
+                for col in tbl.get("columns") or []:
+                    col_name = col.get("name") or ""
+                    col_type = col.get("dataType") or "unknown"
+                    if col_name:
+                        columns.append(TableColumn(
+                            name=col_name,
+                            dtype=col_type,
+                            description=None,
+                            metadata={"role": "column"},
+                        ))
 
-                    # Columns for this table only
-                    columns: List[TableColumn] = []
-                    for col in tbl.get("columns") or []:
-                        col_name = col.get("name") or ""
-                        col_type = col.get("dataType") or "unknown"
-                        if col_name:
-                            columns.append(TableColumn(
-                                name=col_name,
-                                dtype=col_type,
-                                description=None,
-                                metadata={"role": "column"},
-                            ))
+                # Measures for this table
+                for measure in tbl.get("measures") or []:
+                    measure_name = measure.get("name") or ""
+                    expression = measure.get("expression") or ""
+                    if measure_name:
+                        columns.append(TableColumn(
+                            name=measure_name,
+                            dtype="measure",
+                            description=expression[:200] if expression else None,
+                            metadata={
+                                "role": "measure",
+                                "expression": expression,
+                            },
+                        ))
 
-                    # Measures for this table
-                    for measure in tbl.get("measures") or []:
-                        measure_name = measure.get("name") or ""
-                        expression = measure.get("expression") or ""
-                        if measure_name:
-                            columns.append(TableColumn(
-                                name=measure_name,
-                                dtype="measure",
-                                description=expression[:200] if expression else None,
-                                metadata={
-                                    "role": "measure",
-                                    "expression": expression,
-                                },
-                            ))
+                # Build FKs for relationships FROM this table
+                fks: List[ForeignKey] = []
+                for rel in ds_relationships:
+                    if rel.get("fromTable") == tbl_name:
+                        to_table = rel.get("toTable") or ""
+                        to_table_display = _clean_table_display_name(to_table)
+                        fks.append(ForeignKey(
+                            column=TableColumn(
+                                name=rel.get("fromColumn") or "",
+                                dtype="unknown",
+                            ),
+                            references_name=f"{ds_name}/{to_table_display}",
+                            references_column=TableColumn(
+                                name=rel.get("toColumn") or "",
+                                dtype="unknown",
+                            ),
+                        ))
 
-                    # Build FKs for relationships FROM this table
-                    fks: List[ForeignKey] = []
-                    for rel in ds_relationships:
-                        if rel.get("fromTable") == tbl_name:
-                            to_table = rel.get("toTable") or ""
-                            to_table_display = _clean_table_display_name(to_table)
-                            fks.append(ForeignKey(
-                                column=TableColumn(
-                                    name=rel.get("fromColumn") or "",
-                                    dtype="unknown",
-                                ),
-                                references_name=f"{ds_name}/{to_table_display}",
-                                references_column=TableColumn(
-                                    name=rel.get("toColumn") or "",
-                                    dtype="unknown",
-                                ),
-                            ))
-
-                    # Metadata for query execution (workspace at connection level)
-                    metadata_json = {
-                        "powerbi": {
-                            "datasetId": ds_id,
-                            "workspaceId": ws_id,
-                            "workspaceName": ws_name,
-                            "datasetName": ds_name,
-                            "tableName": tbl_name,
-                            "configuredBy": ds.get("configuredBy"),
-                            "webUrl": ds.get("webUrl"),
-                            "reports": reports_by_dataset.get(ds_id, []),
-                        }
+                # Metadata for query execution (workspace at connection level)
+                metadata_json = {
+                    "powerbi": {
+                        "datasetId": ds_id,
+                        "workspaceId": ws_id,
+                        "workspaceName": ws_name,
+                        "datasetName": ds_name,
+                        "tableName": tbl_name,
+                        "configuredBy": ds.get("configuredBy"),
+                        "webUrl": ds.get("webUrl"),
+                        "reports": reports_by_dataset.get(ds_id, []),
                     }
+                }
 
-                    tables.append(Table(
-                        name=full_name,
-                        description=None,
-                        columns=columns,
-                        pks=[],
-                        fks=fks if fks else [],
-                        is_active=True,
-                        metadata_json=metadata_json,
-                    ))
+                tables.append(Table(
+                    name=full_name,
+                    description=None,
+                    columns=columns,
+                    pks=[],
+                    fks=fks if fks else [],
+                    is_active=True,
+                    metadata_json=metadata_json,
+                ))
 
         return tables
 
