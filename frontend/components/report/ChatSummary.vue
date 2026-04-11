@@ -46,18 +46,28 @@
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Artifacts</h3>
         <ul class="space-y-1.5">
           <li
-            v-for="art in artifactList"
+            v-for="art in visibleArtifacts"
             :key="art.id"
             class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow cursor-pointer transition-all"
             @click="emit('openArtifact', { artifactId: art.id })"
           >
             <Icon name="heroicons:squares-plus" class="w-4 h-4 flex-shrink-0 text-blue-500" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 truncate">{{ art.title || 'Untitled' }}</div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-sm text-gray-700 truncate">{{ art.title || 'Untitled' }}</span>
+                <span v-if="art.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Default</span>
+              </div>
               <div v-if="art.mode" class="text-[11px] text-gray-400 mt-0.5">{{ art.mode }}</div>
             </div>
           </li>
         </ul>
+        <button
+          v-if="artifactList.length > 3 && !showAllArtifacts"
+          class="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          @click="showAllArtifacts = true"
+        >
+          Show {{ artifactList.length - 3 }} more
+        </button>
       </section>
 
       <!-- Queries -->
@@ -105,7 +115,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const props = defineProps<{
@@ -115,6 +125,11 @@ const props = defineProps<{
   queryExecutions: any[]
   trainingInstructions: any[]
 }>()
+
+const showAllArtifacts = ref(false)
+const visibleArtifacts = computed(() =>
+  showAllArtifacts.value ? props.artifactList : props.artifactList.slice(0, 3)
+)
 
 const emit = defineEmits([
   'editScheduledPrompt',

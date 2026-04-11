@@ -1394,3 +1394,166 @@ class ReportService:
             "has_more": has_more,
             "next_before": next_before,
         }
+
+    async def get_report_summary(
+        self, db: AsyncSession, report_id: str
+    ) -> dict:
+        """Return all query tool executions and instruction mutations for a report,
+        independent of completion pagination."""
+        from app.models.completion import Completion
+        from app.models.completion_block import CompletionBlock
+        from app.models.tool_execution import ToolExecution
+        from app.schemas.tool_execution_schema import ToolExecutionSchema
+        from app.schemas.step_schema import StepSchema
+        from app.schemas.report_summary_schema import (
+            SummaryToolExecutionSchema,
+            SummaryInstructionItem,
+        )
+        from app.serializers.completion_v2 import (
+            _extract_data_source_ids,
+            _resolve_data_sources,
+        )
+
+        # 1) Fetch all successful tool executions that created steps (queries)
+        query_stmt = (
+            select(ToolExecution, Completion.id.label("completion_id"))
+            .join(CompletionBlock, CompletionBlock.tool_execution_id == ToolExecution.id)
+            .join(Completion, Completion.id == CompletionBlock.completion_id)
+            .where(
+                Completion.report_id == report_id,
+                Completion.deleted_at == None,
+                ToolExecution.status == "success",
+                ToolExecution.created_step_id != None,
+            )
+            .order_by(CompletionBlock.created_at.asc())
+        )
+        query_res = await db.execute(query_stmt)
+        query_rows = query_res.all()
+
+        # 2) Batch-load steps
+        step_ids = {row.ToolExecution.created_step_id for row in query_rows if row.ToolExecution.created_step_id}
+        step_map: dict[str, Step] = {}
+        if step_ids:
+            step_res = await db.execute(select(Step).where(Step.id.in_(list(step_ids))))
+            for s in step_res.scalars().all():
+                step_map[s.id] = s
+
+        # 3) Batch-resolve data sources
+        all_ds_ids: list[str] = []
+        te_to_ds_ids: dict[str, list[str]] = {}
+        for row in query_rows:
+            te = row.ToolExecution
+            ds_ids = _extract_data_source_ids(te)
+            if ds_ids:
+                te_to_ds_ids[te.id] = ds_ids
+                all_ds_ids.extend(ds_ids)
+
+        ds_schema_map: dict[str, object] = {}
+        if all_ds_ids:
+            from app.models.data_source import DataSource as DS
+            from app.models.connection import Connection
+            from app.models.domain_connection import domain_connection
+            from app.schemas.completion_v2_schema import ToolExecutionDataSourceSchema
+
+            ds_rows = await db.execute(
+                select(DS.id, DS.name, Connection.type)
+                .join(domain_connection, domain_connection.c.data_source_id == DS.id)
+                .join(Connection, Connection.id == domain_connection.c.connection_id)
+                .where(DS.id.in_(list(set(all_ds_ids))))
+            )
+            for r in ds_rows:
+                ds_id = str(r[0])
+                if ds_id not in ds_schema_map:
+                    ds_schema_map[ds_id] = ToolExecutionDataSourceSchema(id=ds_id, name=r[1], type=r[2])
+
+        # 4) Build query schemas
+        queries: list[SummaryToolExecutionSchema] = []
+        seen_steps = set()
+        for row in query_rows:
+            te = row.ToolExecution
+            step_id = te.created_step_id
+            if step_id and step_id in seen_steps:
+                continue
+            if step_id:
+                seen_steps.add(step_id)
+
+            base = ToolExecutionSchema.from_orm(te)
+            te_data = base.model_dump()
+            # Strip heavy payloads
+            rj = te_data.get("result_json")
+            if isinstance(rj, dict):
+                rj.pop("widget_data", None)
+            te_data["result_json"] = rj
+
+            created_step_schema = None
+            step_obj = step_map.get(step_id) if step_id else None
+            if step_obj:
+                step_dict = {
+                    **step_obj.__dict__,
+                    "data_model": getattr(step_obj, "data_model", None) or {},
+                    "data": getattr(step_obj, "data", None) or {},
+                }
+                created_step_schema = StepSchema.model_validate(step_dict)
+
+            ds_list = None
+            ds_ids_for_te = te_to_ds_ids.get(te.id)
+            if ds_ids_for_te:
+                ds_list = [ds_schema_map[did] for did in ds_ids_for_te if did in ds_schema_map] or None
+
+            queries.append(SummaryToolExecutionSchema(
+                **te_data,
+                created_step=created_step_schema,
+                data_sources=ds_list,
+            ))
+
+        # 5) Fetch instruction create/edit tool executions
+        instr_stmt = (
+            select(ToolExecution, Completion.id.label("completion_id"))
+            .join(CompletionBlock, CompletionBlock.tool_execution_id == ToolExecution.id)
+            .join(Completion, Completion.id == CompletionBlock.completion_id)
+            .where(
+                Completion.report_id == report_id,
+                Completion.deleted_at == None,
+                ToolExecution.status == "success",
+                ToolExecution.tool_name.in_(["create_instruction", "edit_instruction"]),
+            )
+            .order_by(CompletionBlock.created_at.asc())
+        )
+        instr_res = await db.execute(instr_stmt)
+        instr_rows = instr_res.all()
+
+        instructions: list[SummaryInstructionItem] = []
+        seen_instr_ids: dict[str, int] = {}  # instruction_id -> index in list
+        for row in instr_rows:
+            te = row.ToolExecution
+            completion_id = row.completion_id
+            rj = te.result_json or {}
+            if not rj.get("success") or not rj.get("instruction_id"):
+                continue
+            args = te.arguments_json or {}
+            text = args.get("text", "")
+            instr_id = rj["instruction_id"]
+            is_edit = te.tool_name == "edit_instruction"
+
+            existing_idx = seen_instr_ids.get(instr_id)
+            title = text.split("\n")[0].replace("#", "").strip()[:60] if text else "Instruction"
+
+            item = SummaryInstructionItem(
+                instruction_id=instr_id,
+                title=instructions[existing_idx].title if existing_idx is not None else title,
+                category=args.get("category", instructions[existing_idx].category if existing_idx is not None else "general"),
+                is_edit=is_edit or (instructions[existing_idx].is_edit if existing_idx is not None else False),
+                line_count=len([l for l in text.split("\n") if l.strip()]) if text else (instructions[existing_idx].line_count if existing_idx is not None else 0),
+                message_id=str(completion_id),
+            )
+
+            if existing_idx is not None:
+                instructions[existing_idx] = item
+            else:
+                seen_instr_ids[instr_id] = len(instructions)
+                instructions.append(item)
+
+        return {
+            "queries": queries,
+            "instructions": instructions,
+        }

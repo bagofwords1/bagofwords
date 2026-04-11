@@ -43,8 +43,8 @@
 							:scheduledPrompts="scheduledPrompts"
 							:artifactList="reportArtifacts"
 							:queryList="queryList"
-							:queryExecutions="queryExecutions"
-							:trainingInstructions="trainingInstructions"
+							:queryExecutions="summaryQueries"
+							:trainingInstructions="summaryInstructions"
 							@editScheduledPrompt="editScheduledPrompt"
 							@openArtifact="handleOpenArtifact"
 							@scrollToMessage="scrollToMessage"
@@ -439,7 +439,7 @@
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
-					:trainingInstructions="trainingInstructions"
+					:trainingInstructions="summaryInstructions"
 					:hasArtifacts="hasArtifacts"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
@@ -520,8 +520,8 @@
 					:scheduledPrompts="scheduledPrompts"
 					:artifactList="reportArtifacts"
 					:queryList="queryList"
-					:queryExecutions="queryExecutions"
-					:trainingInstructions="trainingInstructions"
+					:queryExecutions="summaryQueries"
+					:trainingInstructions="summaryInstructions"
 					@editScheduledPrompt="editScheduledPrompt"
 					@openArtifact="handleOpenArtifact"
 					@scrollToMessage="scrollToMessage"
@@ -746,26 +746,6 @@ const queryList = computed(() => {
 	return list
 })
 
-// Query tool executions for summary — full tool_execution objects for ToolWidgetPreview
-const queryExecutions = computed(() => {
-	const list: any[] = []
-	const seen = new Set<string>()
-	for (const m of messages.value) {
-		if (!m.completion_blocks) continue
-		for (const b of m.completion_blocks) {
-			const te = b.tool_execution
-			if (!te || te.status !== 'success') continue
-			const step = te.created_step as any
-			if (!step) continue
-			const stepId = step.id || step.query_id || ''
-			if (stepId && seen.has(stepId)) continue
-			if (stepId) seen.add(stepId)
-			list.push(te)
-		}
-	}
-	return list
-})
-
 const showContextIndicator = computed(() => {
 	const completedSystem = messages.value.some(
 		(m) => m.role === 'system' && ['success', 'error', 'stopped'].includes(m.status || '')
@@ -807,6 +787,10 @@ const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
 
+// Report summary (queries + instructions independent of message pagination)
+const summaryQueries = ref<any[]>([])
+const summaryInstructions = ref<any[]>([])
+
 // Scheduled prompts state
 const scheduledPrompts = ref<any[]>([])
 const editingScheduledPrompt = ref<any>(null)
@@ -824,35 +808,6 @@ function toggleScheduledExpand(messageId: string) {
 function isScheduledExpanded(messageId: string): boolean {
 	return expandedScheduledIds.value.has(messageId)
 }
-
-// Training instructions - unique list for the pill in PromptBoxV2
-const trainingInstructions = computed(() => {
-	if (report.value?.mode !== 'training' || isStreaming.value) return []
-	const byId = new Map<string, { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number; messageId: string }>()
-	for (const m of messages.value) {
-		if (!m.completion_blocks) continue
-		for (const b of m.completion_blocks) {
-			const te = b.tool_execution
-			if (!te || te.status !== 'success') continue
-			if (te.tool_name !== 'create_instruction' && te.tool_name !== 'edit_instruction') continue
-			const rj = te.result_json || {}
-			if (!rj.success || !rj.instruction_id) continue
-			const args = te.arguments_json || {}
-			const text = args.text || ''
-			const existing = byId.get(rj.instruction_id)
-			const isEdit = te.tool_name === 'edit_instruction' || (existing?.isEdit ?? false)
-			byId.set(rj.instruction_id, {
-				instructionId: rj.instruction_id,
-				title: existing?.title || text.split('\n')[0].replace(/^#+\s*/, '').trim().substring(0, 60) || 'Instruction',
-				category: args.category || existing?.category || 'general',
-				isEdit,
-				lineCount: text ? text.split('\n').filter((l: string) => l.trim()).length : (existing?.lineCount ?? 0),
-				messageId: m.id,
-			})
-		}
-	}
-	return Array.from(byId.values())
-})
 
 const showTrainingInstructionModal = ref(false)
 const editingTrainingInstruction = ref<any>(null)
@@ -964,6 +919,18 @@ async function loadScheduledPrompts() {
         startScheduledCompletionsPoll()
     } else {
         stopScheduledCompletionsPoll()
+    }
+}
+
+async function loadReportSummary() {
+    try {
+        const { data } = await useMyFetch(`/reports/${report_id}/summary`)
+        const res = data.value as any
+        summaryQueries.value = res?.queries || []
+        summaryInstructions.value = res?.instructions || []
+    } catch {
+        summaryQueries.value = []
+        summaryInstructions.value = []
     }
 }
 
@@ -2654,6 +2621,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 						currentController = null
 						// Refresh report data and context estimate after stream fully ends
 						loadReport()
+						loadReportSummary()
 						promptBoxRef.value?.refreshContextEstimate?.()
 						return
 					}
@@ -2836,7 +2804,8 @@ onMounted(async () => {
 		loadVisualizations(),
 		checkHasArtifacts(),
 		loadActiveLayoutHasBlocks(),
-		loadScheduledPrompts()
+		loadScheduledPrompts(),
+		loadReportSummary()
 	])
 	const slowLoads = loadCompletions()
 

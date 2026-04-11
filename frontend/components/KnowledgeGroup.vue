@@ -54,7 +54,7 @@
           v-for="ch in changes"
           :key="ch.id"
           :class="[
-            'flex items-start gap-2 py-1 px-1.5 -mx-1.5 rounded hover:bg-gray-50 cursor-pointer',
+            'flex items-start gap-2 py-1.5 px-2 -mx-1.5 rounded border border-gray-150 bg-gray-50 hover:bg-gray-100 cursor-pointer',
             !isBuildPublished && !selectedIds.has(ch.id) ? 'opacity-50' : ''
           ]"
           @click="handleEdit(ch)"

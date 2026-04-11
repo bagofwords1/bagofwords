@@ -374,6 +374,24 @@ async def schedule_report(
         subscribers = [s.model_dump() for s in body.notification_subscribers]
     return await report_service.set_report_schedule(db, report_id, body.cron_expression, current_user, organization, subscribers)
 
+# --- Report Summary ---
+
+@router.get("/reports/{report_id}/summary")
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def get_report_summary(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Return all query executions and instruction mutations for the report summary panel.
+
+    Unlike completions (which are paginated), this returns the full set so the
+    summary sidebar is complete on first load.
+    """
+    return await report_service.get_report_summary(db, report_id)
+
+
 # --- Training Mode Instructions ---
 
 @router.get("/reports/{report_id}/instructions")
