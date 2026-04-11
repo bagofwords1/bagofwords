@@ -112,47 +112,55 @@ class PowerBIClient(DataSourceClient):
                 "message": f"Authentication failed: {e}",
             }
 
-        # Phase 2: List workspaces
+        # Phase 2: Fetch only the FIRST PAGE of workspaces. test_connection is
+        # a health check — we don't need to enumerate every workspace the
+        # service principal can see (tenants with hundreds of workspaces would
+        # otherwise hang here).
         try:
-            workspaces = self.list_workspaces()
+            headers = self._build_headers()
+            ws_resp = self._http.get(
+                f"{self.BASE_URL}/groups",
+                headers=headers,
+                timeout=30,
+            )
+            if ws_resp.status_code >= 300:
+                raise RuntimeError(f"HTTP {ws_resp.status_code} {ws_resp.text}")
+            first_page = (ws_resp.json() or {}).get("value") or []
         except Exception as e:
             return {
                 "success": False,
                 "message": f"Failed to list workspaces: {e}",
             }
 
-        if not workspaces:
+        if not first_page:
             return {
                 "success": False,
                 "message": "Connected but no workspaces found. Ensure the service principal has access to at least one workspace.",
             }
 
-        # Phase 3: List datasets
-        datasets_by_ws = {}
-        dataset_count = 0
+        first_ws = first_page[0]
+        first_ws_id = first_ws.get("id")
+        first_ws_name = first_ws.get("name") or first_ws_id
+
+        # Phase 3: List datasets from the first workspace only.
         try:
-            for ws in workspaces:
-                ds_list = self.list_datasets(ws["id"])
-                if ds_list:
-                    datasets_by_ws[ws["id"]] = ds_list
-                dataset_count += len(ds_list)
+            datasets = self.list_datasets(first_ws_id)
         except Exception as e:
             return {
                 "success": False,
-                "message": f"Connected but failed to list datasets: {e}",
+                "message": f"Connected but failed to list datasets in workspace '{first_ws_name}': {e}",
                 "connectivity": True,
             }
 
-        if dataset_count == 0:
+        if not datasets:
             return {
                 "success": False,
-                "message": f"Connected to {len(workspaces)} workspace(s) but no datasets found. Ensure the service principal is a Member/Contributor of your workspaces.",
+                "message": f"Connected but no datasets found in workspace '{first_ws_name}'. Ensure the service principal is a Member/Contributor of your workspaces.",
                 "connectivity": True,
             }
 
         # Phase 4: Try DAX query on the first dataset to verify query access
-        first_ws_id = next(iter(datasets_by_ws))
-        first_ds = datasets_by_ws[first_ws_id][0]
+        first_ds = datasets[0]
         first_ds_id = first_ds["id"]
         first_ds_name = first_ds.get("name") or first_ds_id
         try:
@@ -194,9 +202,7 @@ class PowerBIClient(DataSourceClient):
 
         return {
             "success": True,
-            "message": f"Connected to Power BI. Found {len(workspaces)} workspace(s), {dataset_count} dataset(s).",
-            "workspaces": len(workspaces),
-            "datasets": dataset_count,
+            "message": f"Connected to Power BI. Verified access via workspace '{first_ws_name}' / dataset '{first_ds_name}'.",
         }
 
     def list_workspaces(self) -> List[Dict]:
@@ -321,13 +327,12 @@ class PowerBIClient(DataSourceClient):
         if not tables:
             tables, relationships = self._get_tables_via_admin_scan(workspace_id, dataset_id)
 
-        # Step 2: If we have tables but no relationships, try Admin Scanner for relationships
-        if tables and not relationships:
-            try:
-                _, relationships = self._get_tables_via_admin_scan(workspace_id, dataset_id)
-            except Exception as e:
-                logging.debug(f"Admin Scanner failed for relationships (continuing without): {e}")
-                relationships = []
+        # NOTE: Previously, if COLUMNSTATISTICS returned tables we still invoked
+        # the Admin Scanner just to fetch relationships. Each admin scan does a
+        # POST plus a 2s-interval polling loop (up to 30s per dataset), which
+        # multiplied across many datasets added minutes to schema discovery.
+        # Relationships are nice-to-have but not worth that cost — callers that
+        # use COLUMNSTATISTICS simply get no foreign keys for those datasets.
 
         return tables, relationships
 
@@ -498,37 +503,86 @@ class PowerBIClient(DataSourceClient):
         """
         Build Table objects representing all internal tables across all datasets.
         Each internal Power BI table becomes one BOW Table named "{Dataset}/{Table}".
+
+        Uses a bounded thread pool to fetch per-workspace metadata (datasets,
+        reports) and per-dataset table lookups in parallel. Tenants with many
+        workspaces/datasets would otherwise spend minutes in serial HTTP calls.
         """
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Ensure auth is done once on the main thread so workers share the token.
+        self.connect()
+
         workspaces = self.list_workspaces()
-        tables: List[Table] = []
+        if not workspaces:
+            return []
 
-        for ws in workspaces:
+        POOL_SIZE = 10
+
+        # Stage 1: fetch datasets + reports for every workspace in parallel.
+        def _fetch_ws_meta(ws: Dict) -> Tuple[List[Dict], List[Dict]]:
             ws_id = ws.get("id")
-            ws_name = ws.get("name") or ws_id
+            if not ws_id:
+                return [], []
+            return self.list_datasets(ws_id), self.list_reports(ws_id)
 
-            # Get datasets and reports for this workspace
-            datasets = self.list_datasets(ws_id)
-            reports = self.list_reports(ws_id)
+        with ThreadPoolExecutor(max_workers=POOL_SIZE) as pool:
+            ws_meta = list(pool.map(_fetch_ws_meta, workspaces))
 
-            # Build a map of datasetId -> list of reports
+        # Build per-workspace context and a flat list of dataset jobs.
+        ws_ctx: List[Dict] = []
+        ds_jobs: List[Tuple[int, int, str, str]] = []  # (ws_idx, ds_idx, ws_id, ds_id)
+        for ws_idx, (ws, (datasets, reports)) in enumerate(zip(workspaces, ws_meta)):
+            ws_id = ws.get("id")
             reports_by_dataset: Dict[str, List[Dict]] = {}
             for rpt in reports:
-                ds_id = rpt.get("datasetId")
-                if ds_id:
-                    if ds_id not in reports_by_dataset:
-                        reports_by_dataset[ds_id] = []
-                    reports_by_dataset[ds_id].append({
+                rds_id = rpt.get("datasetId")
+                if rds_id:
+                    if rds_id not in reports_by_dataset:
+                        reports_by_dataset[rds_id] = []
+                    reports_by_dataset[rds_id].append({
                         "id": rpt.get("id"),
                         "name": rpt.get("name"),
                         "webUrl": rpt.get("webUrl"),
                     })
+            ws_ctx.append({
+                "ws_id": ws_id,
+                "ws_name": ws.get("name") or ws_id,
+                "datasets": datasets,
+                "reports_by_dataset": reports_by_dataset,
+            })
+            for ds_idx, ds in enumerate(datasets):
+                ds_id = ds.get("id")
+                if ds_id:
+                    ds_jobs.append((ws_idx, ds_idx, ws_id, ds_id))
 
-            for ds in datasets:
+        # Stage 2: fetch tables/relationships for every dataset in parallel.
+        def _fetch_tables(job: Tuple[int, int, str, str]) -> Tuple[list, list]:
+            _, _, job_ws_id, job_ds_id = job
+            return self.get_dataset_tables(job_ws_id, job_ds_id)
+
+        ds_results_by_key: Dict[Tuple[int, int], Tuple[list, list]] = {}
+        if ds_jobs:
+            with ThreadPoolExecutor(max_workers=POOL_SIZE) as pool:
+                ds_results = list(pool.map(_fetch_tables, ds_jobs))
+            for job, res in zip(ds_jobs, ds_results):
+                ds_results_by_key[(job[0], job[1])] = res
+
+        # Stage 3: assemble Table objects in deterministic order (matches the
+        # original serial walk: workspace → dataset → table).
+        tables: List[Table] = []
+        for ws_idx, ctx in enumerate(ws_ctx):
+            ws_id = ctx["ws_id"]
+            ws_name = ctx["ws_name"]
+            reports_by_dataset = ctx["reports_by_dataset"]
+
+            for ds_idx, ds in enumerate(ctx["datasets"]):
                 ds_id = ds.get("id")
                 ds_name = ds.get("name") or ds_id
 
-                # Get tables/columns and relationships for this dataset
-                ds_tables, ds_relationships = self.get_dataset_tables(ws_id, ds_id)
+                ds_tables, ds_relationships = ds_results_by_key.get(
+                    (ws_idx, ds_idx), ([], [])
+                )
 
                 # Create one BOW Table per internal Power BI table
                 for tbl in ds_tables:
