@@ -90,13 +90,13 @@ class InstructionVersionService:
             content_hash=content_hash,
             created_by_user_id=user_id,
         )
-        
+
         db.add(version)
         await db.commit()
-        await db.refresh(version)
-        
+        await db.refresh(version, ['id'])
+
         return version
-    
+
     async def create_version_from_data(
         self,
         db: AsyncSession,

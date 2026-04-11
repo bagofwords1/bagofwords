@@ -257,7 +257,7 @@ const { selectedDomains, initDomain } = useDomain()
 definePageMeta({
     auth: true,
     layout: 'monitoring',
-    permissions: ['view_console']
+    resourcePermissionAny: { permission: 'manage', resourceType: 'data_source' }
 })
 
 // Types for compact issues

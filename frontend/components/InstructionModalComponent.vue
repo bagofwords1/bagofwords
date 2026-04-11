@@ -35,7 +35,7 @@
                         <div class="flex flex-col h-full overflow-y-auto min-w-0">
                             <!-- Conditional rendering based on the computed selectedInstructionType -->
                             <InstructionGlobalCreateComponent
-                                v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
+                                v-if="selectedInstructionType === 'global'"
                                 :instruction="instruction"
                                 :analyzing="isAnalyzing"
                                 :shared-form="sharedForm"
@@ -195,7 +195,7 @@
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
 import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
-import { usePermissionsLoaded, useCan } from '~/composables/usePermissions'
+import { usePermissionsLoaded, useCan, useCanAny } from '~/composables/usePermissions'
 import Spinner from '~/components/Spinner.vue'
 import { onMounted, onUnmounted } from 'vue'
 
@@ -255,7 +255,7 @@ const isInViewMode = ref(true)
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
-const isReadOnly = computed(() => isEditing.value && !useCan('create_instructions'))
+const isReadOnly = computed(() => isEditing.value && !useCan('manage_instructions'))
 
 // Modal title based on current state
 const modalTitle = computed(() => {
@@ -442,28 +442,29 @@ const impactTotalCount = ref(0)
 const isLoadingImpact = ref(false)
 const isLoadingRelated = ref(false)
 
+const canCreateInstructions = computed(() => useCanAny('manage_instructions', 'data_source'))
+
 const selectedInstructionType = computed(() => {
     // Check permissions first - admins always use the global component for consistent UI
     const permissionsLoaded = usePermissionsLoaded()
     if (!permissionsLoaded.value) {
         // Default to private to avoid flashing the admin UI. It will correct itself once permissions load.
-        return 'private' 
+        return 'private'
     }
-    
-    // Admins always use the global component for all instruction types (git, user, AI)
-    // This ensures consistent edit UI regardless of instruction source
-    if (useCan('create_instructions')) {
+
+    // Users with manage_instructions (org-wide OR on any data source) use the global component
+    if (canCreateInstructions.value) {
         return 'global'
     }
-    
-    // Non-admins use the private component (for suggestions)
+
+    // Users without create permission use the private component (for suggestions)
     return 'private'
 })
 
-// Non-admins default to suggestions when creating
+// Users without manage_instructions default to suggestions when creating
 const effectiveIsSuggestion = computed(() => {
     if (props.isSuggestion !== undefined) return props.isSuggestion
-    return !useCan('create_instructions')
+    return !canCreateInstructions.value
 })
 
 // Event handlers
@@ -600,7 +601,7 @@ watch(instructionModalOpen, (isOpen) => {
     if (isOpen) {
         // Reset view mode state when modal opens
         isInViewMode.value = true
-        if (useCan('create_instructions')) {
+        if (useCan('manage_instructions')) {
             //isAnalyzing.value = true
             //refreshAnalysis()
         }

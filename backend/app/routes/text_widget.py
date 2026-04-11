@@ -18,22 +18,22 @@ router = APIRouter(tags=["text widgets"])
 text_widget_service = TextWidgetService()
 
 @router.post("/reports/{report_id}/text_widgets", response_model=TextWidgetSchema)
-@requires_permission('create_text_widgets', model=Report)
+@requires_permission('create_reports', model=Report)
 async def create_text_widget(report_id: str, text_widget: TextWidgetCreate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await text_widget_service.create_text_widget(db, report_id, text_widget, current_user, organization)
 
 @router.get("/reports/{report_id}/text_widgets", response_model=List[TextWidgetSchema])
-@requires_permission('view_text_widgets', model=Report)
+@requires_permission('view_reports', model=Report)
 async def get_text_widgets(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await text_widget_service.get_text_widgets(db, report_id, current_user, organization)
 
 @router.get("/reports/{report_id}/text_widgets/{text_widget_id}", response_model=TextWidgetSchema)
-@requires_permission('view_text_widgets', model=Report)
+@requires_permission('view_reports', model=Report)
 async def get_text_widget(report_id: str, text_widget_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await text_widget_service.get_text_widget(db, report_id, text_widget_id, current_user, organization)
 
 @router.put("/reports/{report_id}/text_widgets/{text_widget_id}", response_model=TextWidgetSchema)
-@requires_permission('update_text_widgets', model=Report)
+@requires_permission('update_reports', model=Report)
 async def update_text_widget(
     report_id: str, 
     text_widget_id: str, 
@@ -52,7 +52,7 @@ async def update_text_widget(
     )
 
 @router.delete("/reports/{report_id}/text_widgets/{text_widget_id}")
-@requires_permission('delete_text_widgets', model=Report)
+@requires_permission('delete_reports', model=Report)
 async def delete_text_widget(report_id: str, text_widget_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await text_widget_service.delete_text_widget(db, report_id, text_widget_id, current_user, organization)
 

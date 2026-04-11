@@ -28,4 +28,8 @@ class PlanDecision(BaseSchema):
     metrics_json = Column(JSON, nullable=True)
     context_snapshot_id = Column(String(36), ForeignKey('context_snapshots.id'), nullable=True)
 
+    # Tags the phase that produced this decision (e.g. 'knowledge_harness').
+    # None for regular main-loop decisions.
+    phase = Column(String, nullable=True)
+
 

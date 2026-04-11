@@ -1,9 +1,14 @@
 <template>
-    <UTooltip text="Publish">
+    <UTooltip :text="isPublished ? 'Published' : 'Publish'">
         <button @click="publishModalOpen = true"
-            class="text-sm items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border border-gray-200 bg-cyan-100 text-cyan-700">
-            <Icon name="heroicons:globe-alt" />
-            <span class="text-sm">Publish</span>
+            :class="[
+                'text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border',
+                isPublished
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-gray-200 bg-cyan-100 text-cyan-700'
+            ]">
+            <Icon name="heroicons:globe-alt" class="w-3.5 h-3.5" />
+            <span class="text-xs">{{ isPublished ? 'Published' : 'Publish' }}</span>
         </button>
     </UTooltip>
 

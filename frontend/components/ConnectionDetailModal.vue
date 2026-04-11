@@ -47,14 +47,15 @@
 
       <!-- Actions -->
       <div class="flex items-center gap-2 pt-4 border-t border-gray-100">
-        <button 
-          @click="testConnection" 
+        <button
+          v-if="canUpdateDataSource"
+          @click="testConnection"
           :disabled="testing"
           class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
         >
           <Spinner v-if="testing" class="w-3.5 h-3.5" />
           <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
-          {{ testing ? 'Testing...' : 'Refresh' }}
+          {{ testing ? 'Testing...' : 'Test' }}
         </button>
         <!-- Full Edit button (admin with update_data_source permission) -->
         <button 

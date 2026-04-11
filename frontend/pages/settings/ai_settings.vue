@@ -238,7 +238,7 @@ interface SettingsResponse {
     }
 }
 
-definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
 const loading = ref(true)
 const error = ref('')

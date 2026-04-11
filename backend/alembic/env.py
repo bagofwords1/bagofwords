@@ -60,6 +60,8 @@ from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 from app.models.connection import Connection
 from app.models.connection_table import ConnectionTable
+from app.models.connection_tool import ConnectionTool
+from app.models.user_connection_tool import UserConnectionTool
 from app.models.domain_connection import domain_connection
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
@@ -76,6 +78,11 @@ from app.models.scheduled_prompt import ScheduledPrompt
 from app.models.instruction_build import InstructionBuild
 from app.models.oauth_server import OAuthMCPClient, OAuthMCPAuthorizationCode, OAuthMCPAccessToken
 from app.ee.scim.models import ScimToken
+from app.models.role import Role
+from app.models.group import Group
+from app.models.group_membership import GroupMembership
+from app.models.role_assignment import RoleAssignment
+from app.models.resource_grant import ResourceGrant
 
 from app.settings.config import settings
 

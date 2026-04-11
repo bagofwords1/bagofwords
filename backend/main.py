@@ -61,6 +61,7 @@ from app.routes import (
     external_user_mapping,
     slack_webhook,
     teams_webhook,
+    whatsapp_webhook,
     step,
     instruction,
     onboarding,
@@ -75,11 +76,12 @@ from app.routes import (
     connection,
     artifact,
     oauth_server,
+    rbac,
     scheduled_prompt,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
-from app.ee.license import get_license_info
+from app.ee.license import get_license_info, has_feature
 
 # Initialize logging
 loggers = setup_logging()
@@ -189,6 +191,7 @@ app.include_router(completion.router)
 app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
+app.include_router(rbac.router, prefix="/api")
 app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
@@ -200,6 +203,7 @@ app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
 app.include_router(teams_webhook.router)
+app.include_router(whatsapp_webhook.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
 app.include_router(build.router, prefix="/api")
@@ -330,6 +334,24 @@ async def startup_event():
         logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
     except Exception as e:
         logger.error(f"Failed to schedule purge job: {e}")
+
+    # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
+    if settings.bow_config.ldap.enabled and has_feature("ldap"):
+        try:
+            from app.ee.ldap.jobs import ldap_sync_all_organizations
+            scheduler.add_job(
+                ldap_sync_all_organizations,
+                trigger="interval",
+                minutes=settings.bow_config.ldap.sync_interval_minutes,
+                id="ldap_group_sync",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            logger.info(f"Scheduled job: ldap_group_sync every {settings.bow_config.ldap.sync_interval_minutes}m")
+        except Exception as e:
+            logger.error(f"Failed to schedule LDAP sync job: {e}")
 
     scheduler.start()
 

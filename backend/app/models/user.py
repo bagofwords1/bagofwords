@@ -16,6 +16,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     name = Column(String, index=True, nullable=False)
     last_login = Column(DateTime, nullable=True)
     scim_external_id = Column(String(255), nullable=True, index=True)  # IdP external identifier for SCIM provisioning
+    ldap_dn = Column(String(512), nullable=True, index=True)  # LDAP distinguished name
 
     reports = relationship("Report", back_populates="user")
     completions = relationship("Completion", back_populates="user")
@@ -33,7 +34,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
     user_connection_credentials = relationship("UserConnectionCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
     api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
-
+    group_memberships = relationship("GroupMembership", back_populates="user", cascade="all, delete-orphan")
 
 
 # from app.models.organization import Organization

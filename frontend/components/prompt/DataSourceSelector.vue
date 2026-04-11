@@ -41,12 +41,12 @@
                         <span>Loading data sources…</span>
                     </div>
                     <template v-else>
-                        <div v-if="dataSources.length === 0" class="text-center text-gray-500 py-4">
+                        <div v-if="visibleDataSources.length === 0" class="text-center text-gray-500 py-4">
                             No data sources found
                         </div>
                         <div
                             v-else
-                            v-for="ds in dataSources"
+                            v-for="ds in visibleDataSources"
                             :key="ds.id"
                             class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
                             @click="() => { toggleDataSource(ds); }"
@@ -79,6 +79,7 @@
 <script lang="ts" setup>
 import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
+import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
 type DataSource = { id: string; name: string; type?: string }
 const internalSelectedDataSources = ref<DataSource[]>([])
@@ -164,10 +165,35 @@ const props = defineProps({
     reportId: {
         type: String,
         default: () => '',
+    },
+    // When set, only show data sources the user has this permission on
+    // (either org-wide or via a per-DS resource grant).
+    permission: {
+        type: String,
+        default: '',
     }
 });
 
+
 const emit = defineEmits(['update:selectedDataSources']);
+
+// Optionally restrict visible data sources to those the user has `permission`
+// for. Uses the resource-grant tier directly (NOT the org-perm implication
+// tier) so that org-wide perms don't auto-grant the action on every DS the
+// user can access — the user must have an explicit per-DS grant. Org admins
+// (full_admin_access) still see everything.
+const orgPerms = usePermissions()
+const permsLoaded = usePermissionsLoaded()
+const resourcePerms = useResourcePermissions()
+const visibleDataSources = computed(() => {
+    if (!props.permission) return dataSources.value
+    if (!permsLoaded.value) return []
+    if (orgPerms.value.includes('full_admin_access')) return dataSources.value
+    return dataSources.value.filter((ds: any) => {
+        const key = `data_source:${ds.id}`
+        return resourcePerms.value[key]?.includes(props.permission) ?? false
+    })
+})
 
 async function getDataSources() {
     try {
@@ -183,7 +209,8 @@ async function getDataSources() {
             handleSelectionChange()
         } else if (!props.reportId) {
             // Landing page (no report): default to ALL active data sources
-            internalSelectedDataSources.value = dataSources.value
+            // (filtered by `permission` if set).
+            internalSelectedDataSources.value = visibleDataSources.value
             handleSelectionChange()
         }
     } finally {

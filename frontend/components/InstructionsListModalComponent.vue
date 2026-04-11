@@ -143,7 +143,7 @@ const allDataSources = ref<{ id: string; name: string; type: string }[]>([])
 const availableSourceTypes = ref<{ value: string; label: string; icon?: string; heroicon?: string }[]>([])
 
 // Check if user can create global instructions
-const canCreateGlobalInstructions = computed(() => useCan('create_instructions'))
+const canCreateGlobalInstructions = computed(() => useCan('manage_instructions'))
 
 // Fetch data sources
 const fetchDataSources = async () => {

@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.0.355 (April 10, 2026)
+- Show instruction usage and attribution per turn
+- New sidebar in report page to show summary, dashboard and current agent
+- New knowledge harness for agentic instruction suggestions
+- Faster instructions management
+- UI improvements across report and dashboard views
+- RBAC: groups, roles, policies, per-data-source permissions, and connection/MCP tools authorization
+- LDAP integration for enterprise authentication
+- WhatsApp Cloud API integration
+- Spider text-to-SQL benchmark eval driver
+- Fix: make SMTP password optional in settings
+- Added support for a .bowignore file when integrating a git account
+
 ## Version 0.0.354 (April 5, 2026)
 - New Scheduled Tasks: set up recurring or scheduled tasks within reports
 - New "Add to Dashboard" button to instantly add widgets to an artifact

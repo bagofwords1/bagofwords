@@ -53,26 +53,13 @@ test.describe('Admin-only page visibility', () => {
       .toBeVisible();
   });
 
-  // Note: Members CAN see LLM tab but it's read-only (they cannot edit)
-  test('member can see LLM tab (read-only)', async ({ memberPage }) => {
+  test('member cannot see LLM tab', async ({ memberPage }) => {
     await memberPage.goto('/settings');
     await memberPage.waitForLoadState('domcontentloaded');
 
-    // Member CAN see LLM tab (but it's read-only)
+    // Members lack modify_settings, so the LLM tab should not be rendered
     const llmTab = memberPage.getByRole('link', { name: 'LLM' });
-    await expect(llmTab).toBeVisible({ timeout: 5000 });
-
-    // Navigate to LLM settings
-    await llmTab.click();
-    await memberPage.waitForLoadState('domcontentloaded');
-
-    // Member should NOT see "Add Provider" button (admin-only action)
-    const addProviderButton = memberPage.getByRole('button', { name: 'Add Provider' });
-    await expect(addProviderButton).not.toBeVisible({ timeout: 3000 });
-
-    // Member should NOT see "Actions" column header (Edit/Delete)
-    const actionsHeader = memberPage.locator('th').filter({ hasText: 'Actions' });
-    await expect(actionsHeader).not.toBeVisible({ timeout: 3000 });
+    await expect(llmTab).not.toBeVisible({ timeout: 5000 });
   });
 
   test('admin can see Add Member button', async ({ adminPage }) => {

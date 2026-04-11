@@ -15,7 +15,7 @@ service = OnboardingService()
 
 
 @router.get("/organization/onboarding", response_model=OnboardingResponse)
-@requires_permission('view_organization_settings')
+@requires_permission('manage_settings')
 async def get_onboarding(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -26,7 +26,7 @@ async def get_onboarding(
 
 
 @router.put("/organization/onboarding", response_model=OnboardingResponse)
-@requires_permission('manage_organization_settings')
+@requires_permission('manage_settings')
 async def update_onboarding(
     payload: OnboardingUpdate,
     current_user: User = Depends(current_user),

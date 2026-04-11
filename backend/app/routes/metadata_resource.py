@@ -6,7 +6,7 @@ from app.schemas.metadata_resource_schema import MetadataResourceList # Updated 
 from app.core.auth import current_user
 from app.models.user import User
 from app.models.organization import Organization
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, requires_resource_permission
 from typing import Optional
 
 # Use a more generic tag like 'metadata'
@@ -15,7 +15,7 @@ metadata_indexing_job_service = MetadataIndexingJobService()
 
 # Endpoint renamed from /dbt_resources to /metadata_resources
 @router.get("/data_sources/{data_source_id}/metadata_resources", response_model=MetadataResourceList)
-@requires_permission('read_data_source') # Assuming read permission is sufficient
+@requires_resource_permission('data_source', 'view')
 async def get_metadata_resources(
     data_source_id: str,
     resource_type: Optional[str] = None, # Allow filtering by type (e.g., 'model', 'lookml_view')
@@ -39,7 +39,7 @@ async def get_metadata_resources(
 
 # Endpoint for indexing jobs (remains largely the same, just confirms service name)
 @router.get("/data_sources/{data_source_id}/metadata_indexing_jobs") 
-@requires_permission('read_data_source') # Assuming read permission is sufficient
+@requires_resource_permission('data_source', 'view')
 async def get_metadata_indexing_jobs(
     data_source_id: str,
     skip: int = 0,

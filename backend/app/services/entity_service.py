@@ -200,8 +200,14 @@ class EntityService:
         )
         db.add(entity)
         if payload.data_source_ids:
-            result = await db.execute(select(DataSource).where(DataSource.id.in_(payload.data_source_ids)))
-            entity.data_sources = list(result.scalars().all())
+            from sqlalchemy import insert
+            await db.flush()  # Ensure entity has an ID
+            rows = [
+                {"entity_id": str(entity.id), "data_source_id": str(ds_id)}
+                for ds_id in payload.data_source_ids
+            ]
+            if rows:
+                await db.execute(insert(entity_data_source_association), rows)
         await db.flush()
         await db.commit()
         await db.refresh(entity)
@@ -252,25 +258,20 @@ class EntityService:
         limit: int = 100,
     ) -> List[Entity]:
         # Get user's accessible data sources
-        from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
         from sqlalchemy import exists, and_
-        
-        accessible_ds_subquery = (
-            select(DataSource.id)
-            .filter(DataSource.organization_id == organization.id)
-            .filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
-            )
+        from app.core.permission_resolver import get_accessible_data_source_ids
+
+        is_admin, accessible_ids = await get_accessible_data_source_ids(
+            db, str(current_user.id), str(organization.id)
         )
+        accessible_ds_subquery = (
+            select(DataSource.id).filter(DataSource.organization_id == organization.id)
+        )
+        if not is_admin:
+            clauses = [DataSource.is_public == True]
+            if accessible_ids:
+                clauses.append(DataSource.id.in_(accessible_ids))
+            accessible_ds_subquery = accessible_ds_subquery.filter(or_(*clauses))
         
         # Subquery to check if entity has any inaccessible data sources
         has_inaccessible_ds = exists(
@@ -338,22 +339,12 @@ class EntityService:
         
         # Check if user has access to all data sources of this entity
         if entity.data_sources:
-            from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
-            
+            from app.core.permission_resolver import user_can_access_data_source
             for ds in entity.data_sources:
-                # Check if data source is public or user has membership
-                if not ds.is_public:
-                    has_membership = await db.execute(
-                        select(DataSourceMembership)
-                        .where(
-                            DataSourceMembership.data_source_id == ds.id,
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )
-                    if not has_membership.scalar_one_or_none():
-                        # User doesn't have access to this data source
-                        return None
+                if not await user_can_access_data_source(
+                    db, str(current_user.id), str(organization.id), ds
+                ):
+                    return None
         
         return entity
 
@@ -550,21 +541,15 @@ class EntityService:
             return {"data": None, "error": str(e)}
 
     def _is_admin_permissions(self, user_permissions: set) -> bool:
-        """Check if permissions set corresponds to an admin in org"""
-        return 'update_entities' in user_permissions or 'create_entities' in user_permissions or 'delete_entities' in user_permissions
+        """MVP: entity admin = full_admin_access. Per-DS create is checked at the route layer."""
+        return 'full_admin_access' in user_permissions
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
-        """Get user's permissions in the organization"""
-        from app.models.membership import Membership, ROLES_PERMISSIONS
-        
-        stmt = select(Membership).where(
-            Membership.user_id == user.id,
-            Membership.organization_id == organization.id
-        )
-        result = await db.execute(stmt)
-        membership = result.scalar_one_or_none()
-        
-        return ROLES_PERMISSIONS.get(membership.role, set()) if membership else set()
+        """Get user's org-level permissions via the RBAC resolver."""
+        from app.core.permission_resolver import resolve_permissions
+
+        resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+        return set(resolved.org_permissions)
 
     def _determine_update_type(self, entity: Entity, payload: EntityUpdate, current_user: User, user_permissions: set) -> str:
         """Determine what type of update this is based on permissions and changes"""

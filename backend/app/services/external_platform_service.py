@@ -194,6 +194,8 @@ class ExternalPlatformService:
                 return await self._test_slack_connection(platform)
             elif platform.platform_type == "teams":
                 return await self._test_teams_connection(platform)
+            elif platform.platform_type == "whatsapp":
+                return await self._test_whatsapp_connection(platform)
             elif platform.platform_type == "email":
                 return await self._test_email_connection(platform)
             else:
@@ -431,6 +433,124 @@ class ExternalPlatformService:
                 else:
                     error = response.json().get("error_description", "Authentication failed")
                     return {"success": False, "error": error}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def create_whatsapp_platform(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        access_token: str,
+        phone_number_id: str,
+        waba_id: str,
+        app_secret: str,
+        verify_token: str,
+        current_user: User,
+    ) -> ExternalPlatformSchema:
+        """Create a WhatsApp Cloud API platform with proper configuration."""
+        # Test the credentials by fetching the phone number metadata
+        test_result = await self._test_whatsapp_token(access_token, phone_number_id)
+        if not test_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid WhatsApp credentials: {test_result.get('error')}",
+            )
+
+        existing_platform = await self.get_platform_by_type(db, organization.id, "whatsapp")
+        if existing_platform:
+            raise HTTPException(
+                status_code=400,
+                detail="WhatsApp integration already exists for this organization",
+            )
+
+        info = test_result.get("info", {})
+        platform_config = {
+            "phone_number_id": phone_number_id,
+            "waba_id": waba_id,
+            "display_phone_number": info.get("display_phone_number"),
+            "verified_name": info.get("verified_name"),
+        }
+
+        credentials = {
+            "access_token": access_token,
+            "phone_number_id": phone_number_id,
+            "waba_id": waba_id,
+            "app_secret": app_secret,
+            "verify_token": verify_token,
+        }
+
+        platform = ExternalPlatform(
+            organization_id=organization.id,
+            platform_type="whatsapp",
+            platform_config=platform_config,
+            is_active=True,
+        )
+        platform.encrypt_credentials(credentials)
+
+        db.add(platform)
+        await db.commit()
+        await db.refresh(platform)
+
+        try:
+            await telemetry.capture(
+                "external_platform_created",
+                {
+                    "platform_id": str(platform.id),
+                    "platform_type": "whatsapp",
+                    "is_active": True,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
+        return ExternalPlatformSchema.from_orm(platform)
+
+    async def _test_whatsapp_connection(self, platform: ExternalPlatform) -> dict:
+        """Test WhatsApp connection using stored credentials."""
+        try:
+            creds = platform.decrypt_credentials()
+            return await self._test_whatsapp_token(
+                creds.get("access_token"), creds.get("phone_number_id")
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _test_whatsapp_token(self, access_token: str, phone_number_id: str) -> dict:
+        """Validate a WhatsApp Cloud API token by calling GET /{phone_number_id}."""
+        try:
+            import os
+            import httpx
+
+            if not access_token or not phone_number_id:
+                return {"success": False, "error": "Missing access_token or phone_number_id"}
+
+            base_url = os.environ.get(
+                "WHATSAPP_GRAPH_BASE_URL", "https://graph.facebook.com/v20.0"
+            )
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    f"{base_url}/{phone_number_id}",
+                    params={"fields": "display_phone_number,verified_name"},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return {
+                        "success": True,
+                        "info": {
+                            "display_phone_number": data.get("display_phone_number"),
+                            "verified_name": data.get("verified_name"),
+                            "id": data.get("id"),
+                        },
+                    }
+                else:
+                    try:
+                        err = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+                    except Exception:
+                        err = f"HTTP {resp.status_code}"
+                    return {"success": False, "error": err}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

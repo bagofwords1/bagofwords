@@ -17,7 +17,6 @@ from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TY
 from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
 from app.models.git_repository import GitRepository
-from app.models.membership import Membership, ROLES_PERMISSIONS
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -43,7 +42,7 @@ from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import selectinload
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
@@ -132,23 +131,52 @@ class DataSourceService:
 
         return connections_list
 
-    async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str]):
+    async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str], permissions: Optional[List[str]] = None):
         """
         Create memberships for a list of user IDs.
+
+        Writes to both DataSourceMembership (legacy) and ResourceGrant (RBAC).
+        `permissions` controls the RBAC grant; defaults to ["view", "view_schema"]
+        to match legacy DSM semantics. Pass ["manage"] for the owner.
         """
         if not user_ids:
             return
-            
-        data_source_memberships = []
-        for user_id in user_ids:
-            data_source_membership = DataSourceMembership(
+
+        from app.models.resource_grant import ResourceGrant
+        grant_perms = list(permissions) if permissions is not None else []
+
+        data_source_memberships = [
+            DataSourceMembership(
                 data_source_id=data_source.id,
                 principal_type=PRINCIPAL_TYPE_USER,
-                principal_id=user_id
+                principal_id=user_id,
             )
-            data_source_memberships.append(data_source_membership)
-        
+            for user_id in user_ids
+        ]
         db.add_all(data_source_memberships)
+
+        # Mirror into resource_grants (RBAC). Skip if a grant already exists.
+        for user_id in user_ids:
+            existing = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == str(data_source.id),
+                    ResourceGrant.principal_type == PRINCIPAL_TYPE_USER,
+                    ResourceGrant.principal_id == str(user_id),
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
+            db.add(ResourceGrant(
+                organization_id=str(data_source.organization_id),
+                resource_type="data_source",
+                resource_id=str(data_source.id),
+                principal_type=PRINCIPAL_TYPE_USER,
+                principal_id=str(user_id),
+                permissions=grant_perms,
+            ))
+
         await db.commit()
 
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
@@ -355,7 +383,7 @@ class DataSourceService:
             pass
 
         # Always add the creator as a member (regardless of public/private status)
-        await self._create_memberships(db, new_data_source, [current_user.id])
+        await self._create_memberships(db, new_data_source, [current_user.id], permissions=["manage"])
         
         # Create memberships for additional specified users (only for private data sources)
         if member_user_ids and not is_public:
@@ -727,6 +755,11 @@ class DataSourceService:
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
         # Table count is fetched separately via COUNT query in _build_connections_list
+        from app.core.permission_resolver import get_accessible_data_source_ids
+        is_admin, accessible_ids = await get_accessible_data_source_ids(
+            db, str(current_user.id), str(organization.id)
+        )
+
         query = (
             select(DataSource)
             .options(
@@ -735,19 +768,12 @@ class DataSourceService:
                 selectinload(DataSource.connections),
             )
             .filter(DataSource.organization_id == organization.id)
-            .filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
-            )
         )
+        if not is_admin:
+            clauses = [DataSource.is_public == True]
+            if accessible_ids:
+                clauses.append(DataSource.id.in_(accessible_ids))
+            query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Build list with connection info (no live test for list to keep it fast)
@@ -798,34 +824,32 @@ class DataSourceService:
         
         # Apply access control if user is provided (same logic as get_data_sources)
         if current_user:
-            stmt = stmt.filter(
-                or_(
-                    DataSource.is_public == True,  # Public data sources
-                    DataSource.id.in_(
-                        select(DataSourceMembership.data_source_id)
-                        .filter(
-                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                            DataSourceMembership.principal_id == current_user.id
-                        )
-                    )  # User has explicit membership
-                )
+            from app.core.permission_resolver import get_accessible_data_source_ids
+            is_admin, accessible_ids = await get_accessible_data_source_ids(
+                db, str(current_user.id), str(organization.id)
             )
+            if not is_admin:
+                clauses = [DataSource.is_public == True]
+                if accessible_ids:
+                    clauses.append(DataSource.id.in_(accessible_ids))
+                stmt = stmt.filter(or_(*clauses))
             
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
         
-        # Compute once whether the current user has org-level permission to update data sources
+        # Compute once whether the current user has admin-level access to data sources
+        # (full_admin_access or org-level create_data_source).
         has_update_perm = False
         if current_user:
             try:
-                mem_res = await db.execute(
-                    select(Membership).where(
-                        Membership.user_id == current_user.id,
-                        Membership.organization_id == organization.id,
-                    )
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                resolved = await resolve_permissions(
+                    db, str(current_user.id), str(organization.id)
                 )
-                membership = mem_res.scalar_one_or_none()
-                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_org_permission("create_data_source")
+                )
             except Exception:
                 has_update_perm = False
         
@@ -1237,17 +1261,19 @@ class DataSourceService:
                 is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
             except Exception:
                 is_owner = False
-            # Check org role permission for update_data_source
+            # Admin-level access gate: full_admin or per-DS `manage` grant
             has_update_perm = False
             try:
-                mem_res = await db.execute(
-                    select(Membership).where(
-                        Membership.user_id == current_user.id,
-                        Membership.organization_id == getattr(data_source, "organization_id", None),
-                    )
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                resolved = await resolve_permissions(
+                    db,
+                    str(current_user.id),
+                    str(getattr(data_source, "organization_id", "")),
                 )
-                membership = mem_res.scalar_one_or_none()
-                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
+                )
             except Exception:
                 has_update_perm = False
             if is_owner or has_update_perm:
@@ -1375,15 +1401,16 @@ class DataSourceService:
             is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
             has_update_perm = False
             try:
-                from app.models.membership import Membership, ROLES_PERMISSIONS
-                mem_res = await db.execute(
-                    select(Membership).where(
-                        Membership.user_id == current_user.id,
-                        Membership.organization_id == getattr(data_source, "organization_id", None),
-                    )
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                resolved = await resolve_permissions(
+                    db,
+                    str(current_user.id),
+                    str(getattr(data_source, "organization_id", "")),
                 )
-                membership = mem_res.scalar_one_or_none()
-                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
+                )
             except Exception:
                 pass
 
@@ -2590,11 +2617,13 @@ class DataSourceService:
         return metadata_indexing_job
 
     async def add_data_source_member(self, db: AsyncSession, data_source_id: str, member: DataSourceMembershipCreate, organization: Organization, current_user: User):
-        """Add a user to data source membership"""
+        """Add a user to data source membership.
+        Writes to both DataSourceMembership (legacy) and ResourceGrant (RBAC).
+        """
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization)
-        
-        # Check if membership already exists
+
+        # Check if membership already exists (legacy table)
         existing = await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id,
@@ -2604,8 +2633,8 @@ class DataSourceService:
         )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="User is already a member")
-        
-        # Create membership
+
+        # Create legacy membership
         membership = DataSourceMembership(
             data_source_id=data_source_id,
             principal_type=member.principal_type,
@@ -2613,16 +2642,44 @@ class DataSourceService:
             config=member.config
         )
         db.add(membership)
+
+        # Also create resource_grant (RBAC path)
+        try:
+            from app.models.resource_grant import ResourceGrant
+            existing_grant = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == data_source_id,
+                    ResourceGrant.principal_type == member.principal_type,
+                    ResourceGrant.principal_id == member.principal_id,
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            if not existing_grant.scalar_one_or_none():
+                grant = ResourceGrant(
+                    organization_id=str(organization.id),
+                    resource_type="data_source",
+                    resource_id=data_source_id,
+                    principal_type=member.principal_type,
+                    principal_id=member.principal_id,
+                    permissions=[],
+                )
+                db.add(grant)
+        except Exception:
+            pass  # Don't break if resource_grants table doesn't exist yet
+
         await db.commit()
         await db.refresh(membership)
         return DataSourceMembershipSchema.from_orm(membership)
 
     async def remove_data_source_member(self, db: AsyncSession, data_source_id: str, user_id: str, organization: Organization, current_user: User):
-        """Remove a user from data source membership"""
+        """Remove a user from data source membership.
+        Deletes from both DataSourceMembership (legacy) and ResourceGrant (RBAC).
+        """
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization)
-        
-        # Find and delete membership
+
+        # Find and delete legacy membership
         result = await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id,
@@ -2633,17 +2690,101 @@ class DataSourceService:
         membership = result.scalar_one_or_none()
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
-        
+
         await db.delete(membership)
+
+        # Also delete resource_grant (RBAC path)
+        try:
+            from app.models.resource_grant import ResourceGrant
+            grant_result = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == data_source_id,
+                    ResourceGrant.principal_type == PRINCIPAL_TYPE_USER,
+                    ResourceGrant.principal_id == user_id,
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            grant = grant_result.scalar_one_or_none()
+            if grant:
+                await db.delete(grant)
+        except Exception:
+            pass  # Don't break if resource_grants table doesn't exist yet
+
         await db.commit()
         return {"message": "Member removed successfully"}
 
     async def get_data_source_members(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        """Get all members of a data source"""
+        """Get all members of a data source.
+        Reads from resource_grants (RBAC) with fallback to DataSourceMembership (legacy).
+        """
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization, current_user)
-        
-        # Get data_source_memberships
+
+        # Try RBAC path first (resource_grants)
+        try:
+            from app.models.resource_grant import ResourceGrant
+            result = await db.execute(
+                select(ResourceGrant).where(
+                    ResourceGrant.resource_type == "data_source",
+                    ResourceGrant.resource_id == data_source_id,
+                    ResourceGrant.organization_id == str(organization.id),
+                    ResourceGrant.deleted_at.is_(None),
+                )
+            )
+            grants = result.scalars().all()
+            if grants:
+                # Resolve principal names
+                user_ids = [g.principal_id for g in grants if g.principal_type == "user"]
+                group_ids = [g.principal_id for g in grants if g.principal_type == "group"]
+                role_ids = [g.principal_id for g in grants if g.principal_type == "role"]
+
+                user_names = {}
+                if user_ids:
+                    from app.models.user import User
+                    user_result = await db.execute(select(User.id, User.name, User.email).where(User.id.in_(user_ids)))
+                    for uid, name, email in user_result.all():
+                        user_names[uid] = name or email or uid
+
+                group_names = {}
+                if group_ids:
+                    from app.models.group import Group
+                    group_result = await db.execute(select(Group.id, Group.name).where(Group.id.in_(group_ids)))
+                    for gid, name in group_result.all():
+                        group_names[gid] = name
+
+                role_names = {}
+                if role_ids:
+                    from app.models.role import Role
+                    role_result = await db.execute(select(Role.id, Role.name).where(Role.id.in_(role_ids)))
+                    for rid, name in role_result.all():
+                        role_names[rid] = name
+
+                def _resolve_name(g):
+                    if g.principal_type == "group":
+                        return group_names.get(g.principal_id)
+                    if g.principal_type == "role":
+                        return role_names.get(g.principal_id)
+                    return user_names.get(g.principal_id)
+
+                return [
+                    DataSourceMembershipSchema(
+                        id=g.id,
+                        data_source_id=data_source_id,
+                        principal_type=g.principal_type,
+                        principal_id=g.principal_id,
+                        principal_name=_resolve_name(g),
+                        permissions=g.permissions if isinstance(g.permissions, list) else [],
+                        config=None,
+                        created_at=g.created_at,
+                        updated_at=g.updated_at,
+                    )
+                    for g in grants
+                ]
+        except Exception:
+            pass  # Fall through to legacy path
+
+        # Fallback: legacy DataSourceMembership
         result = await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id
@@ -2743,7 +2884,7 @@ class DataSourceService:
         await db.refresh(new_data_source)
         
         # Create memberships
-        await self._create_memberships(db, new_data_source, [current_user.id])
+        await self._create_memberships(db, new_data_source, [current_user.id], permissions=["manage"])
         if member_user_ids and not is_public:
             additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
             if additional_user_ids:

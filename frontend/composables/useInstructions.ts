@@ -352,9 +352,10 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
   }
 
   // Convenience bulk action methods
-  const bulkPublish = () => bulkUpdate({ status: 'published' })
-  const bulkArchive = () => bulkUpdate({ status: 'archived' })
-  const bulkMakeDraft = () => bulkUpdate({ status: 'draft' })
+  // Labels are user-facing ("Active" / "Inactive") but the underlying backend
+  // enum values are unchanged ('published' / 'draft').
+  const bulkSetActive = () => bulkUpdate({ status: 'published' })
+  const bulkSetInactive = () => bulkUpdate({ status: 'draft' })
   const bulkSetLoadAlways = () => bulkUpdate({ load_mode: 'always' })
   const bulkSetLoadIntelligent = () => bulkUpdate({ load_mode: 'intelligent' })
   const bulkSetLoadDisabled = () => bulkUpdate({ load_mode: 'disabled' })
@@ -494,9 +495,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     
     // Bulk actions
     bulkUpdate,
-    bulkPublish,
-    bulkArchive,
-    bulkMakeDraft,
+    bulkSetActive,
+    bulkSetInactive,
     bulkSetLoadAlways,
     bulkSetLoadIntelligent,
     bulkSetLoadDisabled,

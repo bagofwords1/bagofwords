@@ -689,15 +689,15 @@ class ConnectionService:
 
             if not is_owner:
                 try:
-                    from app.models.membership import Membership, ROLES_PERMISSIONS
-                    mem_res = await db.execute(
-                        select(Membership).where(
-                            Membership.user_id == current_user.id,
-                            Membership.organization_id == connection.organization_id,
-                        )
+                    from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                    resolved = await resolve_permissions(
+                        db, str(current_user.id), str(connection.organization_id)
                     )
-                    membership = mem_res.scalar_one_or_none()
-                    has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                    # Admin-level system credential access: full_admin or manage_connections
+                    has_update_perm = (
+                        FULL_ADMIN in resolved.org_permissions
+                        or resolved.has_org_permission("manage_connections")
+                    )
                 except Exception:
                     pass
 

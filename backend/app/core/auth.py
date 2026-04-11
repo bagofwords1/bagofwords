@@ -47,6 +47,100 @@ class UserManager(BaseUserManager[User, str]):
     def parse_id(self, value: Any) -> str:
         return str(value)
 
+    async def authenticate(self, credentials) -> Optional[User]:
+        """
+        Authenticate via LDAP bind (if enabled), then fall back to local password.
+
+        When LDAP is enabled:
+        - Try LDAP bind first
+        - If LDAP bind succeeds, return the user
+        - If LDAP bind fails (wrong password), only superusers get local fallback (break-glass)
+        - If LDAP server is unreachable, fall back to local auth for everyone
+        """
+        ldap_config = settings.bow_config.ldap
+        if ldap_config.enabled:
+            ldap_result = await self._ldap_authenticate(credentials.username, credentials.password)
+
+            if ldap_result == "success":
+                # _ldap_authenticate stores the user; look them up
+                try:
+                    return await self.get_by_email(credentials.username)
+                except exceptions.UserNotExists:
+                    return None
+            elif ldap_result == "unreachable":
+                # LDAP server down — fall back to local auth for everyone
+                return await super().authenticate(credentials)
+            else:
+                # LDAP reachable but auth failed — only superusers get local fallback
+                try:
+                    local_user = await self.get_by_email(credentials.username)
+                    if local_user.is_superuser:
+                        return await super().authenticate(credentials)
+                except exceptions.UserNotExists:
+                    pass
+                return None
+
+        # No LDAP — standard local auth
+        return await super().authenticate(credentials)
+
+    async def _ldap_authenticate(self, email: str, password: str) -> str:
+        """
+        Try LDAP bind auth.
+
+        Returns:
+            "success" — LDAP bind succeeded and user is ready
+            "failed"  — LDAP reachable but credentials rejected
+            "unreachable" — could not connect to LDAP server
+        """
+        from app.ee.ldap.connection import LDAPConnectionManager
+        import logging
+        _logger = logging.getLogger(__name__)
+
+        ldap_config = settings.bow_config.ldap
+        manager = LDAPConnectionManager(ldap_config)
+
+        try:
+            user_dn = manager.find_user_dn(email)
+        except Exception as e:
+            _logger.warning(f"LDAP server unreachable during user search: {e}")
+            return "unreachable"
+
+        if not user_dn:
+            return "failed"
+
+        try:
+            if not manager.bind_user(user_dn, password):
+                return "failed"
+        except Exception as e:
+            _logger.warning(f"LDAP server unreachable during bind: {e}")
+            return "unreachable"
+
+        # Bind succeeded — find or create local user
+        try:
+            await self.get_by_email(email)
+            return "success"
+        except exceptions.UserNotExists:
+            if not ldap_config.auto_provision_users:
+                return "failed"
+
+            # Auto-provision: create local user from LDAP
+            from fastapi_users.password import PasswordHelper
+            ph = PasswordHelper()
+            async with self.user_db.session as session:
+                await self.user_db.create({
+                    "email": email,
+                    "name": email.split("@")[0],
+                    "hashed_password": ph.hash(ph.generate()),
+                    "is_active": True,
+                    "is_verified": True,
+                    "is_superuser": False,
+                })
+                await self._attach_open_memberships(
+                    await self.get_by_email(email), session
+                )
+                await session.commit()
+            return "success"
+
     async def on_after_login(
         self, 
         user: User, 
@@ -78,9 +172,47 @@ class UserManager(BaseUserManager[User, str]):
             user.is_verified = True
 
         # Update each open membership with the new user
+        from app.models.role import Role
+        from app.models.role_assignment import RoleAssignment
+
         for membership in open_memberships:
             membership.user_id = user.id
+            membership_role = membership.role
             membership.email = None  # Clear the email since we now have a user
+
+            # Create the matching RBAC role_assignment so the invited user
+            # actually has permissions in the org. Mirrors
+            # OrganizationService._assign_system_role.
+            if membership_role:
+                try:
+                    role_result = await session.execute(
+                        select(Role).where(
+                            Role.name == membership_role,
+                            Role.is_system == True,
+                            Role.organization_id.is_(None),
+                            Role.deleted_at.is_(None),
+                        )
+                    )
+                    system_role = role_result.scalar_one_or_none()
+                    if system_role:
+                        existing = await session.execute(
+                            select(RoleAssignment).where(
+                                RoleAssignment.organization_id == membership.organization_id,
+                                RoleAssignment.role_id == system_role.id,
+                                RoleAssignment.principal_type == "user",
+                                RoleAssignment.principal_id == user.id,
+                                RoleAssignment.deleted_at.is_(None),
+                            )
+                        )
+                        if not existing.scalar_one_or_none():
+                            session.add(RoleAssignment(
+                                organization_id=membership.organization_id,
+                                role_id=system_role.id,
+                                principal_type="user",
+                                principal_id=user.id,
+                            ))
+                except Exception:
+                    pass
             # Telemetry: invited user accepted invite and signed up
             try:
                 await telemetry.capture(

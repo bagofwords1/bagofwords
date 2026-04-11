@@ -11,6 +11,7 @@ from app.core.git_file_walker import (
     MAX_FILE_SIZE,
     SKIP_DIRS,
     GitFileInfo,
+    _load_bowignore,
     classify_file,
     extract_repo_name,
     walk_repo_files,
@@ -223,3 +224,112 @@ class TestWalkRepoFiles:
 
         assert len(files) == 1
         assert "élève" in files[0].content
+
+
+# ============================================================================
+# .bowignore
+# ============================================================================
+
+
+class TestBowignore:
+    def _make_repo(self, tmp_path, files):
+        """Create a fake repo directory structure."""
+        for rel_path, content in files.items():
+            full_path = tmp_path / rel_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(content, bytes):
+                full_path.write_bytes(content)
+            else:
+                full_path.write_text(content, encoding="utf-8")
+        return str(tmp_path)
+
+    def test_bowignore_excludes_by_directory(self, tmp_path):
+        """Files matching a directory pattern are excluded."""
+        repo_path = self._make_repo(tmp_path, {
+            ".bowignore": "models/staging/\n",
+            "models/staging/stg_orders.sql": "SELECT 1",
+            "models/marts/orders.sql": "SELECT 2",
+        })
+        files = walk_repo_files(repo_path, "repo")
+        paths = {f.relative_path for f in files}
+
+        assert "repo/models/marts/orders.sql" in paths
+        assert "repo/models/staging/stg_orders.sql" not in paths
+
+    def test_bowignore_excludes_by_glob(self, tmp_path):
+        """A glob pattern like *.csv excludes matching files."""
+        repo_path = self._make_repo(tmp_path, {
+            ".bowignore": "*.csv\n",
+            "data.csv": "a,b,c",
+            "query.sql": "SELECT 1",
+        })
+        files = walk_repo_files(repo_path, "repo")
+        paths = {f.relative_path for f in files}
+
+        assert "repo/query.sql" in paths
+        assert "repo/data.csv" not in paths
+
+    def test_bowignore_negation(self, tmp_path):
+        """Negation pattern re-includes a previously excluded file."""
+        repo_path = self._make_repo(tmp_path, {
+            ".bowignore": "*.csv\n!important.csv\n",
+            "junk.csv": "a,b",
+            "important.csv": "x,y",
+            "query.sql": "SELECT 1",
+        })
+        files = walk_repo_files(repo_path, "repo")
+        paths = {f.relative_path for f in files}
+
+        assert "repo/important.csv" in paths
+        assert "repo/junk.csv" not in paths
+        assert "repo/query.sql" in paths
+
+    def test_no_bowignore_unchanged(self, tmp_path):
+        """Without .bowignore, all allowed files are returned."""
+        repo_path = self._make_repo(tmp_path, {
+            "a.sql": "SELECT 1",
+            "b.yml": "key: val",
+        })
+        files = walk_repo_files(repo_path, "repo")
+
+        assert len(files) == 2
+
+    def test_bowignore_comments_and_blanks(self, tmp_path):
+        """Comments and blank lines in .bowignore are ignored."""
+        repo_path = self._make_repo(tmp_path, {
+            ".bowignore": "# this is a comment\n\n*.csv\n",
+            "data.csv": "a,b",
+            "query.sql": "SELECT 1",
+        })
+        files = walk_repo_files(repo_path, "repo")
+        paths = {f.relative_path for f in files}
+
+        assert "repo/query.sql" in paths
+        assert "repo/data.csv" not in paths
+
+    def test_bowignore_malformed_fails_open(self, tmp_path):
+        """Malformed .bowignore should not block indexing."""
+        repo_path = self._make_repo(tmp_path, {
+            ".bowignore": b"\x80\x81\x82\xff\xfe",
+            "query.sql": "SELECT 1",
+        })
+        files = walk_repo_files(repo_path, "repo")
+
+        assert len(files) >= 1
+        paths = {f.relative_path for f in files}
+        assert "repo/query.sql" in paths
+
+    def test_bowignore_double_star(self, tmp_path):
+        """** recursive pattern works across directories."""
+        repo_path = self._make_repo(tmp_path, {
+            ".bowignore": "**/staging/**\n",
+            "models/staging/stg.sql": "SELECT 1",
+            "models/marts/orders.sql": "SELECT 2",
+            "other/staging/file.sql": "SELECT 3",
+        })
+        files = walk_repo_files(repo_path, "repo")
+        paths = {f.relative_path for f in files}
+
+        assert "repo/models/marts/orders.sql" in paths
+        assert "repo/models/staging/stg.sql" not in paths
+        assert "repo/other/staging/file.sql" not in paths

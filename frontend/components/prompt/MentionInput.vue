@@ -153,6 +153,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
 
 interface MentionItem {
   id: string
@@ -195,6 +196,13 @@ const props = defineProps({
   selectedDataSourceIds: {
     type: Array as () => string[],
     default: () => []
+  },
+  // When set, restricts mentionable data sources (and the tables/entities
+  // scoped to them) to those the user has this permission on. Used by
+  // AddTestCaseModal so users only mention DSs they can create evals for.
+  permission: {
+    type: String,
+    default: ''
   }
 })
 
@@ -214,6 +222,8 @@ const mentions = ref<MentionItem[]>([])
 const dropdownPosition = ref({ top: '0px', left: '0px' })
 const allCategories = ref<MentionCategory[]>([])
 const isLoadingMentions = ref(false)
+const orgPermsState = usePermissions()
+const resourcePermsState = useResourcePermissions()
 
 const lineHeightPx = 24
 const minHeight = computed(() => `${Math.max(2, props.rows) * lineHeightPx}px`)
@@ -230,7 +240,28 @@ const filteredCategories = computed(() => {
     .filter(cat => cat.name !== 'files')
     .map(category => {
       let items = category.items
-      
+
+      // Permission allowlist (e.g. only DSs the user can create evals for).
+      // Uses explicit per-DS grants only (full_admin bypasses).
+      if (props.permission) {
+        const isAdmin = orgPermsState.value.includes('full_admin_access')
+        const allowed = (allCategories.value.find(c => c.name === 'data_sources')?.items || [])
+          .filter((ds: any) => {
+            if (isAdmin) return true
+            const key = `data_source:${ds.id}`
+            return resourcePermsState.value[key]?.includes(props.permission) ?? false
+          })
+          .map((ds: any) => ds.id)
+        const allowedSet = new Set(allowed)
+        if (category.name === 'data_sources') {
+          items = items.filter(item => allowedSet.has(item.id))
+        } else if (category.name === 'tables') {
+          items = items.filter(item => item.data_source_id && allowedSet.has(item.data_source_id))
+        } else if (category.name === 'entities') {
+          items = items.filter(item => Array.isArray((item as any).data_source_ids) && (item as any).data_source_ids.some((dsId: string) => allowedSet.has(dsId)))
+        }
+      }
+
       // CLIENT-SIDE filtering by selected data sources
       if (hasSelectedDataSources) {
         if (category.name === 'data_sources') {

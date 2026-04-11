@@ -82,9 +82,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     'select-all': []
     'clear': []
-    'publish': []
-    'archive': []
-    'make-draft': []
+    'set-active': []
+    'set-inactive': []
     'load-always': []
     'load-intelligent': []
     'load-disabled': []
@@ -99,9 +98,8 @@ const menuItems = computed(() => {
     // Status section
     items.push([
         { label: 'Status', header: true, disabled: true },
-        { label: 'Publish', icon: 'i-heroicons-check', click: () => emit('publish') },
-        { label: 'Draft', icon: 'i-heroicons-pencil', click: () => emit('make-draft') },
-        { label: 'Archive', icon: 'i-heroicons-archive-box', click: () => emit('archive') },
+        { label: 'Set Active', icon: 'i-heroicons-check', click: () => emit('set-active') },
+        { label: 'Set Inactive', icon: 'i-heroicons-pencil', click: () => emit('set-inactive') },
         { label: 'Delete', icon: 'i-heroicons-trash', click: () => emit('delete'), class: 'text-red-600' },
     ])
     
