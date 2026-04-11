@@ -571,19 +571,15 @@ async function fetchTabData(agentId: string, tab: string) {
     loading.value = true
     instructionsError.value = null
     try {
-      // Fetch instructions for the selected agent AND global (any data source) instructions
-      const allAgentIds = props.agents.map(a => a.id).join(',')
+      // Fetch instructions scoped to the selected agent AND global (any data source) instructions
       const { data, error } = await useMyFetch('/api/instructions', {
         method: 'GET',
-        query: { data_source_ids: allAgentIds, include_global: true, limit: 200, include_own: true, include_drafts: true }
+        query: { data_source_ids: agentId, include_global: true, limit: 200, include_own: true, include_drafts: true }
       })
       if (error?.value) { instructionsError.value = 'Failed to load instructions'; return }
       const payload: any = (data as any)?.value
-      const allInstructions = payload?.items || payload || []
-      // Cache same list for all agents since we fetched for all + global
-      for (const agent of props.agents) {
-        instructionsCache.value[agent.id] = allInstructions
-      }
+      const agentInstructions = payload?.items || payload || []
+      instructionsCache.value[agentId] = agentInstructions
     } catch { instructionsError.value = 'Failed to load instructions' }
     finally { loading.value = false }
   }
