@@ -2935,6 +2935,7 @@ onMounted(async () => {
 	/* Paragraph spacing to match streaming text appearance */
 	p {
 		margin-bottom: 1em;
+		unicode-bidi: plaintext;
 	}
 	p:last-child {
 		margin-bottom: 0;
@@ -2942,22 +2943,26 @@ onMounted(async () => {
 
 	:where(h1, h2, h3, h4, h5, h6) {
 		@apply font-bold mb-4 mt-6;
+		unicode-bidi: plaintext;
 	}
 
 	h1 { @apply text-2xl; }
 	h2 { @apply text-xl; }
 	h3 { @apply text-lg; }
 
-	ul, ol { @apply ps-6 mb-4; direction: inherit; }
+	ul, ol { @apply ps-6 mb-4; unicode-bidi: plaintext; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
-	li { @apply mb-1.5; direction: inherit; }
+	li { @apply mb-1.5; unicode-bidi: plaintext; }
 
-	/* Code blocks (fenced with ```) */
+	/* Code blocks (fenced with ```) — always LTR regardless of surrounding direction */
 	pre {
 		@apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto;
 		white-space: pre-wrap;
 		word-wrap: break-word;
+		direction: ltr;
+		unicode-bidi: isolate;
+		text-align: left;
 	}
 	pre code {
 		/* Reset inline code styles for code blocks */
@@ -2975,6 +2980,8 @@ onMounted(async () => {
 		@apply bg-gray-100 px-1.5 py-0.5 rounded font-mono;
 		font-size: 12px;
 		color: #374151;
+		unicode-bidi: isolate;
+		direction: ltr;
 	}
 	a { 
 		@apply text-gray-900 no-underline relative;
@@ -3000,9 +3007,9 @@ onMounted(async () => {
 	a:hover::before {
 		opacity: 1;
 	}
-	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; }
-	table { @apply w-full border-collapse mb-4; }
-	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
+	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; unicode-bidi: plaintext; }
+	table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
+	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 }
 
 
