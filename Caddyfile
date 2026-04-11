@@ -22,8 +22,6 @@
     header {
         # Enable HSTS
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        # Prevent clickjacking
-        X-Frame-Options "SAMEORIGIN"
         # Prevent MIME type sniffing
         X-Content-Type-Options "nosniff"
         # XSS protection
