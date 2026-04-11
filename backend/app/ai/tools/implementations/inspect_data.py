@@ -165,7 +165,6 @@ Don't use on images
             return await coder.generate_inspection_code(**kwargs)
 
         # 4. Execute
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_inspection"})
         
         output_log = ""
         generated_code = ""

@@ -234,25 +234,26 @@ class AgentV2:
         import aiofiles
         from app.models.report_file_association import report_file_association
 
-        # Filter to only unconsumed images (completion_id is NULL)
-        unconsumed_files = self.image_files
-        if self.image_files and self.db and self.report:
+        # Load images that belong to the current completion
+        current_cid = str(self.head_completion.id) if self.head_completion else None
+        eligible_files = self.image_files
+        if current_cid and self.image_files and self.db and self.report:
             try:
                 image_file_ids = [str(f.id) for f in self.image_files]
                 result = await self.db.execute(
                     select(report_file_association.c.file_id).where(
                         report_file_association.c.report_id == str(self.report.id),
                         report_file_association.c.file_id.in_(image_file_ids),
-                        report_file_association.c.completion_id == None,
+                        report_file_association.c.completion_id == current_cid,
                     )
                 )
-                unconsumed_ids = {row[0] for row in result.fetchall()}
-                unconsumed_files = [f for f in self.image_files if str(f.id) in unconsumed_ids]
+                current_ids = {row[0] for row in result.fetchall()}
+                eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
             except Exception as e:
-                logger.warning(f"Failed to filter consumed images, loading all: {e}")
+                logger.warning(f"Failed to filter images by completion, loading all: {e}")
 
         images: list[ImageInput] = []
-        for f in unconsumed_files:
+        for f in eligible_files:
             try:
                 file_path = getattr(f, 'path', None)
                 if not file_path:
@@ -874,7 +875,6 @@ class AgentV2:
 
                     # Combine user images + observation images
                     all_images = user_images + observation_images
-
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,

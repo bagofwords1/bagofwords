@@ -170,10 +170,10 @@ const errorMessage = computed<string>(() => {
 // Live progress stages
 const isCodeGenerating = computed(() => progressStage.value === 'generating_code')
 const codeGenDone = computed(() => {
-  const past = ['generated_code', 'executing_code', 'executing_inspection'].includes(progressStage.value)
+  const past = ['generated_code', 'executing_code'].includes(progressStage.value)
   return past || (!!code.value && !isCodeGenerating.value && status.value === 'running')
 })
-const isExecuting = computed(() => ['executing_code', 'executing_inspection'].includes(progressStage.value))
+const isExecuting = computed(() => progressStage.value === 'executing_code')
 const executionDone = computed(() => status.value !== 'running' && status.value !== '' && !isExecuting.value)
 const showExecutingStep = computed(() => codeGenDone.value || isExecuting.value)
 
