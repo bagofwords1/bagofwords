@@ -19,7 +19,6 @@ frontend/.nitro
 frontend/.cache
 frontend/dist
 frontend/node_modules/
-excel-plugin/node_modules/
 frontend/.output/
 frontend/test-results/
 frontend/tests/config/*.json
