@@ -382,20 +382,10 @@ IMPORTANT: The above spec describes what the dashboard should already look like.
 Preserve ALL of these requirements while applying the new edit below.
 """
 
-        return f"""You are editing an existing React dashboard. Your job is to apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.
-
-{SANDBOX_RUNTIME_PROMPT}
+        return f"""You are editing an existing React dashboard. Apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.
 
 ═══════════════════════════════════════════════════════════════════════════════
-EXISTING DASHBOARD CODE
-═══════════════════════════════════════════════════════════════════════════════
-
-```
-{existing_code}
-```
-{original_spec_section}
-═══════════════════════════════════════════════════════════════════════════════
-USER'S EDIT REQUEST
+EDIT REQUEST (primary specification — follow exactly)
 ═══════════════════════════════════════════════════════════════════════════════
 
 {edit_prompt}
@@ -406,10 +396,72 @@ USER'S EDIT REQUEST
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
 
 ═══════════════════════════════════════════════════════════════════════════════
-VISUALIZATION DATA (for reference if the edit involves data access)
+REFERENCE — TOOLS, COMPONENTS & DATA
 ═══════════════════════════════════════════════════════════════════════════════
 
+{SANDBOX_RUNTIME_PROMPT}
+
+EXISTING DASHBOARD CODE:
+
+```
+{existing_code}
+```
+{original_spec_section}
+VISUALIZATION DATA (for reference if the edit involves data access):
+
 {viz_json}
+
+DATA ACCESS:
+- `useArtifactData()` returns `{{ report, visualizations }}` or `null` while loading
+- Each viz: `{{ id, title, columns: [{{headerName, field, dtype, unique_count}}], rows: [{{...}}], view, dataModel }}`
+- Access values: `row[column.field]`, display labels: `column.headerName`
+- Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
+- **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
+
+AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
+- `<KPICard>` — `className` replaces default theme (bg-white, border, text-slate-900). `titleClassName`/`subtitleClassName` replace text defaults. `style` for inline overrides. Theme to match the dashboard's color story.
+- `<SectionCard>` — same theming props as KPICard. `className` replaces defaults.
+- `<FilterSelect>` — portaled dropdown. `className` replaces default theme. Built-in search at 8+ options.
+- `<FilterSearch>`, `<FilterDateRange>` — `className` replaces default theme.
+- `fmt()`, `<LoadingSpinner>`
+- All components are fully themeable. When the user's design calls for something these can't express — build custom React + Tailwind.
+
+FILTERING (if the edit involves adding, modifying, or fixing filters):
+
+Use the built-in `useFilters()` hook — do NOT reimplement filter logic manually:
+
+  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
+
+- `filters`: current state `{{ [field]: value }}`. Array = categorical selection, string = search text.
+- `setFilter(field, value)`: set a filter; `null` or `""` to clear. Array for categorical, string for search.
+- `resetFilters()`: clear all active filters
+- `filterRows(rows, fieldMap?)`: returns filtered rows. Optional `fieldMap` remaps filter keys to viz-specific column names, e.g. `filterRows(rows, {{ country: 'CountryName' }})`.
+- Array values (FilterSelect): exact match — row passes if value is in array
+- String values (FilterSearch): case-insensitive substring match
+- `{{ from, to }}` values (FilterDateRange): string comparison range
+- Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
+- YOU choose which columns to filter using `dtype` and `unique_count` from column metadata — no auto-detection
+
+FILTER PLACEMENT — global vs local:
+- **Global filter** (column in 2+ vizs): place in a top-level filter bar. Use `fieldMap` if column names differ across vizs.
+- **Local filter** (column in only 1 viz): place INSIDE that viz's `<SectionCard>`.
+
+FILTER DATA FLOW — CRITICAL:
+- Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
+- KPI cards summarizing filtered data MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
+- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
+
+WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders, KPI computations). If it reads from viz[N].rows and the viz should be filtered, switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
+
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN GUIDANCE (for style/theme edits)
+═══════════════════════════════════════════════════════════════════════════════
+
+When the edit involves style or theme changes:
+- Follow the user's style request exactly — if they say dark, flat, colorful, minimal, do that.
+- Theme ALL components to match: use `className`, `titleClassName`, `subtitleClassName` on KPICard/SectionCard/FilterSelect to replace defaults. Don't leave white/slate defaults when the design calls for something else.
+- Maintain a cohesive color story — edits to one section's colors should harmonize with the rest.
+- If adding new visual elements, match the existing dashboard's design language unless the user asked to change it.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -428,54 +480,10 @@ Rules:
 - Include 2-3 lines of context in SEARCH for unambiguous matching.
 - Order blocks top to bottom.
 - Preserve existing code unless the user asked to change it.
-- For NEW charts, prefer `<EChart option={{...}} height={{N}} />` — supports ALL ECharts types (bar, pie, radar, gauge, treemap, funnel, sankey, etc.). 'bow' theme handles base styling.
+- For NEW charts, use `<EChart option={{...}} height={{N}} />` — supports ALL ECharts types. 'bow' theme handles base styling.
 - Do NOT output full code. Only SEARCH/REPLACE blocks. If the change feels too large for diffs, output nothing — the planner will use create_artifact instead.
-- className on KPICard/SectionCard is additive (adds to defaults). Use `style` prop for reliable overrides (e.g. `style={{ backgroundColor: '#1e293b', color: '#fff' }}`).
-- FilterSelect dropdown is portaled to document.body — always renders above other content.
 
-⚠️ **KEEP EDITS MINIMAL.** Do not rewrite code that doesn't need to change. Do not add verbose comments or unnecessary variables.
-
-═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS (applies to ALL edits)
-═══════════════════════════════════════════════════════════════════════════════
-
-- `useArtifactData()` returns `{{ report, visualizations }}` or `null` while loading
-- Each viz: `{{ id, title, columns: [{{headerName, field, dtype, unique_count}}], rows: [{{...}}], view, dataModel }}`
-- Access values: `row[column.field]`, display labels: `column.headerName`
-- Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
-- **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
-
-═══════════════════════════════════════════════════════════════════════════════
-FILTERING (if the edit involves adding, modifying, or fixing filters)
-═══════════════════════════════════════════════════════════════════════════════
-
-Use the built-in `useFilters()` hook — do NOT reimplement filter logic manually:
-
-  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
-
-- `filters`: current state `{{ [field]: value }}`. Array = categorical selection, string = search text.
-- `setFilter(field, value)`: set a filter; `null` or `""` to clear. Array for categorical, string for search.
-- `resetFilters()`: clear all active filters
-- `filterRows(rows, fieldMap?)`: returns filtered rows. Optional `fieldMap` remaps filter keys to viz-specific column names, e.g. `filterRows(rows, {{ country: 'CountryName' }})`.
-- Array values (FilterSelect): exact match — row passes if value is in array
-- String values (FilterSearch): case-insensitive substring match
-- `{{ from, to }}` values (FilterDateRange): string comparison range
-- Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
-- YOU choose which columns to filter using `dtype` and `unique_count` from column metadata — no auto-detection
-- Use `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, has built-in search at 8+ options)
-- Use `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
-- Use `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} />` for date/time columns (dtype contains "datetime")
-
-FILTER PLACEMENT — global vs local:
-- **Global filter** (column in 2+ vizs): place in a top-level filter bar. Prefer one shared filter over duplicates — use `fieldMap` if column names differ across vizs.
-- **Local filter** (column in only 1 viz): place INSIDE that viz's `<SectionCard>`, next to the chart/table it affects.
-
-FILTER DATA FLOW — CRITICAL:
-- Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
-- KPI cards that summarize filtered data (sum, count, avg) MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
-- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
-
-WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders, KPI computations). If it reads from viz[N].rows and the viz should be filtered, switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
+⚠️ **Implement the user's full request.** Don't skip requested changes to save tokens. Don't rewrite code the user didn't ask to change.
 
 Apply the user's edit now:"""
 
@@ -549,6 +557,7 @@ Apply the edit now:"""
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_artifact"})
 
         # Get runtime context
+        sigkill_event = runtime_ctx.get("sigkill_event")
         report = runtime_ctx.get("report")
         user = runtime_ctx.get("user")
         organization = runtime_ctx.get("organization")
@@ -792,12 +801,25 @@ Apply the edit now:"""
             usage_scope="edit_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
         ):
+            if sigkill_event and sigkill_event.is_set():
+                break
             buffer += chunk
             if len(buffer) % 100 == 0:
                 yield ToolProgressEvent(
                     type="tool.progress",
                     payload={"stage": "generating", "chars": len(buffer), "timing": False}
                 )
+
+        # Check sigkill after LLM generation
+        if sigkill_event and sigkill_event.is_set():
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {"success": False, "artifact_id": str(artifact.id), "error": "Stopped by user"},
+                    "observation": {"summary": "Artifact edit stopped by user", "artifact_id": str(artifact.id), "stopped": True},
+                },
+            )
+            return
 
         # Apply the diff
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "applying_edit"})

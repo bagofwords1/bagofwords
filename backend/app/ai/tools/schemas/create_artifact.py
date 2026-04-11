@@ -12,16 +12,16 @@ class CreateArtifactInput(BaseModel):
     """
 
     prompt: str = Field(..., description=(
-        "Detailed build plan for the dashboard. This prompt drives the entire code generation — be specific and structured. "
-        "Include:\n"
-        "1. LAYOUT & VISUALIZATIONS: Overall structure (e.g. KPI row at top, 2-col grid, full-width section). "
-        "For each visualization, specify: which viz (by title), chart type to render it as, "
-        "position in the layout, and whether it should have a local filter (yes/no).\n"
-        "2. GLOBAL FILTERS (if applicable): If 2+ visualizations share a filterable column "
-        "(same column name or same concept under different names), define a global filter bar. "
-        "Specify which columns to filter on and which vizs they affect. "
-        "If column names differ across vizs, note the mapping.\n"
-        "3. THEME & STYLE: Color scheme, dark/light mode, any design preferences.\n"
+        "Structured build plan for the dashboard. This prompt drives the entire code generation — be specific and use these sections:\n\n"
+        "## Layout\n"
+        "Overall structure and viz placement. For each viz: title, chart type, position, local filter yes/no.\n"
+        "Example: 'KPI row at top from Dashboard KPIs. Below: 2-col grid — Sales Trend as line chart left, Top Artists as horizontal bar right.'\n\n"
+        "## Filters\n"
+        "Global filters if 2+ vizs share a filterable column. Which columns, which vizs, column name mappings if names differ. Omit if none.\n"
+        "Example: 'Global year filter across all 3 vizs. Column is `year` in all.'\n\n"
+        "## Theme\n"
+        "Colors, dark/light, spacing, typography, design feel. Capture the user's style request verbatim — this section overrides all system defaults.\n"
+        "Example: 'Flat BI style — white bg, no shadows, no gradients, subtle borders, tight spacing, neutral typography. NOT executive/marketing.'\n\n"
         "Do NOT use this tool to modify an existing artifact; use edit_artifact instead."
     ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")

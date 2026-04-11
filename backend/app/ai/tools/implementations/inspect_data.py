@@ -283,11 +283,12 @@ Don't use on images
                     "execution_ms": execution_ms,
                 },
                 "observation": {
-                    "summary": f"Inspection finished for: {data.user_prompt}",
+                    "summary": f"Inspection failed for: {data.user_prompt}" if not success else f"Inspection finished for: {data.user_prompt}",
                     "details": output_log[:3000] if output_log else "No output produced.",
                     "code": generated_code,
                     "success": success,
-                    "execution_duration_ms": execution_duration_ms
+                    "execution_duration_ms": execution_duration_ms,
+                    **({"error": {"type": "execution_failure", "message": execution_error}} if execution_error else {}),
                 }
             }
         )

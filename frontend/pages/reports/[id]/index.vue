@@ -1630,6 +1630,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							const modeLabel = payload.arguments.mode === 'slides' ? 'presentation' : 'dashboard'
 							lastBlock.tool_execution.result_summary = `Creating ${modeLabel}: "${payload.arguments.title || 'Untitled'}"…`
 						}
+						if (payload.tool_name === 'edit_artifact' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
 						if (payload.tool_name === 'inspect_data' && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
@@ -1888,7 +1891,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 				if (blockWithTool?.tool_execution) {
 					blockWithTool.tool_execution.status = payload.status
-					blockWithTool.status = payload.status === 'success' ? 'success' : 'error'
+					blockWithTool.status = payload.status === 'success' ? 'success' : payload.status === 'stopped' ? 'stopped' : 'error'
 					if (payload.result_summary) {
 						blockWithTool.tool_execution.result_summary = payload.result_summary
 					}

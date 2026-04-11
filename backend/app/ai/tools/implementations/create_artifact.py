@@ -375,6 +375,11 @@ Previous broken code:
 
 Fix these errors while keeping the same design and functionality. Output the corrected code now:"""
 
+        # Skip fix if sigkill
+        sigkill_event = runtime_ctx.get("sigkill_event")
+        if sigkill_event and sigkill_event.is_set():
+            return code
+
         # Use the same model for fixes
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
 
@@ -512,6 +517,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
         # Get runtime context
+        sigkill_event = runtime_ctx.get("sigkill_event")
         report = runtime_ctx.get("report")
         user = runtime_ctx.get("user")
         organization = runtime_ctx.get("organization")
@@ -776,6 +782,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
             usage_scope="create_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
         ):
+            if sigkill_event and sigkill_event.is_set():
+                break
             buffer += chunk
 
             # For slides mode, detect new slides as they're generated
@@ -802,6 +810,20 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     type="tool.progress",
                     payload={"stage": "generating", "chars": len(buffer), "timing": False}
                 )
+
+        # Check sigkill after LLM generation
+        if sigkill_event and sigkill_event.is_set():
+            # Update artifact to stopped status
+            artifact.status = "stopped"
+            await db.commit()
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {"success": False, "artifact_id": str(artifact.id), "error": "Stopped by user"},
+                    "observation": {"summary": "Artifact creation stopped by user", "artifact_id": str(artifact.id), "stopped": True},
+                },
+            )
+            return
 
         # Extract the code from the response
         code = self._extract_code(buffer, mode=data.mode)
@@ -1384,13 +1406,29 @@ Create a beautiful, varied presentation following these design principles. Each 
         # Note: Previous artifact code is now available via observation context (from create_artifact/read_artifact)
         # The planner can call read_artifact if needed to load previous code into context
 
-        return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality dashboard.
+        return f"""You are a world-class frontend developer and data visualization expert.
+
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN REQUEST (primary specification — follow exactly, overrides all defaults)
+═══════════════════════════════════════════════════════════════════════════════
+
+**Report Title:** {report_title or title or 'Dashboard'}
+**User Request:** {user_prompt}
+{images_context}
+{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
+
+{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
+
+If the user specified a theme, layout, colors, or style above — follow that exactly.
+If the user did not specify styling, use the design guidance at the end of this prompt.
+
+═══════════════════════════════════════════════════════════════════════════════
+REFERENCE — TOOLS, COMPONENTS & DATA
+═══════════════════════════════════════════════════════════════════════════════
 
 {SANDBOX_RUNTIME_PROMPT}
 
-═══════════════════════════════════════════════════════════════════════════════
-CHARTING & COMPONENTS
-═══════════════════════════════════════════════════════════════════════════════
+CHARTING:
 
 **`<EChart height={{N}} option={{{{...}}}} />`** — chart wrapper. Supports ALL ECharts chart types. 'bow' theme pre-configures colors, tooltip, grid, axes. For standard charts, only write data mapping:
 ```jsx
@@ -1405,25 +1443,20 @@ For advanced charts (radar, gauge, treemap, sunburst, funnel, sankey, calendar h
 <EChart height={{400}} option={{{{ series: [{{ type: 'treemap', data: treeData }}] }}}} />
 ```
 
-**Pre-built globals** (prefer for speed, build custom React components when the design calls for it):
-- `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" className="" style={{{{}}}} />` — className adds to defaults (bg-white, border, text-slate-900). Use `style` for reliable overrides (e.g. `style={{{{ backgroundColor: '#1e293b', color: '#fff' }}}}`)
-- `<SectionCard title="" subtitle="" className="" style={{{{}}}}>...children...</SectionCard>` — className adds to defaults. Use `style` for reliable overrides
-- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} />` — multi-select dropdown (portaled — always renders above other content). Built-in search auto at 8+ options. `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`.
-- `<FilterSearch label="" value={{str}} onChange={{e => setFilter(field, e.target.value)}} placeholder="Search..." />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names).
-- `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} type="date" />` — from/to date range picker. Value: `{{ from, to }}`. Type: "date" (default), "month", "datetime-local".
+AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
+- `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" className="" titleClassName="" subtitleClassName="" style={{{{}}}} />` — `className` replaces default theme (bg-white, border, text-slate-900). `titleClassName`/`subtitleClassName` replace title/subtitle defaults. `style` for inline overrides. Theme these to match your color story:
+  - Dark: `className="bg-slate-900 border-slate-700 text-white" titleClassName="text-slate-400"`
+  - Colored: `className="bg-indigo-50 border-indigo-200 text-indigo-900" titleClassName="text-indigo-600"`
+- `<SectionCard title="" subtitle="" className="" titleClassName="" subtitleClassName="" style={{{{}}}}>...children...</SectionCard>` — same theming: `className` replaces defaults, `titleClassName`/`subtitleClassName` for text. Theme to match.
+- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} className="" style={{{{}}}} />` — multi-select dropdown (portaled). Built-in search at 8+ options. `className` replaces default theme (bg-white border-slate-200 text-slate-900) — pass e.g. `className="bg-slate-900 border-slate-700 text-slate-100"` for dark.
+- `<FilterSearch label="" value={{str}} onChange={{e => setFilter(field, e.target.value)}} placeholder="Search..." className="" style={{{{}}}} />` — text search. `className` replaces default theme.
+- `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} type="date" className="" style={{{{}}}} />` — date range picker. `className` replaces default theme.
 - `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
 - `<LoadingSpinner size={{32}} />`
 
-⚠️ **KEEP OUTPUT COMPACT:**
-- Target **under 8K characters** of code. Be concise — but don't sacrifice UX quality for brevity.
-- className on KPICard/SectionCard is additive (adds to defaults). Use `style` prop for reliable overrides.
-- Don't repeat theme styling (axes, grid, tooltip, colors) — the 'bow' theme provides it.
-- Prefer inline expressions over separate variables when used once.
-- Keep helper functions short. Custom components are fine when the design needs them — just keep them focused.
+All components are fully themeable via `className`/`titleClassName`/`subtitleClassName`/`style`. Don't leave default white/slate styling when your design calls for something different. If the design needs something these can't express — build custom React + Tailwind.
 
-═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS
-═══════════════════════════════════════════════════════════════════════════════
+DATA ACCESS:
 
 ```javascript
 const data = useArtifactData(); // Returns null while loading
@@ -1447,33 +1480,13 @@ Each visualization:
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **NEVER hardcode data** — ALL values must come from `data.visualizations[N].rows`
 
-═══════════════════════════════════════════════════════════════════════════════
-YOUR VISUALIZATIONS
-═══════════════════════════════════════════════════════════════════════════════
+YOUR VISUALIZATIONS:
 
 {viz_json}
 
 {"(Full sample data included above)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
 
-═══════════════════════════════════════════════════════════════════════════════
-DESIGN REQUEST
-═══════════════════════════════════════════════════════════════════════════════
-
-**Report Title:** {report_title or title or 'Dashboard'}
-**User Request:** {user_prompt}
-{images_context}
-{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
-
-{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
-
-═══════════════════════════════════════════════════════════════════════════════
-DESIGN PRINCIPLES
-═══════════════════════════════════════════════════════════════════════════════
-
-- Polished, executive-ready. Minimalist — whitespace, clean typography. Light mode default.
-- Show data from different angles without redundancy. Narrative > decoration.
-- Choose the best visualization for the data: standard charts (bar, line, pie) for simple data; advanced charts (radar, gauge, treemap, funnel, sankey, etc.) when the data structure or user request calls for it
-- Prefer globals (`<EChart>`, `<KPICard>`, `<SectionCard>`, `<FilterSelect>`, `fmt()`) for speed — but build custom React components with Tailwind when the design requires something the globals don't cover
+FILTERING:
 - Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
 - YOU choose which columns to filter — use `dtype` and `unique_count` from the column metadata:
   - `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, dtype "object"/"int64" with few values)
@@ -1511,7 +1524,37 @@ EXAMPLE 2 — Local filter inside a SectionCard:
 
 - Include a Reset button when any filters are active (`Object.keys(filters).length > 0`)
 - After filtering, if a visualization has zero matching rows, display "No data matches current filters"
-- User's explicit requests override all defaults — if they ask for creative, unique, or advanced visualizations, prioritize that over compactness
+
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN GUIDANCE (use when the user hasn't specified styling)
+═══════════════════════════════════════════════════════════════════════════════
+
+If the user specified a theme/style/colors above, follow that — skip this section.
+Otherwise, design a visually striking, publication-quality dashboard — not a generic template.
+
+COLOR & IDENTITY:
+- Pick a cohesive color story that fits the data topic. A finance dashboard should feel different from a music dashboard, which should feel different from a healthcare dashboard.
+- Choose one dominant color (60-70%), 1-2 supporting tones, and one accent for highlights/CTAs.
+- Do NOT default to generic blue. Blue is fine if it fits the topic — but earn it, don't default to it.
+- Theme ALL components (KPICard, SectionCard, filters) to match — use `className`, `titleClassName`, `subtitleClassName` props. Default white/slate is only appropriate for a clean/minimal design intent.
+
+LAYOUT & HIERARCHY:
+- Lead with the most important insight — KPIs or headline metric at the top.
+- Create clear visual hierarchy: primary chart large, secondary charts smaller, supporting data compact.
+- Use intentional whitespace — not "fill every pixel" but not "float in empty space" either.
+- Vary card sizes and chart heights to create rhythm. A grid of same-sized boxes is boring.
+
+TYPOGRAPHY & POLISH:
+- Clean, modern typography. Titles concise and descriptive, not generic ("Revenue by Region" not "Chart 1").
+- Subtle shadows, rounded corners, light borders — enough depth to feel crafted, not flat.
+- Light mode default. Dark mode only if the topic or user suggests it.
+
+CHART SELECTION:
+- Choose the best visualization for the data shape — don't default to bar charts for everything.
+- Standard charts (bar, line, pie, area) for simple relationships. Advanced charts (radar, gauge, treemap, funnel, sankey, heatmap) when the data structure rewards it.
+- Show data from different angles without redundancy. Each chart should reveal something the others don't.
+
+The goal: it should look like a designer built it for this specific dataset, not like a template was filled in.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -1533,7 +1576,7 @@ CRITICAL: ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.crea
 
 RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji.
 
-⚠️ **OUTPUT MUST BE UNDER 8K CHARACTERS.** Write compact code. No unnecessary variables, comments, or verbose JSX. Omit default props.
+⚠️ **CODE SIZE:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity.
 
 Now create the dashboard:"""
 

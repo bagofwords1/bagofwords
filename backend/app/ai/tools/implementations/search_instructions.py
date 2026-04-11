@@ -181,6 +181,31 @@ class SearchInstructionsTool(Tool):
             candidates = result.get("items", []) if isinstance(result, dict) else []
             candidate_total = result.get("total", len(candidates)) if isinstance(result, dict) else len(candidates)
 
+            # Also include instructions from the current draft build so the
+            # harness can see instructions it created earlier in this session.
+            training_build_id = runtime_ctx.get("training_build_id")
+            if training_build_id:
+                draft_result = await service.get_instructions(
+                    db=db,
+                    organization=organization,
+                    current_user=user,
+                    skip=0,
+                    limit=window,
+                    status="published",
+                    categories=categories,
+                    data_source_ids=data.data_source_ids,
+                    search=None,
+                    include_global=True,
+                    build_id=training_build_id,
+                )
+                draft_items = draft_result.get("items", []) if isinstance(draft_result, dict) else []
+                if draft_items:
+                    seen_ids = {getattr(c, "id", None) for c in candidates}
+                    for item in draft_items:
+                        if getattr(item, "id", None) not in seen_ids:
+                            candidates.append(item)
+                    candidate_total += len(draft_items)
+
             # --- Apply patterns (union) ---
             if compiled_patterns:
                 matched: list = []

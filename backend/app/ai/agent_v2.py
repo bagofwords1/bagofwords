@@ -652,13 +652,14 @@ class AgentV2:
 
                 # === Finish tool execution tracking + upsert block + emit tool.finished ===
                 try:
+                    _is_stopped = bool(observation and observation.get("stopped"))
                     await self.project_manager.finish_tool_execution_from_models(
                         self.db,
                         tool_execution=tool_execution,
                         result_model=tool_output,
                         summary=observation.get("summary", "") if observation else "",
                         error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
-                        success=bool(observation and not observation.get("error")),
+                        success=bool(observation and not observation.get("error") and not _is_stopped),
                     )
                 except Exception as _fin_err:
                     logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
@@ -690,6 +691,8 @@ class AgentV2:
                     logger.warning(f"Knowledge harness: upsert_block_for_tool failed: {_btu_exc!r}")
 
                 try:
+                    _is_stopped = bool(observation and observation.get("stopped"))
+                    _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
                     seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
                     safe_result_json = None
                     if tool_output is not None:
@@ -704,7 +707,7 @@ class AgentV2:
                         seq=seq_fin,
                         data={
                             "tool_name": tool_name,
-                            "status": "success" if observation and not observation.get("error") else "error",
+                            "status": _tool_status,
                             "result_summary": observation.get("summary", "") if observation else "",
                             "result_json": safe_result_json,
                             "duration_ms": getattr(tool_execution, "duration_ms", None),
@@ -1164,7 +1167,7 @@ class AgentV2:
             observation: Optional[dict] = None
             active_artifact = await self._get_active_artifact()
             # Training mode needs more iterations for thorough exploration
-            step_limit = 25 if self.mode == "training" else 20
+            step_limit = 100 if self.mode == "training" else 20
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -1175,8 +1178,9 @@ class AgentV2:
             max_tool_failures = 3
             
             # Circuit breaker for repeated successful actions (infinite success loop)
+            # Training mode needs more headroom — iterative create_data calls are expected
             successful_tool_actions = []
-            max_repeated_successes = 2
+            max_repeated_successes = 10 if self.mode == "training" else 2
 
             # Circuit breaker for consecutive calls to the same artifact tool (regardless of arguments)
             consecutive_artifact_tool_count = 0
@@ -1932,7 +1936,7 @@ class AgentV2:
                             created_visualization_ids=created_visualization_ids,
                             error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
                             context_snapshot_id=None,
-                            success=bool(observation and not observation.get("error")),
+                            success=bool(observation and not observation.get("error") and not (observation and observation.get("stopped"))),
                             sub_timings_json=tool_sub_timings,
                         )
 
@@ -2028,6 +2032,8 @@ class AgentV2:
                         asyncio.create_task(_bg_rebuild_tool())
 
                         # Emit tool.finished with result
+                        _is_stopped = bool(observation and observation.get("stopped"))
+                        _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
                         seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
                         safe_result_json = None
                         if tool_output is not None:
@@ -2042,7 +2048,7 @@ class AgentV2:
                             seq=seq_fin,
                             data={
                                 "tool_name": tool_name,
-                                "status": "success" if observation and not observation.get("error") else "error",
+                                "status": _tool_status,
                                 "result_summary": observation.get("summary", "") if observation else "",
                                 # Include query_id for hydration in frontend previews when available
                                 "result_json": ({**safe_result_json, "query_id": (str(self.current_query.id) if getattr(self, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
