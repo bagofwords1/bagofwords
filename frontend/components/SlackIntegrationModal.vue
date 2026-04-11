@@ -118,7 +118,8 @@
   }
   
   async function disconnect() {
-    const res = await useMyFetch('/api/settings/integrations/slack', {
+    if (!props.integrationData?.id) return
+    const res = await useMyFetch(`/api/settings/integrations/${props.integrationData.id}`, {
       method: 'DELETE'
     })
     if (res.status.value === 'success') {
