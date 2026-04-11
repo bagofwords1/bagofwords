@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.356 (April 11, 2026)
+- BOW for Excel - you can now have BOW inside your excel!
+- PowerBI enhancements
+
 ## Version 0.0.355 (April 10, 2026)
 - Show instruction usage and attribution per turn
 - New sidebar in report page to show summary, dashboard and current agent

@@ -127,6 +127,7 @@ class OrganizationSettingsConfig(BaseModel):
     enable_mcp_tools: FeatureConfig = FeatureConfig(value=False, name="MCP & Custom API Tools", description="Allow connecting external MCP servers and custom API endpoints to data sources as tool providers", is_lab=True, editable=True)
     max_instructions_in_context: FeatureConfig = FeatureConfig(value=50, name="Max instructions in context", description="Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'intelligent' instructions fill remaining slots.", is_lab=False, editable=True)
     step_retention_days: FeatureConfig = FeatureConfig(value=14, name="Widget Data Retention Days", description="Number of days to retain widgets data before purging.", is_lab=False, editable=True)
+    enable_excel_addin: FeatureConfig = FeatureConfig(value=True, name="Excel Add-in", description="Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance", is_lab=False, editable=True)
 
     ai_features: Dict[str, FeatureConfig] = {
         # Update defaults to use 'value' instead of 'enabled'

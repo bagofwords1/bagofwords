@@ -100,6 +100,29 @@
       </button>
     </div>
 
+    <!-- Excel Add-in Integration Row -->
+    <div
+      v-if="excelAddinEnabled"
+      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+      @click="showExcelModal = true"
+    >
+      <div class="flex items-center">
+        <img src="/data_sources_icons/excel.png" alt="Excel" class="w-8 h-8 mr-4" />
+        <div>
+          <div class="font-medium">Excel Add-in</div>
+          <div class="text-sm text-gray-500">
+            Sideload the Bag of Words add-in directly from this instance
+          </div>
+        </div>
+      </div>
+      <button
+        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+        @click.stop="showExcelModal = true"
+      >
+        Setup
+      </button>
+    </div>
+
     <!-- MCP Integration Row -->
     <div
       class="flex items-center justify-between p-4 border rounded-lg"
@@ -151,6 +174,13 @@
         @updated="fetchIntegrations"
       />
     </UModal>
+
+    <!-- Excel Add-in Modal -->
+    <UModal v-model="showExcelModal" :ui="{ width: 'sm:max-w-3xl' }">
+      <ExcelAddinModal
+        @close="showExcelModal = false"
+      />
+    </UModal>
   </div>
 </template>
 
@@ -159,6 +189,7 @@ import { ref, onMounted } from 'vue'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
+import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
@@ -172,6 +203,9 @@ const showTeamsModal = ref(false)
 const teamsIntegrated = ref(false)
 const teamsConfig = ref<{ tenant_id?: string; app_id?: string } | null>(null)
 const teamsIntegrationData = ref<any>(null)
+
+const showExcelModal = ref(false)
+const excelAddinEnabled = ref(false)
 
 const showWhatsAppModal = ref(false)
 const whatsappIntegrated = ref(false)
@@ -209,6 +243,12 @@ async function loadMcpState() {
   const mcpFeature = settings.value?.config?.mcp_enabled
   if (mcpFeature) {
     mcpEnabled.value = mcpFeature.state === 'enabled' || mcpFeature.value === true
+  }
+  const excelFeature = settings.value?.config?.enable_excel_addin
+  if (excelFeature) {
+    excelAddinEnabled.value = excelFeature.state === 'enabled' || excelFeature.value === true
+  } else {
+    excelAddinEnabled.value = true // enabled by default
   }
 }
 

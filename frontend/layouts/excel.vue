@@ -9,4 +9,4 @@
   const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
   const { organization } = useOrganization()
 
-</script>
+    </script>
