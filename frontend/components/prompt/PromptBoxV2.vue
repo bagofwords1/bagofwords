@@ -161,7 +161,7 @@
             </div>
 
             <!-- Input area -->
-            <div :class="props.compact ? 'px-2 pt-2 pb-2' : 'px-3 pt-2.5 pb-3'">
+            <div :class="props.compact ? 'px-2 pt-1.5 pb-1.5' : 'px-3 pt-2.5 pb-3'">
                 <!-- Instructions -->
                 <button
                     :class="props.compact
@@ -186,7 +186,7 @@
                     @submit="submit"
                     :placeholder="placeholder"
                     :rows="props.compact ? 1 : 2"
-                    :class="props.compact ? 'text-xs' : ''"
+                    :compact="props.compact"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
             </div>
@@ -452,7 +452,7 @@ const props = defineProps({
 const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions','update:selectedDataSources'])
 
 const text = ref('')
-const placeholder = 'Ask for data, dashboard or a deep analysis'
+const placeholder = computed(() => props.compact ? 'Ask for any data' : 'Ask for data, dashboard or a deep analysis')
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
 

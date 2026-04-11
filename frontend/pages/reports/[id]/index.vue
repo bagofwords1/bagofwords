@@ -441,6 +441,7 @@
 					:scheduledPrompts="scheduledPrompts"
 					:trainingInstructions="summaryInstructions"
 					:hasArtifacts="hasArtifacts"
+					:compact="isExcel"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
 					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
@@ -515,22 +516,40 @@
 		</template>
 		<template #right>
 			<!-- Summary View -->
-			<div v-if="rightPanelView === 'summary'" class="h-full overflow-y-auto">
-				<ChatSummary
-					:scheduledPrompts="scheduledPrompts"
-					:artifactList="reportArtifacts"
-					:queryList="queryList"
-					:queryExecutions="summaryQueries"
-					:trainingInstructions="summaryInstructions"
-					@editScheduledPrompt="editScheduledPrompt"
-					@openArtifact="handleOpenArtifact"
-					@scrollToMessage="scrollToMessage"
-				/>
+			<div v-if="rightPanelView === 'summary'" class="h-full flex flex-col">
+				<div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 to-white border-b">
+					<UTooltip text="Back to chat">
+						<button @click="toggleSplitScreen" class="hover:bg-gray-100 p-1 rounded">
+							<Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+						</button>
+					</UTooltip>
+				</div>
+				<div class="flex-1 overflow-y-auto">
+					<ChatSummary
+						:scheduledPrompts="scheduledPrompts"
+						:artifactList="reportArtifacts"
+						:queryList="queryList"
+						:queryExecutions="summaryQueries"
+						:trainingInstructions="summaryInstructions"
+						@editScheduledPrompt="editScheduledPrompt"
+						@openArtifact="handleOpenArtifact"
+						@scrollToMessage="scrollToMessage"
+					/>
+				</div>
 			</div>
 
 			<!-- Agent View -->
-			<div v-else-if="rightPanelView === 'agent'" class="h-full overflow-y-auto">
-				<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" />
+			<div v-else-if="rightPanelView === 'agent'" class="h-full flex flex-col">
+				<div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 to-white border-b">
+					<UTooltip text="Back to chat">
+						<button @click="toggleSplitScreen" class="hover:bg-gray-100 p-1 rounded">
+							<Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500" />
+						</button>
+					</UTooltip>
+				</div>
+				<div class="flex-1 overflow-y-auto">
+					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" />
+				</div>
 			</div>
 
 			<!-- Grid View (DashboardComponent - Edit Mode) -->
@@ -714,6 +733,9 @@ interface ChatMessage {
 
 const route = useRoute()
 const report_id = (route.params.id as string) || ''
+
+// Excel add-in mode detection (for compact UI)
+const { isExcel } = useExcel()
 
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
