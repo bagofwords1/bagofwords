@@ -644,14 +644,21 @@ import { useCan } from '~/composables/usePermissions'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
 
-// Directive: patch <ol>/<ul> elements inside markdown with dir="auto" so RTL
-// list markers appear on the correct side.  The HTML spec excludes descendants
-// that carry their own `dir` attribute when resolving a parent's dir="auto",
-// so the wrapper's direction can't propagate through the <p dir="auto"> / <li dir="auto">
-// nodes that markstream-vue emits — the <ol>/<ul> (which has no dir) inherits LTR.
+// Directive: patch list direction for RTL.  markstream-vue sets dir="auto" on
+// <p>, <li>, <h1-h6> etc.  The HTML spec's dir="auto" algorithm SKIPS any
+// descendant that has its own dir attribute, so nested dir="auto" elements
+// never see each other's text — every level defaults to LTR.
+// We bypass this by reading textContent (which ignores dir attrs) and setting
+// an explicit dir="rtl" or dir="ltr" on <ol>/<ul> and <li> elements.
+const RTL_RE = /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F]/
+const resolveDir = (el: HTMLElement) => {
+	const m = (el.textContent || '').match(/[A-Za-z\u0590-\u05FF\u0600-\u06FF\u0700-\u074F]/)
+	return m && RTL_RE.test(m[0]) ? 'rtl' : 'ltr'
+}
 const patchListDir = (el: HTMLElement) => {
-	for (const list of el.querySelectorAll<HTMLElement>('.list-node:not([dir])')) {
-		list.setAttribute('dir', 'auto')
+	for (const node of el.querySelectorAll<HTMLElement>('.list-node, .list-item')) {
+		const dir = resolveDir(node)
+		if (node.getAttribute('dir') !== dir) node.setAttribute('dir', dir)
 	}
 }
 const vAutoDir: import('vue').Directive<HTMLElement> = {
