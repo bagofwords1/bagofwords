@@ -126,7 +126,7 @@
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left" dir="auto">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto" v-auto-dir>
 											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
 												<MDC :value="m.prompt.content" class="markdown-content" />
 											</div>
@@ -157,7 +157,7 @@
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<!-- User message bubble -->
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left " dir="auto">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto" v-auto-dir>
 											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
 												<MDC :value="m.prompt.content" class="markdown-content" />
 											</div>
@@ -230,7 +230,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" v-auto-dir class="block-content markdown-wrapper" dir="auto">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -643,6 +643,28 @@ import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
+
+// Directive: patch <ol>/<ul> elements inside markdown with dir="auto" so RTL
+// list markers appear on the correct side.  The HTML spec excludes descendants
+// that carry their own `dir` attribute when resolving a parent's dir="auto",
+// so the wrapper's direction can't propagate through the <p dir="auto"> / <li dir="auto">
+// nodes that markstream-vue emits — the <ol>/<ul> (which has no dir) inherits LTR.
+const patchListDir = (el: HTMLElement) => {
+	for (const list of el.querySelectorAll<HTMLElement>('.list-node:not([dir])')) {
+		list.setAttribute('dir', 'auto')
+	}
+}
+const vAutoDir: import('vue').Directive<HTMLElement> = {
+	mounted: (el) => {
+		patchListDir(el)
+		const obs = new MutationObserver(() => patchListDir(el))
+		obs.observe(el, { childList: true, subtree: true })
+		;(el as any).__autoDirObs = obs
+	},
+	unmounted: (el) => {
+		;(el as any).__autoDirObs?.disconnect()
+	},
+}
 
 // Types
 type ChatRole = 'user' | 'system'
