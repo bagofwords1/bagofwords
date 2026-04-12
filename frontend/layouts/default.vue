@@ -304,7 +304,9 @@
   const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
  
   if (environment === 'production' && intercom) {
-    $intercom.boot()
+    $intercom.boot({
+      hide_default_launcher: isExcel.value
+    })
     watch([currentUser, organization], ([user, org]) => {
       if (user && org) {
         $intercom.update({
@@ -314,6 +316,7 @@
           version: version,
           environment: environment,
           app_url: app_url,
+          hide_default_launcher: isExcel.value,
           company: {
             company_id: org.id,
             name: org.name

@@ -2828,15 +2828,18 @@ onMounted(async () => {
 	await fastLoads
 
 	// Auto-open right pane based on report metadata (available immediately from loadReport)
-	if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
-		isSplitScreen.value = true
-		rightPanelView.value = 'artifact'
-		leftPanelWidth.value = Math.round(window.innerWidth * 0.37)
-		collapseSidebar()
-	} else if ((report.value as any)?.query_count > 0 || (report.value as any)?.instruction_count > 0 || (report.value as any)?.has_scheduled_prompts) {
-		isSplitScreen.value = true
-		rightPanelView.value = 'summary'
-		leftPanelWidth.value = Math.round(window.innerWidth * 0.55)
+	// Skip auto-open in Excel mode — the taskpane is too narrow for split screen
+	if (!isExcel.value) {
+		if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
+			isSplitScreen.value = true
+			rightPanelView.value = 'artifact'
+			leftPanelWidth.value = Math.round(window.innerWidth * 0.37)
+			collapseSidebar()
+		} else if ((report.value as any)?.query_count > 0 || (report.value as any)?.instruction_count > 0 || (report.value as any)?.has_scheduled_prompts) {
+			isSplitScreen.value = true
+			rightPanelView.value = 'summary'
+			leftPanelWidth.value = Math.round(window.innerWidth * 0.55)
+		}
 	}
 
 	await slowLoads
