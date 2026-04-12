@@ -219,7 +219,7 @@ def _build_taskpane_html(base_url: str) -> str:
   function normalizeUrl(v) {{
     if (!v) return null;
     try {{ var u = new URL(v); if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-      var p = u.pathname === "/" ? "" : u.pathname.replace(/\\/$/, ""); return u.origin + p;
+      var p = u.pathname === "/" ? "" : u.pathname.replace(/\\/$/, ""); return u.origin + p + u.search;
     }} catch(e) {{ return null; }}
   }}
   function originOf(v) {{ try {{ return new URL(v).origin; }} catch(e) {{ return null; }} }}
@@ -283,6 +283,7 @@ def _build_taskpane_html(base_url: str) -> str:
     f.addEventListener("load", function() {{
       loaded = true; hideOverlay("error-overlay");
       setTimeout(function() {{ postToApp({{ type: "excelInitialized" }}); }}, 500);
+      setInterval(function() {{ postToApp({{ type: "excelInitialized" }}); }}, 5000);
     }});
     f.addEventListener("error", function() {{
       showError("Couldn\\u2019t load Bag of Words from " + currentAppUrl);
