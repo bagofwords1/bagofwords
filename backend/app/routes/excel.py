@@ -45,21 +45,16 @@ _MANIFEST_TEMPLATE = """\
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
            xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
-           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>5a276b40-1c05-4b22-921f-db43fa0e5590</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>Bag of Words</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Bag of Words"/>
-  <Description DefaultValue="Chat with your data and paste AI-generated analysis directly into Excel. Bag of Words is an agentic analytics platform that connects to your databases and warehouses, understands your data, and returns results you can drop straight into a spreadsheet."/>
-  <IconUrl DefaultValue="{base_url}/icons/excel/icon-64.png"/>
-  <HighResolutionIconUrl DefaultValue="{base_url}/icons/excel/icon-128.png"/>
+  <Description DefaultValue="Chat with your data and paste AI-generated analysis directly into Excel."/>
+  <IconUrl DefaultValue="{base_url}/icons/excel/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="{base_url}/icons/excel/icon-80.png"/>
   <SupportUrl DefaultValue="https://docs.bagofwords.com"/>
-  <AppDomains>
-    <AppDomain>{base_url}</AppDomain>
-    <AppDomain>https://docs.bagofwords.com</AppDomain>
-  </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
   </Hosts>
@@ -67,7 +62,7 @@ _MANIFEST_TEMPLATE = """\
     <SourceLocation DefaultValue="{base_url}/excel/taskpane.html"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides/1.0"
                     xsi:type="VersionOverridesV1_0">
     <Hosts>
       <Host xsi:type="Workbook">
@@ -77,6 +72,7 @@ _MANIFEST_TEMPLATE = """\
             <Description resid="GetStarted.Description"/>
             <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
           </GetStarted>
+          <FunctionFile resid="Commands.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <OfficeTab id="TabHome">
               <Group id="BowCommandsGroup">
@@ -116,6 +112,7 @@ _MANIFEST_TEMPLATE = """\
       </bt:Images>
       <bt:Urls>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://docs.bagofwords.com"/>
+        <bt:Url id="Commands.Url" DefaultValue="{base_url}/excel/commands.html"/>
         <bt:Url id="Taskpane.Url" DefaultValue="{base_url}/excel/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
@@ -124,7 +121,7 @@ _MANIFEST_TEMPLATE = """\
         <bt:String id="BowTaskpaneButton.Label" DefaultValue="BOW"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Open the Bag of Words task pane to chat with your data and paste AI-generated analysis into your spreadsheet."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Open the Bag of Words task pane to chat with your data."/>
         <bt:String id="BowTaskpaneButton.Tooltip" DefaultValue="Open Bag of Words and bring AI analysis into your spreadsheet."/>
       </bt:LongStrings>
     </Resources>
@@ -132,11 +129,23 @@ _MANIFEST_TEMPLATE = """\
 </OfficeApp>"""
 
 
-@router.get("/manifest.xml")
+@router.api_route("/manifest.xml", methods=["GET", "HEAD"])
 async def get_manifest(request: Request):
     base_url = _get_base_url(request)
     xml = _MANIFEST_TEMPLATE.replace("{base_url}", base_url)
     return Response(content=xml, media_type="application/xml")
+
+
+_COMMANDS_HTML = """\
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"/>
+<script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+</head><body></body></html>"""
+
+
+@router.api_route("/commands.html", methods=["GET", "HEAD"])
+async def get_commands(request: Request):
+    return Response(content=_COMMANDS_HTML, media_type="text/html")
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +378,7 @@ def _build_taskpane_html(base_url: str) -> str:
 </html>"""
 
 
-@router.get("/taskpane.html")
+@router.api_route("/taskpane.html", methods=["GET", "HEAD"])
 async def get_taskpane(request: Request):
     base_url = _get_base_url(request)
     html = _build_taskpane_html(base_url)
