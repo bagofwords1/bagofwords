@@ -51,14 +51,10 @@ _MANIFEST_TEMPLATE = """\
   <ProviderName>Bag of Words</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Bag of Words"/>
-  <Description DefaultValue="Chat with your data and paste AI-generated analysis directly into Excel. Bag of Words is an agentic analytics platform that connects to your databases and warehouses, understands your data, and returns results you can drop straight into a spreadsheet."/>
-  <IconUrl DefaultValue="{base_url}/icons/excel/icon-64.png"/>
-  <HighResolutionIconUrl DefaultValue="{base_url}/icons/excel/icon-128.png"/>
+  <Description DefaultValue="Chat with your data and paste AI-generated analysis directly into Excel."/>
+  <IconUrl DefaultValue="{base_url}/icons/excel/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="{base_url}/icons/excel/icon-80.png"/>
   <SupportUrl DefaultValue="https://docs.bagofwords.com"/>
-  <AppDomains>
-    <AppDomain>{base_url}</AppDomain>
-    <AppDomain>https://docs.bagofwords.com</AppDomain>
-  </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
   </Hosts>
@@ -125,7 +121,7 @@ _MANIFEST_TEMPLATE = """\
         <bt:String id="BowTaskpaneButton.Label" DefaultValue="BOW"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Open the Bag of Words task pane to chat with your data and paste AI-generated analysis into your spreadsheet."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Open the Bag of Words task pane to chat with your data."/>
         <bt:String id="BowTaskpaneButton.Tooltip" DefaultValue="Open Bag of Words and bring AI analysis into your spreadsheet."/>
       </bt:LongStrings>
     </Resources>
