@@ -53,13 +53,9 @@ _MANIFEST_TEMPLATE = """\
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Bag of Words"/>
   <Description DefaultValue="Chat with your data and paste AI-generated analysis directly into Excel. Bag of Words is an agentic analytics platform that connects to your databases and warehouses, understands your data, and returns results you can drop straight into a spreadsheet."/>
-  <IconUrl DefaultValue="{base_url}/icons/excel/icon-64.png"/>
-  <HighResolutionIconUrl DefaultValue="{base_url}/icons/excel/icon-128.png"/>
+  <IconUrl DefaultValue="{base_url}/icons/excel/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="{base_url}/icons/excel/icon-80.png"/>
   <SupportUrl DefaultValue="https://docs.bagofwords.com"/>
-  <AppDomains>
-    <AppDomain>{base_url}</AppDomain>
-    <AppDomain>https://docs.bagofwords.com</AppDomain>
-  </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
   </Hosts>
@@ -132,7 +128,7 @@ _MANIFEST_TEMPLATE = """\
 </OfficeApp>"""
 
 
-@router.get("/manifest.xml")
+@router.api_route("/manifest.xml", methods=["GET", "HEAD"])
 async def get_manifest(request: Request):
     base_url = _get_base_url(request)
     xml = _MANIFEST_TEMPLATE.replace("{base_url}", base_url)
@@ -369,7 +365,7 @@ def _build_taskpane_html(base_url: str) -> str:
 </html>"""
 
 
-@router.get("/taskpane.html")
+@router.api_route("/taskpane.html", methods=["GET", "HEAD"])
 async def get_taskpane(request: Request):
     base_url = _get_base_url(request)
     html = _build_taskpane_html(base_url)
