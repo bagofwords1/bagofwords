@@ -1,8 +1,28 @@
 <template>
-  <div class="flex flex-col min-h-screen bg-white relative">
+  <!-- Excel compact mode -->
+  <div v-if="isExcel" class="flex flex-col h-screen bg-white">
+    <div class="flex items-center p-2 border-b border-gray-100">
+      <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="h-5 max-w-[100px] object-contain" />
+    </div>
+    <div class="flex-1"></div>
+    <p class="text-xs text-center text-gray-400 px-3 mb-2">
+      Create reports, dashboards, and simply get the data you need
+    </p>
+    <div class="p-3 pt-0">
+      <PromptBoxV2
+        :textareaContent="textareaContent"
+        :initialSelectedDataSources="selectedDataSources"
+        :compact="true"
+        @update:modelValue="handlePromptUpdate"
+      />
+    </div>
+  </div>
+
+  <!-- Normal mode -->
+  <div v-else class="flex flex-col min-h-screen bg-white relative">
 
     <!-- Add background div with grid -->
-    <div class="absolute inset-0 pointer-events-none" 
+    <div class="absolute inset-0 pointer-events-none"
          style="background-image: linear-gradient(to right, rgb(15 23 42 / 0.04) 1px, transparent 1px),
                 linear-gradient(to bottom, rgb(15 23 42 / 0.04) 1px, transparent 1px);
                 background-size: 24px 24px;
@@ -47,7 +67,7 @@
           Create reports, dashboards, and simply get the data you need
       </p>
       <div class="w-full md:w-4/5 mx-auto mt-10 rounded-lg relative z-10">
-          <PromptBoxV2 
+          <PromptBoxV2
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"
               @update:modelValue="handlePromptUpdate"
@@ -68,7 +88,7 @@
 
     <!-- Existing content -->
     <div v-if="!isLoading" class="flex flex-col p-4 flex-grow md:w-1/3 md:mx-auto relative z-10">
-     
+
       <div class="flex cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300"
         v-if="models.length === 0"
         @click="router.push('/settings/models')"
@@ -89,8 +109,8 @@
         </div>
       </div>
 
-        <div 
-        @click="router.push('/data')" 
+        <div
+        @click="router.push('/data')"
         class="flex hidden cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
             <div class="flex">
 
