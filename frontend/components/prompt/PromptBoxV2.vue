@@ -142,7 +142,7 @@
         <!-- Minimalist prompt container -->
         <div
             class="border rounded-xl bg-white focus-within:border-gray-300 transition-colors relative"
-            :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : 'border-gray-200', props.compact ? 'text-xs' : '']"
+            :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : 'border-gray-200', props.compact ? 'text-sm' : '']"
             @dragenter="handleDragEnter"
             @dragleave="handleDragLeave"
             @dragover="handleDragOver"
@@ -165,11 +165,11 @@
                 <!-- Instructions -->
                 <button
                     :class="props.compact
-                        ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 text-[11px] flex items-center transition-colors mb-1'
+                        ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 text-sm flex items-center transition-colors mb-1'
                         : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
                     @click="openInstructions"
                 >
-                    <Icon name="heroicons-cube" :class="props.compact ? 'w-3 h-3 mr-1' : 'w-4 h-4 mr-1.5'" />
+                    <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 mr-1.5' : 'w-4 h-4 mr-1.5'" />
                     Instructions
                 </button>
                 <div

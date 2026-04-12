@@ -1,20 +1,29 @@
 <template>
   <!-- Excel compact mode -->
   <div v-if="isExcel" class="flex flex-col h-screen bg-white">
-    <div class="flex items-center p-2 border-b border-gray-100">
-      <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="h-5 max-w-[100px] object-contain" />
+    <div class="flex items-center justify-between p-3 border-b border-gray-100">
+      <NuxtLink to="/">
+        <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="h-8 max-w-[120px] object-contain cursor-pointer" />
+      </NuxtLink>
+      <UDropdown :items="menuItems" :popper="{ placement: 'bottom-end' }">
+        <UButton color="white" trailing-icon="i-heroicons-bars-3" />
+      </UDropdown>
     </div>
-    <div class="flex-1"></div>
-    <p class="text-xs text-center text-gray-400 px-3 mb-2">
-      Create reports, dashboards, and simply get the data you need
-    </p>
-    <div class="p-3 pt-0">
-      <PromptBoxV2
-        :textareaContent="textareaContent"
-        :initialSelectedDataSources="selectedDataSources"
-        :compact="true"
-        @update:modelValue="handlePromptUpdate"
-      />
+    <div class="flex-1 flex flex-col justify-center px-3">
+      <div class="pl-4">
+        <h2 class="text-3xl font-bold text-gray-900 text-left">{{ orgAIAnalystName || 'AI Analyst' }}</h2>
+        <p class="text-base text-gray-500 text-left mt-1">
+          Create reports, dashboards, and simply get the data you need
+        </p>
+      </div>
+      <div class="mt-4">
+        <PromptBoxV2
+          :textareaContent="textareaContent"
+          :initialSelectedDataSources="selectedDataSources"
+          :compact="true"
+          @update:modelValue="handlePromptUpdate"
+        />
+      </div>
     </div>
   </div>
 

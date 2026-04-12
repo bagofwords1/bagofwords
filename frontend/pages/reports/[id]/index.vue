@@ -429,7 +429,7 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
-			<div class="mx-auto px-4 max-w-2xl w-full">
+			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-4 max-w-2xl']">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -3032,28 +3032,28 @@ onMounted(async () => {
 
 /* Compact mode (Excel add-in) — smaller text throughout */
 .compact-messages .block-content {
-	font-size: 11px;
+	font-size: 13px;
 }
 .compact-messages .markdown-wrapper :deep(.markdown-content) {
-	font-size: 11px;
+	font-size: 13px;
 }
 .compact-messages .markdown-wrapper :deep(.markdown-content pre code) {
-	font-size: 11px;
+	font-size: 12px;
 }
 .compact-messages .markdown-wrapper :deep(.markdown-content code) {
-	font-size: 10px;
+	font-size: 12px;
 }
 .compact-messages .thinking-header {
-	font-size: 10px;
+	font-size: 11px;
 }
 .compact-messages .thinking-content,
 .compact-messages .thinking-content :deep(*),
 .compact-messages .thinking-content :deep(.markdown-content),
 .compact-messages .thinking-content :deep(p) {
-	font-size: 10px !important;
+	font-size: 11px !important;
 }
 .compact-messages li {
-	font-size: 11px;
+	font-size: 13px;
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }

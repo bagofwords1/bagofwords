@@ -5,7 +5,7 @@
       contenteditable="true"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-left',
-        props.compact ? 'text-[11px] leading-[16px]' : 'text-sm min-h-[40px]'
+        props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
       ]"
       :style="{ minHeight: minHeight, maxHeight: maxHeight }"
       @input="handleInput"
