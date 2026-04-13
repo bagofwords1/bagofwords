@@ -478,3 +478,149 @@ def test_artifact_and_conversation_visibility_independent(
     fetched = get_report(report["id"], user_token=token, org_id=org_id)
     assert fetched["artifact_visibility"] == "public"
     assert fetched["conversation_visibility"] == "internal"
+
+
+# ---------------------------------------------------------------------------
+# GET /reports?filter=shared  ("Shared with me" listing)
+# ---------------------------------------------------------------------------
+
+def _get_reports_filtered(test_client, token, org_id, filter_value):
+    """Helper: call GET /reports with a filter param and return the reports list."""
+    resp = test_client.get(
+        "/api/reports",
+        params={"filter": filter_value},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Organization-Id": str(org_id),
+        },
+    )
+    assert resp.status_code == 200, resp.json()
+    data = resp.json()
+    return data.get("reports", data) if isinstance(data, dict) else data
+
+
+@pytest.mark.e2e
+def test_shared_filter_shows_shared_reports(
+    test_client, create_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """GET /reports?filter=shared returns reports shared with the user."""
+    token1, token2, org_id, user2_id = _setup_two_users(
+        create_user, login_user, whoami, test_client
+    )
+
+    report = create_report(title="Shared Listing", user_token=token1, org_id=org_id, data_sources=[])
+    set_visibility(
+        report["id"], "artifact", "shared",
+        user_token=token1, org_id=org_id, shared_user_ids=[user2_id],
+    )
+
+    # user2 should see it in their "shared" list
+    reports = _get_reports_filtered(test_client, token2, org_id, "shared")
+    ids = [r["id"] for r in reports]
+    assert report["id"] in ids
+
+
+@pytest.mark.e2e
+def test_shared_filter_excludes_owned_reports(
+    test_client, create_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """GET /reports?filter=shared should NOT include reports owned by the user."""
+    token1, token2, org_id, user2_id = _setup_two_users(
+        create_user, login_user, whoami, test_client
+    )
+
+    own_report = create_report(title="My Own", user_token=token1, org_id=org_id, data_sources=[])
+    set_visibility(
+        own_report["id"], "artifact", "public",
+        user_token=token1, org_id=org_id,
+    )
+
+    # owner's "shared" tab should NOT include their own report
+    reports = _get_reports_filtered(test_client, token1, org_id, "shared")
+    ids = [r["id"] for r in reports]
+    assert own_report["id"] not in ids
+
+
+@pytest.mark.e2e
+def test_shared_filter_shows_internal_reports(
+    test_client, create_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """GET /reports?filter=shared returns org-internal reports to org members."""
+    token1, token2, org_id, user2_id = _setup_two_users(
+        create_user, login_user, whoami, test_client
+    )
+
+    report = create_report(title="Internal Listing", user_token=token1, org_id=org_id, data_sources=[])
+    set_visibility(report["id"], "artifact", "internal", user_token=token1, org_id=org_id)
+
+    # user2 (org member) should see it
+    reports = _get_reports_filtered(test_client, token2, org_id, "shared")
+    ids = [r["id"] for r in reports]
+    assert report["id"] in ids
+
+
+@pytest.mark.e2e
+def test_shared_filter_shows_public_reports(
+    test_client, create_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """GET /reports?filter=shared returns public reports (not owned by user)."""
+    token1, token2, org_id, user2_id = _setup_two_users(
+        create_user, login_user, whoami, test_client
+    )
+
+    report = create_report(title="Public Listing", user_token=token1, org_id=org_id, data_sources=[])
+    set_visibility(report["id"], "artifact", "public", user_token=token1, org_id=org_id)
+
+    # user2 should see it
+    reports = _get_reports_filtered(test_client, token2, org_id, "shared")
+    ids = [r["id"] for r in reports]
+    assert report["id"] in ids
+
+
+@pytest.mark.e2e
+def test_shared_filter_empty_when_nothing_shared(
+    test_client, create_report,
+    create_user, login_user, whoami,
+):
+    """GET /reports?filter=shared returns empty when no reports are shared with user."""
+    token1, token2, org_id, user2_id = _setup_two_users(
+        create_user, login_user, whoami, test_client
+    )
+
+    create_report(title="Private Only", user_token=token1, org_id=org_id, data_sources=[])
+
+    # user2 should see nothing
+    reports = _get_reports_filtered(test_client, token2, org_id, "shared")
+    assert len(reports) == 0
+
+
+@pytest.mark.e2e
+def test_shared_filter_hides_after_unshare(
+    test_client, create_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """Report disappears from shared list after visibility set back to 'none'."""
+    token1, token2, org_id, user2_id = _setup_two_users(
+        create_user, login_user, whoami, test_client
+    )
+
+    report = create_report(title="Unshare Test", user_token=token1, org_id=org_id, data_sources=[])
+    set_visibility(
+        report["id"], "artifact", "shared",
+        user_token=token1, org_id=org_id, shared_user_ids=[user2_id],
+    )
+
+    # Visible
+    reports = _get_reports_filtered(test_client, token2, org_id, "shared")
+    assert report["id"] in [r["id"] for r in reports]
+
+    # Unshare
+    set_visibility(report["id"], "artifact", "none", user_token=token1, org_id=org_id)
+
+    # Gone
+    reports = _get_reports_filtered(test_client, token2, org_id, "shared")
+    assert report["id"] not in [r["id"] for r in reports]

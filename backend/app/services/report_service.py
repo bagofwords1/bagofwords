@@ -938,8 +938,12 @@ class ReportService:
             if filter == "my":
                 # Show only reports owned by current user
                 base_conditions.append(Report.user_id == current_user.id)
+            elif filter == "shared":
+                # Show reports shared with the user but NOT owned by them
+                base_conditions.append(visible_to_user)
+                base_conditions.append(Report.user_id != current_user.id)
             elif filter == "published":
-                # Show shared/published reports visible to the user
+                # Legacy: show shared/published reports visible to the user
                 base_conditions.append(visible_to_user)
             else:
                 # Default: show reports user can view (owned OR visible)
