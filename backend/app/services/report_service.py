@@ -441,7 +441,12 @@ class ReportService:
         if report_data.title:
             report.title = report_data.title
         if report_data.status:
-            report.status = report_data.status 
+            report.status = report_data.status
+            # Sync artifact_visibility with legacy status field
+            if report_data.status == 'published':
+                report.artifact_visibility = 'public'
+            elif report_data.status == 'draft':
+                report.artifact_visibility = 'none'
         # Persist theme updates if present in payload
         if hasattr(report_data, 'theme_name') and report_data.theme_name is not None:
             report.theme_name = report_data.theme_name
@@ -655,8 +660,10 @@ class ReportService:
         
         if report.status == 'published':
             report.status = 'draft'
+            report.artifact_visibility = 'none'
         else:
             report.status = 'published'
+            report.artifact_visibility = 'public'
 
         await db.commit()
         await db.refresh(report)
@@ -1435,9 +1442,11 @@ class ReportService:
             if not report.conversation_share_token:
                 report.conversation_share_token = uuid.uuid4().hex
             report.conversation_share_enabled = True
+            report.conversation_visibility = 'public'
         else:
             # Keep the token but disable sharing (allows re-enabling with same URL)
             report.conversation_share_enabled = False
+            report.conversation_visibility = 'none'
         
         await db.commit()
         await db.refresh(report)
