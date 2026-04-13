@@ -21,9 +21,12 @@
             </h1>
             <div class="ml-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" title="Share Conversation" />
-                <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 items-center" title="Toggle panel">
-                    <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500" />
-                </button>
+                <UTooltip :text="isSplitScreen ? 'Close Sidebar' : 'Open Sidebar'">
+                    <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 items-center gap-1.5">
+                        <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500" />
+                        <span v-if="!isSplitScreen" class="text-xs text-gray-500">Sidebar</span>
+                    </button>
+                </UTooltip>
             </div>
         </div>
         <!-- Mobile tabs -->

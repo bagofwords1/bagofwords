@@ -2,13 +2,13 @@
     <UTooltip :text="buttonLabel">
         <button @click="openModal"
             :class="[
-                'items-center flex gap-1 hover:bg-gray-100 rounded border',
-                isShared
-                    ? 'border-green-200 bg-green-50 text-green-700'
-                    : 'border-gray-200 bg-gray-50 text-gray-600',
+                'items-center flex gap-1 hover:bg-gray-100 rounded border border-gray-200 bg-gray-50 text-gray-600',
                 compact ? 'p-1.5' : 'px-2 py-1 text-xs'
             ]">
-            <Icon :name="buttonIcon" :class="compact ? 'w-4 h-4' : 'w-3.5 h-3.5'" />
+            <div class="relative">
+                <Icon :name="buttonIcon" :class="compact ? 'w-4 h-4' : 'w-3.5 h-3.5'" />
+                <span v-if="isShared" class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+            </div>
             <span v-if="!compact" class="text-xs whitespace-nowrap">{{ buttonLabel }}</span>
         </button>
     </UTooltip>
