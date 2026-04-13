@@ -215,6 +215,58 @@ def get_public_report(test_client):
 
 
 @pytest.fixture
+def set_visibility(test_client):
+    def _set_visibility(report_id, share_type, visibility, user_token=None, org_id=None, shared_user_ids=None, expect_status=200):
+        if user_token is None:
+            pytest.fail("User token is required for set_visibility")
+        if org_id is None:
+            pytest.fail("Organization ID is required for set_visibility")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+
+        body = {"visibility": visibility}
+        if shared_user_ids is not None:
+            body["shared_user_ids"] = shared_user_ids
+
+        response = test_client.put(
+            f"/api/reports/{report_id}/visibility/{share_type}",
+            json=body,
+            headers=headers
+        )
+        if expect_status:
+            assert response.status_code == expect_status, response.json()
+        return response
+
+    return _set_visibility
+
+
+@pytest.fixture
+def get_shares(test_client):
+    def _get_shares(report_id, share_type, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for get_shares")
+        if org_id is None:
+            pytest.fail("Organization ID is required for get_shares")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+
+        response = test_client.get(
+            f"/api/reports/{report_id}/shares/{share_type}",
+            headers=headers
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_shares
+
+
+@pytest.fixture
 def fork_report(test_client):
     def _fork_report(report_id, user_token=None, org_id=None, title=None, expect_status=200):
         if user_token is None:

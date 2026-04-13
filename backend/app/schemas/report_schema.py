@@ -52,6 +52,11 @@ class ReportSchema(ReportBase):
     # Conversation sharing
     conversation_share_enabled: bool = False
     conversation_share_token: Optional[str] = None
+    # Sharing visibility
+    artifact_visibility: Literal["none", "shared", "internal", "public"] = "none"
+    conversation_visibility: Literal["none", "shared", "internal", "public"] = "none"
+    artifact_shared_user_ids: List[str] = []
+    conversation_shared_user_ids: List[str] = []
     # Artifact modes (page, slides) that exist for this report
     artifact_modes: List[str] = []
     # Thumbnail URL for the main artifact
@@ -84,9 +89,33 @@ class ReportRecentSchema(BaseModel):
     artifact_mode: Optional[str] = None  # 'page' or 'slides' if has artifact
     conversation_share_enabled: bool = False
     conversation_share_token: Optional[str] = None
+    artifact_visibility: str = "none"
+    conversation_visibility: str = "none"
     thumbnail_path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+VISIBILITY_LITERAL = Literal["none", "shared", "internal", "public"]
+
+
+class ReportVisibilityUpdate(BaseModel):
+    """Update visibility for either artifact or conversation sharing."""
+    visibility: VISIBILITY_LITERAL
+    shared_user_ids: Optional[List[str]] = None  # required when visibility == 'shared'
+
+
+class ReportShareUserSchema(BaseModel):
+    """A user who has been granted access to a report."""
+    id: str
+    user_id: str
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    share_type: str
+    created_at: datetime
 
     class Config:
         from_attributes = True

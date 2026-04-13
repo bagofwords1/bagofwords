@@ -72,6 +72,8 @@ interface Report {
   artifact_modes: string[]
   conversation_share_enabled: boolean
   conversation_share_token?: string
+  artifact_visibility?: string
+  conversation_visibility?: string
   thumbnail_url?: string
 }
 

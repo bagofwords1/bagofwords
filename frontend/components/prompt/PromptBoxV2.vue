@@ -141,8 +141,8 @@
 
         <!-- Minimalist prompt container -->
         <div
-            class="border rounded-xl bg-white focus-within:border-gray-300 transition-colors relative"
-            :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : 'border-gray-200', props.compact ? 'text-sm' : '']"
+            class="border rounded-xl bg-white transition-colors relative"
+            :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : mode === 'training' ? 'border-sky-300 focus-within:border-sky-400' : 'border-gray-200 focus-within:border-gray-300', props.compact ? 'text-sm' : '']"
             @dragenter="handleDragEnter"
             @dragleave="handleDragLeave"
             @dragover="handleDragOver"
@@ -161,11 +161,11 @@
             </div>
 
             <!-- Input area -->
-            <div :class="props.compact ? 'px-2 pt-1.5 pb-1.5' : 'px-3 pt-2.5 pb-3'">
+            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-3 pt-2.5 pb-3'">
                 <!-- Instructions -->
                 <button
                     :class="props.compact
-                        ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 text-sm flex items-center transition-colors mb-1'
+                        ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
                         : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
                     @click="openInstructions"
                 >
@@ -260,7 +260,7 @@
 
             <!-- Bottom controls -->
             <div
-                :class="[props.compact ? 'px-2 pb-2' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
+                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
@@ -269,7 +269,10 @@
                     <!-- Mode selector -->
                     <UPopover :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="isCompactPrompt ? modeLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
-                            <button class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center">
+                            <button
+                                class="rounded-md px-2 py-1 text-xs flex items-center"
+                                :class="mode === 'training' ? 'text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'"
+                            >
                                 <Icon :name="modeIcon" class="w-4 h-4" />
                                 <span v-if="!isCompactPrompt" class="ml-1">{{ modeLabel }}</span>
                             </button>
@@ -366,7 +369,7 @@
                     <UTooltip v-else-if="!props.hideSubmitButton" :text="submitTooltip" :popper="{ strategy: 'fixed', placement: 'top' }" :disabled="canSubmit">
                         <button
                             class="text-white w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
-                            :class="canSubmit ? 'bg-gray-700 hover:cursor-pointer hover:bg-black' : 'bg-gray-300 cursor-not-allowed'"
+                            :class="canSubmit ? (mode === 'training' ? 'bg-sky-500 hover:cursor-pointer hover:bg-sky-600' : 'bg-gray-700 hover:cursor-pointer hover:bg-black') : 'bg-gray-300 cursor-not-allowed'"
                             :disabled="!canSubmit"
                             @click="submit"
                         >

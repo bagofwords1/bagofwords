@@ -7,7 +7,7 @@
         'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-left',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
       ]"
-      :style="{ minHeight: minHeight, maxHeight: maxHeight }"
+      :style="{ minHeight: minHeight, maxHeight: maxHeight, overflowY: 'auto' }"
       @input="handleInput"
       @keydown="handleKeydown"
       @paste.prevent="handlePaste"
@@ -234,7 +234,7 @@ const resourcePermsState = useResourcePermissions()
 
 const lineHeightPx = computed(() => props.compact ? 18 : 24)
 const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
-const maxHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
+const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
 
 const filteredCategories = computed(() => {
   if (currentMentionStartIndex.value === -1) return []
