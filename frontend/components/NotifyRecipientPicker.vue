@@ -1,12 +1,9 @@
 <template>
-    <div class="border-t border-gray-200 pt-4 mt-4">
-        <div class="flex items-center gap-2 text-sm font-medium text-gray-700 mb-3">
-            <Icon name="heroicons:envelope" class="w-4 h-4" />
-            Send via email
-        </div>
+    <div class="border-t border-gray-100 pt-4 mt-5">
+        <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">Send via email</label>
 
         <!-- Recipient input -->
-        <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-md px-2 py-1.5 min-h-[38px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
+        <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5 min-h-[34px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
             <span v-for="(email, idx) in recipients" :key="email"
                 class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
                 {{ email }}
@@ -14,10 +11,10 @@
                     <Icon name="heroicons:x-mark" class="w-3 h-3" />
                 </button>
             </span>
-            <div class="relative flex-1 min-w-[140px]">
+            <div class="relative flex-1 min-w-[120px]">
                 <input ref="inputRef" v-model="inputValue" type="text"
-                    class="w-full border-none outline-none text-sm bg-transparent p-0"
-                    placeholder="Type email or pick a member..."
+                    class="w-full border-none outline-none text-xs bg-transparent p-0"
+                    placeholder="Email or member name..."
                     @keydown.enter.prevent="handleEnter"
                     @keydown.,.prevent="handleComma"
                     @keydown.backspace="handleBackspace"
@@ -26,12 +23,12 @@
                     @blur="onBlur" />
                 <!-- Autocomplete dropdown -->
                 <div v-if="showDropdown && filteredMembers.length > 0"
-                    class="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto">
+                    class="absolute left-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
                     <button v-for="member in filteredMembers" :key="member.email"
-                        class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex flex-col"
+                        class="w-full text-left px-2.5 py-1.5 text-xs hover:bg-gray-50 flex flex-col"
                         @mousedown.prevent="addMember(member)">
                         <span class="text-gray-900">{{ member.name || member.email }}</span>
-                        <span v-if="member.name" class="text-xs text-gray-400">{{ member.email }}</span>
+                        <span v-if="member.name" class="text-[11px] text-gray-400">{{ member.email }}</span>
                     </button>
                 </div>
             </div>
@@ -39,18 +36,18 @@
 
         <!-- Optional message -->
         <input v-model="message" type="text" placeholder="Add a note (optional)"
-            class="mt-2 w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
+            class="mt-2 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
 
         <!-- Send button -->
         <div class="flex items-center justify-between mt-3">
-            <span v-if="sendStatus" class="text-xs" :class="sendStatus === 'sent' ? 'text-green-600' : 'text-red-500'">
-                {{ sendStatus === 'sent' ? 'Notifications sent!' : 'Failed to send' }}
+            <span v-if="sendStatus" class="text-[11px]" :class="sendStatus === 'sent' ? 'text-green-600' : 'text-red-500'">
+                {{ sendStatus === 'sent' ? 'Sent!' : 'Failed to send' }}
             </span>
             <span v-else></span>
             <button @click="send" :disabled="recipients.length === 0 || isSending"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed">
-                <Spinner v-if="isSending" class="w-3.5 h-3.5" />
-                <Icon v-else name="heroicons:paper-airplane" class="w-3.5 h-3.5" />
+                class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                <Spinner v-if="isSending" class="w-3 h-3" />
+                <Icon v-else name="heroicons:paper-airplane" class="w-3 h-3" />
                 Send
             </button>
         </div>

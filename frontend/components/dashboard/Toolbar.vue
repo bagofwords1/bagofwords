@@ -88,7 +88,7 @@
         </button>
       </UTooltip>
 
-      <ShareModal :report="report" share-type="artifact" title="Share Dashboard" />
+      <ShareModal :report="report" share-type="artifact" title="Share Dashboard" compact />
     </div>
   </div>
 </template>

@@ -1,7 +1,7 @@
 """add report sharing visibility columns and report_shares table
 
 Revision ID: e7f8g9h0i1j2
-Revises: d5e6f7g8h9i0
+Revises: b2c3d4e5f6g7
 Create Date: 2026-04-13 00:00:00.000000
 
 Adds artifact_visibility and conversation_visibility columns to reports,
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'e7f8g9h0i1j2'
-down_revision: Union[str, None] = 'd5e6f7g8h9i0'
+down_revision: Union[str, None] = 'b2c3d4e5f6g7'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -50,15 +50,14 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(), nullable=True),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
         sa.Column('deleted_at', sa.DateTime(), nullable=True),
+        sa.UniqueConstraint('report_id', 'user_id', 'share_type', name='uq_report_share'),
     )
     op.create_index('ix_report_shares_report_id', 'report_shares', ['report_id'])
     op.create_index('ix_report_shares_user_id', 'report_shares', ['user_id'])
     op.create_index('ix_report_shares_share_type', 'report_shares', ['share_type'])
-    op.create_unique_constraint('uq_report_share', 'report_shares', ['report_id', 'user_id', 'share_type'])
 
 
 def downgrade() -> None:
-    op.drop_constraint('uq_report_share', 'report_shares', type_='unique')
     op.drop_index('ix_report_shares_share_type', table_name='report_shares')
     op.drop_index('ix_report_shares_user_id', table_name='report_shares')
     op.drop_index('ix_report_shares_report_id', table_name='report_shares')

@@ -7,7 +7,7 @@
         'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-left',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
       ]"
-      :style="{ minHeight: minHeight, maxHeight: maxHeight }"
+      :style="{ minHeight: minHeight, maxHeight: maxHeight, overflowY: 'auto' }"
       @input="handleInput"
       @keydown="handleKeydown"
       @paste.prevent="handlePaste"
