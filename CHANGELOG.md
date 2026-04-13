@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.356 (April 13, 2026)
+- Share dashboards / conversations with specific users or globally
+
 ## Version 0.0.356 (April 11, 2026)
 - BOW for Excel - you can now have BOW inside your excel!
 - PowerBI enhancements
