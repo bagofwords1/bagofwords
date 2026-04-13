@@ -1479,6 +1479,7 @@ Each visualization:
 - Use `column.headerName` for display labels
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **NEVER hardcode data** — ALL values must come from `data.visualizations[N].rows`
+- **DEFENSIVE CODING**: Row values and properties can be `null`/`undefined`. ALWAYS use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call string methods on a value that could be nullish.
 
 YOUR VISUALIZATIONS:
 
@@ -1574,7 +1575,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 CRITICAL: ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. NEVER put return statements outside a function.
 
-RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji.
+RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji. ALWAYS guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
 
 ⚠️ **CODE SIZE:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity.
 

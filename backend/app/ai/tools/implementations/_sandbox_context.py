@@ -48,6 +48,7 @@ references to any of them:
   - `report`: `{ id, title, theme }`
   - `visualizations`: array of `{ id, title, view, rows, columns, dataModel }`
   - Always handle the `null` (loading) state before accessing data
+  - **DEFENSIVE CODING**: Row values, column fields, and nested properties can be `null`/`undefined`. ALWAYS guard before calling string methods like `.includes()`, `.toLowerCase()`, `.startsWith()`, etc. Use optional chaining (`?.`) or convert first: `String(val || '')`. Example: `(row.name || '').includes('x')` instead of `row.name.includes('x')`.
 
 • **useFilters()** — Global React hook for cross-visualization filtering
   - Returns `{ filters, setFilter, resetFilters, filterRows }`

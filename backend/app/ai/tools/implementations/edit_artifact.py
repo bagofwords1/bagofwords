@@ -417,6 +417,7 @@ DATA ACCESS:
 - Access values: `row[column.field]`, display labels: `column.headerName`
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
+- **DEFENSIVE CODING**: Row values can be `null`/`undefined`. ALWAYS guard before string methods: `(val || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()` on a potentially nullish value.
 
 AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<KPICard>` — `className` replaces default theme (bg-white, border, text-slate-900). `titleClassName`/`subtitleClassName` replace text defaults. `style` for inline overrides. Theme to match the dashboard's color story.
