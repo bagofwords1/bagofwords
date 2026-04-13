@@ -4,7 +4,7 @@ type ResourcePermissionAny = { permission: string; resourceType: string }
 
 export default defineNuxtRouteMiddleware(async (to, from) => {
   // Skip permission checks for auth/public pages
-  const publicPaths = ['/users/', '/organizations/', '/onboarding', '/r/', '/not_found']
+  const publicPaths = ['/users/', '/organizations/', '/onboarding', '/r/', '/c/', '/not_found']
   if (publicPaths.some(path => to.path.startsWith(path))) {
     return
   }

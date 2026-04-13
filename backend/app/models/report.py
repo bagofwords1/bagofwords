@@ -6,6 +6,7 @@ from app.models.base import BaseSchema
 
 from app.models.report_data_source_association import report_data_source_association
 from app.models.dashboard_layout_version import DashboardLayoutVersion  # noqa: F401
+from app.models.report_share import ReportShare  # noqa: F401
 
 class Report(BaseSchema):
     __tablename__ = 'reports'
@@ -18,7 +19,11 @@ class Report(BaseSchema):
     theme_overrides = Column(JSON, nullable=True, default=dict)
     mode = Column(String, nullable=False, default='chat')  # 'chat' | 'deep' | 'training'
     
-    #privacy = Column(String, nullable=False, default='private') # private, internal, public
+    # Sharing visibility: 'none' | 'shared' | 'internal' | 'public'
+    # 'none' = only owner, 'shared' = specific users, 'internal' = org, 'public' = anyone
+    artifact_visibility = Column(String, nullable=False, default='none', server_default='none')
+    conversation_visibility = Column(String, nullable=False, default='none', server_default='none')
+
     cron_schedule = Column(String, nullable=True)
     last_run_at = Column(DateTime, nullable=True, default=None)
     # Subscribers notified after each scheduled rerun
@@ -58,3 +63,4 @@ class Report(BaseSchema):
     visualizations = relationship("Visualization", back_populates="report", lazy="selectin")
     artifacts = relationship("Artifact", back_populates="report", lazy="selectin")
     scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
+    shares = relationship("ReportShare", back_populates="report", lazy="selectin")

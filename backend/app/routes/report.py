@@ -10,7 +10,7 @@ from app.services.report_service import ReportService
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
-from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse
+from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionSchema,
@@ -164,6 +164,44 @@ async def toggle_conversation_share(report_id: str, current_user: User = Depends
     """Toggle conversation sharing for a report. Returns enabled status and share token."""
     return await report_service.toggle_conversation_share(db, report_id, current_user, organization)
 
+@router.put("/reports/{report_id}/visibility/{share_type}")
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def set_report_visibility(
+    report_id: str,
+    share_type: str,
+    payload: ReportVisibilityUpdate,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Set visibility for artifact or conversation sharing.
+
+    share_type: 'artifact' or 'conversation'
+    """
+    if share_type not in ('artifact', 'conversation'):
+        raise HTTPException(status_code=400, detail="share_type must be 'artifact' or 'conversation'")
+    return await report_service.set_visibility(
+        db, report_id, share_type, payload.visibility,
+        payload.shared_user_ids, current_user, organization,
+    )
+
+
+@router.get("/reports/{report_id}/shares/{share_type}")
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def get_report_shares(
+    report_id: str,
+    share_type: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Get list of users a report is shared with for a given type."""
+    if share_type not in ('artifact', 'conversation'):
+        raise HTTPException(status_code=400, detail="share_type must be 'artifact' or 'conversation'")
+    return await report_service.get_shares(db, report_id, share_type)
+
+
 @router.post("/reports/{report_id}/fork", response_model=ForkResponse)
 @requires_permission('create_reports')
 async def fork_report(
@@ -267,7 +305,7 @@ async def get_public_report(
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
-    schema = await report_service.get_public_report(db, report_id)
+    schema = await report_service.get_public_report(db, report_id, user=user)
     result = schema.model_dump()
     # Check fork eligibility for logged-in users
     from sqlalchemy.orm import selectinload
@@ -292,7 +330,7 @@ async def get_public_conversation(
     user: User | None = Depends(current_user_optional),
 ):
     """Public endpoint to fetch a shared conversation by its token. Supports pagination."""
-    result = await report_service.get_public_conversation(db, token, limit=limit, before=before)
+    result = await report_service.get_public_conversation(db, token, limit=limit, before=before, user=user)
     # Attach fork eligibility if user is logged in
     report_id = result.get("report_id") if isinstance(result, dict) else None
     if report_id:
@@ -320,44 +358,48 @@ from app.schemas.step_schema import PublicStepSchema
 async def get_public_queries(
     report_id: str,
     artifact_id: str | None = Query(None, description="Filter queries to only those used by this artifact"),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
 ):
-    """Get queries for a published report (no auth required).
-
-    If artifact_id is provided, only returns queries for visualizations used by that artifact.
-    """
-    return await report_service.get_public_queries(db, report_id, artifact_id=artifact_id)
+    """Get queries for a shared report."""
+    return await report_service.get_public_queries(db, report_id, artifact_id=artifact_id, user=user)
 
 
 @router.get("/r/{report_id}/queries/{query_id}/step", response_model=PublicStepSchema)
 async def get_public_query_step(
     report_id: str,
     query_id: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
 ):
-    """Get the default step for a query in a published report (no auth required)."""
-    return await report_service.get_public_step(db, report_id, query_id)
+    """Get the default step for a query in a shared report."""
+    return await report_service.get_public_step(db, report_id, query_id, user=user)
 
 
-# --- Public Artifact Routes (for published reports) ---
+# --- Public Artifact Routes ---
 
 from app.schemas.artifact_schema import ArtifactListSchema, ArtifactSchema
 
 
 @router.get("/r/{report_id}/artifacts", response_model=List[ArtifactListSchema])
-async def get_public_artifacts(report_id: str, db: AsyncSession = Depends(get_async_db)):
-    """List artifacts for a published report (no auth required)."""
-    return await report_service.get_public_artifacts(db, report_id)
+async def get_public_artifacts(
+    report_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """List artifacts for a shared report."""
+    return await report_service.get_public_artifacts(db, report_id, user=user)
 
 
 @router.get("/r/{report_id}/artifacts/{artifact_id}", response_model=ArtifactSchema)
 async def get_public_artifact(
     report_id: str,
     artifact_id: str,
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
 ):
-    """Get a specific artifact for a published report (no auth required)."""
-    return await report_service.get_public_artifact(db, report_id, artifact_id)
+    """Get a specific artifact for a shared report."""
+    return await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
 
 
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
@@ -465,10 +507,15 @@ async def activate_layout(report_id: str, layout_id: str, current_user: User = D
 # --- Public (read-only) Dashboard Layout Routes ---
 
 @router.get("/r/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-async def get_public_layouts(report_id: str, hydrate: bool = False, db: AsyncSession = Depends(get_async_db)):
+async def get_public_layouts(
+    report_id: str,
+    hydrate: bool = False,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
     from app.services.report_service import ReportService
     rs = ReportService()
     # Public service currently returns unhydrated; use private service for hydration
     if hydrate:
         return await layout_service.get_layouts_for_report(db, report_id, hydrate=True)
-    return await rs.get_public_layouts(db, report_id)
+    return await rs.get_public_layouts(db, report_id, user=user)
