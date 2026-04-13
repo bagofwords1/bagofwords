@@ -234,7 +234,7 @@ const resourcePermsState = useResourcePermissions()
 
 const lineHeightPx = computed(() => props.compact ? 18 : 24)
 const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
-const maxHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
+const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
 
 const filteredCategories = computed(() => {
   if (currentMentionStartIndex.value === -1) return []

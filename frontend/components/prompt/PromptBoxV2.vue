@@ -161,11 +161,11 @@
             </div>
 
             <!-- Input area -->
-            <div :class="props.compact ? 'px-2 pt-1.5 pb-1.5' : 'px-3 pt-2.5 pb-3'">
+            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-3 pt-2.5 pb-3'">
                 <!-- Instructions -->
                 <button
                     :class="props.compact
-                        ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 text-sm flex items-center transition-colors mb-1'
+                        ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
                         : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
                     @click="openInstructions"
                 >
@@ -260,7 +260,7 @@
 
             <!-- Bottom controls -->
             <div
-                :class="[props.compact ? 'px-2 pb-2' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
+                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
