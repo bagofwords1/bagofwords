@@ -6,6 +6,29 @@
             <span class="text-sm">Loading conversation…</span>
         </div>
 
+        <!-- Access error state -->
+        <div v-else-if="accessError" class="flex-1 flex items-center justify-center">
+            <div class="text-center max-w-md mx-auto px-6">
+                <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h2 class="text-lg font-semibold text-gray-900 mb-2">
+                    {{ accessError === 'login' ? 'Sign in required' : 'Access denied' }}
+                </h2>
+                <p class="text-sm text-gray-500 mb-6">
+                    {{ accessError === 'login'
+                        ? 'You need to sign in to view this conversation.'
+                        : 'You don\'t have permission to view this conversation. Ask the owner to share it with you.' }}
+                </p>
+                <a v-if="accessError === 'login'" :href="`/users/sign-in?redirect=/c/${$route.params.token}`"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                    Sign in
+                </a>
+                <a v-else href="/"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Go home
+                </a>
+            </div>
+        </div>
+
         <!-- Error state -->
         <div v-else-if="error" class="flex-1 flex items-center justify-center">
             <div class="text-center">
@@ -207,6 +230,7 @@ const token = route.params.token as string
 
 const isLoading = ref(true)
 const error = ref(false)
+const accessError = ref<'login' | 'denied' | null>(null)
 const conversation = ref<any>({
     title: '',
     user_name: '',
@@ -357,8 +381,15 @@ function shouldShowToolWidgetPreview(toolExecution: any): boolean {
 async function loadConversation() {
     try {
         const { data, error: fetchError } = await useMyFetch(`/api/c/${token}?limit=10`)
-        
-        if (fetchError.value || !data.value) {
+
+        if (fetchError.value) {
+            const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status
+            if (status === 401) { accessError.value = 'login'; return }
+            if (status === 403) { accessError.value = 'denied'; return }
+            error.value = true
+            return
+        }
+        if (!data.value) {
             error.value = true
             return
         }
