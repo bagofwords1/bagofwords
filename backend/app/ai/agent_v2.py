@@ -45,7 +45,8 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, small_model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
+                 model=None, small_model=None, mode=None, platform=None, platform_context=None,
+                 messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
         self.db = db
         self.build_id = build_id
         self.organization = organization
@@ -53,6 +54,9 @@ class AgentV2:
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
         self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
         self.mode = mode
+        # Platform context: derive from explicit param or fall back to completion's external_platform
+        self.platform = platform or getattr(head_completion, "external_platform", None)
+        self.platform_context = platform_context
         self.training_build_id = None  # Track build ID for training mode instruction creation
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
@@ -121,9 +125,9 @@ class AgentV2:
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
 
-        # Start with all available tools for the planner to see, filtered by mode
-        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode)
-        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode))
+        # Start with all available tools for the planner to see, filtered by mode and platform
+        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode, platform=self.platform)
+        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode, platform=self.platform))
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
@@ -431,11 +435,11 @@ class AgentV2:
 
             # === Build a knowledge-mode tool catalog ===
             knowledge_catalog_dicts = self.registry.get_catalog_for_plan_type(
-                "action", self.organization, mode="knowledge"
+                "action", self.organization, mode="knowledge", platform=self.platform
             )
             knowledge_catalog_dicts.extend(
                 self.registry.get_catalog_for_plan_type(
-                    "research", self.organization, mode="knowledge"
+                    "research", self.organization, mode="knowledge", platform=self.platform
                 )
             )
             seen = set()
@@ -494,7 +498,7 @@ class AgentV2:
                     tool_catalog=knowledge_tool_catalog,
                     mode="knowledge",
                     trigger_conditions=trigger_block,
-                    external_platform=getattr(self.head_completion, "external_platform", None),
+                    external_platform=self.platform,
                 )
 
                 # Run the planner and capture the final decision
@@ -588,6 +592,8 @@ class AgentV2:
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                     "mode": "knowledge",
+                    "platform": self.platform,
+                    "platform_context": self.platform_context,
                 }
 
                 # === Start tool execution tracking (persisted row + tool.started SSE) ===
@@ -1276,9 +1282,10 @@ class AgentV2:
                         resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
                         last_observation=observation,
                         past_observations=self.context_hub.observation_builder.tool_observations,
-                        external_platform=getattr(self.head_completion, "external_platform", None),
+                        external_platform=self.platform,
                         tool_catalog=self.planner.tool_catalog,
                         mode=self.mode,
+                        platform_context=self.platform_context,
                         images=all_images if all_images else None,
                         active_artifact=active_artifact,
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
@@ -1765,6 +1772,8 @@ class AgentV2:
                             "training_build_id": self.training_build_id,  # For training mode instruction creation
                             "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                             "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
+                            "platform": self.platform,
+                            "platform_context": self.platform_context,
                         }
 
                         # Emit generic output event for tools that stream results (inspect_data, answer_question)
@@ -2368,7 +2377,7 @@ class AgentV2:
             resources_combined=resources_combined_small,
             last_observation=None,
             past_observations=self.context_hub.observation_builder.tool_observations,
-            external_platform=getattr(self.head_completion, "external_platform", None),
+            external_platform=self.platform,
             tool_catalog=self.planner.tool_catalog,
             mode=self.mode,
             active_artifact=active_artifact,

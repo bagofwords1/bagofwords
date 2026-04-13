@@ -289,6 +289,7 @@ class CompletionService:
             _ = report.files
 
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
+            resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
             agent = AgentV2(
                 db=db,
                 organization=organization,
@@ -303,6 +304,8 @@ class CompletionService:
                 step=step,
                 clients=clients,
                 mode=completion_data.prompt.mode,
+                platform=resolved_platform,
+                platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                 build_id=resolved_build_id,
             )
 
@@ -555,6 +558,7 @@ class CompletionService:
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = report_obj.files
 
+                            resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
                             agent = AgentV2(
                                 db=session,
                                 organization=organization,
@@ -568,6 +572,8 @@ class CompletionService:
                                 widget=widget_obj,
                                 step=step_obj,
                                 clients=clients,
+                                platform=resolved_platform,
+                                platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                                 build_id=resolved_build_id,
                             )
                             await agent.main_execution()
@@ -607,6 +613,7 @@ class CompletionService:
                         clients_span.set_attribute("data_sources.count", len(report.data_sources))
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                     _ = report.files
+                    resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
                     agent = AgentV2(
                         db=db,
                         organization=organization,
@@ -620,6 +627,8 @@ class CompletionService:
                         widget=widget,
                         step=step,
                         clients=clients,
+                        platform=resolved_platform,
+                        platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                         build_id=resolved_build_id,
                     )
                     span.add_event("agent_execution_started")
@@ -1750,6 +1759,7 @@ class CompletionService:
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
             last_completion = await self.get_last_completion(db, report.id)
+            resolved_ep = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
             completion = Completion(
                 prompt=prompt_dict,
                 model=model.model_id,
@@ -1761,7 +1771,7 @@ class CompletionService:
                 status="success",
                 user_id=current_user.id,
                 external_user_id=external_user_id,
-                external_platform=external_platform
+                external_platform=resolved_ep
             )
 
             # Create system completion (parent_id will be set after flush)
@@ -1776,7 +1786,7 @@ class CompletionService:
                 message_type="table",
                 role="system",
                 status="in_progress",
-                external_platform=external_platform,
+                external_platform=resolved_ep,
                 external_user_id=external_user_id
             )
 
@@ -1796,6 +1806,36 @@ class CompletionService:
                     detail=f"Failed to save completions: {str(e)}"
                 )
             _log("db_commit_flush")
+
+            # Link report to Excel platform for icon display (get-or-create, same as MCP pattern)
+            if resolved_ep == 'excel' and not report.external_platform_id:
+                try:
+                    from app.services.external_platform_service import ExternalPlatformService
+                    from app.models.external_platform import ExternalPlatform
+                    ep_service = ExternalPlatformService()
+                    try:
+                        excel_platform = await ep_service.get_platform_by_type(db, str(organization.id), "excel")
+                    except Exception:
+                        excel_platform = None
+                    if not excel_platform:
+                        excel_platform = ExternalPlatform(
+                            organization_id=str(organization.id),
+                            platform_type="excel",
+                            platform_config={"name": "Excel Add-in"},
+                            is_active=True,
+                        )
+                        db.add(excel_platform)
+                        await db.flush()
+                    from sqlalchemy import update as sa_update
+                    await db.execute(
+                        sa_update(Report)
+                        .where(Report.id == str(report.id))
+                        .values(external_platform_id=str(excel_platform.id))
+                    )
+                    await db.commit()
+                except Exception:
+                    pass  # Non-critical — icon display is cosmetic
+                _log("excel_platform_linked")
 
             span.set_attribute("completion.head_id", str(completion.id))
             span.set_attribute("completion.system_id", str(system_completion.id))
@@ -1884,6 +1924,7 @@ class CompletionService:
                             _alog("files_preloaded")
 
                             # Create agent with event queue
+                            resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
                             agent = AgentV2(
                                 db=session,
                                 organization=organization,
@@ -1891,6 +1932,8 @@ class CompletionService:
                                 model=model,
                                 small_model=small_model,
                                 mode=completion_data.prompt.mode,
+                                platform=resolved_platform,
+                                platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                                 report=report_obj,
                                 messages=[],
                                 head_completion=completion_obj,

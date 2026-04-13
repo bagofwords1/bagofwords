@@ -18,6 +18,7 @@ from .edit_artifact import EditArtifactInput, EditArtifactOutput
 from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
 from .write_csv import WriteCsvInput, WriteCsvOutput
+from .write_to_excel import WriteToExcelInput, WriteToExcelOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -67,6 +68,8 @@ __all__ = [
     "ExecuteMCPOutput",
     "WriteCsvInput",
     "WriteCsvOutput",
+    "WriteToExcelInput",
+    "WriteToExcelOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",

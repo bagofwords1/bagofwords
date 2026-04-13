@@ -427,6 +427,14 @@
 				</span>
 			</div>
 		</div>
+		<div v-if="report.external_platform?.platform_type === 'excel'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+			<div class="text-xs flex items-center">
+				<span class="font-medium bg-green-50 text-green-700 px-3 py-2 rounded-md flex items-center gap-2">
+					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
+					<span>This session was created via Excel.</span>
+				</span>
+			</div>
+		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-4 max-w-2xl']">
@@ -729,7 +737,7 @@ const route = useRoute()
 const report_id = (route.params.id as string) || ''
 
 // Excel add-in mode detection (for compact UI)
-const { isExcel } = useExcel()
+const { isExcel, excelSelection } = useExcel()
 
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
@@ -1929,6 +1937,18 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							}))
 						} catch {}
 					}
+					// If write_to_excel completed, forward data to Excel taskpane via postMessage
+					if (payload.tool_name === 'write_to_excel' && payload.status === 'success' && payload.result_json?.excel_action) {
+						try {
+							const action = payload.result_json.excel_action
+							window.parent.postMessage({
+								type: action.type,
+								data: JSON.stringify(action.data)
+							}, '*')
+						} catch (e) {
+							console.warn('Failed to forward write_to_excel data to Excel taskpane:', e)
+						}
+					}
 				}
 			}
 			break
@@ -2580,7 +2600,18 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			content: text,
 			mentions: data.mentions || [],
 			mode: data.mode || 'chat',
-			model_id: data.model_id || null
+			model_id: data.model_id || null,
+			platform: isExcel.value ? 'excel' : null,
+			platform_context: isExcel.value && excelSelection.value ? {
+				address: excelSelection.value.address,
+				sheetName: excelSelection.value.sheetName,
+				selectionValues: excelSelection.value.selectionValues,
+				cellCount: excelSelection.value.cellCount,
+				totalCellCount: excelSelection.value.totalCellCount,
+				truncated: excelSelection.value.truncated,
+				rowCount: excelSelection.value.rowCount,
+				columnCount: excelSelection.value.columnCount,
+			} : null,
 		},
 		stream: true
 	}

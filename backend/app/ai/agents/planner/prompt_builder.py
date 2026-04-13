@@ -244,6 +244,7 @@ INPUT ENVELOPE
 {images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
+  {PromptBuilder._format_platform_context(planner_input)}
   {planner_input.instructions}
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
@@ -287,6 +288,30 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
 """
         return prompt
     
+    @staticmethod
+    def _format_platform_context(planner_input: PlannerInput) -> str:
+        """Render platform-specific context (e.g. Excel selection) for injection into the prompt."""
+        ctx = getattr(planner_input, 'platform_context', None)
+        if not ctx:
+            return ''
+        platform = planner_input.external_platform
+        if platform == 'excel':
+            address = ctx.get('address', 'unknown')
+            sheet = ctx.get('sheetName', 'unknown')
+            rows = ctx.get('rowCount', 0)
+            cols = ctx.get('columnCount', 0)
+            values = ctx.get('selectionValues', [])
+            truncated = ctx.get('truncated', False)
+            lines = [f'<excel_context>']
+            lines.append(f'  Selected range: {address} (sheet: {sheet}, {rows} rows x {cols} columns)')
+            if truncated:
+                lines.append(f'  Note: selection truncated (showing {len(values)} of {ctx.get("totalCellCount", "?")} cells)')
+            if values:
+                lines.append(f'  Values: {json.dumps(values)}')
+            lines.append('</excel_context>')
+            return '\n  '.join(lines)
+        return ''
+
     @staticmethod
     def _format_user_prompt(planner_input: PlannerInput) -> str:
         """Format user prompt based on loop iteration.
@@ -675,6 +700,7 @@ INPUT ENVELOPE
 {images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
+  {PromptBuilder._format_platform_context(planner_input)}
   {planner_input.instructions}
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
@@ -829,6 +855,7 @@ INPUT ENVELOPE
 {PromptBuilder._format_user_prompt(planner_input)}
 <context>
   <platform>{planner_input.external_platform}</platform>
+  {PromptBuilder._format_platform_context(planner_input)}
   {planner_input.instructions}
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
