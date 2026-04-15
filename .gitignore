@@ -41,3 +41,4 @@ backend/app.db
 
 # Sandbox session state (credentials, tokens, IDs)
 backend/sandbox_state.json
+configs/bow-config.dev.entra.yaml

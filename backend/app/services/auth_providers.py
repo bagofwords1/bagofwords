@@ -310,15 +310,47 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
     expires_in = token.get("expires_in")
     expires_at = int(time.time()) + int(expires_in) if isinstance(expires_in, int) else None
 
-    try:
-        account_id, account_email = await client.get_id_email(access_token)
-    except Exception as e:
+    # Extract user identity from id_token first (reliable for Entra/OIDC),
+    # then fall back to userinfo endpoint.
+    import jwt as pyjwt
+    account_id = None
+    account_email = None
+
+    id_token_raw = token.get("id_token")
+    if id_token_raw:
+        id_claims = pyjwt.decode(id_token_raw, options={"verify_signature": False})
+        uid_claim = getattr(cfg, "uid_claim", "sub") or "sub"
+        account_id = id_claims.get(uid_claim) or id_claims.get("sub")
+        account_email = (
+            id_claims.get("email")
+            or id_claims.get("preferred_username")
+            or id_claims.get("upn")
+        )
+        _auth_logger.info(f"OIDC id_token claims: sub={account_id}, email={account_email}")
+
+    # Fall back to userinfo endpoint if id_token didn't provide what we need
+    if not account_id or not account_email:
+        try:
+            uid, email = await client.get_id_email(access_token)
+            account_id = account_id or uid
+            account_email = account_email or email
+        except Exception as e:
+            _auth_logger.warning(f"OIDC userinfo fallback failed: {e}")
+            if not account_id or not account_email:
+                await _audit_auth_event(
+                    action="auth.login_failed",
+                    request=request,
+                    details={"provider": provider, "reason": "user_info_fetch_failed"},
+                )
+                raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+
+    if not account_email:
         await _audit_auth_event(
             action="auth.login_failed",
             request=request,
-            details={"provider": provider, "reason": "user_info_fetch_failed"},
+            details={"provider": provider, "reason": "no_email_in_token"},
         )
-        raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+        raise HTTPException(status_code=400, detail="Could not determine email from OIDC provider. Ensure the 'email' scope is configured.")
 
     try:
         user = await user_manager.oauth_callback(
@@ -389,8 +421,14 @@ async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) 
     # Handle Entra group overage (>200 groups — groups omitted, _claim_names present)
     if not group_ids and "_claim_names" in id_claims:
         _auth_logger.info("OIDC group sync: group overage detected, falling back to Graph API")
-        from app.ee.oidc.graph_client import resolve_group_names
-        group_names_map = await resolve_group_names(access_token)
+        from app.ee.oidc.graph_client import resolve_group_names_by_ids
+        # For overage, we need to get all groups via Graph — use /me/memberOf with delegated token first,
+        # fall back to client credentials
+        try:
+            from app.ee.oidc.graph_client import resolve_group_names
+            group_names_map = await resolve_group_names(access_token)
+        except Exception:
+            group_names_map = {}
         group_ids = list(group_names_map.keys())
     else:
         group_names_map = None
@@ -399,11 +437,20 @@ async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) 
         _auth_logger.debug(f"OIDC group sync: no groups in claim '{group_claim}', skipping")
         return
 
-    # Resolve group display names from Graph API if configured
-    if group_names_map is None and getattr(cfg, 'resolve_group_names', False) and access_token:
+    # Resolve group display names via Graph API using client credentials
+    if group_names_map is None and getattr(cfg, 'resolve_group_names', False):
         try:
-            from app.ee.oidc.graph_client import resolve_group_names
-            group_names_map = await resolve_group_names(access_token)
+            from app.ee.oidc.graph_client import resolve_group_names_by_ids
+            # Extract tenant_id from issuer URL
+            issuer = getattr(cfg, 'issuer', '') or ''
+            parts = issuer.rstrip('/').split('/')
+            tenant_id = parts[-2] if len(parts) >= 2 and parts[-1] == 'v2.0' else parts[-1]
+            group_names_map = await resolve_group_names_by_ids(
+                group_ids=group_ids,
+                tenant_id=tenant_id,
+                client_id=cfg.client_id,
+                client_secret=cfg.client_secret,
+            )
         except Exception as e:
             _auth_logger.warning(f"OIDC group sync: Graph API name resolution failed: {e}")
             group_names_map = None
