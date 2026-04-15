@@ -223,9 +223,31 @@ class UserDataSourceCredentialsService:
             )
 
         # For user_required, check if user has credentials
+        # First check data-source-level credentials, then connection-level credentials (OAuth)
         row = None
         if data_source:
             row = await self.get_primary_active_row(db, data_source, user)
+
+        if not row:
+            # Check connection-level credentials (stored by OAuth flow)
+            from app.models.user_connection_credentials import UserConnectionCredentials
+            conn_cred_stmt = select(UserConnectionCredentials).where(
+                UserConnectionCredentials.connection_id == connection.id,
+                UserConnectionCredentials.user_id == str(user.id),
+                UserConnectionCredentials.is_active == True,
+            )
+            conn_cred = (await db.execute(conn_cred_stmt)).scalars().first()
+            if conn_cred:
+                return DataSourceUserStatus(
+                    has_user_credentials=True,
+                    auth_mode=conn_cred.auth_mode,
+                    is_primary=conn_cred.is_primary,
+                    last_used_at=conn_cred.last_used_at,
+                    expires_at=conn_cred.expires_at,
+                    connection=get_cached_status(),
+                    effective_auth="user",
+                    last_checked_at=get_last_checked_at()
+                )
 
         if not row:
             # Owner/admin fallback: owner/admin can use system creds (e.g., SQLite)

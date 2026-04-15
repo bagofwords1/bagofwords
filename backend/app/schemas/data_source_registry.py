@@ -448,7 +448,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 "service_principal": AuthVariant(
                     title="Service Principal (Azure AD)",
                     schema=PowerBICredentials,
-                    scopes=["system", "user"]
+                    scopes=["system"]
                 ),
                 "oauth": AuthVariant(
                     title="Sign in with Microsoft",
@@ -489,7 +489,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 "service_principal": AuthVariant(
                     title="Service Principal (Azure AD)",
                     schema=MSFabricCredentials,
-                    scopes=["system", "user"]
+                    scopes=["system"]
                 ),
                 "oauth": AuthVariant(
                     title="Sign in with Microsoft",

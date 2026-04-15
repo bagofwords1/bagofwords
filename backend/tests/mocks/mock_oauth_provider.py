@@ -42,7 +42,7 @@ class MockOAuthProvider:
             "token_url": "https://mock-oauth.test/microsoft/token",
             "client_id": "mock_ms_client_id",
             "client_secret": "mock_ms_client_secret",
-            "scopes": "https://database.windows.net/.default offline_access",
+            "scopes": "https://api.fabric.microsoft.com/.default offline_access",
             "provider_name": "microsoft",
         },
         "bigquery": {

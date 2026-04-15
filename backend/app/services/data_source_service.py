@@ -1441,9 +1441,9 @@ class DataSourceService:
             if credentials:
                 client_params.update(credentials)
 
-            # Strip meta keys (e.g., auth_type) that are not part of client signatures
+            # Strip meta keys, empty values, and oauth override keys (not part of client signatures)
             meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
-            client_params = {k: v for k, v in (client_params or {}).items() if k not in meta_keys}
+            client_params = {k: v for k, v in (client_params or {}).items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
 
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:

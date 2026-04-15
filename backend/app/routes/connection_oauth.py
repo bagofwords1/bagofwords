@@ -43,7 +43,7 @@ def _cookie_secure() -> bool:
     return base_url.startswith("https://")
 
 
-def _set_oauth_cookies(response, state: str, code_verifier: str):
+def _set_oauth_cookies(response, state: str, code_verifier: str, user_id: str):
     cookie_kwargs = dict(
         max_age=300,
         httponly=True,
@@ -53,10 +53,11 @@ def _set_oauth_cookies(response, state: str, code_verifier: str):
     )
     response.set_cookie(key="conn_oauth_state", value=state, **cookie_kwargs)
     response.set_cookie(key="conn_oauth_verifier", value=code_verifier, **cookie_kwargs)
+    response.set_cookie(key="conn_oauth_user", value=user_id, **cookie_kwargs)
 
 
 def _clear_oauth_cookies(response):
-    for name in ("conn_oauth_state", "conn_oauth_verifier"):
+    for name in ("conn_oauth_state", "conn_oauth_verifier", "conn_oauth_user"):
         response.delete_cookie(key=name, path="/api/connections")
 
 
@@ -118,7 +119,7 @@ async def oauth_authorize(
     authorization_url = f"{oauth_params['authorize_url']}?{urlencode(params)}"
 
     response = JSONResponse({"authorization_url": authorization_url})
-    _set_oauth_cookies(response, state, code_verifier)
+    _set_oauth_cookies(response, state, code_verifier, str(user.id))
     return response
 
 
@@ -133,10 +134,14 @@ async def oauth_callback(
     state: str = None,
     error: str = None,
     error_description: str = None,
-    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Handle OAuth callback — exchange code for tokens and store credentials."""
+    """Handle OAuth callback — exchange code for tokens and store credentials.
+
+    Does NOT use Depends(current_user) because this is a cross-site redirect
+    from the OAuth provider and the JWT cookie may not be sent (SameSite).
+    Instead, the user is identified via the conn_oauth_user cookie set during authorize.
+    """
     frontend_url = settings.bow_config.base_url or ""
 
     if error:
@@ -154,6 +159,14 @@ async def oauth_callback(
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
     code_verifier = request.cookies.get("conn_oauth_verifier")
+
+    # Resolve user from cookie (set during authorize step)
+    user_id = request.cookies.get("conn_oauth_user")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="OAuth session expired")
+    user = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
 
     # Extract connection_id from state
     try:

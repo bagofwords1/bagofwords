@@ -63,7 +63,7 @@ def get_oauth_params(connection: Connection) -> dict:
 
         scopes_map = {
             "powerbi": "https://analysis.windows.net/powerbi/api/.default offline_access",
-            "ms_fabric": "https://database.windows.net/.default offline_access",
+            "ms_fabric": "https://api.fabric.microsoft.com/.default offline_access",
         }
 
         return {
@@ -193,7 +193,7 @@ ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric"}
 # These must match the API permissions granted to the Entra app registration.
 _OBO_SCOPES = {
     "powerbi": "https://analysis.windows.net/powerbi/api/.default",
-    "ms_fabric": "https://database.windows.net/.default",
+    "ms_fabric": "https://api.fabric.microsoft.com/.default",
 }
 
 

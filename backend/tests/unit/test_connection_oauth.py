@@ -89,7 +89,7 @@ class TestGetOAuthParams:
         )
         params = get_oauth_params(conn)
         assert params["provider_name"] == "microsoft"
-        assert "database.windows.net" in params["scopes"]
+        assert "api.fabric.microsoft.com" in params["scopes"]
 
     def test_bigquery(self):
         conn = _make_connection(
@@ -321,7 +321,7 @@ class TestOBOExchange:
         )
         tokens = await exchange_obo_token("login_token", conn)
         assert tokens["access_token"] == "obo_fabric"
-        assert "database.windows.net" in captured["body"]["scope"]
+        assert "api.fabric.microsoft.com" in captured["body"]["scope"]
 
     @pytest.mark.asyncio
     async def test_obo_exchange_uses_oauth_client_fallback(self, monkeypatch):

@@ -12,7 +12,7 @@
         <p class="mt-1 text-xs text-gray-500">Provide your credentials to enable access for you.</p>
       </div>
 
-      <div class="mb-3">
+      <div v-if="authOptions.length > 1" class="mb-3">
         <label class="text-xs text-gray-600">Authentication Method</label>
         <USelectMenu v-model="authMode" :options="authOptions" option-attribute="label" value-attribute="value" />
       </div>
@@ -78,7 +78,7 @@ const open = computed({
 const ds = computed(() => props.dataSource)
 // Use nested connection type (Option A architecture)
 const connectionType = computed(() => ds.value?.connection?.type || ds.value?.type)
-const connectionId = computed(() => ds.value?.connection?.id)
+const connectionId = computed(() => ds.value?.connection?.id || ds.value?.connection_id || ds.value?.connections?.[0]?.id)
 const authMode = ref<string>('')
 const form = ref<{ auth_mode: string, credentials: Record<string, any>, is_primary?: boolean }>({ auth_mode: '', credentials: {}, is_primary: true })
 const authOptions = ref<{ label: string, value: string }[]>([])
@@ -114,7 +114,8 @@ async function loadFields() {
   // build options
   const names = Object.keys((payload?.auth?.by_auth) || {})
   authOptions.value = names.map((n) => ({ label: payload.auth.by_auth[n]?.title || n, value: n }))
-  authMode.value = payload?.auth?.default || names[0] || ''
+  const defaultAuth = payload?.auth?.default
+  authMode.value = (defaultAuth && names.includes(defaultAuth)) ? defaultAuth : names[0] || ''
   form.value.auth_mode = authMode.value
   form.value.credentials = {}
 }
@@ -132,7 +133,10 @@ const currentAuthTitle = computed(() => {
 const oauthLoading = ref(false)
 
 async function onOAuthSignIn() {
-  if (!connectionId.value) return
+  if (!connectionId.value) {
+    testResult.value = { success: false, message: 'No connection found for this data source' }
+    return
+  }
   try {
     oauthLoading.value = true
     const { data, error } = await useMyFetch(`/connections/${connectionId.value}/oauth/authorize`, { method: 'GET' })

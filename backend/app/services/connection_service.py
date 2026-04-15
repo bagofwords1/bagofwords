@@ -631,9 +631,9 @@ class ConnectionService:
 
         params = {**(config or {}), **(creds or {})}
 
-        # Strip meta keys (but keep auth_type — needed by custom_api/mcp clients)
+        # Strip meta keys and oauth override keys (but keep auth_type — needed by custom_api/mcp clients)
         meta_keys = {"auth_policy", "allowed_user_auth_modes"}
-        params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
+        params = {k: v for k, v in params.items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
 
         # Narrow to constructor signature
         try:
@@ -747,9 +747,17 @@ class ConnectionService:
             if credentials:
                 client_params.update(credentials)
 
-            # Strip meta keys
+            # Strip meta keys, empty values, and oauth override keys (stored in credentials but not used by clients)
             meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
-            client_params = {k: v for k, v in client_params.items() if k not in meta_keys}
+            client_params = {k: v for k, v in client_params.items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
+
+            # Narrow to constructor signature
+            try:
+                import inspect
+                sig = inspect.signature(ClientClass.__init__)
+                client_params = {k: v for k, v in client_params.items() if k in sig.parameters and k != "self"}
+            except Exception:
+                pass
 
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
