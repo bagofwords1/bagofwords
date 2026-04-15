@@ -81,7 +81,7 @@ import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
-type DataSource = { id: string; name: string; type?: string }
+type DataSource = { id: string; name: string; type?: string; auth_policy?: string; user_status?: { effective_auth?: string; has_user_credentials?: boolean } }
 const internalSelectedDataSources = ref<DataSource[]>([])
 const dataSources = ref<DataSource[]>([])
 const isLoading = ref(true)
@@ -200,7 +200,15 @@ async function getDataSources() {
         const response = await useMyFetch('/data_sources/active', {
             method: 'GET',
         })
-        dataSources.value = (response.data.value as any[]) || []
+        const allSources = (response.data.value as any[]) || []
+        // Exclude data sources that require user credentials the user hasn't provided
+        dataSources.value = allSources.filter((ds: any) => {
+            if (ds.auth_policy === 'user_required') {
+                const eff = ds.user_status?.effective_auth
+                return eff === 'user' || eff === 'system'
+            }
+            return true
+        })
         // Initialize selection from prop if provided, otherwise leave empty for parent to decide
         if ((props.selectedDataSources as any[])?.length) {
             // Align to the objects from the current dataSources list by id
