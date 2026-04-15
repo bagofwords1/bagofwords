@@ -120,6 +120,15 @@ def _get_oidc_config(provider_name: str):
     return None
 
 
+def _is_entra_provider(provider_name: str) -> bool:
+    """Check if an OIDC provider is Microsoft Entra ID based on its issuer URL."""
+    cfg = _get_oidc_config(provider_name)
+    if not cfg:
+        return False
+    issuer = (cfg.issuer or "").lower()
+    return "login.microsoftonline.com" in issuer or "sts.windows.net" in issuer
+
+
 async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
     # Google
     if provider == "google":
@@ -334,9 +343,92 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
         details={"provider": provider, "email": str(account_email)},
     )
 
+    # OIDC group sync — sync group claims from id_token into BOW Groups
+    if getattr(cfg, 'sync_groups', False):
+        try:
+            await _sync_oidc_groups_on_login(
+                cfg=cfg,
+                token=token,
+                access_token=access_token,
+                user=user,
+            )
+        except Exception as e:
+            _auth_logger.warning(f"OIDC group sync failed for user {user.id}: {e}", exc_info=True)
+
+    # Phase 2: Auto-provision OAuth credentials for Entra-based data sources via OBO
+    if access_token and _is_entra_provider(provider):
+        try:
+            from app.services.connection_oauth_service import auto_provision_connection_credentials
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as db:
+                await auto_provision_connection_credentials(db, user, access_token)
+        except Exception as e:
+            _auth_logger.warning(f"OBO auto-provision after login failed for user {user.id}: {e}")
+
     strategy = get_jwt_strategy()
     jwt_token = await strategy.write_token(user)
     return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
+
+
+async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) -> None:
+    """Extract group claims from id_token and sync into BOW Groups."""
+    import jwt as pyjwt
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+
+    id_token_raw = token.get("id_token")
+    if not id_token_raw:
+        _auth_logger.debug("OIDC group sync: no id_token in token response, skipping")
+        return
+
+    # Decode without signature verification — token was already validated by the provider
+    id_claims = pyjwt.decode(id_token_raw, options={"verify_signature": False})
+    group_claim = getattr(cfg, 'group_claim', 'groups')
+    group_ids = id_claims.get(group_claim, [])
+
+    # Handle Entra group overage (>200 groups — groups omitted, _claim_names present)
+    if not group_ids and "_claim_names" in id_claims:
+        _auth_logger.info("OIDC group sync: group overage detected, falling back to Graph API")
+        from app.ee.oidc.graph_client import resolve_group_names
+        group_names_map = await resolve_group_names(access_token)
+        group_ids = list(group_names_map.keys())
+    else:
+        group_names_map = None
+
+    if not group_ids:
+        _auth_logger.debug(f"OIDC group sync: no groups in claim '{group_claim}', skipping")
+        return
+
+    # Resolve group display names from Graph API if configured
+    if group_names_map is None and getattr(cfg, 'resolve_group_names', False) and access_token:
+        try:
+            from app.ee.oidc.graph_client import resolve_group_names
+            group_names_map = await resolve_group_names(access_token)
+        except Exception as e:
+            _auth_logger.warning(f"OIDC group sync: Graph API name resolution failed: {e}")
+            group_names_map = None
+
+    # Get user's org — use the first membership's org
+    async with async_session_maker() as db:
+        from sqlalchemy import select
+        from app.models.membership import Membership
+        stmt = select(Membership.organization_id).where(
+            Membership.user_id == str(user.id),
+            Membership.deleted_at.is_(None),
+        )
+        org_id = (await db.execute(stmt)).scalar_one_or_none()
+
+        if not org_id:
+            _auth_logger.debug(f"OIDC group sync: user {user.id} has no org membership, skipping")
+            return
+
+        await sync_user_oidc_groups(
+            db=db,
+            user_id=str(user.id),
+            organization_id=str(org_id),
+            group_ids=group_ids,
+            group_names=group_names_map,
+        )
 
 
 async def _discover_endpoints(openid_cfg_endpoint: str) -> Dict[str, str]:

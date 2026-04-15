@@ -18,6 +18,8 @@ from app.services.connection_oauth_service import (
     get_oauth_params,
     exchange_code_for_tokens,
     refresh_access_token,
+    exchange_obo_token,
+    ENTRA_OBO_CONNECTION_TYPES,
 )
 
 
@@ -245,3 +247,190 @@ class TestTokenRefresh:
         }
         with pytest.raises(ValueError, match="refresh failed"):
             await refresh_access_token(oauth_params, refresh_token="expired_rt")
+
+
+# ---------------------------------------------------------------------------
+# OBO Token Exchange Tests (Phase 2)
+# ---------------------------------------------------------------------------
+
+class TestOBOExchange:
+    @pytest.mark.asyncio
+    async def test_obo_exchange_powerbi(self, monkeypatch):
+        """OBO exchange sends correct jwt-bearer grant for PowerBI."""
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["url"] = str(request.url)
+            captured["body"] = dict(urllib.parse.parse_qsl(request.content.decode()))
+            return httpx.Response(200, json={
+                "access_token": "obo_at_123",
+                "refresh_token": "obo_rt_456",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            })
+
+        transport = httpx.MockTransport(handler)
+        original = httpx.AsyncClient
+        class _Patched(original):
+            def __init__(self, *a, **kw):
+                kw["transport"] = transport
+                super().__init__(*a, **kw)
+        monkeypatch.setattr(httpx, "AsyncClient", _Patched)
+
+        conn = _make_connection(
+            type="powerbi",
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+        )
+        tokens = await exchange_obo_token("login_token_xyz", conn)
+
+        assert tokens["access_token"] == "obo_at_123"
+        assert tokens["refresh_token"] == "obo_rt_456"
+
+        # Verify OBO grant params
+        assert captured["body"]["grant_type"] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        assert captured["body"]["assertion"] == "login_token_xyz"
+        assert captured["body"]["requested_token_use"] == "on_behalf_of"
+        assert captured["body"]["client_id"] == "c1"
+        assert captured["body"]["client_secret"] == "s1"
+        assert "powerbi" in captured["body"]["scope"]
+        assert "t1" in captured["url"]
+
+    @pytest.mark.asyncio
+    async def test_obo_exchange_ms_fabric(self, monkeypatch):
+        """OBO exchange sends correct scope for MS Fabric."""
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = dict(urllib.parse.parse_qsl(request.content.decode()))
+            return httpx.Response(200, json={
+                "access_token": "obo_fabric",
+                "expires_in": 3600,
+            })
+
+        transport = httpx.MockTransport(handler)
+        original = httpx.AsyncClient
+        class _Patched(original):
+            def __init__(self, *a, **kw):
+                kw["transport"] = transport
+                super().__init__(*a, **kw)
+        monkeypatch.setattr(httpx, "AsyncClient", _Patched)
+
+        conn = _make_connection(
+            type="ms_fabric",
+            credentials={"tenant_id": "t2", "client_id": "c2", "client_secret": "s2"},
+        )
+        tokens = await exchange_obo_token("login_token", conn)
+        assert tokens["access_token"] == "obo_fabric"
+        assert "database.windows.net" in captured["body"]["scope"]
+
+    @pytest.mark.asyncio
+    async def test_obo_exchange_uses_oauth_client_fallback(self, monkeypatch):
+        """OBO prefers oauth_client_id over client_id."""
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = dict(urllib.parse.parse_qsl(request.content.decode()))
+            return httpx.Response(200, json={
+                "access_token": "obo_at",
+                "expires_in": 3600,
+            })
+
+        transport = httpx.MockTransport(handler)
+        original = httpx.AsyncClient
+        class _Patched(original):
+            def __init__(self, *a, **kw):
+                kw["transport"] = transport
+                super().__init__(*a, **kw)
+        monkeypatch.setattr(httpx, "AsyncClient", _Patched)
+
+        conn = _make_connection(
+            type="powerbi",
+            credentials={
+                "tenant_id": "t1",
+                "client_id": "c1", "client_secret": "s1",
+                "oauth_client_id": "oc1", "oauth_client_secret": "os1",
+            },
+        )
+        await exchange_obo_token("login_token", conn)
+        assert captured["body"]["client_id"] == "oc1"
+        assert captured["body"]["client_secret"] == "os1"
+
+    @pytest.mark.asyncio
+    async def test_obo_unsupported_type_raises(self):
+        """OBO raises ValueError for non-Entra connection types."""
+        conn = _make_connection(type="bigquery", credentials={})
+        with pytest.raises(ValueError, match="OBO not supported"):
+            await exchange_obo_token("login_token", conn)
+
+    @pytest.mark.asyncio
+    async def test_obo_missing_tenant_raises(self):
+        """OBO raises ValueError when tenant_id is missing."""
+        conn = _make_connection(
+            type="powerbi",
+            credentials={"client_id": "c1", "client_secret": "s1"},
+        )
+        with pytest.raises(ValueError, match="tenant_id"):
+            await exchange_obo_token("login_token", conn)
+
+    @pytest.mark.asyncio
+    async def test_obo_exchange_error(self, monkeypatch):
+        """OBO raises ValueError on HTTP error from Entra."""
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"error": "invalid_grant", "error_description": "AADSTS..."})
+
+        transport = httpx.MockTransport(handler)
+        original = httpx.AsyncClient
+        class _Patched(original):
+            def __init__(self, *a, **kw):
+                kw["transport"] = transport
+                super().__init__(*a, **kw)
+        monkeypatch.setattr(httpx, "AsyncClient", _Patched)
+
+        conn = _make_connection(
+            type="powerbi",
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+        )
+        with pytest.raises(ValueError, match="OBO token exchange failed"):
+            await exchange_obo_token("login_token", conn)
+
+    def test_entra_obo_connection_types(self):
+        """Only Microsoft connection types support OBO."""
+        assert "powerbi" in ENTRA_OBO_CONNECTION_TYPES
+        assert "ms_fabric" in ENTRA_OBO_CONNECTION_TYPES
+        assert "bigquery" not in ENTRA_OBO_CONNECTION_TYPES
+
+
+# ---------------------------------------------------------------------------
+# _is_entra_provider Tests
+# ---------------------------------------------------------------------------
+
+class TestIsEntraProvider:
+    def test_entra_provider(self):
+        """Detects Entra ID from issuer URL."""
+        from app.services.auth_providers import _is_entra_provider
+        mock_cfg = MagicMock()
+        mock_cfg.issuer = "https://login.microsoftonline.com/tenant-id/v2.0"
+        with patch("app.services.auth_providers._get_oidc_config", return_value=mock_cfg):
+            assert _is_entra_provider("entra_id") is True
+
+    def test_sts_windows_provider(self):
+        """Detects Entra ID from sts.windows.net issuer."""
+        from app.services.auth_providers import _is_entra_provider
+        mock_cfg = MagicMock()
+        mock_cfg.issuer = "https://sts.windows.net/tenant-id/"
+        with patch("app.services.auth_providers._get_oidc_config", return_value=mock_cfg):
+            assert _is_entra_provider("entra_id") is True
+
+    def test_non_entra_provider(self):
+        """Non-Entra OIDC providers return False."""
+        from app.services.auth_providers import _is_entra_provider
+        mock_cfg = MagicMock()
+        mock_cfg.issuer = "https://accounts.google.com"
+        with patch("app.services.auth_providers._get_oidc_config", return_value=mock_cfg):
+            assert _is_entra_provider("google") is False
+
+    def test_unknown_provider(self):
+        """Unknown provider returns False."""
+        from app.services.auth_providers import _is_entra_provider
+        with patch("app.services.auth_providers._get_oidc_config", return_value=None):
+            assert _is_entra_provider("nonexistent") is False

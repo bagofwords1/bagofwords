@@ -1,8 +1,8 @@
 """
 E2E tests for Connection OAuth flow.
 
-Tests the full OAuth sign-in flow using a patched get_oauth_params()
-and mocked token exchange. Verifies credential storage, overlay sync,
+Tests the full OAuth sign-in flow using MockOAuthProvider from
+tests/mocks/mock_oauth_provider.py. Verifies credential storage, overlay sync,
 multi-provider support, token refresh, and re-sign-in behavior.
 """
 import json
@@ -13,74 +13,8 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import pytest
 import httpx
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _patch_oauth_params(token_url="https://fake-oauth.test/token"):
-    """Patch get_oauth_params to return a controlled config."""
-    def _get_oauth_params(connection):
-        providers = {
-            "powerbi": {
-                "authorize_url": "https://fake-oauth.test/authorize",
-                "token_url": token_url,
-                "client_id": "test_client_id",
-                "client_secret": "test_client_secret",
-                "scopes": "https://analysis.windows.net/powerbi/api/.default offline_access",
-                "provider_name": "microsoft",
-            },
-            "ms_fabric": {
-                "authorize_url": "https://fake-oauth.test/authorize",
-                "token_url": token_url,
-                "client_id": "test_client_id",
-                "client_secret": "test_client_secret",
-                "scopes": "https://database.windows.net/.default offline_access",
-                "provider_name": "microsoft",
-            },
-            "bigquery": {
-                "authorize_url": "https://fake-oauth-google.test/authorize",
-                "token_url": "https://fake-oauth-google.test/token",
-                "client_id": "google_client_id",
-                "client_secret": "google_client_secret",
-                "scopes": "https://www.googleapis.com/auth/bigquery.readonly offline_access",
-                "provider_name": "google",
-            },
-        }
-        conn_type = connection.type
-        if conn_type not in providers:
-            raise ValueError(f"OAuth not supported for {conn_type}")
-        return providers[conn_type]
-
-    return patch(
-        "app.routes.connection_oauth.get_oauth_params",
-        side_effect=_get_oauth_params,
-    )
-
-
-def _patch_token_exchange(access_token="fake_access_token", refresh_token="fake_refresh_token"):
-    """Patch exchange_code_for_tokens to return controlled tokens."""
-    async def _exchange(oauth_params, code, redirect_uri, code_verifier=None):
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
-            "token_type": "Bearer",
-        }
-
-    return patch(
-        "app.routes.connection_oauth.exchange_code_for_tokens",
-        side_effect=_exchange,
-    )
-
-
-def _patch_overlay_sync():
-    """Patch the overlay sync in the callback to be a no-op."""
-    return patch(
-        "app.services.data_source_service.DataSourceService.get_user_data_source_schema",
-        new_callable=AsyncMock,
-        return_value=[],
-    )
+from tests.mocks.mock_oauth_provider import MockOAuthProvider, patch_oauth_for_tests
+from app.services.connection_oauth_service import auto_provision_connection_credentials
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +44,7 @@ class TestOAuthAuthorizeRoute:
             org_id=org_id,
         )
 
-        with _patch_oauth_params():
+        with patch_oauth_for_tests() as mock:
             response = test_client.get(
                 f"/api/connections/{conn['id']}/oauth/authorize",
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
@@ -120,8 +54,8 @@ class TestOAuthAuthorizeRoute:
         data = response.json()
         assert "authorization_url" in data
         url = data["authorization_url"]
-        assert "fake-oauth.test/authorize" in url
-        assert "client_id=test_client_id" in url
+        assert "mock-oauth.test/microsoft/authorize" in url
+        assert "client_id=mock_ms_client_id" in url
         assert "code_challenge=" in url
         assert "state=" in url
 
@@ -165,7 +99,7 @@ class TestOAuthCallbackRoute:
             org_id=org_id,
         )
 
-        with _patch_oauth_params(), _patch_token_exchange(), _patch_overlay_sync():
+        with patch_oauth_for_tests() as mock:
             # Step 1: Get authorize URL (this sets cookies)
             auth_resp = test_client.get(
                 f"/api/connections/{conn['id']}/oauth/authorize",
@@ -184,6 +118,11 @@ class TestOAuthCallbackRoute:
             # Should redirect to /data?oauth=success
             assert callback_resp.status_code in (302, 307)
             assert "oauth=success" in callback_resp.headers.get("location", "")
+
+        # Verify mock tracked the token exchange
+        assert mock.total_tokens_issued == 1
+        assert len(mock.exchange_log) == 1
+        assert mock.exchange_log[0]["code"] == "test_auth_code"
 
     def test_callback_invalid_state(
         self, test_client, login_user, create_user, whoami
@@ -250,7 +189,7 @@ class TestOAuthMultiProvider:
             org_id=org_id,
         )
 
-        with _patch_oauth_params():
+        with patch_oauth_for_tests() as mock:
             pbi_resp = test_client.get(
                 f"/api/connections/{pbi_conn['id']}/oauth/authorize",
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
@@ -260,8 +199,8 @@ class TestOAuthMultiProvider:
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
             )
 
-        assert "fake-oauth.test" in pbi_resp.json()["authorization_url"]
-        assert "fake-oauth-google.test" in bq_resp.json()["authorization_url"]
+        assert "mock-oauth.test/microsoft" in pbi_resp.json()["authorization_url"]
+        assert "mock-oauth.test/google" in bq_resp.json()["authorization_url"]
 
 
 class TestOAuthReSignIn:
@@ -287,36 +226,34 @@ class TestOAuthReSignIn:
             org_id=org_id,
         )
 
-        with _patch_oauth_params(), _patch_overlay_sync():
+        with patch_oauth_for_tests() as mock:
             # First sign-in
-            with _patch_token_exchange(access_token="token_v1"):
-                auth_resp = test_client.get(
-                    f"/api/connections/{conn['id']}/oauth/authorize",
-                    headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
-                )
-                state1 = auth_resp.cookies.get("conn_oauth_state")
-                test_client.get(
-                    f"/api/connections/oauth/callback?code=code1&state={state1}",
-                    headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
-                    follow_redirects=False,
-                )
+            auth_resp = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+            )
+            state1 = auth_resp.cookies.get("conn_oauth_state")
+            test_client.get(
+                f"/api/connections/oauth/callback?code=code1&state={state1}",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+                follow_redirects=False,
+            )
 
             # Second sign-in
-            with _patch_token_exchange(access_token="token_v2"):
-                auth_resp2 = test_client.get(
-                    f"/api/connections/{conn['id']}/oauth/authorize",
-                    headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
-                )
-                state2 = auth_resp2.cookies.get("conn_oauth_state")
-                test_client.get(
-                    f"/api/connections/oauth/callback?code=code2&state={state2}",
-                    headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
-                    follow_redirects=False,
-                )
+            auth_resp2 = test_client.get(
+                f"/api/connections/{conn['id']}/oauth/authorize",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+            )
+            state2 = auth_resp2.cookies.get("conn_oauth_state")
+            test_client.get(
+                f"/api/connections/oauth/callback?code=code2&state={state2}",
+                headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+                follow_redirects=False,
+            )
 
-        # Verify only the latest token is stored (upsert, not duplicate)
-        # We can't directly query DB in E2E, but the callback succeeds without errors
-        # which means the upsert logic worked (would fail on unique constraint otherwise)
+        # Both exchanges tracked, upsert worked (no unique constraint error)
+        assert mock.total_tokens_issued == 2
+        assert len(mock.exchange_log) == 2
 
 
 class TestOAuthRegistryIntegration:
@@ -369,3 +306,275 @@ class TestOAuthRegistryIntegration:
         auth_by_auth = data.get("auth", {}).get("by_auth", {})
         assert "oauth" in auth_by_auth
         assert auth_by_auth["oauth"]["title"] == "Sign in with Google"
+
+
+class TestOBOAutoProvision:
+    """Test Phase 2: auto_provision_connection_credentials after Entra ID login."""
+
+    @pytest.mark.asyncio
+    async def test_auto_provision_creates_credentials(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Auto-provision creates UserConnectionCredentials for Entra-based connections."""
+        user_data = create_user()
+        token = login_user(user_data["email"], user_data["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        # Create a user_required PowerBI connection
+        conn = create_connection(
+            name="AutoProv PowerBI",
+            type="powerbi",
+            config={},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests() as mock:
+            # Simulate auto-provision (what happens after Entra login)
+            from app.dependencies import async_session_maker
+            from app.models.user import User
+            from sqlalchemy import select
+
+            async with async_session_maker() as db:
+                user_obj = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+                summary = await auto_provision_connection_credentials(
+                    db, user_obj, "fake_entra_login_token"
+                )
+
+        assert len(summary["provisioned"]) == 1
+        assert summary["provisioned"][0]["connection_id"] == conn["id"]
+        assert summary["provisioned"][0]["type"] == "powerbi"
+        assert len(summary["failed"]) == 0
+
+        # Verify OBO exchange was called
+        assert len(mock.obo_log) == 1
+        assert mock.obo_log[0]["login_access_token"] == "fake_entra_login_token"
+        assert mock.obo_log[0]["connection_id"] == conn["id"]
+
+    @pytest.mark.asyncio
+    async def test_auto_provision_skips_existing_valid_credentials(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Auto-provision skips connections where user already has valid credentials."""
+        user_data = create_user()
+        token = login_user(user_data["email"], user_data["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        conn = create_connection(
+            name="Already Connected",
+            type="powerbi",
+            config={},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests() as mock:
+            from app.dependencies import async_session_maker
+            from app.models.user import User
+            from sqlalchemy import select
+
+            async with async_session_maker() as db:
+                user_obj = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+
+                # First provision — creates credentials
+                summary1 = await auto_provision_connection_credentials(
+                    db, user_obj, "login_token_1"
+                )
+                assert len(summary1["provisioned"]) == 1
+
+                # Second provision — should skip (credentials already exist and valid)
+                summary2 = await auto_provision_connection_credentials(
+                    db, user_obj, "login_token_2"
+                )
+
+        assert len(summary2["skipped"]) == 1
+        assert summary2["skipped"][0]["reason"] == "valid_credentials_exist"
+        assert len(summary2["provisioned"]) == 0
+        # OBO only called once (first time)
+        assert len(mock.obo_log) == 1
+
+    @pytest.mark.asyncio
+    async def test_auto_provision_skips_non_oauth_connections(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Auto-provision ignores connections that don't allow oauth auth mode."""
+        user_data = create_user()
+        token = login_user(user_data["email"], user_data["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        # Connection with userpass only — no oauth
+        create_connection(
+            name="Userpass Only",
+            type="powerbi",
+            config={},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["userpass"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests() as mock:
+            from app.dependencies import async_session_maker
+            from app.models.user import User
+            from sqlalchemy import select
+
+            async with async_session_maker() as db:
+                user_obj = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+                summary = await auto_provision_connection_credentials(
+                    db, user_obj, "login_token"
+                )
+
+        assert len(summary["provisioned"]) == 0
+        assert len(mock.obo_log) == 0
+
+    @pytest.mark.asyncio
+    async def test_auto_provision_skips_bigquery(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Auto-provision does NOT provision BigQuery — OBO only works for Microsoft."""
+        user_data = create_user()
+        token = login_user(user_data["email"], user_data["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        create_connection(
+            name="BQ Connection",
+            type="bigquery",
+            config={"project_id": "proj", "dataset": "ds"},
+            credentials={"credentials_json": "{}", "oauth_client_id": "gc1", "oauth_client_secret": "gs1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests() as mock:
+            from app.dependencies import async_session_maker
+            from app.models.user import User
+            from sqlalchemy import select
+
+            async with async_session_maker() as db:
+                user_obj = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+                summary = await auto_provision_connection_credentials(
+                    db, user_obj, "login_token"
+                )
+
+        # BigQuery is not in ENTRA_OBO_CONNECTION_TYPES, so it's not queried
+        assert len(summary["provisioned"]) == 0
+        assert len(mock.obo_log) == 0
+
+    @pytest.mark.asyncio
+    async def test_auto_provision_partial_failure(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """If OBO fails for one connection, others still get provisioned."""
+        user_data = create_user()
+        token = login_user(user_data["email"], user_data["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        pbi_conn = create_connection(
+            name="PowerBI OK",
+            type="powerbi",
+            config={},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        fabric_conn = create_connection(
+            name="Fabric Fail",
+            type="ms_fabric",
+            config={},
+            credentials={"tenant_id": "t2", "client_id": "c2", "client_secret": "s2"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        mock = MockOAuthProvider()
+        mock.set_obo_failure("ms_fabric", ValueError("AADSTS50013: Assertion failed"))
+
+        with patch_oauth_for_tests(mock) as mock:
+            from app.dependencies import async_session_maker
+            from app.models.user import User
+            from sqlalchemy import select
+
+            async with async_session_maker() as db:
+                user_obj = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+                summary = await auto_provision_connection_credentials(
+                    db, user_obj, "login_token"
+                )
+
+        # PowerBI succeeded, Fabric failed
+        assert len(summary["provisioned"]) == 1
+        assert summary["provisioned"][0]["type"] == "powerbi"
+        assert len(summary["failed"]) == 1
+        assert "AADSTS50013" in summary["failed"][0]["error"]
+
+    @pytest.mark.asyncio
+    async def test_auto_provision_multiple_connections(
+        self, test_client, login_user, create_connection, create_user, whoami
+    ):
+        """Auto-provision handles multiple Entra connections in one pass."""
+        user_data = create_user()
+        token = login_user(user_data["email"], user_data["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        pbi_conn = create_connection(
+            name="PowerBI Multi",
+            type="powerbi",
+            config={},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        fabric_conn = create_connection(
+            name="Fabric Multi",
+            type="ms_fabric",
+            config={},
+            credentials={"tenant_id": "t2", "client_id": "c2", "client_secret": "s2"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+
+        with patch_oauth_for_tests() as mock:
+            from app.dependencies import async_session_maker
+            from app.models.user import User
+            from sqlalchemy import select
+
+            async with async_session_maker() as db:
+                user_obj = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+                summary = await auto_provision_connection_credentials(
+                    db, user_obj, "login_token"
+                )
+
+        assert len(summary["provisioned"]) == 2
+        assert len(mock.obo_log) == 2
+        provisioned_types = {c["type"] for c in summary["provisioned"]}
+        assert provisioned_types == {"powerbi", "ms_fabric"}

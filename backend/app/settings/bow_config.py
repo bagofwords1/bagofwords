@@ -90,6 +90,10 @@ class OIDCProvider(BaseModel):
     redirect_path: Optional[str] = None
     extra_authorize_params: dict = {}
     extra_token_params: dict = {}
+    # Group sync — sync OIDC group claims into BOW Groups on login
+    sync_groups: bool = False
+    group_claim: str = "groups"              # claim name in id_token
+    resolve_group_names: bool = False        # call Graph API to get display names (Entra returns UUIDs)
 
 
 class LDAPConfig(BaseModel):
