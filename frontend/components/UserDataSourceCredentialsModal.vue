@@ -17,24 +17,41 @@
         <USelectMenu v-model="authMode" :options="authOptions" option-attribute="label" value-attribute="value" />
       </div>
 
-      <div class="space-y-3">
-        <div v-for="field in credentialFields" :key="field.key" class="flex flex-col">
-          <label class="text-xs text-gray-600 mb-1">{{ field.title }}</label>
-          <input v-if="field.type === 'string'" :type="field.format === 'password' ? 'password' : 'text'" v-model="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm" />
-          <input v-else-if="field.type === 'integer'" type="number" v-model.number="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm" />
-          <UCheckbox v-else-if="field.type === 'boolean'" v-model="form.credentials[field.key]">{{ field.title }}</UCheckbox>
-          <textarea v-else-if="field.type === 'text' || field.type === 'textarea'" v-model="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm"></textarea>
-          <input v-else v-model="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm" />
-        </div>
+      <!-- OAuth mode: show sign-in button instead of credential form -->
+      <div v-if="isOAuthMode" class="mt-4">
+        <UButton
+          size="sm"
+          color="blue"
+          variant="solid"
+          block
+          :loading="oauthLoading"
+          @click="onOAuthSignIn"
+        >
+          {{ currentAuthTitle || 'Sign in' }}
+        </UButton>
       </div>
 
-      <div class="flex justify-between mt-5">
-        <UButton size="xs" color="gray" variant="soft" :loading="testing" @click="onTest">Test connection</UButton>
-        <div class="space-x-2">
-          <UButton size="xs" color="gray" variant="soft" @click="emit('update:modelValue', false)">Cancel</UButton>
-          <UButton size="xs" color="blue" variant="solid" :loading="saving" @click="onSave">Save</UButton>
+      <!-- Standard credential form -->
+      <template v-else>
+        <div class="space-y-3">
+          <div v-for="field in credentialFields" :key="field.key" class="flex flex-col">
+            <label class="text-xs text-gray-600 mb-1">{{ field.title }}</label>
+            <input v-if="field.type === 'string'" :type="field.format === 'password' ? 'password' : 'text'" v-model="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm" />
+            <input v-else-if="field.type === 'integer'" type="number" v-model.number="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm" />
+            <UCheckbox v-else-if="field.type === 'boolean'" v-model="form.credentials[field.key]">{{ field.title }}</UCheckbox>
+            <textarea v-else-if="field.type === 'text' || field.type === 'textarea'" v-model="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm"></textarea>
+            <input v-else v-model="form.credentials[field.key]" class="border rounded px-2 py-1 text-sm" />
+          </div>
         </div>
-      </div>
+
+        <div class="flex justify-between mt-5">
+          <UButton size="xs" color="gray" variant="soft" :loading="testing" @click="onTest">Test connection</UButton>
+          <div class="space-x-2">
+            <UButton size="xs" color="gray" variant="soft" @click="emit('update:modelValue', false)">Cancel</UButton>
+            <UButton size="xs" color="blue" variant="solid" :loading="saving" @click="onSave">Save</UButton>
+          </div>
+        </div>
+      </template>
 
       <div v-if="testResult" class="mt-3 text-xs">
         <span :class="testResult.success ? 'text-green-600' : 'text-red-600'">
@@ -106,6 +123,30 @@ watch(authMode, (v) => {
   form.value.auth_mode = v || ''
   form.value.credentials = {}
 })
+
+const isOAuthMode = computed(() => authMode.value === 'oauth')
+const currentAuthTitle = computed(() => {
+  const opt = authOptions.value.find(o => o.value === authMode.value)
+  return opt?.label || 'Sign in'
+})
+const oauthLoading = ref(false)
+
+async function onOAuthSignIn() {
+  if (!connectionId.value) return
+  try {
+    oauthLoading.value = true
+    const { data, error } = await useMyFetch(`/connections/${connectionId.value}/oauth/authorize`, { method: 'GET' })
+    if (error.value) throw error.value
+    const result = data.value as any
+    if (result?.authorization_url) {
+      window.location.href = result.authorization_url
+    }
+  } catch (e: any) {
+    testResult.value = { success: false, message: e?.message || 'Failed to start OAuth' }
+  } finally {
+    oauthLoading.value = false
+  }
+}
 
 const saving = ref(false)
 const testing = ref(false)

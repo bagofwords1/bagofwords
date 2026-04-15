@@ -714,6 +714,15 @@ class ConnectionService:
                 detail="User credentials required for this connection"
             )
 
+        # For OAuth credentials, check if token needs refresh
+        if row.auth_mode == "oauth":
+            try:
+                from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
+                return await maybe_refresh_oauth_credentials(db, connection, row)
+            except Exception as e:
+                logger.warning(f"OAuth token refresh check failed: {e}")
+                return row.decrypt_credentials()
+
         return row.decrypt_credentials()
 
     def _resolve_client_by_type(

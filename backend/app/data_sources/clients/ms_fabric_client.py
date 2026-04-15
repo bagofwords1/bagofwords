@@ -18,10 +18,11 @@ class MsFabricClient(DataSourceClient):
         self,
         server_hostname: str,
         database: str,
-        tenant_id: str,
-        client_id: str,
-        client_secret: str,
+        tenant_id: str = None,
+        client_id: str = None,
+        client_secret: str = None,
         schema: Optional[str] = None,
+        access_token: str = None,
     ):
         self.server_hostname = server_hostname
         self.database = database
@@ -29,6 +30,7 @@ class MsFabricClient(DataSourceClient):
         self.client_id = client_id
         self.client_secret = client_secret
         self.schema = schema
+        self._delegated_access_token = access_token
 
         # Parse comma-separated schemas if provided
         self._schemas: List[str] = []
@@ -43,6 +45,9 @@ class MsFabricClient(DataSourceClient):
 
     def _get_access_token(self) -> str:
         """Get Azure AD access token for SQL endpoint."""
+        if self._delegated_access_token:
+            return self._delegated_access_token
+
         credential = ClientSecretCredential(
             tenant_id=self.tenant_id,
             client_id=self.client_id,

@@ -396,6 +396,19 @@ onMounted(async () => {
     nextTick(async () => {
         await refreshData()
     })
+
+    // Handle OAuth callback redirect
+    const route = useRoute()
+    if (route.query.oauth === 'success') {
+        const toast = useToast()
+        toast.add({ title: 'Connected successfully', color: 'green', icon: 'i-heroicons-check-circle' })
+        // Clean up query params
+        navigateTo('/data', { replace: true })
+    } else if (route.query.oauth === 'error') {
+        const toast = useToast()
+        toast.add({ title: 'Connection failed', description: route.query.message as string || '', color: 'red', icon: 'i-heroicons-x-circle' })
+        navigateTo('/data', { replace: true })
+    }
 })
 </script>
 

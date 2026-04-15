@@ -90,6 +90,8 @@ from app.schemas.data_sources.configs import (
     CustomAPINoAuthCredentials,
     CustomAPIBearerCredentials,
     CustomAPIKeyCredentials,
+    # OAuth Delegated
+    OAuthDelegatedCredentials,
 )
 
 from app.settings.config import settings
@@ -226,7 +228,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Serverless, highly scalable, and cost-effective multi-cloud data warehouse.",
         config_schema=BigQueryConfig,
         credentials_auth=AuthOptions(default="service_account", by_auth={
-            "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials, scopes=["system", "user"])  # system-managed only
+            "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials, scopes=["system", "user"]),
+            "oauth": AuthVariant(title="Sign in with Google", schema=OAuthDelegatedCredentials, scopes=["user"]),
         }),
         client_path=None,
     ),
@@ -446,7 +449,12 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     title="Service Principal (Azure AD)",
                     schema=PowerBICredentials,
                     scopes=["system", "user"]
-                )
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"]
+                ),
             }
         ),
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
@@ -482,7 +490,12 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     title="Service Principal (Azure AD)",
                     schema=MSFabricCredentials,
                     scopes=["system", "user"]
-                )
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"]
+                ),
             }
         ),
         client_path="app.data_sources.clients.ms_fabric_client.MsFabricClient",
