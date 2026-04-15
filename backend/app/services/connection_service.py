@@ -451,6 +451,40 @@ class ConnectionService:
                 "message": str(e)
             }
 
+    async def test_user_connection(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Test a connection using the current user's saved credentials."""
+        connection = await self.get_connection(db, connection_id, organization)
+
+        try:
+            client = await self.construct_client(db, connection, current_user)
+            connection_status = await client.atest_connection()
+            success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
+
+            # Update the user's credential last_used_at on success
+            if success:
+                from app.models.user_connection_credentials import UserConnectionCredentials
+                result = await db.execute(
+                    select(UserConnectionCredentials).where(
+                        UserConnectionCredentials.connection_id == str(connection.id),
+                        UserConnectionCredentials.user_id == str(current_user.id),
+                        UserConnectionCredentials.is_active == True,
+                    )
+                )
+                user_cred = result.scalars().first()
+                if user_cred:
+                    user_cred.last_used_at = datetime.utcnow()
+                    await db.commit()
+
+            return connection_status
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
     async def refresh_schema(
         self,
         db: AsyncSession,

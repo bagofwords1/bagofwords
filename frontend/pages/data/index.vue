@@ -74,9 +74,10 @@
                         <div
                             v-for="ds in filteredDomains"
                             :key="ds.id"
-                            class="block p-4 rounded-lg border border-gray-100 bg-white hover:border-gray-200 hover:shadow-md transition-all group"
+                            class="block p-4 rounded-lg border border-gray-100 bg-white transition-all group"
+                            :class="userHasAccess(ds) ? 'hover:border-gray-200 hover:shadow-md' : 'opacity-75'"
                         >
-                            <NuxtLink :to="`/data/${ds.id}`" class="block">
+                            <component :is="userHasAccess(ds) ? NuxtLink : 'div'" :to="userHasAccess(ds) ? `/data/${ds.id}` : undefined" class="block">
                                 <!-- Card header -->
                                 <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
 
@@ -86,7 +87,7 @@
                                         <DataSourceIcon class="h-3.5" :type="conn.type" />
                                     </UTooltip>
                                     <span v-if="(ds.connections || []).length > 3" class="text-gray-400">+{{ (ds.connections || []).length - 3 }}</span>
-                                    <span>{{ getTableCount(ds) }} tables</span>
+                                    <span v-if="userHasAccess(ds)">{{ getTableCount(ds) }} tables</span>
                                 </div>
 
                                 <!-- Description (2 lines max) -->
@@ -96,7 +97,7 @@
                                 <p v-else class="text-xs text-gray-300 italic">
                                     No description
                                 </p>
-                            </NuxtLink>
+                            </component>
 
                             <!-- Connect button for user auth required but not connected -->
                             <button
@@ -190,6 +191,9 @@ import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import DataSourceGrid from '~/components/datasources/DataSourceGrid.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
+import { resolveComponent } from 'vue'
+
+const NuxtLink = resolveComponent('NuxtLink')
 
 const { organization } = useOrganization()
 const { isExcel } = useExcel()
@@ -251,18 +255,29 @@ function requiresUserAuth(ds: any): boolean {
         connections.some((conn: any) => conn.auth_policy === 'user_required')
 }
 
-// Check if user needs to connect (user_required but not connected yet)
+// Check if user needs to connect (user_required but no credentials yet)
 function needsUserConnection(ds: any): boolean {
     if (!requiresUserAuth(ds)) return false
     const connections = ds.connections || []
-    // Check if any user_required connection is not connected
+    // Check if any user_required connection has no user credentials
     for (const conn of connections) {
-        if (conn.auth_policy === 'user_required' && conn.user_status?.connection !== 'success') {
+        if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
             return true
         }
     }
-    const userStatus = ds.user_status?.connection
-    return userStatus !== 'success'
+    return ds.user_status?.has_user_credentials !== true && ds.user_status?.effective_auth !== 'system'
+}
+
+// Check if user has access to this data source (for clickability / table count)
+function userHasAccess(ds: any): boolean {
+    if (!requiresUserAuth(ds)) return true
+    const connections = ds.connections || []
+    if (connections.length > 0) {
+        return connections.every((conn: any) =>
+            conn.auth_policy !== 'user_required' || conn.user_status?.has_user_credentials || conn.user_status?.effective_auth === 'system'
+        )
+    }
+    return ds.user_status?.has_user_credentials === true || ds.user_status?.effective_auth === 'system'
 }
 
 // Open credentials modal for a domain

@@ -1256,6 +1256,27 @@ class DataSourceService:
         )
         row = row.scalars().first()
         if not row:
+            # Check connection-level credentials (stored by OAuth flow)
+            from app.models.user_connection_credentials import UserConnectionCredentials
+            conn_cred_result = await db.execute(
+                select(UserConnectionCredentials)
+                .where(
+                    UserConnectionCredentials.connection_id == str(conn.id),
+                    UserConnectionCredentials.user_id == str(current_user.id),
+                    UserConnectionCredentials.is_active == True,
+                )
+                .order_by(UserConnectionCredentials.is_primary.desc(), UserConnectionCredentials.updated_at.desc())
+            )
+            conn_cred = conn_cred_result.scalars().first()
+            if conn_cred:
+                if conn_cred.auth_mode == "oauth":
+                    try:
+                        from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
+                        return await maybe_refresh_oauth_credentials(db, conn, conn_cred)
+                    except Exception:
+                        return conn_cred.decrypt_credentials()
+                return conn_cred.decrypt_credentials() or {}
+
             # Owner/admin fallback: allow creator or admin to use system creds if present
             try:
                 is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
@@ -1305,9 +1326,9 @@ class DataSourceService:
         config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
         creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
         params = {**(config or {}), **(creds or {})}
-        # Strip meta keys
+        # Strip meta keys and oauth override keys
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
-        params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys}
+        params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
         # Narrow to constructor signature
         try:
             import inspect

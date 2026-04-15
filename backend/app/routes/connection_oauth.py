@@ -226,6 +226,32 @@ async def oauth_callback(
     await db.commit()
     logger.info(f"OAuth credentials saved for user {user.id} on connection {connection_id}")
 
+    # Test the connection with the new credentials
+    try:
+        from app.services.connection_service import ConnectionService
+        conn_service = ConnectionService()
+        test_result = await conn_service.test_user_connection(
+            db=db,
+            connection_id=connection_id,
+            organization=connection.organization,
+            current_user=user,
+        )
+        if not test_result.get("success"):
+            error_msg = test_result.get("message", "Connection test failed")
+            logger.warning(f"OAuth connection test failed for user {user.id}: {error_msg}")
+            response = RedirectResponse(
+                url=f"{frontend_url}/data?oauth=error&message={error_msg}"
+            )
+            _clear_oauth_cookies(response)
+            return response
+    except Exception as e:
+        logger.warning(f"OAuth connection test failed: {e}")
+        response = RedirectResponse(
+            url=f"{frontend_url}/data?oauth=error&message={e}"
+        )
+        _clear_oauth_cookies(response)
+        return response
+
     # Trigger overlay sync (best-effort)
     try:
         from app.services.data_source_service import DataSourceService
