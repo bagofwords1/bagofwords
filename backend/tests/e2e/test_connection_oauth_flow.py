@@ -592,3 +592,274 @@ class TestOBOAutoProvision:
         assert len(mock.obo_log) == 2
         provisioned_types = {c["type"] for c in summary["provisioned"]}
         assert provisioned_types == {"powerbi", "ms_fabric"}
+
+
+class TestUserOverlaySync:
+    """Tests for _upsert_user_overlay — per-user schema overlay stored on
+    user_data_source_tables / user_data_source_columns.
+
+    These tests mock the data source client to return different tables per
+    invocation (mimicking a user gaining/losing access) and verify the overlay
+    reflects the changes.
+    """
+
+    async def _provision_user_creds(self, db, user_id: str, connection_id: str, organization_id: str):
+        """Directly insert a UserConnectionCredentials row with an access_token
+        that embeds the user_id, so the mocked MsFabricClient.get_schemas can
+        route per-user without going through the OBO flow (which returns opaque
+        tokens). This lets the test focus on overlay behavior in isolation.
+        """
+        from app.models.user_connection_credentials import UserConnectionCredentials
+        from datetime import datetime, timedelta, timezone
+        cred = UserConnectionCredentials(
+            connection_id=connection_id,
+            user_id=user_id,
+            organization_id=organization_id,
+            auth_mode="oauth",
+            is_active=True,
+            is_primary=True,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        cred.encrypt_credentials({
+            "access_token": f"token-for-user-{user_id}",
+            "refresh_token": "refresh-x",
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "token_type": "Bearer",
+        })
+        db.add(cred)
+        await db.commit()
+
+    @pytest.mark.asyncio
+    async def test_overlay_differs_per_user_and_revokes_on_shrinkage(
+        self, test_client, login_user, create_connection, create_user, whoami,
+    ):
+        """Two users with different data source permissions get different overlays;
+        when a user loses access to a table, the overlay marks it revoked instead
+        of leaving stale `is_accessible=True` rows."""
+        from unittest.mock import patch as mock_patch
+        from app.dependencies import async_session_maker
+        from app.models.user import User
+        from app.models.data_source import DataSource
+        from app.models.user_data_source_overlay import UserDataSourceTable
+        from app.services.data_source_service import DataSourceService
+        from app.ai.prompt_formatters import Table, TableColumn
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        # Admin + second user in the same org (u1 is admin since they created the org)
+        import uuid as _uuid
+        u1_email = f"u1_{_uuid.uuid4().hex[:8]}@test.com"
+        u2_email = f"u2_{_uuid.uuid4().hex[:8]}@test.com"
+        u1 = create_user(email=u1_email)
+        u1_token = login_user(u1["email"], u1["password"])
+        me1 = whoami(u1_token)
+        org_id = me1["organizations"][0]["id"]
+        u1_id = me1["id"]
+        # Admin invites u2 BEFORE u2 registers (required because uninvited signups disabled)
+        invite_resp = test_client.post(
+            f"/api/organizations/{org_id}/members",
+            json={"email": u2_email, "role": "member", "organization_id": org_id},
+            headers={"Authorization": f"Bearer {u1_token}", "X-Organization-Id": org_id},
+        )
+        assert invite_resp.status_code in (200, 201), invite_resp.text
+        u2 = create_user(email=u2_email)
+        u2_token = login_user(u2["email"], u2["password"])
+        me2 = whoami(u2_token)
+        u2_id = me2["id"]
+
+        # Admin creates the Fabric connection + DataSource
+        conn = create_connection(
+            name="Overlay Fabric",
+            type="ms_fabric",
+            config={"server_hostname": "test.datawarehouse.fabric.microsoft.com", "database": "demo"},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=u1_token,
+            org_id=org_id,
+        )
+        ds_resp = test_client.post(
+            "/api/data_sources",
+            json={"name": "Overlay DS", "connection_id": conn["id"], "is_public": True, "generate_summary": False},
+            headers={"Authorization": f"Bearer {u1_token}", "X-Organization-Id": org_id},
+        )
+        assert ds_resp.status_code == 200, ds_resp.text
+        ds_id = ds_resp.json()["id"]
+
+        sales = Table(
+            name="dbo.sales",
+            columns=[TableColumn(name="id", dtype="int"), TableColumn(name="region", dtype="varchar")],
+            pks=[TableColumn(name="id", dtype="int")], fks=[], metadata_json=None,
+        )
+        finance = Table(
+            name="dbo.finance",
+            columns=[TableColumn(name="id", dtype="int"), TableColumn(name="budget", dtype="decimal")],
+            pks=[TableColumn(name="id", dtype="int")], fks=[], metadata_json=None,
+        )
+
+        user1_tables = [sales, finance]
+        user2_tables = [sales]
+
+        def mock_get_schemas(self):
+            tok = getattr(self, "_delegated_access_token", None) or ""
+            if u1_id in tok:
+                return list(user1_tables)
+            if u2_id in tok:
+                return list(user2_tables)
+            return []
+
+        # Provision user-scoped credentials directly so the mocked client can
+        # route by the embedded user_id.
+        async with async_session_maker() as db:
+            await self._provision_user_creds(db, u1_id, conn["id"], org_id)
+            await self._provision_user_creds(db, u2_id, conn["id"], org_id)
+
+        svc = DataSourceService()
+        with mock_patch(
+            "app.data_sources.clients.ms_fabric_client.MsFabricClient.get_schemas",
+            mock_get_schemas,
+        ):
+            async with async_session_maker() as db:
+                ds = (await db.execute(
+                    select(DataSource)
+                    .options(selectinload(DataSource.connections))
+                    .where(DataSource.id == ds_id)
+                )).scalars().first()
+                u1_obj = (await db.execute(select(User).where(User.id == u1_id))).scalars().first()
+                u2_obj = (await db.execute(select(User).where(User.id == u2_id))).scalars().first()
+                await svc.get_user_data_source_schema(db=db, data_source=ds, user=u1_obj)
+                await svc.get_user_data_source_schema(db=db, data_source=ds, user=u2_obj)
+
+            async with async_session_maker() as db:
+                async def accessible_tables(uid):
+                    r = await db.execute(
+                        select(UserDataSourceTable.table_name)
+                        .where(UserDataSourceTable.data_source_id == ds_id)
+                        .where(UserDataSourceTable.user_id == uid)
+                        .where(UserDataSourceTable.is_accessible == True)
+                        .where(UserDataSourceTable.deleted_at.is_(None))
+                        .order_by(UserDataSourceTable.table_name)
+                    )
+                    return [t for (t,) in r.all()]
+
+                u1_tables_before = await accessible_tables(u1_id)
+                u2_tables_before = await accessible_tables(u2_id)
+                assert u1_tables_before == ["dbo.finance", "dbo.sales"], u1_tables_before
+                assert u2_tables_before == ["dbo.sales"], u2_tables_before
+                assert u1_tables_before != u2_tables_before
+
+            # u1 loses access to dbo.finance upstream
+            user1_tables.clear()
+            user1_tables.append(sales)
+
+            async with async_session_maker() as db:
+                ds = (await db.execute(
+                    select(DataSource).options(selectinload(DataSource.connections))
+                    .where(DataSource.id == ds_id)
+                )).scalars().first()
+                u1_obj = (await db.execute(select(User).where(User.id == u1_id))).scalars().first()
+                await svc.get_user_data_source_schema(db=db, data_source=ds, user=u1_obj)
+
+            async with async_session_maker() as db:
+                r = await db.execute(
+                    select(UserDataSourceTable.table_name, UserDataSourceTable.is_accessible, UserDataSourceTable.status)
+                    .where(UserDataSourceTable.data_source_id == ds_id)
+                    .where(UserDataSourceTable.user_id == u1_id)
+                    .where(UserDataSourceTable.deleted_at.is_(None))
+                    .order_by(UserDataSourceTable.table_name)
+                )
+                by_name = {name: (acc, status) for (name, acc, status) in r.all()}
+                assert by_name["dbo.sales"] == (True, "accessible"), by_name
+                assert by_name["dbo.finance"] == (False, "revoked"), by_name
+
+                # The LLM schema-context filter excludes the revoked row
+                r = await db.execute(
+                    select(UserDataSourceTable.table_name)
+                    .where(UserDataSourceTable.data_source_id == ds_id)
+                    .where(UserDataSourceTable.user_id == u1_id)
+                    .where(UserDataSourceTable.is_accessible == True)
+                    .where(UserDataSourceTable.deleted_at.is_(None))
+                )
+                assert [t for (t,) in r.all()] == ["dbo.sales"]
+
+    @pytest.mark.asyncio
+    async def test_overlay_resync_is_idempotent(
+        self, test_client, login_user, create_connection, create_user, whoami,
+    ):
+        """Running the overlay sync twice with identical mock data should not
+        duplicate rows or flip flags."""
+        from unittest.mock import patch as mock_patch
+        from app.dependencies import async_session_maker
+        from app.models.user import User
+        from app.models.data_source import DataSource
+        from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
+        from app.services.data_source_service import DataSourceService
+        from app.ai.prompt_formatters import Table, TableColumn
+        from sqlalchemy import select, func
+        from sqlalchemy.orm import selectinload
+
+        u = create_user()
+        token = login_user(u["email"], u["password"])
+        me = whoami(token)
+        org_id = me["organizations"][0]["id"]
+        user_id = me["id"]
+
+        conn = create_connection(
+            name="Idempotent Fabric",
+            type="ms_fabric",
+            config={"server_hostname": "test.datawarehouse.fabric.microsoft.com", "database": "demo"},
+            credentials={"tenant_id": "t1", "client_id": "c1", "client_secret": "s1"},
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+            user_token=token,
+            org_id=org_id,
+        )
+        ds_resp = test_client.post(
+            "/api/data_sources",
+            json={"name": "Idempotent DS", "connection_id": conn["id"], "is_public": True, "generate_summary": False},
+            headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+        )
+        assert ds_resp.status_code == 200, ds_resp.text
+        ds_id = ds_resp.json()["id"]
+
+        sales = Table(
+            name="dbo.sales",
+            columns=[TableColumn(name="id", dtype="int"), TableColumn(name="region", dtype="varchar")],
+            pks=[TableColumn(name="id", dtype="int")], fks=[], metadata_json=None,
+        )
+
+        def mock_get_schemas(self):
+            return [sales]
+
+        # Provision user-scoped credentials directly (same pattern as above).
+        async with async_session_maker() as db:
+            await self._provision_user_creds(db, user_id, conn["id"], org_id)
+
+        svc = DataSourceService()
+        with mock_patch(
+            "app.data_sources.clients.ms_fabric_client.MsFabricClient.get_schemas",
+            mock_get_schemas,
+        ):
+            async with async_session_maker() as db:
+                ds = (await db.execute(
+                    select(DataSource).options(selectinload(DataSource.connections))
+                    .where(DataSource.id == ds_id)
+                )).scalars().first()
+                user_obj = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+                await svc.get_user_data_source_schema(db=db, data_source=ds, user=user_obj)
+                await svc.get_user_data_source_schema(db=db, data_source=ds, user=user_obj)
+
+            async with async_session_maker() as db:
+                t_count = (await db.execute(
+                    select(func.count(UserDataSourceTable.id))
+                    .where(UserDataSourceTable.data_source_id == ds_id)
+                    .where(UserDataSourceTable.user_id == user_id)
+                )).scalar()
+                c_count = (await db.execute(
+                    select(func.count(UserDataSourceColumn.id))
+                    .join(UserDataSourceTable, UserDataSourceTable.id == UserDataSourceColumn.user_data_source_table_id)
+                    .where(UserDataSourceTable.data_source_id == ds_id)
+                    .where(UserDataSourceTable.user_id == user_id)
+                )).scalar()
+                assert t_count == 1, f"expected exactly 1 table row, got {t_count}"
+                assert c_count == 2, f"expected exactly 2 column rows, got {c_count}"

@@ -2212,22 +2212,33 @@ class DataSourceService:
         return tables
 
     async def _upsert_user_overlay(self, db: AsyncSession, data_source: DataSource, user: User, normalized: dict[str, dict]):
-        """Upsert per-user table/column overlay based on normalized schema."""
+        """Upsert per-user table/column overlay based on normalized schema.
+
+        Tables/columns present in `normalized` are marked accessible. Any rows
+        that existed before but are no longer returned are marked
+        `is_accessible=False, status='revoked'` so consumers (LLM schema context,
+        UI) stop surfacing them when the user loses permissions upstream. Rows
+        are kept (not hard-deleted) so audit history survives across syncs.
+        """
         now = datetime.now(timezone.utc)
         # Load canonical mapping to link if present
         existing_q = await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id))
         canonical_by_name = {row.name: row for row in existing_q.scalars().all()}
 
-        for table_name, payload in normalized.items():
-            # Upsert table overlay
-            row_q = await db.execute(
-                select(UserOverlayTable).where(
-                    UserOverlayTable.data_source_id == data_source.id,
-                    UserOverlayTable.user_id == user.id,
-                    UserOverlayTable.table_name == table_name,
-                )
+        # Load all prior overlay rows for (data_source, user). We need them both to
+        # update matches AND to detect tables that disappeared from the latest sync.
+        all_prior_q = await db.execute(
+            select(UserOverlayTable).where(
+                UserOverlayTable.data_source_id == data_source.id,
+                UserOverlayTable.user_id == user.id,
+                UserOverlayTable.deleted_at.is_(None),
             )
-            t_row = row_q.scalar_one_or_none()
+        )
+        prior_by_name = {row.table_name: row for row in all_prior_q.scalars().all()}
+        new_table_names = set(normalized.keys())
+
+        for table_name, payload in normalized.items():
+            t_row = prior_by_name.get(table_name)
             if t_row is None:
                 t_row = UserOverlayTable(
                     data_source_id=str(data_source.id),
@@ -2244,15 +2255,21 @@ class DataSourceService:
                 t_row.metadata_json = payload.get("metadata_json")
                 if t_row.data_source_table_id is None and canonical_by_name.get(table_name):
                     t_row.data_source_table_id = str(canonical_by_name.get(table_name).id)
+                # Re-grant access if this table had been marked revoked on a prior sync
+                if not t_row.is_accessible or t_row.status != "accessible":
+                    t_row.is_accessible = True
+                    t_row.status = "accessible"
                 db.add(t_row)
 
-            # Upsert column overlays
+            # Upsert column overlays for this table
             existing_cols_q = await db.execute(select(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id == t_row.id))
             existing_cols = {c.column_name: c for c in existing_cols_q.scalars().all()}
+            new_col_names = set()
             for col in (payload.get("columns") or []):
                 col_name = col.get("name")
                 if not col_name:
                     continue
+                new_col_names.add(col_name)
                 c_row = existing_cols.get(col_name)
                 if c_row is None:
                     c_row = UserOverlayColumn(
@@ -2264,7 +2281,37 @@ class DataSourceService:
                     )
                 else:
                     c_row.data_type = col.get("dtype")
+                    # Re-grant if previously revoked
+                    if not c_row.is_accessible:
+                        c_row.is_accessible = True
                 db.add(c_row)
+            # Revoke columns no longer returned for this table
+            for existing_name, c_row in existing_cols.items():
+                if existing_name not in new_col_names and c_row.is_accessible:
+                    c_row.is_accessible = False
+                    db.add(c_row)
+
+        # Revoke tables that existed before but are no longer returned. The user
+        # has lost access upstream (e.g., SQL GRANT revoked, PowerBI dataset
+        # permission removed) and should stop seeing them in LLM context / UI.
+        for existing_name, t_row in prior_by_name.items():
+            if existing_name in new_table_names:
+                continue
+            if not t_row.is_accessible and t_row.status == "revoked":
+                continue  # already revoked, no change
+            t_row.is_accessible = False
+            t_row.status = "revoked"
+            db.add(t_row)
+            # Cascade to columns so both layers reflect the revocation
+            cols_q = await db.execute(
+                select(UserOverlayColumn).where(
+                    UserOverlayColumn.user_data_source_table_id == t_row.id
+                )
+            )
+            for c in cols_q.scalars().all():
+                if c.is_accessible:
+                    c.is_accessible = False
+                    db.add(c)
 
         await db.commit()
     
