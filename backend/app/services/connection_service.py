@@ -65,6 +65,14 @@ class ConnectionService:
                 detail="User authentication mode requires an enterprise license."
             )
 
+        # Default allowed_user_auth_modes for user_required connections on OBO-capable types.
+        # Frontend's "Require user auth" toggle doesn't currently let admins pick modes,
+        # so null/[] would silently disable both auto-provision and the /authorize route.
+        if auth_policy == "user_required" and not allowed_user_auth_modes:
+            from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
+            if type in ENTRA_OBO_CONNECTION_TYPES:
+                allowed_user_auth_modes = ["oauth"]
+
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
             validation_result = await self.test_connection_params(
@@ -207,6 +215,13 @@ class ConnectionService:
                     status_code=402,
                     detail="User authentication mode requires an enterprise license."
                 )
+
+        # Default allowed_user_auth_modes when switching to user_required (see create_connection)
+        if new_auth_policy == "user_required" and not updates.get("allowed_user_auth_modes"):
+            from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
+            target_type = updates.get("type", connection.type)
+            if target_type in ENTRA_OBO_CONNECTION_TYPES and not (connection.allowed_user_auth_modes or []):
+                updates["allowed_user_auth_modes"] = ["oauth"]
 
         # Track if connection-relevant fields changed
         connection_changed = False
