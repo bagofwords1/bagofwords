@@ -119,6 +119,13 @@ class MsFabricClient(DataSourceClient):
 
             where_clauses = [f"c.TABLE_CATALOG = '{self.database}'"]
             where_clauses.append("c.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA', 'queryinsights')")
+            # Filter to objects the connecting principal actually has SELECT on.
+            # INFORMATION_SCHEMA shows objects whose existence is visible (e.g. via REFERENCES,
+            # CONTROL, or schema membership), which is broader than SELECT — so a user with
+            # DENY SELECT still sees the table listed without this filter.
+            where_clauses.append(
+                "HAS_PERMS_BY_NAME(QUOTENAME(c.TABLE_SCHEMA) + '.' + QUOTENAME(c.TABLE_NAME), 'OBJECT', 'SELECT') = 1"
+            )
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"c.TABLE_SCHEMA IN ({schema_list})")
@@ -183,6 +190,11 @@ class MsFabricClient(DataSourceClient):
 
             where_clauses = [f"TABLE_CATALOG = '{self.database}'"]
             where_clauses.append("TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA', 'queryinsights')")
+            # Filter to objects the connecting principal actually has SELECT on
+            # (see _get_tables_enriched for rationale).
+            where_clauses.append(
+                "HAS_PERMS_BY_NAME(QUOTENAME(TABLE_SCHEMA) + '.' + QUOTENAME(TABLE_NAME), 'OBJECT', 'SELECT') = 1"
+            )
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"TABLE_SCHEMA IN ({schema_list})")

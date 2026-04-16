@@ -195,7 +195,10 @@ ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric"}
 # requiring the user to re-authenticate when the short-lived access token expires.
 _OBO_SCOPES = {
     "powerbi": "https://analysis.windows.net/powerbi/api/.default offline_access",
-    "ms_fabric": "https://api.fabric.microsoft.com/.default offline_access",
+    # Fabric Warehouse SQL endpoint authenticates with Azure SQL tokens, not Fabric API tokens.
+    # Requires the app registration to have "Azure SQL Database / user_impersonation" delegated
+    # permission with admin consent — the Fabric API scope returns tokens the SQL endpoint rejects.
+    "ms_fabric": "https://database.windows.net/user_impersonation offline_access",
 }
 
 
