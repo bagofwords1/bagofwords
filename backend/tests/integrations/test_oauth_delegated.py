@@ -10,8 +10,17 @@ Tests the full OAuth delegated flow against real Entra ID + Fabric/PowerBI:
 5. get_oauth_params and authorize endpoint with real credentials
 
 Usage:
+    # Set required env vars before running (never commit these):
+    export BOW_ENTRA_TENANT_ID='...'
+    export BOW_ENTRA_CLIENT_ID='...'
+    export BOW_ENTRA_CLIENT_SECRET='...'
+    export BOW_OAUTH_TEST_DEMO1_EMAIL='...'
+    export BOW_OAUTH_TEST_DEMO1_PASSWORD='...'
+    export BOW_OAUTH_TEST_DEMO2_EMAIL='...'
+    export BOW_OAUTH_TEST_DEMO2_PASSWORD='...'
+    export BOW_FABRIC_SERVER='...'        # e.g. abc123.datawarehouse.fabric.microsoft.com
+
     # Non-interactive tests (client_credentials, params, authorize endpoint):
-    export BOW_ENTRA_CLIENT_SECRET='wNb8Q~...'
     pytest tests/integrations/test_oauth_delegated.py -v -s -k "not Interactive"
 
     # Interactive tests (requires browser login for device code):
@@ -33,22 +42,24 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Test configuration — Entra app registration
+# Test configuration — all secrets come from env vars. Set these to your Entra
+# app registration and demo user creds before running these tests. Never commit
+# credentials to the repo.
 # ---------------------------------------------------------------------------
 
-TENANT_ID = "3871cb7e-3f16-4b81-84c5-1a5e185509f9"
-CLIENT_ID = "a9010cd3-08ff-451b-b041-5007a94ba677"
+TENANT_ID = os.environ.get("BOW_ENTRA_TENANT_ID", "")
+CLIENT_ID = os.environ.get("BOW_ENTRA_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("BOW_ENTRA_CLIENT_SECRET", "")
 
-# Demo users
-DEMO1_EMAIL = "demo1@bow14.onmicrosoft.com"
-DEMO1_PASSWORD = "BOW123123!1"
-DEMO2_EMAIL = "demo2@bow14.onmicrosoft.com"
-DEMO2_PASSWORD = "BOW123123!1"
+# Demo users (set via env to avoid committing credentials)
+DEMO1_EMAIL = os.environ.get("BOW_OAUTH_TEST_DEMO1_EMAIL", "")
+DEMO1_PASSWORD = os.environ.get("BOW_OAUTH_TEST_DEMO1_PASSWORD", "")
+DEMO2_EMAIL = os.environ.get("BOW_OAUTH_TEST_DEMO2_EMAIL", "")
+DEMO2_PASSWORD = os.environ.get("BOW_OAUTH_TEST_DEMO2_PASSWORD", "")
 
 # Fabric connection details
 FABRIC_SERVER = os.environ.get("BOW_FABRIC_SERVER", "")
-FABRIC_DATABASE = "demo_db"
+FABRIC_DATABASE = os.environ.get("BOW_FABRIC_DATABASE", "demo_db")
 
 # Scopes
 FABRIC_SCOPE = "https://api.fabric.microsoft.com/.default"
@@ -63,8 +74,19 @@ _token_cache = {}
 
 
 def _skip_if_no_secret():
-    if not CLIENT_SECRET:
-        pytest.skip("BOW_ENTRA_CLIENT_SECRET not set — skipping real OAuth tests")
+    missing = [
+        name for name, val in [
+            ("BOW_ENTRA_TENANT_ID", TENANT_ID),
+            ("BOW_ENTRA_CLIENT_ID", CLIENT_ID),
+            ("BOW_ENTRA_CLIENT_SECRET", CLIENT_SECRET),
+            ("BOW_OAUTH_TEST_DEMO1_EMAIL", DEMO1_EMAIL),
+            ("BOW_OAUTH_TEST_DEMO1_PASSWORD", DEMO1_PASSWORD),
+            ("BOW_OAUTH_TEST_DEMO2_EMAIL", DEMO2_EMAIL),
+            ("BOW_OAUTH_TEST_DEMO2_PASSWORD", DEMO2_PASSWORD),
+        ] if not val
+    ]
+    if missing:
+        pytest.skip(f"OAuth test env vars not set ({', '.join(missing)}) — skipping real OAuth tests")
 
 
 # ---------------------------------------------------------------------------

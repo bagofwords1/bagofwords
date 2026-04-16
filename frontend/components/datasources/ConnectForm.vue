@@ -279,7 +279,11 @@ async function fetchAvailable() {
 async function fetchFields() {
   if (!selectedType.value) return
   try {
-    const res = await useMyFetch(`/data_sources/${selectedType.value}/fields?auth_policy=${auth_policy.value}` as any, { method: 'GET' })
+    // Admin connection setup always shows system-scoped auth variants (service principal,
+    // username/password, etc.) regardless of the "require user auth" toggle. The toggle
+    // only determines what gets persisted on the connection (auth_policy/allowed_user_auth_modes);
+    // admins still need to configure the system credentials the app uses for OAuth app registration.
+    const res = await useMyFetch(`/data_sources/${selectedType.value}/fields?auth_policy=system_only` as any, { method: 'GET' })
     fields.value = (res.data as any)?.value || { config: null, credentials: null }
     // set default auth
     const authMeta = fields.value?.auth

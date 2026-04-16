@@ -185,9 +185,21 @@ def patch_oauth_for_tests(mock: MockOAuthProvider = None):
     return _CombinedPatch(mock)
 
 
-def _async_mock(*args, **kwargs):
-    from unittest.mock import AsyncMock
-    return AsyncMock(return_value=[])
+async def _async_mock_noop(*args, **kwargs):
+    """Async no-op that returns an empty list, suitable for replacing async methods
+    whose return value callers await directly."""
+    return []
+
+
+async def _async_test_connection_ok(*args, **kwargs):
+    """Async mock that returns a successful test_user_connection result."""
+    return {
+        "success": True,
+        "message": "OK (mocked)",
+        "connectivity": True,
+        "schema_access": True,
+        "table_count": 0,
+    }
 
 
 class _CombinedPatch:
@@ -214,7 +226,14 @@ class _CombinedPatch:
             ),
             patch(
                 "app.services.data_source_service.DataSourceService.get_user_data_source_schema",
-                new_callable=lambda: _async_mock,
+                new=_async_mock_noop,
+            ),
+            # The OAuth callback tests the connection after storing tokens. In tests we
+            # mock this to always succeed since the mock tokens won't work against real
+            # data source APIs (and in sandboxed environments those APIs may be blocked).
+            patch(
+                "app.services.connection_service.ConnectionService.test_user_connection",
+                new=_async_test_connection_ok,
             ),
         ]
 

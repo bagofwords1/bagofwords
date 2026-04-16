@@ -7,6 +7,7 @@ multi-provider support, token refresh, and re-sign-in behavior.
 """
 import json
 import time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, AsyncMock, MagicMock
 
@@ -15,6 +16,17 @@ import httpx
 
 from tests.mocks.mock_oauth_provider import MockOAuthProvider, patch_oauth_for_tests
 from app.services.connection_oauth_service import auto_provision_connection_credentials
+
+
+def _state_from_authorize(auth_resp) -> str:
+    """Extract the signed state JWT from the authorization_url returned by /authorize.
+
+    State is embedded in the URL as a query param (it's signed server-side and not
+    stored in a cookie, so the callback can't be spoofed by modifying cookies).
+    """
+    url = auth_resp.json()["authorization_url"]
+    parsed = urllib.parse.urlparse(url)
+    return urllib.parse.parse_qs(parsed.query)["state"][0]
 
 
 # ---------------------------------------------------------------------------
@@ -59,9 +71,11 @@ class TestOAuthAuthorizeRoute:
         assert "code_challenge=" in url
         assert "state=" in url
 
-        # Verify cookies set
-        assert "conn_oauth_state" in response.cookies
+        # State is a signed JWT embedded in the URL (not in a cookie — that would
+        # be tamperable by the user, since cookies are client-controlled).
+        # Only the PKCE verifier needs a cookie (per-session secret for the code exchange).
         assert "conn_oauth_verifier" in response.cookies
+        assert "conn_oauth_state" not in response.cookies
 
     def test_authorize_nonexistent_connection(self, test_client, login_user, create_user, whoami):
         """Authorize returns 404 for non-existent connection."""
@@ -100,13 +114,13 @@ class TestOAuthCallbackRoute:
         )
 
         with patch_oauth_for_tests() as mock:
-            # Step 1: Get authorize URL (this sets cookies)
+            # Step 1: Get authorize URL (this sets the PKCE verifier cookie + returns signed state in URL)
             auth_resp = test_client.get(
                 f"/api/connections/{conn['id']}/oauth/authorize",
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
             )
             assert auth_resp.status_code == 200
-            state = auth_resp.cookies.get("conn_oauth_state")
+            state = _state_from_authorize(auth_resp)
 
             # Step 2: Simulate callback with the code and state
             callback_resp = test_client.get(
@@ -232,7 +246,7 @@ class TestOAuthReSignIn:
                 f"/api/connections/{conn['id']}/oauth/authorize",
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
             )
-            state1 = auth_resp.cookies.get("conn_oauth_state")
+            state1 = _state_from_authorize(auth_resp)
             test_client.get(
                 f"/api/connections/oauth/callback?code=code1&state={state1}",
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
@@ -244,7 +258,7 @@ class TestOAuthReSignIn:
                 f"/api/connections/{conn['id']}/oauth/authorize",
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
             )
-            state2 = auth_resp2.cookies.get("conn_oauth_state")
+            state2 = _state_from_authorize(auth_resp2)
             test_client.get(
                 f"/api/connections/oauth/callback?code=code2&state={state2}",
                 headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},

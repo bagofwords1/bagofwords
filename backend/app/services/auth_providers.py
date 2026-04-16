@@ -421,7 +421,6 @@ async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) 
     # Handle Entra group overage (>200 groups — groups omitted, _claim_names present)
     if not group_ids and "_claim_names" in id_claims:
         _auth_logger.info("OIDC group sync: group overage detected, falling back to Graph API")
-        from app.ee.oidc.graph_client import resolve_group_names_by_ids
         # For overage, we need to get all groups via Graph — use /me/memberOf with delegated token first,
         # fall back to client credentials
         try:

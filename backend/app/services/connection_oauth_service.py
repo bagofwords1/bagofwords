@@ -191,9 +191,11 @@ ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric"}
 
 # Resource scopes used when requesting OBO tokens per connection type.
 # These must match the API permissions granted to the Entra app registration.
+# `offline_access` requests a refresh_token so the token can be renewed without
+# requiring the user to re-authenticate when the short-lived access token expires.
 _OBO_SCOPES = {
-    "powerbi": "https://analysis.windows.net/powerbi/api/.default",
-    "ms_fabric": "https://api.fabric.microsoft.com/.default",
+    "powerbi": "https://analysis.windows.net/powerbi/api/.default offline_access",
+    "ms_fabric": "https://api.fabric.microsoft.com/.default offline_access",
 }
 
 
