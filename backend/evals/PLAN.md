@@ -2,167 +2,188 @@
 
 ## Goal
 
-Reuse the in-product evals feature (`TestSuite` / `TestCase` / `TestRun` /
-`TestResult`, plus `TestEvaluationService` and `Judge`) as the evaluation
-harness. Add a YAML loader so suites can be versioned in git, consumed by CI
-pytest evals, bootstrapped on startup, and imported by customers via API/CLI.
+Two shipments, one loader:
+
+1. **Customer feature** — YAML import/export via HTTP so customers can version
+   test suites in git and push them to their org.
+2. **Internal pytest evals** — a handful of YAML suites under
+   `backend/evals/suites/` that run through pytest like the existing e2e
+   tests (`test_report.py`, `test_eval.py`), consuming the same HTTP endpoint
+   via `test_client`.
+
+The import service is the seam that both consumers share.
 
 ## Non-goals
 
-- Building a parallel eval stack that duplicates the assertion engine or the
-  agent execution path.
-- Replacing the in-product UI for authoring suites — YAML is complementary.
-- Shipping the customer-facing import endpoint in phase 1.
+- A CLI (`curl` / `test_client` / the UI cover every use case).
+- Replacing the in-product UI suite editor — YAML is complementary.
+- Building a parallel assertion engine. All rules go through the existing
+  `ExpectationsSpec` / `TestEvaluationService` / `Judge` pipeline.
 
-## Why reuse the product feature
+## Why reuse the in-product feature
 
-- Assertion grammar (`ExpectationsSpec`, matchers, `OrderingRule`,
-  `ToolCallsRule`, `FieldRule`) already exists and is pydantic-validated.
-- Execution already wired to `AgentV2.main_execution` via
-  `TestRunService.create_and_execute_background` and `stream_run`.
+- `ExpectationsSpec`, matchers, `OrderingRule`, `ToolCallsRule`, `FieldRule`
+  already pydantic-validated.
+- `TestRunService.create_and_execute_background` already drives real
+  `AgentV2.main_execution` per case.
 - `TestEvaluationService.build_final_snapshot` + `evaluate_final` already
-  introspect `ToolExecution`, `AgentExecution`, `Completion`, and `Judge`.
-- `TestRun.build_id` already ties each run to an `InstructionBuild` — free
+  introspect `ToolExecution`, `AgentExecution`, `Completion`, `Judge`.
+- `TestRun.build_id` already ties runs to `InstructionBuild` — free
   regression comparison across prompt versions.
-
-## What is missing today
-
-- No file-based suite definitions — cases live only in DB, created via UI/API.
-- No headless CLI — the legacy `backend/bow-eval.py` drives the old REST flow
-  and predates the evals feature; this plan supersedes it.
-- `TestEvaluationService.build_final_snapshot` only extracts structured fields
-  for `tool:create_data` and `tool:clarify`. Artifact-level FieldRule support
-  (`tool:create_artifact`, `tool:edit_artifact`) is deferred; for now,
-  artifact assertions go through `ToolCallsRule`, `OrderingRule`, and `Judge`.
 
 ## Architecture
 
-### Layers
+### Components
 
-1. **YAML schema** — thin pydantic wrappers (`SuiteYaml`, `CaseYaml`) that
-   embed the existing `PromptSchema` and `ExpectationsSpec` so all validation
-   is automatic.
-2. **Import service** — `TestSuiteImportService` under
-   `backend/app/services/` with `import_yaml(...)` and `export_yaml(...)`.
-3. **CLI** — `python -m app.evals import <path> --org <slug>`; thin wrapper
-   over the service.
-4. **Pytest integration** — `backend/tests/evals/` parametrizes over YAML
-   cases, seeds via the import service, runs via existing
-   `TestRunService`, polls for terminal status.
-5. **HTTP endpoints (phase 3)** — `POST /api/tests/suites/import`,
-   `GET /api/tests/suites/{id}/export`.
-6. **Startup bootstrap (phase 3, optional)** — feature-flagged loader that
-   imports `backend/evals/suites/*.yaml` into a configured org on boot.
+| Component                                | Phase | Consumer                         |
+| ---------------------------------------- | ----- | -------------------------------- |
+| `SuiteYaml` / `CaseYaml` pydantic        | 1     | service + tests                  |
+| `TestSuiteImportService`                 | 1     | HTTP route + pytest              |
+| `POST /api/tests/suites/import`          | 1     | customers + pytest (via client)  |
+| `GET  /api/tests/suites/{id}/export`     | 1     | customers (round-trip)           |
+| `backend/evals/suites/*.yaml`            | 1     | pytest (canonical cases)         |
+| `tests/evals/conftest.py` fixtures       | 2     | pytest                           |
+| `tests/evals/test_evals.py`              | 2     | pytest                           |
+| Startup bootstrap (optional)             | 3     | self-hosted installs             |
+| Artifact FieldRule extractors            | 4     | richer assertions                |
 
 ### File layout
 
 ```
 backend/evals/
-  PLAN.md                        # this file
+  PLAN.md                              # this file
   suites/
     sanity_smoke.yaml
     sanity_dashboards.yaml
     sanity_clarify.yaml
-backend/app/services/
-  test_suite_import_service.py   # new (phase 1)
 backend/app/schemas/
-  suite_yaml_schema.py           # new (phase 1) — SuiteYaml, CaseYaml
-backend/app/evals/               # new (phase 1) — `python -m app.evals`
+  suite_yaml_schema.py                 # SuiteYaml, CaseYaml (phase 1)
+backend/app/services/
+  test_suite_import_service.py         # import_yaml / export_yaml (phase 1)
+backend/app/routes/
+  test.py                              # +2 handlers (phase 1)
+backend/tests/evals/
   __init__.py
-  __main__.py
-backend/tests/evals/             # new (phase 2)
-  conftest.py
-  test_evals.py
+  conftest.py                          # loader, wait_for_run (phase 2)
+  test_evals.py                        # parametrized over YAML (phase 2)
 ```
 
 ### YAML schema
 
 ```yaml
-name: <string>                     # unique per org
+name: <string>                       # unique per org
 description: <string?>
-data_source_slugs: [<slug>, ...]   # default attachments for all cases
+data_source_slugs: [<slug>, ...]     # default attachments for all cases
 cases:
-  - name: <string>                 # unique per suite
+  - name: <string>                   # unique per suite
     prompt:
       content: <string>
       mentions: [...]?
       mode: page | slides | null
-      model: <provider>/<model>?   # resolved by service (no UUIDs)
+      model: <provider>/<model>?     # resolved by service; no UUIDs
     data_source_slugs: [<slug>, ...]?  # per-case override
     expectations:
       spec_version: 1
       order_mode: flexible | strict | exact
-      rules: [...]                 # any Rule shape from ExpectationsSpec
+      rules: [...]                   # any Rule from ExpectationsSpec
 ```
 
-**Portability rule — no UUIDs in YAML.** Data sources referenced by slug (or
-name fallback), LLM model referenced by `<provider>/<model>` pair. The
-resolver errors loudly if a slug is missing in the target org.
+**Portability rule — no UUIDs in YAML.** Data sources by slug (or name
+fallback); models by `<provider>/<model>` pair. Resolver errors loudly when
+the target org is missing a referenced slug.
 
-### Upsert strategy
+### Import semantics
 
 - Suite matched by `(organization_id, suite.name)`.
 - Case matched by `(suite_id, case.name)`.
-- Cases present in DB but absent from re-imported YAML are soft-deleted so
-  historical `TestResult` rows remain linkable.
-- `import_yaml(..., strategy="replace")` hard-deletes removed cases (opt-in).
+- Cases present in DB but absent from the re-imported YAML are **soft-deleted**
+  so historical `TestResult` rows remain intact.
+- `strategy="replace"` hard-deletes removed cases (opt-in; query param).
+
+### Pytest flow (mirrors existing e2e pattern)
+
+```python
+@pytest.mark.evals
+@pytest.mark.parametrize("case_spec", load_all_yaml_cases(),
+                         ids=lambda c: f"{c.suite}/{c.case}")
+def test_eval_case(case_spec,
+                   create_user, login_user, whoami,
+                   create_llm_provider, create_data_source,
+                   import_yaml_suite,            # new fixture (POSTs via test_client)
+                   create_test_run,              # existing
+                   wait_for_run):                # new fixture
+    user = create_user(); token = login_user(...); org_id = whoami(...)[...]
+    create_llm_provider(...)
+    create_data_source(name="eval_demo", ...)   # fixture sqlite
+    imported = import_yaml_suite(case_spec.suite_yaml_path, token, org_id)
+    case_id = imported["cases_by_name"][case_spec.case]
+    run = create_test_run(case_ids=[case_id], ...)
+    result = wait_for_run(run["id"], timeout=180)
+    assert result["status"] == "pass", result.get("failure_reason")
+```
+
+Same shape as `test_report.py` etc.
 
 ### Result interpretation
 
-Pytest evals assert `result["status"] == "pass"`. A suite is **passing** if
-every case passes; the eval CI job fails the build if any case fails.
+Pytest evals assert `result["status"] == "pass"`. Suite passes iff every case
+passes. CI job `evals` fails if any case fails.
 
 ## Phases
 
-### Phase 1 — YAML + loader (internal)
+### Phase 1 — YAML import service + HTTP endpoints
 
-- [ ] `SuiteYaml` / `CaseYaml` in `app/schemas/suite_yaml_schema.py`.
-- [ ] `TestSuiteImportService.import_yaml` / `export_yaml` with slug
-      resolution.
-- [ ] `python -m app.evals import <path> --org <slug>` CLI.
+- [ ] `SuiteYaml` / `CaseYaml` in `app/schemas/suite_yaml_schema.py`
+      (re-embed existing `PromptSchema`, `ExpectationsSpec`).
+- [ ] `TestSuiteImportService.import_yaml` / `export_yaml`
+      (slug resolution, upsert by name, soft-delete removed cases).
+- [ ] Route handlers:
+      - `POST /api/tests/suites/import` — body: YAML string (or file upload).
+      - `GET  /api/tests/suites/{id}/export` — returns YAML.
+- [ ] Unit tests: round-trip, slug resolution errors, upsert preserves IDs.
 - [x] Sanity YAMLs checked in under `backend/evals/suites/` (this change).
-- [ ] Unit tests for round-trip (`import_yaml(export_yaml(x)) == x`).
 
 ### Phase 2 — pytest evals
 
-- [ ] Committed fixture data source (seeded sqlite under
-      `backend/tests/fixtures/data/eval_demo.sqlite`).
-- [ ] `tests/evals/conftest.py` — eval org, LLM provider, data source,
-      `wait_for_run` poller (timeout configurable, default 180 s).
-- [ ] `tests/evals/test_evals.py` — `@pytest.mark.evals` parametrized over
-      every YAML case (ids: `<suite>/<case>`).
-- [ ] CI job `evals` that runs nightly with `ANTHROPIC_API_KEY` secret.
+- [ ] Committed fixture data source (`tests/fixtures/data/eval_demo.sqlite`).
+- [ ] `tests/evals/conftest.py`:
+      - `load_all_yaml_cases()` → list of case specs for parametrize.
+      - `import_yaml_suite` → POSTs YAML via `test_client`.
+      - `wait_for_run(run_id, timeout)` → polls `/api/tests/runs/{id}`.
+- [ ] `tests/evals/test_evals.py` — single parametrized test.
+- [ ] `@pytest.mark.evals` in `pytest.ini` + nightly CI job with
+      `ANTHROPIC_API_KEY` secret.
 
-### Phase 3 — customer-facing & bootstrap
+### Phase 3 — bootstrap + docs (optional)
 
-- [ ] `POST /api/tests/suites/import` (YAML body, multipart optional).
-- [ ] `GET /api/tests/suites/{id}/export` — round-trip.
-- [ ] Startup bootstrap flag (`EVALS_BOOTSTRAP_ORG_SLUG`) that loads
-      `backend/evals/suites/*.yaml` on boot.
-- [ ] Docs for customers: authoring suites in git, running via CLI.
+- [ ] Startup bootstrap flag `EVALS_BOOTSTRAP_ORG_SLUG` that imports
+      `backend/evals/suites/*.yaml` on boot for self-hosted installs.
+- [ ] Customer docs: authoring suites, import API reference, round-trip via
+      `GET /export`.
 
-### Phase 4 — assertion coverage
+### Phase 4 — artifact FieldRule coverage (independent)
 
-- [ ] `tool:create_artifact` and `tool:edit_artifact` entries in the test
-      catalog (`app/schemas/test_expectations.py`).
-- [ ] Matching snapshot extractors in
-      `TestEvaluationService.build_final_snapshot` so FieldRule can assert on
-      artifact `mode`, `code`, generated components, etc.
-- [ ] Optional vision-judge rule for rendered artifact screenshots.
+- [ ] Add `tool:create_artifact` / `tool:edit_artifact` to the test catalog
+      in `app/schemas/test_expectations.py`.
+- [ ] Extend `TestEvaluationService.build_final_snapshot` to extract artifact
+      `mode`, `code`, generated components from `ToolExecution`.
+- [ ] Optional vision-judge rule over artifact screenshots.
+
+Until this lands, dashboard-style assertions use `ToolCallsRule` +
+`OrderingRule` + `Judge` (as `sanity_dashboards.yaml` does).
 
 ## Open questions
 
-- **Data source slug**: use `DataSource.name` directly, or add a dedicated
-  `slug` column with a migration?
-- **Model reference**: `provider_name/model_id` string, or require a custom
-  slug column on `LLMModel`?
-- **PR gate vs nightly**: fail PRs on eval regression, or only report nightly
-  signal until baselines stabilize? Suggest: nightly only for phase 2, revisit
-  after 2 weeks of stable data.
-- **Build diff UI**: reuse existing `build_id` on `TestRun` (compare two runs
-  via current UI) or add a dedicated "suite X on build A vs B" view?
-- **Legacy `backend/bow-eval.py`**: delete in phase 1 or leave until CLI is
-  shipped? Suggest: delete once the new CLI covers parity.
+- **Data source slug**: reuse `DataSource.name`, or add a dedicated `slug`
+  column? Same question for LLM model reference.
+- **Import authn**: require admin role, or any org member with the existing
+  test-suite permissions?
+- **Replace vs upsert default**: default to upsert (safer), `?strategy=replace`
+  for full sync.
+- **PR gate vs nightly**: start nightly-only for phase 2, revisit after two
+  weeks of stable baselines.
+- **Legacy `backend/bow-eval.py`**: delete once `POST /import` + pytest evals
+  cover its responsibilities.
 
 ## Sanity YAMLs shipped with this plan
 
@@ -172,6 +193,3 @@ every case passes; the eval CI job fails the build if any case fails.
   PR #206); two cases using `ToolCallsRule`, `OrderingRule`, and `Judge`.
 - `suites/sanity_clarify.yaml` — verifies ambiguous prompts route to the
   `clarify` tool with a reasonable question.
-
-These three are intentionally small so they can be hand-validated before the
-loader is implemented.
