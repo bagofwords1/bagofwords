@@ -7,6 +7,36 @@ import asyncio
 import logging
 import uuid
 
+
+def _agent_metadata_from_execution(ae) -> Dict[str, Any]:
+    """Extract eval-visible metadata from an AgentExecution row.
+
+    Pulls durations directly and token counts from token_usage_json when
+    present. Counts plan decisions via the lazy ``plan_decisions``
+    relationship for total_iterations.
+    """
+    if ae is None:
+        return {}
+    usage = getattr(ae, "token_usage_json", None) or {}
+    if not isinstance(usage, dict):
+        usage = {}
+
+    def _pick(*keys):
+        for k in keys:
+            v = usage.get(k)
+            if isinstance(v, (int, float)):
+                return v
+        return None
+
+    return {
+        "total_duration_ms": getattr(ae, "total_duration_ms", None),
+        "first_token_ms": getattr(ae, "first_token_ms", None),
+        "thinking_ms": getattr(ae, "thinking_ms", None),
+        "input_tokens": _pick("input_tokens", "prompt_tokens"),
+        "output_tokens": _pick("output_tokens", "completion_tokens"),
+        "total_tokens": _pick("total_tokens"),
+    }
+
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
 from app.models.report import Report
 from app.services.report_service import ReportService
@@ -932,6 +962,7 @@ class TestRunService:
                             # Determine AgentExecution and duration
                             agent_execution_id = None
                             run_duration_ms = None
+                            agent_meta: Dict[str, Any] = {}
                             try:
                                 res_exec = await session.execute(
                                     select(AgentExecution)
@@ -943,6 +974,15 @@ class TestRunService:
                                 if ae:
                                     agent_execution_id = str(ae.id)
                                     run_duration_ms = getattr(ae, "total_duration_ms", None)
+                                    agent_meta = _agent_metadata_from_execution(ae)
+                                    try:
+                                        from app.models.plan_decision import PlanDecision as _PD
+                                        n_iter = (await session.execute(
+                                            select(func.count(_PD.id)).where(_PD.agent_execution_id == str(ae.id))
+                                        )).scalar_one() or 0
+                                        agent_meta["total_iterations"] = int(n_iter)
+                                    except Exception:
+                                        pass
                             except Exception:
                                 pass
                             case_prompt_text = ""
@@ -961,6 +1001,7 @@ class TestRunService:
                                 organization=organization,
                                 current_user=current_user,
                                 run_duration_ms=run_duration_ms,
+                                agent_metadata=agent_meta,
                             )
                             await self.evaluator.persist_result_json(
                                 db=session,
@@ -1186,6 +1227,7 @@ class TestRunService:
                                 # Determine AgentExecution and duration
                                 agent_execution_id = None
                                 run_duration_ms = None
+                                agent_meta: Dict[str, Any] = {}
                                 try:
                                     res_exec = await session.execute(
                                         select(AgentExecution)
@@ -1197,6 +1239,15 @@ class TestRunService:
                                     if ae:
                                         agent_execution_id = str(ae.id)
                                         run_duration_ms = getattr(ae, "total_duration_ms", None)
+                                        agent_meta = _agent_metadata_from_execution(ae)
+                                        try:
+                                            from app.models.plan_decision import PlanDecision as _PD
+                                            n_iter = (await session.execute(
+                                                select(func.count(_PD.id)).where(_PD.agent_execution_id == str(ae.id))
+                                            )).scalar_one() or 0
+                                            agent_meta["total_iterations"] = int(n_iter)
+                                        except Exception:
+                                            pass
                                 except Exception:
                                     pass
                                 # Case prompt text
@@ -1217,6 +1268,7 @@ class TestRunService:
                                     organization=organization,
                                     current_user=current_user,
                                     run_duration_ms=run_duration_ms,
+                                    agent_metadata=agent_meta,
                                 )
                                 # Persist
                                 await self.evaluator.persist_result_json(

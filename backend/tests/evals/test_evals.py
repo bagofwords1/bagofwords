@@ -47,12 +47,15 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
         desc = f"ordering mode={mode} sequence={seq}"
     elif rule_type == "phase":
         desc = f"phase {rule_spec.get('phase')} occurred={rule_spec.get('occurred', True)}"
+    elif rule_type == "judge":
+        is_judge = True
+        desc = "judge"
     elif rule_type == "field":
         tgt = rule_spec.get("target") or {}
         matcher = rule_spec.get("matcher") or {}
         is_judge = tgt.get("category") == "judge"
         if is_judge:
-            desc = "judge"
+            desc = "judge (legacy field shape)"
         else:
             desc = (
                 f"field {tgt.get('category')}.{tgt.get('field')} "
@@ -76,10 +79,12 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
     lines = [f"  • {desc}  →  {status}"]
 
     if is_judge:
-        # Surface the judge's prompt and its verdict/reasoning. The
-        # reasoning lives in RuleEvidence.reasoning (serialised under
-        # ``evidence``); the assertion prompt is the matcher's value.
-        prompt_text = (rule_spec.get("matcher") or {}).get("value")
+        # Surface the judge's prompt and its verdict/reasoning. New shape
+        # keeps the prompt at rule.prompt; legacy shape nested it inside
+        # target/matcher.
+        prompt_text = rule_spec.get("prompt") or (
+            (rule_spec.get("matcher") or {}).get("value")
+        )
         if prompt_text:
             lines.append(f"      prompt: {str(prompt_text).strip()}")
         evidence = rule_result.get("evidence") or {}
@@ -113,6 +118,13 @@ def _format_result_report(
         f"skipped={totals.get('skipped', 0)}  "
         f"duration_ms={totals.get('duration_ms')}",
     ]
+    meta_bits = []
+    for key in ("input_tokens", "output_tokens", "total_iterations"):
+        v = totals.get(key)
+        if v is not None:
+            meta_bits.append(f"{key}={v}")
+    if meta_bits:
+        header.append(f"  {'  '.join(meta_bits)}")
     if result.get("failure_reason"):
         header.append(f"  failure_reason={result['failure_reason']}")
 
@@ -161,11 +173,13 @@ def test_eval_case(
     print(f"[eval] imported case_id={case_id[:8]}", flush=True)
 
     t0 = time.time()
-    results = run_case_and_wait(
+    run_data = run_case_and_wait(
         [case_id], user_token=token, org_id=org_id, timeout_s=300,
     )
     harness_duration_ms = int((time.time() - t0) * 1000)
 
+    results = run_data["results"]
+    tool_traces = run_data.get("tool_traces") or {}
     assert len(results) == 1
     result = results[0]
     status = result.get("status")
@@ -186,17 +200,25 @@ def test_eval_case(
             entry["phase"] = spec["phase"]
         if spec.get("turn") is not None:
             entry["turn"] = spec["turn"]
-        tgt = spec.get("target") or {}
-        if tgt.get("category") == "judge":
-            entry["judge_prompt"] = (spec.get("matcher") or {}).get("value")
+        if spec.get("type") == "judge":
+            entry["judge_prompt"] = spec.get("prompt")
             evidence = rr.get("evidence") or {}
             if isinstance(evidence, dict):
                 entry["judge_reasoning"] = evidence.get("reasoning")
-        elif spec.get("type") == "tool.calls":
-            entry["tool"] = spec.get("tool")
+        else:
+            tgt = spec.get("target") or {}
+            if tgt.get("category") == "judge":  # legacy shape
+                entry["judge_prompt"] = (spec.get("matcher") or {}).get("value")
+                evidence = rr.get("evidence") or {}
+                if isinstance(evidence, dict):
+                    entry["judge_reasoning"] = evidence.get("reasoning")
+            elif spec.get("type") == "tool.calls":
+                entry["tool"] = spec.get("tool")
         if rr.get("message"):
             entry["message"] = rr["message"]
         rules_summary.append(entry)
+
+    tool_trace: List[Dict[str, Any]] = tool_traces.get(result.get("id")) or []
 
     _append_report_line({
         "llm": llm_display,
@@ -207,6 +229,7 @@ def test_eval_case(
         "harness_duration_ms": harness_duration_ms,
         "totals": rj.get("totals"),
         "rules": rules_summary,
+        "tools": tool_trace,
     })
 
     if status != "pass":

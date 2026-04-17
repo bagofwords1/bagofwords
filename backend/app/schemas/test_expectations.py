@@ -140,11 +140,32 @@ class PhaseRule(BaseModel):
     turn: Optional[int] = None
 
 
+class JudgeRule(BaseModel):
+    """LLM-as-judge rule.
+
+    The judge model is sent the full agent trace plus ``prompt`` (a
+    freeform assertion) and returns a pass/fail verdict + reasoning. This
+    is the clean replacement for the legacy
+    ``FieldRule(target.category == "judge")`` shape — the old shape is
+    still supported by the evaluator for backward compatibility.
+
+    ``model`` optionally overrides the small default; when unset, the
+    provider's ``is_small_default`` model is used.
+    """
+
+    type: Literal["judge"] = "judge"
+    prompt: str
+    model: Optional[str] = None
+    phase: PhaseScope = None
+    turn: Optional[int] = None
+
+
 Rule = Union[
     FieldRule,
     ToolCallsRule,
     OrderingRule,
     PhaseRule,
+    JudgeRule,
 ]
 
 

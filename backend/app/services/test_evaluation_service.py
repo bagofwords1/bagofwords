@@ -17,6 +17,7 @@ from app.schemas.test_expectations import (
     ToolCallsRule,
     OrderingRule,
     PhaseRule,
+    JudgeRule,
     Matcher,
 )
 
@@ -436,6 +437,7 @@ class TestEvaluationService:
         organization=None,
         current_user=None,
         run_duration_ms: Optional[int] = None,
+        agent_metadata: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, TestResultJsonSchema]:
         """
         Evaluate provided rules (Pydantic) against a minimal snapshot and return a rule-aligned result_json.
@@ -445,7 +447,11 @@ class TestEvaluationService:
         passed = 0
         failed = 0
         skipped = 0
-        needs_judge = any(isinstance(r, FieldRule) and getattr(r.target, "category", "") == "judge" for r in rules)
+        needs_judge = any(
+            isinstance(r, JudgeRule)
+            or (isinstance(r, FieldRule) and getattr(r.target, "category", "") == "judge")
+            for r in rules
+        )
         judge_trace_payload: Optional[str] = None
         judge_cache: Dict[str, Tuple[bool, str]] = {}
 
@@ -560,6 +566,18 @@ class TestEvaluationService:
 
         # Iterate rules 1:1 and build aligned results
         for rule in rules:
+            # LLM-as-judge rule (dedicated type). The legacy
+            # FieldRule(category="judge") path still works and is handled
+            # below; prefer this for new YAMLs.
+            if isinstance(rule, JudgeRule):
+                ok, reason = False, "Judge unavailable"
+                if judge is not None and organization is not None:
+                    ok, reason = await run_judge(rule.prompt or "")
+                msg = None if ok else (reason or "Judge indicated failure")
+                ev = RuleEvidence(type="judge", reasoning=reason)
+                push(ok, msg, actual=ok, evidence=ev)
+                continue
+
             # Phase presence — "did this harness actually run?"
             if isinstance(rule, PhaseRule):
                 rule_turn = _turn_of(rule)
@@ -788,7 +806,26 @@ class TestEvaluationService:
             duration_coerced = int(round(run_duration_ms)) if isinstance(run_duration_ms, (int, float)) else None
         except Exception:
             duration_coerced = None
-        totals = TestResultTotals(total=total, passed=passed, failed=failed, skipped=skipped, duration_ms=duration_coerced)
+        def _coerce_int(v: Any) -> Optional[int]:
+            try:
+                return int(round(v)) if isinstance(v, (int, float)) else None
+            except Exception:
+                return None
+
+        meta = agent_metadata or {}
+        totals = TestResultTotals(
+            total=total,
+            passed=passed,
+            failed=failed,
+            skipped=skipped,
+            duration_ms=duration_coerced,
+            input_tokens=_coerce_int(meta.get("input_tokens")),
+            output_tokens=_coerce_int(meta.get("output_tokens")),
+            total_tokens=_coerce_int(meta.get("total_tokens")),
+            total_iterations=_coerce_int(meta.get("total_iterations")),
+            first_token_ms=_coerce_int(meta.get("first_token_ms")),
+            thinking_ms=_coerce_int(meta.get("thinking_ms")),
+        )
         # Build spec snapshot from ExpectationsSpec so rule_results align with UI
         try:
             rule_dicts = []

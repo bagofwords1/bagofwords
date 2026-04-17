@@ -2,8 +2,7 @@ name: Sanity · Dashboards
 description: >
   Dashboard-artifact prompt coverage against the Chinook demo. Exercises the
   create_data → create_artifact path. Assertions combine tool-level rules
-  (counts + ordering) with a judge rule on the final trace because FieldRule
-  extractors for create_artifact are deferred to phase 3 of the evals plan.
+  (counts + ordering) with a dedicated judge rule on the final trace.
 
 data_source_slugs:
   - Music Store
@@ -28,17 +27,12 @@ cases:
           sequence:
             - tool_or_bind: create_data
             - tool_or_bind: create_artifact
-        - type: field
-          target:
-            category: judge
-            field: prompt
-          matcher:
-            type: text.equals
-            value: >
-              The final artifact must render a bar chart whose x-axis is
-              year and whose y-axis is total invoice revenue. Answer pass
-              only if both axes are correct and the chart type is
-              explicitly a bar chart.
+        - type: judge
+          prompt: >
+            The final artifact must render a bar chart whose x-axis is
+            year and whose y-axis is total invoice revenue. Answer pass
+            only if both axes are correct and the chart type is
+            explicitly a bar chart.
 
   - name: top_customers_dashboard
     prompt:
@@ -53,14 +47,9 @@ cases:
         - type: tool.calls
           tool: create_artifact
           min_calls: 1
-        - type: field
-          target:
-            category: judge
-            field: prompt
-          matcher:
-            type: text.equals
-            value: >
-              The artifact must contain both (a) a total invoice revenue
-              scalar or widget and (b) a list or chart of the top 5
-              customers ranked by revenue. Pass only if both are present
-              and clearly labeled.
+        - type: judge
+          prompt: >
+            The artifact must contain both (a) a total invoice revenue
+            scalar or widget and (b) a list or chart of the top 5
+            customers ranked by revenue. Pass only if both are present
+            and clearly labeled.

@@ -28,18 +28,13 @@ cases:
           tool: create_artifact
           min_calls: 1
 
-        - type: field
-          target:
-            category: judge
-            field: prompt
-          matcher:
-            type: text.equals
-            value: >
-              The trace must show BOTH of the following:
-              (a) a SQL query that joins the Album table with InvoiceLine
-                  (directly or through Track) and aggregates revenue as
-                  SUM(UnitPrice * Quantity) grouped by album, AND
-              (b) the final artifact/dashboard visibly presents up to 10
-                  albums ranked by revenue in descending order.
-              Answer "pass" only if BOTH are clearly true. Cite the SQL
-              snippet and the visible album list in your reasoning.
+        - type: judge
+          prompt: >
+            The trace must show BOTH of the following:
+            (a) a SQL query that joins the Album table with InvoiceLine
+                (directly or through Track) and aggregates revenue as
+                SUM(UnitPrice * Quantity) grouped by album, AND
+            (b) the final artifact/dashboard visibly presents up to 10
+                albums ranked by revenue in descending order.
+            Answer "pass" only if BOTH are clearly true. Cite the SQL
+            snippet and the visible album list in your reasoning.

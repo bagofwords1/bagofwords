@@ -243,7 +243,7 @@ def run_case_and_wait(test_client):
     terminal_statuses = {"pass", "fail", "error", "stopped", "success"}
 
     def _run(case_ids: List[str], *, user_token: str, org_id: str,
-             timeout_s: float = 300.0) -> List[Dict[str, Any]]:
+             timeout_s: float = 300.0) -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {user_token}",
             "X-Organization-Id": str(org_id),
@@ -351,7 +351,10 @@ def run_case_and_wait(test_client):
                 )
             time.sleep(0.5)
 
-        # 4. Trailing tool trace per result (best-effort).
+        # 4. Trailing tool trace per result (best-effort). Returned to the
+        # caller so it can be included in the JSONL report without a
+        # second HTTP round-trip.
+        tool_traces: Dict[str, List[Dict[str, Any]]] = {}
         try:
             status_resp = test_client.get(
                 f"/api/tests/runs/{run_id}/status", headers=headers,
@@ -359,18 +362,27 @@ def run_case_and_wait(test_client):
             if status_resp.status_code == 200:
                 data = status_resp.json()
                 for item in (data.get("results") or []):
-                    rid = (item.get("result") or {}).get("id", "?")
-                    tools: List[str] = []
+                    rid = (item.get("result") or {}).get("id")
+                    if not rid:
+                        continue
+                    tools_for_result: List[Dict[str, Any]] = []
                     for comp in (item.get("completions") or []):
                         for block in (comp.get("completion_blocks") or []):
                             te = block.get("tool_execution") or {}
                             name = te.get("tool_name")
-                            if name:
-                                tools.append(name)
-                    if tools:
+                            if not name:
+                                continue
+                            tools_for_result.append({
+                                "tool": name,
+                                "duration_ms": te.get("duration_ms"),
+                                "status": te.get("status"),
+                                "success": te.get("success"),
+                            })
+                    tool_traces[rid] = tools_for_result
+                    if tools_for_result:
                         print(
                             f"[eval] result={str(rid)[:8]} "
-                            f"tools={' → '.join(tools)}",
+                            f"tools={' → '.join(t['tool'] for t in tools_for_result)}",
                             flush=True,
                         )
         except Exception:
@@ -381,6 +393,10 @@ def run_case_and_wait(test_client):
                 f"result {r.get('id')} did not reach terminal state: "
                 f"{r.get('status')}"
             )
-        return results
+        return {
+            "run_id": run_id,
+            "results": results,
+            "tool_traces": tool_traces,
+        }
 
     return _run
