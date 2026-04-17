@@ -636,6 +636,7 @@ import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -1157,6 +1158,8 @@ function getToolComponent(toolName: string) {
 			return CreateInstructionTool
 		case 'edit_instruction':
 			return EditInstructionTool
+		case 'search_instructions':
+			return SearchInstructionsTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -1625,6 +1628,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps') && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
+						if ((payload.tool_name === 'create_instruction' || payload.tool_name === 'edit_instruction') && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
+						if (payload.tool_name === 'search_instructions' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+							const q = payload.arguments.query
+							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'instructions'))
+							;(lastBlock.tool_execution.result_json as any).search_query = q
+							lastBlock.tool_execution.result_summary = `Searching instructions for ${qStr}…`
 						}
 					} catch {}
 					lastBlock.status = 'in_progress'

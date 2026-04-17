@@ -14,7 +14,8 @@ class CreateArtifactInput(BaseModel):
     prompt: str = Field(..., description=(
         "Structured build plan for the dashboard. This prompt drives the entire code generation — be specific and use these sections:\n\n"
         "## Layout\n"
-        "Overall structure and viz placement. For each viz: title, chart type, position, local filter yes/no.\n"
+        "Overall structure and viz placement. For each viz in `visualization_ids`: title, chart type, position, local filter yes/no. "
+        "If a `current_artifact` exists, describe how existing vizs remain on the canvas AND where new additions go — do not describe a layout that silently drops prior vizs.\n"
         "Example: 'KPI row at top from Dashboard KPIs. Below: 2-col grid — Sales Trend as line chart left, Top Artists as horizontal bar right.'\n\n"
         "## Filters\n"
         "Global filters if 2+ vizs share a filterable column. Which columns, which vizs, column name mappings if names differ. Omit if none.\n"
@@ -22,11 +23,19 @@ class CreateArtifactInput(BaseModel):
         "## Theme\n"
         "Colors, dark/light, spacing, typography, design feel. Capture the user's style request verbatim — this section overrides all system defaults.\n"
         "Example: 'Flat BI style — white bg, no shadows, no gradients, subtle borders, tight spacing, neutral typography. NOT executive/marketing.'\n\n"
+        "CONTINUITY: When a `current_artifact` exists and the user is asking to improve/enhance/rework it, your prompt describes a CHANGE to that artifact, not a fresh build. "
+        "Preserve the existing title (don't invent 'Enhanced X' / 'Improved Y') unless the user asked to rename. Describe ALL existing vizs in the layout (they're still on the canvas) plus the new additions. "
+        "Prefer `edit_artifact` for small/additive changes; only use `create_artifact` when the change is structurally too large for surgical diffs — and even then, carry all prior viz_ids forward.\n\n"
         "Do NOT use this tool to modify an existing artifact; use edit_artifact instead."
     ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
-    visualization_ids: List[str] = Field(..., min_length=1, description="Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. Include only visualizations important to the dashboard goal.")
+    visualization_ids: List[str] = Field(..., min_length=1, description=(
+        "Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. "
+        "CONTINUITY: When a `current_artifact` exists in context, this list MUST be a superset of its existing viz_ids — carry forward every viz unless the user explicitly asked to remove one. "
+        "Phrases like 'improve', 'add KPIs', 'make it amazing', 'redesign', 'add a chart' are ADDITIVE — they never imply removal. "
+        "Drop a viz only on explicit instruction ('remove the customers chart', 'get rid of the KPI row')."
+    ))
 
 
 class CreateArtifactOutput(BaseModel):

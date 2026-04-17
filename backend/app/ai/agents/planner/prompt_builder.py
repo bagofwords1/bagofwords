@@ -158,6 +158,11 @@ ERROR HANDLING (robust; no blind retries)
   - User asks "active user count": "Query `users` where `status = 'active'`. Return `user_id`, `signup_date`, `plan_type`, `country`. Return granular rows." (User asked for a count — but returning rows lets the viz layer count AND lets future turns filter by plan/country without re-querying.)
   - User asks "30-day rolling average of amount": "Query `orders`. Compute 30-day rolling average of `amount` by `order_date` using a window function. Include `order_date`, the rolling avg, and `customer_id`, `region`. This requires SQL-level computation."
 - **Cross-query alignment:** When past_observations show prior queries in this session, reuse their identity/dimension columns in new queries. If the prior customer query returned `customer_id`, a new payments query should include `customer_id` too — without asking. Consistency across sibling datasets is the foundation of every later dashboard.
+- **Continuity (applies whenever `<current_artifact>` is non-empty):** The `current_artifact` block is your **starting state**, not history. The user's message describes a *change* to it, not a fresh task. Specifically:
+  - **viz_ids are superset, never subset.** When calling `create_artifact` or `edit_artifact`, the `visualization_ids` you pass MUST include every `viz_id` listed in `<current_artifact>.<visualizations>` — plus any new ones you created this turn. Drop a viz only if the user explicitly said "remove X" (e.g., "remove the customers chart", "get rid of the KPI cards"). Phrases like "improve", "make it better", "add KPIs", "redesign", "make it amazing" are ADDITIVE — they never imply removal.
+  - **Title stability.** Keep the existing `<current_artifact>.<title>` unless the user asks to rename. Do not invent a new title ("Enhanced X Dashboard", "Improved Y") on an enhance-turn.
+  - **Reuse before create_data.** Before calling `create_data` for a count/aggregate KPI, check whether `<current_artifact>.<visualizations>` already contains rows that can produce it. Example: if a viz has 1000 rows with column `film_id`, "Total Films" = distinct count over that column — no new query needed; compute it client-side in the artifact code. Only call `create_data` when the required data is genuinely not on the canvas.
+  - **Create vs Edit on enhance-turns.** Prefer `edit_artifact` for additive/styling changes. Only escalate to `create_artifact` when the change is structurally too large — and when you do, carry ALL existing `viz_ids` forward.
 - **Dashboard planning (composability is mandatory, not aspirational):** When the user requests a dashboard (multiple related visualizations):
   1. Before any `create_data` call in a dashboard request, plan the shared dimensions upfront — what columns should ALL the widgets carry so they can cross-filter? At minimum: the obvious join keys per the schema (e.g., `customer_id` for anything touching customers or their activity), plus shared time/category/geography columns.
   2. Before calling `create_artifact`, AUDIT existing queries in past_observations against the intended filters. For each filter dimension the user wants (or that is obviously desirable — e.g., filter-by-customer on a customer+payments dashboard), verify every participating viz has a column that supports it (directly or via a rename `fieldMap`).
@@ -173,7 +178,7 @@ ERROR HANDLING (robust; no blind retries)
   - Use `create_artifact` when building a brand new dashboard, when the user asks to rebuild/redesign, or when the requested change is large (e.g., "completely change the layout", "make it dark theme with gradients", "add filters to all charts"). Large changes lose context through surgical diffs — a full regeneration via `create_artifact` produces better results.
   - Use `edit_artifact` for small, focused changes to an existing dashboard (e.g., "change the chart color", "fix the title", "remove the KPI card", "make the chart taller"). The `edit_artifact` tool applies surgical search/replace diffs — it works best when the change touches a small portion of the code.
   - **If unsure whether the change is small or large:** call `read_artifact` first to inspect the current code, then decide. If the change would require modifying more than ~30% of the code, use `create_artifact`.
-  - To use `edit_artifact`, you need an `artifact_id`. Use the `active_artifact` from context (the most recent artifact in this report) when available — its `artifact_id` is always the latest version. If `active_artifact` is not set, fall back to the most recently created or edited artifact_id from the conversation history. Do NOT ask the user which artifact to edit unless there is genuine ambiguity (e.g., the user explicitly names a different artifact). If you still cannot find an artifact_id, call `read_artifact` to load it.
+  - To use `edit_artifact`, you need an `artifact_id`. Use the `current_artifact` from context (the most recent artifact in this report) when available — its `artifact_id` is always the latest version. If `current_artifact` is not set, fall back to the most recently created or edited artifact_id from the conversation history. Do NOT ask the user which artifact to edit unless there is genuine ambiguity (e.g., the user explicitly names a different artifact). If you still cannot find an artifact_id, call `read_artifact` to load it.
   - **Edit that requires new data:** If the user asks to ADD a new chart/visualization to an existing dashboard (e.g., "add a revenue-by-country chart"), you must first call `create_data` to produce the new visualization, then call `edit_artifact` with BOTH the `artifact_id` AND `visualization_ids: [<new_viz_id>]`. The edit tool will merge the new visualization data with the existing ones automatically. Do NOT call `create_artifact` from scratch just because the edit needs new data — use the create_data → edit_artifact flow instead.
   - **Artifact reflection:** If a `create_artifact` observation includes a screenshot and the result looks wrong (bad layout, missing charts, broken rendering, misaligned elements), use `edit_artifact` to fix it — do NOT call `create_artifact` again. The existing code is a better starting point than regenerating from scratch. Describe the specific visual issues in the `edit_instruction` (e.g., "the bar chart is cut off on the right side", "the KPI cards are overlapping").
   - **After successful artifact create/edit:** When a `create_artifact` or `edit_artifact` observation shows success (no errors), set `analysis_complete=true` and provide a brief `final_answer` summarizing what was created or changed. Do NOT loop again unless the screenshot clearly shows visual issues that need fixing. The artifact is already saved and visible to the user — there is nothing left to do.
@@ -257,7 +262,7 @@ INPUT ENVELOPE
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
-  <active_artifact>{json.dumps(planner_input.active_artifact) if planner_input.active_artifact else 'None'}</active_artifact>
+  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}
   <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>
@@ -342,6 +347,50 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             count += history_summary.lower().count(keyword)
 
         return min(count, 5)  # Cap at 5 for safety
+
+    @staticmethod
+    def _render_current_artifact(artifact: Optional[Dict[str, Any]]) -> str:
+        """Render the current artifact as an XML block the planner treats as
+        starting state. Emits viz_ids, columns, and row counts so the planner
+        sees what's currently on the canvas — not just a title.
+        """
+        if not artifact:
+            return "<current_artifact>None</current_artifact>"
+
+        def _esc(s: Any) -> str:
+            return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        lines = ["<current_artifact>"]
+        lines.append(f"  <artifact_id>{_esc(artifact.get('artifact_id'))}</artifact_id>")
+        if artifact.get("title"):
+            lines.append(f"  <title>{_esc(artifact.get('title'))}</title>")
+        if artifact.get("mode"):
+            lines.append(f"  <mode>{_esc(artifact.get('mode'))}</mode>")
+        if artifact.get("version") is not None:
+            lines.append(f"  <version>{_esc(artifact.get('version'))}</version>")
+
+        viz_list = artifact.get("visualizations") or []
+        if viz_list:
+            lines.append("  <visualizations>")
+            for v in viz_list:
+                attrs = [f'id="{_esc(v.get("viz_id"))}"']
+                if v.get("viz_title"):
+                    attrs.append(f'title="{_esc(v.get("viz_title"))}"')
+                if v.get("step_type"):
+                    attrs.append(f'type="{_esc(v.get("step_type"))}"')
+                if v.get("row_count") is not None:
+                    attrs.append(f'rows="{_esc(v.get("row_count"))}"')
+                cols = v.get("columns") or []
+                inner = ""
+                if cols:
+                    inner = f"\n      <columns>{_esc(', '.join(cols))}</columns>\n    "
+                lines.append(f"    <viz {' '.join(attrs)}>{inner}</viz>")
+            lines.append("  </visualizations>")
+        else:
+            lines.append("  <visualizations>(none)</visualizations>")
+
+        lines.append("</current_artifact>")
+        return "\n".join(lines)
 
     @staticmethod
     def _compact_past_observations(past_observations: Optional[list]) -> list:
