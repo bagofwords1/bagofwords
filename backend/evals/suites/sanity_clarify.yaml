@@ -1,0 +1,45 @@
+name: Sanity · Clarify
+description: >
+  Verifies the agent asks for clarification on genuinely ambiguous prompts
+  rather than guessing a schema or query. Useful as a guardrail against
+  prompt changes that make the agent over-eager.
+
+data_source_slugs:
+  - eval_demo
+
+cases:
+  - name: vague_show_data
+    prompt:
+      content: "Show me the data"
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: clarify
+          min_calls: 1
+        - type: field
+          target:
+            category: "tool:clarify"
+            field: question
+          matcher:
+            type: text.regex
+            pattern: "(?i)(which|what|specify)"
+
+  - name: ambiguous_metric
+    prompt:
+      content: "What is our performance this quarter?"
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: clarify
+          min_calls: 1
+        - type: field
+          target:
+            category: "tool:clarify"
+            field: question
+          matcher:
+            type: text.regex
+            pattern: "(?i)(which metric|what.*metric|define|clarify)"

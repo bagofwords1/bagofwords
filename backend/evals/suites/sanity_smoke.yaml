@@ -1,0 +1,36 @@
+name: Sanity · Smoke
+description: >
+  Minimal end-to-end check that the agent produces a create_data call and
+  returns a non-empty result. Used to catch total regressions (agent loop
+  broken, LLM unreachable, data source disconnected) before running the
+  richer suites.
+
+data_source_slugs:
+  - eval_demo
+
+cases:
+  - name: users_row_count
+    prompt:
+      content: "How many rows are in the users table?"
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+        - type: field
+          target:
+            category: "tool:create_data"
+            field: rows_count
+          matcher:
+            type: number.cmp
+            op: gt
+            value: 0
+        - type: field
+          target:
+            category: "tool:create_data"
+            field: tables
+          matcher:
+            type: list.contains_any
+            values: ["users"]

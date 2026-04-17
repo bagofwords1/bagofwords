@@ -1,0 +1,66 @@
+name: Sanity · Dashboards
+description: >
+  Dashboard-artifact prompt coverage. Exercises the create_data → create_artifact
+  path. Assertions combine tool-level rules (counts + ordering) with a judge
+  rule on the final trace because FieldRule extractors for create_artifact are
+  deferred to phase 4 of the evals harness plan.
+
+data_source_slugs:
+  - eval_demo
+
+cases:
+  - name: revenue_by_month_bar_chart
+    prompt:
+      content: "Show revenue by month as a bar chart"
+      mode: page
+    expectations:
+      spec_version: 1
+      order_mode: strict
+      rules:
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+        - type: tool.calls
+          tool: create_artifact
+          min_calls: 1
+        - type: ordering
+          mode: strict
+          allow_extra: true
+          sequence:
+            - tool_or_bind: create_data
+            - tool_or_bind: create_artifact
+        - type: field
+          target:
+            category: judge
+            field: prompt
+          matcher:
+            type: text.equals
+            value: >
+              The final artifact must render a bar chart whose x-axis is month
+              and whose y-axis is revenue. Answer pass only if both axes are
+              correct and the chart type is explicitly a bar chart.
+
+  - name: two_widget_dashboard
+    prompt:
+      content: "Build a dashboard with total revenue and top 5 customers by revenue"
+      mode: page
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_data
+          min_calls: 2
+        - type: tool.calls
+          tool: create_artifact
+          min_calls: 1
+        - type: field
+          target:
+            category: judge
+            field: prompt
+          matcher:
+            type: text.equals
+            value: >
+              The artifact must contain both (a) a total-revenue scalar or
+              widget and (b) a list or chart of the top 5 customers ranked by
+              revenue. Pass only if both are present and clearly labeled.
