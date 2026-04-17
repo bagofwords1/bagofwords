@@ -90,6 +90,11 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     """Configure pytest markers."""
     config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+    config.addinivalue_line(
+        "markers",
+        "evals: agent eval tests — real LLM + fixture data source; opt-in via "
+        "-m evals and require OPENAI_API_KEY_TEST (or equivalent) to be set.",
+    )
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_telemetry_for_tests():
