@@ -1382,27 +1382,14 @@ class TestRunService:
                     res_id, ev = await asyncio.wait_for(central_queue.get(), timeout=0.5)
                     # Forward completion.* events
                     yield format_sse_event(ev)
-                    if ev.event in ("completion.finished", "completion.error"):
-                        finished.add(res_id)
-                        # Mirror to result.update by reloading status from DB
-                        try:
-                            rdb = await db.get(TestResult, res_id)
-                            if rdb:
-                                payload = {
-                                    "result_id": res_id,
-                                    "status": getattr(rdb, "status", None),
-                                }
-                                # Include result_json if present
-                                try:
-                                    if getattr(rdb, "result_json", None) is not None:
-                                        payload["result_json"] = getattr(rdb, "result_json")
-                                except Exception:
-                                    pass
-                                yield format_sse_event(SSEEvent(event="result.update", completion_id=res_id, data=payload))
-                        except Exception:
-                            pass
-                    elif ev.event == "result.update":
-                        # If a terminal status arrives via result.update, count it finished as well
+                    # A result is finished only when a terminal result.update
+                    # arrives. completion.finished/error only says the agent
+                    # loop is done — the evaluator still has to commit
+                    # persist_result_json before the TestResult leaves
+                    # in_progress. Closing the stream earlier would tear
+                    # down the event loop under TestClient and leave the
+                    # result permanently in_progress.
+                    if ev.event == "result.update":
                         try:
                             st = None
                             if isinstance(ev.data, dict):
