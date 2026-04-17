@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime
 
 import yaml
 from fastapi import HTTPException
@@ -326,25 +327,35 @@ class TestSuiteService:
                 tc.expectations_json = expectations_json
                 tc.data_source_ids_json = case_ds_ids
                 tc.additional_turns_json = additional_turns_json
+                # Resurrect if it was soft-deleted in a previous sync
+                tc.deleted_at = None
                 db.add(tc)
             await db.commit()
             await db.refresh(tc)
             cases_by_name[tc.name] = str(tc.id)
 
-        # Handle removed cases
-        removed = [c for name, c in existing_cases.items() if name not in seen_names]
-        if removed and strategy == "replace":
-            for c in removed:
-                await db.delete(c)
+        # Handle removed cases: soft-delete on upsert (preserves TestResult
+        # history), hard-delete on replace (full sync).
+        removed = [
+            c for name, c in existing_cases.items()
+            if name not in seen_names and c.deleted_at is None
+        ]
+        if removed:
+            now = datetime.utcnow()
+            if strategy == "replace":
+                for c in removed:
+                    await db.delete(c)
+            else:
+                for c in removed:
+                    c.deleted_at = now
+                    db.add(c)
             await db.commit()
-        # strategy == "upsert" keeps existing cases intact; callers can run
-        # again with strategy="replace" for a full sync.
 
         return {
             "suite_id": str(suite.id),
             "suite_name": suite.name,
             "cases_by_name": cases_by_name,
-            "removed_case_names": [c.name for c in removed] if strategy == "replace" else [],
+            "removed_case_names": [c.name for c in removed],
         }
 
     async def _build_case_payload(
@@ -398,6 +409,7 @@ class TestSuiteService:
         res = await db.execute(
             select(TestCase)
             .where(TestCase.suite_id == str(suite.id))
+            .where(TestCase.deleted_at.is_(None))
             .order_by(TestCase.created_at.asc())
         )
         cases = res.scalars().all()

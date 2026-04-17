@@ -181,6 +181,92 @@ def test_multi_turn_persists_additional_turns(
 
 
 @pytest.mark.e2e
+def test_import_upsert_soft_deletes_missing_case(
+    create_user, login_user, whoami,
+    import_suite_yaml, get_test_cases, get_test_case,
+):
+    """Upsert with a missing case marks it deleted without removing the row."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    two_cases = """
+name: SoftDel
+cases:
+  - name: a
+    prompt: {content: "Q1"}
+    expectations: {spec_version: 1, rules: []}
+  - name: b
+    prompt: {content: "Q2"}
+    expectations: {spec_version: 1, rules: []}
+"""
+    first = import_suite_yaml(two_cases, user_token=token, org_id=org_id).json()
+    suite_id = first["suite_id"]
+    case_b_id = first["cases_by_name"]["b"]
+
+    one_case = """
+name: SoftDel
+cases:
+  - name: a
+    prompt: {content: "Q1"}
+    expectations: {spec_version: 1, rules: []}
+"""
+    result = import_suite_yaml(one_case, user_token=token, org_id=org_id).json()
+    assert "b" in result["removed_case_names"]
+
+    # list_cases filters soft-deleted
+    cases = get_test_cases(suite_id, user_token=token, org_id=org_id)
+    assert [c["name"] for c in cases] == ["a"]
+
+    # direct GET also 404s
+    resp = get_test_case(case_b_id, user_token=token, org_id=org_id)
+    assert resp.status_code == 404
+
+
+@pytest.mark.e2e
+def test_import_resurrects_soft_deleted_case(
+    create_user, login_user, whoami,
+    import_suite_yaml, get_test_cases,
+):
+    """Re-importing a case by the same name after upsert soft-delete brings
+    it back with the same id."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    two = """
+name: Resurrect
+cases:
+  - name: a
+    prompt: {content: "Q1"}
+    expectations: {spec_version: 1, rules: []}
+  - name: b
+    prompt: {content: "Q2"}
+    expectations: {spec_version: 1, rules: []}
+"""
+    first = import_suite_yaml(two, user_token=token, org_id=org_id).json()
+    case_b_id_orig = first["cases_by_name"]["b"]
+
+    # Drop b
+    one = """
+name: Resurrect
+cases:
+  - name: a
+    prompt: {content: "Q1"}
+    expectations: {spec_version: 1, rules: []}
+"""
+    import_suite_yaml(one, user_token=token, org_id=org_id)
+
+    # Re-add b via YAML
+    two_again = two
+    back = import_suite_yaml(two_again, user_token=token, org_id=org_id).json()
+    assert back["cases_by_name"]["b"] == case_b_id_orig, "soft-deleted case must resurrect with same id"
+
+    cases = get_test_cases(back["suite_id"], user_token=token, org_id=org_id)
+    assert {c["name"] for c in cases} == {"a", "b"}
+
+
+@pytest.mark.e2e
 def test_export_round_trip_single_turn(
     create_user, login_user, whoami,
     import_suite_yaml, export_suite_yaml,

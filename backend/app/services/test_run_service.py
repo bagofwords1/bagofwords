@@ -1086,7 +1086,90 @@ class TestRunService:
                                 build_id=build_id,
                             )
                             await agent.main_execution()
-                            # After agent finishes, evaluate assertions and persist TestResult
+
+                            # Multi-turn: run any follow-up turns on the same
+                            # report before evaluating. The evaluator already
+                            # scans the whole report, so global expectations
+                            # cover the entire multi-turn trace.
+                            prev_system = system_obj
+                            case_row_multi = await session.get(TestCase, str(r.case_id))
+                            additional_turns = list(
+                                getattr(case_row_multi, "additional_turns_json", None) or []
+                            )
+                            for turn in additional_turns:
+                                tp = (turn or {}).get("prompt") or {}
+                                next_head = Completion(
+                                    prompt={
+                                        "content": tp.get("content") or "",
+                                        "widget_id": None,
+                                        "step_id": None,
+                                        "mentions": tp.get("mentions"),
+                                        "mode": tp.get("mode"),
+                                        "model_id": tp.get("model_id"),
+                                    },
+                                    model=model.model_id,
+                                    report_id=report_obj.id,
+                                    parent_id=prev_system.id,
+                                    turn_index=(prev_system.turn_index or 0) + 1,
+                                    message_type="table",
+                                    role="user",
+                                    status="success",
+                                )
+                                session.add(next_head)
+                                await session.commit()
+                                await session.refresh(next_head)
+
+                                next_system = Completion(
+                                    prompt=None,
+                                    completion={"content": ""},
+                                    model=model.model_id,
+                                    report_id=report_obj.id,
+                                    parent_id=next_head.id,
+                                    turn_index=next_head.turn_index + 1,
+                                    message_type="table",
+                                    role="system",
+                                    status="in_progress",
+                                )
+                                session.add(next_system)
+                                await session.commit()
+                                await session.refresh(next_system)
+
+                                try:
+                                    start_ev = SSEEvent(
+                                        event="completion.started",
+                                        completion_id=str(next_system.id),
+                                        data={
+                                            "result_id": str(r.id),
+                                            "system_completion_id": str(next_system.id),
+                                            "head_completion_id": str(next_head.id),
+                                            "turn_index": next_head.turn_index,
+                                        },
+                                    )
+                                    await central_queue.put((str(r.id), start_ev))
+                                except Exception:
+                                    pass
+
+                                turn_agent = AgentV2(
+                                    db=session,
+                                    organization=organization,
+                                    organization_settings=org_settings,
+                                    model=model,
+                                    small_model=small_model,
+                                    mode=tp.get("mode"),
+                                    report=report_obj,
+                                    messages=[],
+                                    head_completion=next_head,
+                                    system_completion=next_system,
+                                    widget=None,
+                                    step=None,
+                                    event_queue=eq,
+                                    clients=clients,
+                                    build_id=build_id,
+                                )
+                                await turn_agent.main_execution()
+                                prev_system = next_system
+
+                            # After final turn, evaluate assertions and persist TestResult
                             try:
                                 # Resolve run/result/case/expectations
                                 _run, result_row, case_row, expectations = await self.evaluator.resolve_by_run_and_report(
