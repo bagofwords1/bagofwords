@@ -36,6 +36,7 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
     phase = rule_spec.get("phase")
     turn = rule_spec.get("turn")
 
+    is_judge = False
     if rule_type == "tool.calls":
         desc = f"tool.calls {rule_spec.get('tool')} min={rule_spec.get('min_calls', 0)}"
         if rule_spec.get("max_calls") is not None:
@@ -49,10 +50,14 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
     elif rule_type == "field":
         tgt = rule_spec.get("target") or {}
         matcher = rule_spec.get("matcher") or {}
-        desc = (
-            f"field {tgt.get('category')}.{tgt.get('field')} "
-            f"matcher={matcher.get('type')}"
-        )
+        is_judge = tgt.get("category") == "judge"
+        if is_judge:
+            desc = "judge"
+        else:
+            desc = (
+                f"field {tgt.get('category')}.{tgt.get('field')} "
+                f"matcher={matcher.get('type')}"
+            )
     else:
         desc = f"{rule_type}"
 
@@ -69,10 +74,25 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
     msg = rule_result.get("message")
 
     lines = [f"  • {desc}  →  {status}"]
-    if actual is not None:
-        lines.append(f"      actual={actual!r}")
-    if msg:
-        lines.append(f"      {msg}")
+
+    if is_judge:
+        # Surface the judge's prompt and its verdict/reasoning. The
+        # reasoning lives in RuleEvidence.reasoning (serialised under
+        # ``evidence``); the assertion prompt is the matcher's value.
+        prompt_text = (rule_spec.get("matcher") or {}).get("value")
+        if prompt_text:
+            lines.append(f"      prompt: {str(prompt_text).strip()}")
+        evidence = rule_result.get("evidence") or {}
+        reasoning = evidence.get("reasoning") if isinstance(evidence, dict) else None
+        if reasoning:
+            lines.append(f"      judge:  {str(reasoning).strip()}")
+        elif msg:
+            lines.append(f"      judge:  {msg}")
+    else:
+        if actual is not None:
+            lines.append(f"      actual={actual!r}")
+        if msg:
+            lines.append(f"      {msg}")
     return "\n".join(lines)
 
 
@@ -150,6 +170,34 @@ def test_eval_case(
     result = results[0]
     status = result.get("status")
 
+    rj = result.get("result_json") or {}
+    rule_specs = ((rj.get("spec") or {}).get("rules") or [])
+    rule_results = rj.get("rule_results") or []
+    # Compact per-rule summary; keeps judge reasoning for side-by-side
+    # comparison across providers.
+    rules_summary = []
+    for spec, rr in zip(rule_specs, rule_results):
+        entry = {
+            "type": spec.get("type"),
+            "status": rr.get("status"),
+            "actual": rr.get("actual"),
+        }
+        if spec.get("phase"):
+            entry["phase"] = spec["phase"]
+        if spec.get("turn") is not None:
+            entry["turn"] = spec["turn"]
+        tgt = spec.get("target") or {}
+        if tgt.get("category") == "judge":
+            entry["judge_prompt"] = (spec.get("matcher") or {}).get("value")
+            evidence = rr.get("evidence") or {}
+            if isinstance(evidence, dict):
+                entry["judge_reasoning"] = evidence.get("reasoning")
+        elif spec.get("type") == "tool.calls":
+            entry["tool"] = spec.get("tool")
+        if rr.get("message"):
+            entry["message"] = rr["message"]
+        rules_summary.append(entry)
+
     _append_report_line({
         "llm": llm_display,
         "suite": suite_name,
@@ -157,7 +205,8 @@ def test_eval_case(
         "status": status,
         "failure_reason": result.get("failure_reason"),
         "harness_duration_ms": harness_duration_ms,
-        "totals": ((result.get("result_json") or {}).get("totals")),
+        "totals": rj.get("totals"),
+        "rules": rules_summary,
     })
 
     if status != "pass":
