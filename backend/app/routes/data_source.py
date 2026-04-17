@@ -62,11 +62,12 @@ async def get_data_source(
 @router.get("/data_sources/{data_source_type}/fields", response_model=dict)
 async def get_data_source_fields(
     data_source_type: str,
+    auth_policy: str = None,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    return await data_source_service.get_data_source_fields(db, data_source_type, organization, current_user)
+    return await data_source_service.get_data_source_fields(db, data_source_type, organization, current_user, auth_policy=auth_policy)
 
 @router.post("/data_sources", response_model=DataSourceSchema)
 @requires_permission('create_data_source')

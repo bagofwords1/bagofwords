@@ -120,6 +120,15 @@ def _get_oidc_config(provider_name: str):
     return None
 
 
+def _is_entra_provider(provider_name: str) -> bool:
+    """Check if an OIDC provider is Microsoft Entra ID based on its issuer URL."""
+    cfg = _get_oidc_config(provider_name)
+    if not cfg:
+        return False
+    issuer = (cfg.issuer or "").lower()
+    return "login.microsoftonline.com" in issuer or "sts.windows.net" in issuer
+
+
 async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
     # Google
     if provider == "google":
@@ -301,15 +310,47 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
     expires_in = token.get("expires_in")
     expires_at = int(time.time()) + int(expires_in) if isinstance(expires_in, int) else None
 
-    try:
-        account_id, account_email = await client.get_id_email(access_token)
-    except Exception as e:
+    # Extract user identity from id_token first (reliable for Entra/OIDC),
+    # then fall back to userinfo endpoint.
+    import jwt as pyjwt
+    account_id = None
+    account_email = None
+
+    id_token_raw = token.get("id_token")
+    if id_token_raw:
+        id_claims = pyjwt.decode(id_token_raw, options={"verify_signature": False})
+        uid_claim = getattr(cfg, "uid_claim", "sub") or "sub"
+        account_id = id_claims.get(uid_claim) or id_claims.get("sub")
+        account_email = (
+            id_claims.get("email")
+            or id_claims.get("preferred_username")
+            or id_claims.get("upn")
+        )
+        _auth_logger.info(f"OIDC id_token claims: sub={account_id}, email={account_email}")
+
+    # Fall back to userinfo endpoint if id_token didn't provide what we need
+    if not account_id or not account_email:
+        try:
+            uid, email = await client.get_id_email(access_token)
+            account_id = account_id or uid
+            account_email = account_email or email
+        except Exception as e:
+            _auth_logger.warning(f"OIDC userinfo fallback failed: {e}")
+            if not account_id or not account_email:
+                await _audit_auth_event(
+                    action="auth.login_failed",
+                    request=request,
+                    details={"provider": provider, "reason": "user_info_fetch_failed"},
+                )
+                raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+
+    if not account_email:
         await _audit_auth_event(
             action="auth.login_failed",
             request=request,
-            details={"provider": provider, "reason": "user_info_fetch_failed"},
+            details={"provider": provider, "reason": "no_email_in_token"},
         )
-        raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+        raise HTTPException(status_code=400, detail="Could not determine email from OIDC provider. Ensure the 'email' scope is configured.")
 
     try:
         user = await user_manager.oauth_callback(
@@ -334,9 +375,106 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
         details={"provider": provider, "email": str(account_email)},
     )
 
+    # OIDC group sync — sync group claims from id_token into BOW Groups
+    if getattr(cfg, 'sync_groups', False):
+        try:
+            await _sync_oidc_groups_on_login(
+                cfg=cfg,
+                token=token,
+                access_token=access_token,
+                user=user,
+            )
+        except Exception as e:
+            _auth_logger.warning(f"OIDC group sync failed for user {user.id}: {e}", exc_info=True)
+
+    # Phase 2: Auto-provision OAuth credentials for Entra-based data sources via OBO
+    if access_token and _is_entra_provider(provider):
+        try:
+            from app.services.connection_oauth_service import auto_provision_connection_credentials
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as db:
+                await auto_provision_connection_credentials(db, user, access_token)
+        except Exception as e:
+            _auth_logger.warning(f"OBO auto-provision after login failed for user {user.id}: {e}")
+
     strategy = get_jwt_strategy()
     jwt_token = await strategy.write_token(user)
     return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
+
+
+async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) -> None:
+    """Extract group claims from id_token and sync into BOW Groups."""
+    import jwt as pyjwt
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+
+    id_token_raw = token.get("id_token")
+    if not id_token_raw:
+        _auth_logger.debug("OIDC group sync: no id_token in token response, skipping")
+        return
+
+    # Decode without signature verification — token was already validated by the provider
+    id_claims = pyjwt.decode(id_token_raw, options={"verify_signature": False})
+    group_claim = getattr(cfg, 'group_claim', 'groups')
+    group_ids = id_claims.get(group_claim, [])
+
+    # Handle Entra group overage (>200 groups — groups omitted, _claim_names present)
+    if not group_ids and "_claim_names" in id_claims:
+        _auth_logger.info("OIDC group sync: group overage detected, falling back to Graph API")
+        # For overage, we need to get all groups via Graph — use /me/memberOf with delegated token first,
+        # fall back to client credentials
+        try:
+            from app.ee.oidc.graph_client import resolve_group_names
+            group_names_map = await resolve_group_names(access_token)
+        except Exception:
+            group_names_map = {}
+        group_ids = list(group_names_map.keys())
+    else:
+        group_names_map = None
+
+    if not group_ids:
+        _auth_logger.debug(f"OIDC group sync: no groups in claim '{group_claim}', skipping")
+        return
+
+    # Resolve group display names via Graph API using client credentials
+    if group_names_map is None and getattr(cfg, 'resolve_group_names', False):
+        try:
+            from app.ee.oidc.graph_client import resolve_group_names_by_ids
+            # Extract tenant_id from issuer URL
+            issuer = getattr(cfg, 'issuer', '') or ''
+            parts = issuer.rstrip('/').split('/')
+            tenant_id = parts[-2] if len(parts) >= 2 and parts[-1] == 'v2.0' else parts[-1]
+            group_names_map = await resolve_group_names_by_ids(
+                group_ids=group_ids,
+                tenant_id=tenant_id,
+                client_id=cfg.client_id,
+                client_secret=cfg.client_secret,
+            )
+        except Exception as e:
+            _auth_logger.warning(f"OIDC group sync: Graph API name resolution failed: {e}")
+            group_names_map = None
+
+    # Get user's org — use the first membership's org
+    async with async_session_maker() as db:
+        from sqlalchemy import select
+        from app.models.membership import Membership
+        stmt = select(Membership.organization_id).where(
+            Membership.user_id == str(user.id),
+            Membership.deleted_at.is_(None),
+        )
+        org_id = (await db.execute(stmt)).scalar_one_or_none()
+
+        if not org_id:
+            _auth_logger.debug(f"OIDC group sync: user {user.id} has no org membership, skipping")
+            return
+
+        await sync_user_oidc_groups(
+            db=db,
+            user_id=str(user.id),
+            organization_id=str(org_id),
+            group_ids=group_ids,
+            group_names=group_names_map,
+        )
 
 
 async def _discover_endpoints(openid_cfg_endpoint: str) -> Dict[str, str]:

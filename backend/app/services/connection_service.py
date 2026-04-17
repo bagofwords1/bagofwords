@@ -65,6 +65,14 @@ class ConnectionService:
                 detail="User authentication mode requires an enterprise license."
             )
 
+        # Default allowed_user_auth_modes for user_required connections on OBO-capable types.
+        # Frontend's "Require user auth" toggle doesn't currently let admins pick modes,
+        # so null/[] would silently disable both auto-provision and the /authorize route.
+        if auth_policy == "user_required" and not allowed_user_auth_modes:
+            from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
+            if type in ENTRA_OBO_CONNECTION_TYPES:
+                allowed_user_auth_modes = ["oauth"]
+
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
             validation_result = await self.test_connection_params(
@@ -207,6 +215,13 @@ class ConnectionService:
                     status_code=402,
                     detail="User authentication mode requires an enterprise license."
                 )
+
+        # Default allowed_user_auth_modes when switching to user_required (see create_connection)
+        if new_auth_policy == "user_required" and not updates.get("allowed_user_auth_modes"):
+            from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
+            target_type = updates.get("type", connection.type)
+            if target_type in ENTRA_OBO_CONNECTION_TYPES and not (connection.allowed_user_auth_modes or []):
+                updates["allowed_user_auth_modes"] = ["oauth"]
 
         # Track if connection-relevant fields changed
         connection_changed = False
@@ -451,6 +466,40 @@ class ConnectionService:
                 "message": str(e)
             }
 
+    async def test_user_connection(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Test a connection using the current user's saved credentials."""
+        connection = await self.get_connection(db, connection_id, organization)
+
+        try:
+            client = await self.construct_client(db, connection, current_user)
+            connection_status = await client.atest_connection()
+            success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
+
+            # Update the user's credential last_used_at on success
+            if success:
+                from app.models.user_connection_credentials import UserConnectionCredentials
+                result = await db.execute(
+                    select(UserConnectionCredentials).where(
+                        UserConnectionCredentials.connection_id == str(connection.id),
+                        UserConnectionCredentials.user_id == str(current_user.id),
+                        UserConnectionCredentials.is_active == True,
+                    )
+                )
+                user_cred = result.scalars().first()
+                if user_cred:
+                    user_cred.last_used_at = datetime.utcnow()
+                    await db.commit()
+
+            return connection_status
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
     async def refresh_schema(
         self,
         db: AsyncSession,
@@ -631,9 +680,9 @@ class ConnectionService:
 
         params = {**(config or {}), **(creds or {})}
 
-        # Strip meta keys (but keep auth_type — needed by custom_api/mcp clients)
+        # Strip meta keys and oauth override keys (but keep auth_type — needed by custom_api/mcp clients)
         meta_keys = {"auth_policy", "allowed_user_auth_modes"}
-        params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
+        params = {k: v for k, v in params.items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
 
         # Narrow to constructor signature
         try:
@@ -714,6 +763,15 @@ class ConnectionService:
                 detail="User credentials required for this connection"
             )
 
+        # For OAuth credentials, check if token needs refresh
+        if row.auth_mode == "oauth":
+            try:
+                from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
+                return await maybe_refresh_oauth_credentials(db, connection, row)
+            except Exception as e:
+                logger.warning(f"OAuth token refresh check failed: {e}")
+                return row.decrypt_credentials()
+
         return row.decrypt_credentials()
 
     def _resolve_client_by_type(
@@ -738,9 +796,17 @@ class ConnectionService:
             if credentials:
                 client_params.update(credentials)
 
-            # Strip meta keys
+            # Strip meta keys, empty values, and oauth override keys (stored in credentials but not used by clients)
             meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
-            client_params = {k: v for k, v in client_params.items() if k not in meta_keys}
+            client_params = {k: v for k, v in client_params.items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
+
+            # Narrow to constructor signature
+            try:
+                import inspect
+                sig = inspect.signature(ClientClass.__init__)
+                client_params = {k: v for k, v in client_params.items() if k in sig.parameters and k != "self"}
+            except Exception:
+                pass
 
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:

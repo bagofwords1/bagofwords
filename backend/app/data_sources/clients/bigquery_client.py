@@ -12,10 +12,11 @@ from contextlib import contextmanager
 
 
 class BigqueryClient(DataSourceClient):
-    def __init__(self, project_id, credentials_json, dataset, maximum_bytes_billed: Optional[int] = None, use_query_cache: bool = False):
+    def __init__(self, project_id, credentials_json=None, dataset=None, maximum_bytes_billed: Optional[int] = None, use_query_cache: bool = False, access_token: str = None):
         self.project_id = project_id
         self.credentials_json = credentials_json
         self.dataset = dataset
+        self._delegated_access_token = access_token
         # Accept comma-separated datasets; normalize and dedupe while preserving order
         self._datasets = []
         if isinstance(self.dataset, str) and self.dataset.strip():
@@ -30,9 +31,12 @@ class BigqueryClient(DataSourceClient):
         self.maximum_bytes_billed = maximum_bytes_billed
         self.use_query_cache = use_query_cache
 
-        # Support both raw JSON content and a server-accessible file path
+        # Support delegated OAuth access token, service account JSON, or file path
         self.credentials = None
-        if isinstance(self.credentials_json, str):
+        if self._delegated_access_token:
+            from google.oauth2.credentials import Credentials as OAuthCredentials
+            self.credentials = OAuthCredentials(token=self._delegated_access_token)
+        elif isinstance(self.credentials_json, str):
             # Try to parse as JSON content first (preferred & more secure)
             try:
                 info = json.loads(self.credentials_json)
@@ -46,6 +50,8 @@ class BigqueryClient(DataSourceClient):
                         "Provided BigQuery credentials are neither valid JSON content nor a readable server file path."
                     )
                 self.credentials = service_account.Credentials.from_service_account_file(self.credentials_json)
+        elif self.credentials_json is None:
+            raise ValueError("Either access_token or credentials_json must be provided")
         else:
             raise TypeError("credentials_json must be a JSON string or a server file path string")
 
