@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException
 from datetime import datetime
+import asyncio
 import uuid
 
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
@@ -530,7 +531,7 @@ class TestRunService:
             report_title = f"Test Run · {case.name}"
             report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title, ds_ids=getattr(case, "data_source_ids_json", None))
 
-            # Build prompt schema from case
+            # Build prompt schema for turn 1
             p = case.prompt_json or {}
             prompt = PromptSchema(
                 content=p.get("content") or "",
@@ -541,6 +542,8 @@ class TestRunService:
                 model_id=p.get("model_id"),
             )
             completion_data = CompletionCreate(prompt=prompt)
+
+            additional_turns = list(getattr(case, "additional_turns_json", None) or [])
 
             # Create head+system and run agent in background using existing service
             # Pass resolved_build_id so agent uses correct instruction build
@@ -563,6 +566,19 @@ class TestRunService:
                         break
             except Exception:
                 head_id = None
+
+            # Multi-turn: thread remaining turns after turn 1's agent finishes.
+            if additional_turns and head_id:
+                asyncio.create_task(
+                    self._run_additional_turns_background(
+                        report_id=str(report.id),
+                        head_completion_id=str(head_id),
+                        additional_turns=additional_turns,
+                        organization=organization,
+                        current_user=current_user,
+                        build_id=resolved_build_id,
+                    )
+                )
 
             result = TestResult(
                 run_id=str(run.id),
@@ -594,6 +610,85 @@ class TestRunService:
             await db.refresh(r)
 
         return run, created_results
+
+    async def _run_additional_turns_background(
+        self,
+        *,
+        report_id: str,
+        head_completion_id: str,
+        additional_turns: List[Dict[str, Any]],
+        organization,
+        current_user,
+        build_id: Optional[str],
+    ) -> None:
+        """Run turns 2..N sequentially on the same report once turn 1 finishes.
+
+        Each turn is dispatched via ``CompletionService.create_completion`` with
+        ``background=False`` so we block until the agent terminates before
+        dispatching the next turn. Opens its own async session because the
+        request-scoped session is already closed by the time this runs.
+        """
+        from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
+
+        async_session = create_async_session_factory()
+        try:
+            # Wait for turn 1's agent to leave in_progress.
+            await self._await_head_completion_done(async_session, head_completion_id)
+
+            for turn in additional_turns:
+                p = (turn or {}).get("prompt") or {}
+                prompt = PromptSchema(
+                    content=p.get("content") or "",
+                    widget_id=None,
+                    step_id=None,
+                    mentions=p.get("mentions"),
+                    mode=p.get("mode"),
+                    model_id=p.get("model_id"),
+                )
+                async with async_session() as session:
+                    # Synchronous path: blocks until this turn's agent is done.
+                    await self.completions.create_completion(
+                        db=session,
+                        report_id=str(report_id),
+                        completion_data=CompletionCreate(prompt=prompt),
+                        current_user=current_user,
+                        organization=organization,
+                        background=False,
+                        build_id=build_id,
+                    )
+        except Exception:
+            # Best-effort; evaluator will observe whatever state the report
+            # reached and mark the TestResult accordingly on the next status
+            # poll / stream.
+            pass
+
+    async def _await_head_completion_done(
+        self,
+        async_session,
+        head_completion_id: str,
+        *,
+        poll_interval_s: float = 1.0,
+        timeout_s: float = 600.0,
+    ) -> None:
+        """Poll the system completion for a head until it reaches a terminal state."""
+        import time
+        terminal = {"success", "error", "stopped"}
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            async with async_session() as session:
+                res = await session.execute(
+                    select(Completion)
+                    .where(
+                        Completion.parent_id == str(head_completion_id),
+                        Completion.role == "system",
+                    )
+                    .order_by(Completion.created_at.desc())
+                    .limit(1)
+                )
+                sys_comp = res.scalar_one_or_none()
+                if sys_comp is not None and getattr(sys_comp, "status", None) in terminal:
+                    return
+            await asyncio.sleep(poll_interval_s)
 
     # -------- New API: Run status with embedded completions (polling) --------
     async def get_run_status_with_completions(self, db: AsyncSession, organization, current_user, run_id: str, limit: int = 50):
