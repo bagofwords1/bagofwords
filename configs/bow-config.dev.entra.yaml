@@ -1,0 +1,78 @@
+# Deployment Configuration
+deployment:
+  type: "self_hosted"
+
+base_url: http://localhost:3000
+
+database:
+  # url: sqlite:///db/app.db
+  url: ${BOW_DATABASE_URL}
+  
+features:
+  allow_uninvited_signups: false
+  allow_multiple_organizations: false
+  verify_emails: false
+
+auth:
+  mode: "hybrid"
+
+google_oauth:
+  enabled: false
+  client_id: '${BOW_GOOGLE_CLIENT_ID}'
+  client_secret: '${BOW_GOOGLE_CLIENT_SECRET}'
+
+oidc_providers:
+- name: okta
+  enabled: false
+  issuer: https://trial-9381896.okta.com/oauth2/default
+  client_id: ${OKTA_CLIENT_ID}
+  client_secret: ${OKTA_CLIENT_SECRET}
+  scopes: ["openid", "profile", "email"]
+  pkce: true
+  client_auth_method: basic
+  discovery: true
+  uid_claim: sub
+ # Optional overrides:
+ # redirect_path: /api/auth/okta/callback
+ # extra_authorize_params: { prompt: login }
+ # extra_token_params: {}
+
+- name: entra
+  enabled: true
+  issuer: https://login.microsoftonline.com/3871cb7e-3f16-4b81-84c5-1a5e185509f9/v2.0
+  client_id: a9010cd3-08ff-451b-b041-5007a94ba677
+  client_secret: ${BOW_ENTRA_CLIENT_SECRET}
+  scopes: ["openid", "profile", "email", "api://a9010cd3-08ff-451b-b041-5007a94ba677/access_as_user"]
+  pkce: true
+  client_auth_method: post
+  discovery: true
+  uid_claim: sub
+  sync_groups: true
+  group_claim: "groups"
+  resolve_group_names: true
+
+# ldap:
+#  enabled: true
+#  url: ldaps://ad.company.com:636
+#  bind_dn: cn=service-account,ou=Services,dc=company,dc=com
+#  bind_password: ${BOW_LDAP_BIND_PASSWORD}
+
+encryption_key: ${BOW_ENCRYPTION_KEY}
+
+smtp_settings:
+  host: "smtp.resend.com"
+  port: 587
+  username: "resend"
+  password: ${BOW_SMTP_PASSWORD}
+
+swagger:
+  enabled: true
+
+intercom:
+  enabled: true
+
+telemetry:
+  enabled: false
+
+license:
+  key: ${BOW_LICENSE_KEY}
