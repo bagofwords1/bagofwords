@@ -480,7 +480,8 @@ class InstructionService:
         return await self._execute_instructions_query(
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
-            build_id=build_id, include_global=include_global
+            build_id=build_id, include_global=include_global,
+            current_user=current_user,
         )
 
     async def get_available_source_types(
@@ -1262,7 +1263,15 @@ class InstructionService:
         
         result = await db.execute(query)
         instructions = result.scalars().all()
-        return [InstructionSchema.from_orm(instruction) for instruction in instructions]
+        schemas = [InstructionSchema.from_orm(instruction) for instruction in instructions]
+
+        # Post-filter by per-user table accessibility
+        if current_user:
+            schemas = await self._filter_list_items_by_table_accessibility(
+                db, schemas, str(current_user.id)
+            )
+
+        return schemas
 
     async def get_instructions_by_report(
         self,
@@ -1580,13 +1589,13 @@ class InstructionService:
         return 'manage_instructions' in permissions or 'full_admin_access' in permissions
 
     async def _execute_instructions_query(
-        self, 
-        db: AsyncSession, 
-        organization: Organization, 
-        conditions: list, 
-        status: Optional[str], 
-        categories: Optional[List[str]], 
-        skip: int, 
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        conditions: list,
+        status: Optional[str],
+        categories: Optional[List[str]],
+        skip: int,
         limit: int,
         data_source_ids: Optional[List[str]] = None,
         source_types: Optional[List[str]] = None,
@@ -1594,7 +1603,8 @@ class InstructionService:
         label_ids: Optional[List[str]] = None,
         search: Optional[str] = None,
         build_id: Optional[str] = None,
-        include_global: bool = True
+        include_global: bool = True,
+        current_user: Optional[User] = None,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
         
@@ -1788,6 +1798,13 @@ class InstructionService:
                 )
             )
         
+        # Post-filter by per-user table accessibility (user_data_source_tables overlay).
+        # Excludes instructions whose table references are ALL inaccessible to the user.
+        if current_user:
+            list_items = await self._filter_list_items_by_table_accessibility(
+                db, list_items, str(current_user.id)
+            )
+
         return {
             "items": list_items,
             "total": total,
@@ -1795,6 +1812,62 @@ class InstructionService:
             "per_page": limit,
             "pages": (total + limit - 1) // limit if limit > 0 else 1
         }
+
+    async def _filter_list_items_by_table_accessibility(
+        self,
+        db: AsyncSession,
+        items: List,
+        user_id: str,
+    ) -> List:
+        """Remove list items whose table references are all inaccessible to the user.
+
+        Rules:
+        - No table references → keep (global / text-only instruction)
+        - All referenced tables inaccessible → exclude
+        - At least one referenced table accessible → keep
+        - No overlay rows for user → keep all (no filtering)
+        """
+        from app.models.user_data_source_overlay import UserDataSourceTable
+        from app.models.instruction_reference import InstructionReference
+
+        # Get the set of table IDs this user cannot access
+        result = await db.execute(
+            select(UserDataSourceTable.data_source_table_id)
+            .where(
+                UserDataSourceTable.user_id == user_id,
+                UserDataSourceTable.is_accessible == False,
+                UserDataSourceTable.data_source_table_id.isnot(None),
+            )
+        )
+        inaccessible = {row[0] for row in result.all()}
+        if not inaccessible:
+            return items
+
+        # Batch-load table references for all instruction IDs
+        item_ids = [str(item.id) for item in items]
+        if not item_ids:
+            return items
+
+        ref_result = await db.execute(
+            select(InstructionReference.instruction_id, InstructionReference.object_id)
+            .where(
+                InstructionReference.instruction_id.in_(item_ids),
+                InstructionReference.object_type == "datasource_table",
+            )
+        )
+        refs_by_instruction: dict[str, set[str]] = {}
+        for inst_id, table_id in ref_result.all():
+            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
+
+        filtered = []
+        for item in items:
+            table_refs = refs_by_instruction.get(str(item.id))
+            if not table_refs:
+                filtered.append(item)
+            elif table_refs - inaccessible:
+                filtered.append(item)
+            # else: all refs inaccessible → exclude
+        return filtered
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
         """Get user's org-level permissions via the RBAC resolver."""
