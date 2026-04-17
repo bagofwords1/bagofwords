@@ -18,7 +18,7 @@ from tests.evals.conftest import ALL_EVAL_CASES
 )
 def test_eval_case(
     yaml_path, suite_name, case_name,
-    eval_env, import_suite_yaml, test_client, wait_for_run,
+    eval_env, import_suite_yaml, run_case_and_wait,
 ):
     token = eval_env["token"]
     org_id = eval_env["org_id"]
@@ -31,22 +31,8 @@ def test_eval_case(
     case_id = imported.json()["cases_by_name"][case_name]
     print(f"[eval] imported case_id={case_id[:8]}", flush=True)
 
-    # Kick off the agent via the batch endpoint (same path the UI uses).
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "X-Organization-Id": str(org_id),
-    }
-    resp = test_client.post(
-        "/api/tests/runs/batch",
-        json={"case_ids": [case_id], "trigger_reason": "eval"},
-        headers=headers,
-    )
-    assert resp.status_code == 200, resp.json()
-    run = resp.json()
-    print(f"[eval] run_id={run['id'][:8]} started", flush=True)
-
-    results = wait_for_run(
-        run["id"], user_token=token, org_id=org_id, timeout_s=240,
+    results = run_case_and_wait(
+        [case_id], user_token=token, org_id=org_id, timeout_s=300,
     )
     assert len(results) == 1
     result = results[0]

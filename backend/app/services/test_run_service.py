@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from fastapi import HTTPException
 from datetime import datetime
 import asyncio
+import logging
 import uuid
 
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
@@ -1287,6 +1288,62 @@ class TestRunService:
                                 data={"result_id": str(r.id), "error": str(e)},
                             )
                             await central_queue.put((str(r.id), err))
+                            # Persist result status=error so the TestResult
+                            # row leaves `in_progress`. Without this, the
+                            # streamer's aggregate run status is "success"
+                            # (since no result is in {fail,error}) even
+                            # though the agent failed. Use a fresh session
+                            # because ``session`` may be in a tainted
+                            # transactional state after main_execution raised.
+                            try:
+                                _error_async_session = create_async_session_factory()
+                                async with _error_async_session() as _err_session:
+                                    _run, result_row, _case_row, _expectations = await self.evaluator.resolve_by_run_and_report(
+                                        _err_session, str(run.id), str(report_obj.id)
+                                    )
+                                    try:
+                                        rule_spec = RuleSpec(
+                                            spec_version=getattr(_expectations, "spec_version", 1),
+                                            rules=[
+                                                (rr.model_dump() if hasattr(rr, "model_dump") else dict(rr))
+                                                for rr in (getattr(_expectations, "rules", []) or [])
+                                            ],
+                                            order_mode=getattr(_expectations, "order_mode", None),
+                                        )
+                                    except Exception:
+                                        rule_spec = RuleSpec(spec_version=1, rules=[], order_mode=None)
+                                    await self.evaluator.persist_result_json(
+                                        db=_err_session,
+                                        result=result_row,
+                                        status="error",
+                                        result_json=TestResultJsonSchema(
+                                            spec=rule_spec,
+                                            totals=TestResultTotals(total=0, passed=0, failed=0, duration_ms=None),
+                                            rule_results=[],
+                                        ),
+                                        failure_reason=str(e),
+                                        agent_execution_id=None,
+                                    )
+                                try:
+                                    await central_queue.put((
+                                        str(r.id),
+                                        SSEEvent(
+                                            event="result.update",
+                                            completion_id=str(system_completion.id),
+                                            data={
+                                                "result_id": str(r.id),
+                                                "status": "error",
+                                                "failure_reason": str(e),
+                                            },
+                                        ),
+                                    ))
+                                except Exception:
+                                    pass
+                            except Exception as _persist_err:
+                                logging.warning(
+                                    f"[stream_run] failed to persist error "
+                                    f"status for result={r.id}: {_persist_err!r}"
+                                )
                         finally:
                             eq.finish()
 
