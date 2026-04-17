@@ -72,17 +72,25 @@ def pytest_collection_modifyitems(config, items):
 def eval_env(
     create_user, login_user, whoami,
     create_llm_provider_and_models,
+    create_anthropic_provider_and_models,
     install_demo_data_source,
 ):
     """Seed a fresh org with: admin user, LLM provider, and the committed
     chinook demo data source (surfaced in the product as "Music Store").
 
-    Returns a dict with ``token``, ``org_id`` and the installed data source
-    id. Sanity YAMLs reference chinook tables (Album, Artist, Invoice,
-    InvoiceLine, Customer, …) via ``data_source_slugs: ["Music Store"]``.
+    Chooses the provider based on which ``*_API_KEY_TEST`` env var is set:
+    - ``ANTHROPIC_API_KEY_TEST``  → Claude 4.6 Sonnet (preferred)
+    - ``OPENAI_API_KEY_TEST``     → GPT-5.4
+
+    Fails fast (skip) if neither is set or Chinook is missing.
     """
-    if not os.getenv("OPENAI_API_KEY_TEST"):
-        pytest.skip("OPENAI_API_KEY_TEST not set; skipping eval harness tests")
+    has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY_TEST"))
+    has_openai = bool(os.getenv("OPENAI_API_KEY_TEST"))
+    if not (has_anthropic or has_openai):
+        pytest.skip(
+            "No LLM key set for evals — set ANTHROPIC_API_KEY_TEST or "
+            "OPENAI_API_KEY_TEST."
+        )
     if not CHINOOK_DB_PATH.exists():
         pytest.skip(f"Chinook demo db missing at {CHINOOK_DB_PATH}")
 
@@ -90,7 +98,11 @@ def eval_env(
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
 
-    create_llm_provider_and_models(user_token=token, org_id=org_id)
+    if has_anthropic:
+        create_anthropic_provider_and_models(user_token=token, org_id=org_id)
+    else:
+        create_llm_provider_and_models(user_token=token, org_id=org_id)
+
     result = install_demo_data_source(
         demo_id="chinook", user_token=token, org_id=org_id,
     )
@@ -195,12 +207,13 @@ def run_case_and_wait(test_client):
                         )
                         break
 
-        # 3. Fetch final results. There is a small race between
-        # ``run.finished`` and the result-status persistence done by the
-        # agent task's error branch, so briefly retry until all results
-        # are terminal (or bail after 10s).
-        settle_deadline = time.time() + 10.0
+        # 3. Fetch final results. There is a race between
+        # ``run.finished`` and result-status persistence (agent error
+        # branch + evaluator commit both use short-lived sessions), so
+        # briefly retry until all results are terminal.
+        settle_deadline = time.time() + 30.0
         results: List[Dict[str, Any]] = []
+        last_non_terminal_tick = 0
         while time.time() < settle_deadline:
             res_resp = test_client.get(
                 f"/api/tests/runs/{run_id}/results", headers=headers,
@@ -209,6 +222,18 @@ def run_case_and_wait(test_client):
             results = res_resp.json()
             if results and all(r.get("status") in terminal_statuses for r in results):
                 break
+            # Surface every ~2s so the user can tell the harness is still
+            # waiting for persistence rather than hung.
+            last_non_terminal_tick += 1
+            if last_non_terminal_tick % 4 == 0:
+                non_terminal = [
+                    (r.get("id", "?")[:8], r.get("status"))
+                    for r in results if r.get("status") not in terminal_statuses
+                ]
+                print(
+                    f"[eval] settle: waiting on {non_terminal}",
+                    flush=True,
+                )
             time.sleep(0.5)
 
         # 4. Trailing tool trace per result (best-effort).
