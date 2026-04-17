@@ -72,11 +72,16 @@ backend/tests/evals/
 
 ### YAML schema
 
+Two shapes per case — single-turn (shown first) and multi-turn. Multi-turn
+is **YAML-only**; the existing in-product UI continues to render turn 1 from
+`prompt_json` and is blind to the extra turns.
+
 ```yaml
 name: <string>                       # unique per org
 description: <string?>
 data_source_slugs: [<slug>, ...]     # default attachments for all cases
 cases:
+  # --- single-turn ---
   - name: <string>                   # unique per suite
     prompt:
       content: <string>
@@ -88,7 +93,25 @@ cases:
       spec_version: 1
       order_mode: flexible | strict | exact
       rules: [...]                   # any Rule from ExpectationsSpec
+
+  # --- multi-turn (YAML-only) ---
+  - name: clarify_then_answer
+    turns:                           # mutually exclusive with `prompt:`
+      - prompt: { content: "Show me the data" }
+      - prompt: { content: "Users per month for 2025" }
+    expectations:                    # evaluated against the full trace
+      rules:
+        - { type: tool.calls, tool: clarify, min_calls: 1 }
+        - { type: tool.calls, tool: create_data, min_calls: 1 }
+        - type: ordering
+          mode: flexible
+          sequence:
+            - { tool_or_bind: clarify }
+            - { tool_or_bind: create_data }
 ```
+
+A case is multi-turn iff `turns` is present and non-empty. Schema validates
+that exactly one of `prompt` or `turns` is set.
 
 **Portability rule — no UUIDs in YAML.** Data sources by slug (or name
 fallback); models by `<provider>/<model>` pair. Resolver errors loudly when
@@ -137,13 +160,31 @@ passes. CI job `evals` fails if any case fails.
 
 - [ ] `SuiteYaml` / `CaseYaml` in `app/schemas/suite_yaml_schema.py`
       (re-embed existing `PromptSchema`, `ExpectationsSpec`).
+      Validator: exactly one of `prompt` or `turns` per case.
 - [ ] Extend **`TestSuiteService`** with `import_yaml(...)` / `export_yaml(...)`
       (slug resolution, upsert by name, soft-delete removed cases).
       Reuse `TestCaseService` internals for case persistence — no duplication.
 - [ ] Add two handlers to **`routes/test.py`**:
       - `POST /api/tests/suites/import` — body: YAML string (or file upload).
       - `GET  /api/tests/suites/{id}/export` — returns YAML.
-- [ ] Unit tests: round-trip, slug resolution errors, upsert preserves IDs.
+- [ ] **Multi-turn support (YAML-only, not in UI)**:
+  - [ ] Alembic migration: add nullable `additional_turns_json` column on
+        `test_cases` (list of `{prompt: PromptSchema}`; turn 1 keeps living
+        in `prompt_json` for UI backward-compat).
+  - [ ] Importer splits `turns[0] → prompt_json`, `turns[1:] →
+        additional_turns_json`. Export reassembles.
+  - [ ] `TestRunService.create_and_execute_background` (and `stream_run`)
+        iterate turns: after turn N's agent reaches a terminal state, create
+        a follow-up head completion on the same `Report` (parent =
+        previous system completion) and launch the next agent run.
+  - [ ] Evaluator unchanged — `build_final_snapshot` already scans the full
+        report, so global expectations cover multi-turn. Per-turn scoped
+        assertions are deferred.
+  - [ ] UI renders turn 1 only (reads `prompt_json` as today). No frontend
+        changes required; optional small badge for "multi-turn (N)" can come
+        later.
+- [ ] Unit tests: round-trip, slug resolution errors, upsert preserves IDs,
+      multi-turn threading produces N `AgentExecution` rows.
 - [x] Sanity YAMLs checked in under `backend/evals/suites/` (this change).
 
 ### Phase 2 — pytest evals
