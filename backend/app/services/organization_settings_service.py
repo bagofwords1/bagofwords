@@ -430,6 +430,12 @@ class OrganizationSettingsService:
           no '@' / whitespace / wildcard, deduped
         - auto_invite_role must match an existing system or per-org role
         """
+        if not has_feature("domain_signup"):
+            raise HTTPException(
+                status_code=402,
+                detail="Domain-based signup requires an enterprise license.",
+            )
+
         from app.models.role import Role
         from sqlalchemy import or_, and_
 

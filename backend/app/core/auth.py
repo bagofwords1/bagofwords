@@ -247,6 +247,9 @@ class UserManager(BaseUserManager[User, str]):
     async def _has_domain_invite(self, email: str, session: AsyncSession) -> bool:
         """Return True if some org's signup_policy would admit this email's domain."""
         from app.models.organization_settings import OrganizationSettings
+        from app.ee.license import has_feature
+        if not has_feature("domain_signup"):
+            return False
         if not email or "@" not in email:
             return False
         domain = email.split("@", 1)[-1].lower()
@@ -264,7 +267,10 @@ class UserManager(BaseUserManager[User, str]):
         """For every org whose signup_policy admits this email's domain,
         create an open Membership invite if one doesn't already exist."""
         from app.models.organization_settings import OrganizationSettings
+        from app.ee.license import has_feature
         from sqlalchemy import or_
+        if not has_feature("domain_signup"):
+            return
         if not email or "@" not in email:
             return
         domain = email.split("@", 1)[-1].lower()

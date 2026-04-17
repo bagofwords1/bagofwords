@@ -38,7 +38,7 @@ const tabs = [
     { key: 'members', label: 'Members' },
     { key: 'roles', label: 'Roles', permission: 'manage_roles', feature: 'custom_roles' },
     { key: 'groups', label: 'Groups', permission: 'manage_groups', feature: 'custom_roles' },
-    { key: 'signup', label: 'Signup', permission: 'full_admin_access' },
+    { key: 'signup', label: 'Signup', permission: 'full_admin_access', feature: 'domain_signup' },
 ]
 
 const visibleTabs = computed(() =>
