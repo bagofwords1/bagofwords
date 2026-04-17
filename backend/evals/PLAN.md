@@ -196,13 +196,78 @@ passes. CI job `evals` fails if any case fails.
 - [ ] `@pytest.mark.evals` in `pytest.ini` + nightly CI job with
       `ANTHROPIC_API_KEY` secret.
 
-### Phase 3 — artifact FieldRule coverage (independent)
+### Phase 3 — richer assertions: phase scoping + artifact + instruction
 
-- [ ] Add `tool:create_artifact` / `tool:edit_artifact` to the test catalog
-      in `app/schemas/test_expectations.py`.
-- [ ] Extend `TestEvaluationService.build_final_snapshot` to extract artifact
-      `mode` (page | slides), `code`, generated components from
-      `ToolExecution`.
+Extends the evaluator's rule grammar and snapshot surface. No harness or
+import changes.
+
+**Why phase scoping.** Without it, `tool.calls create_instruction min_calls: 1`
+can't tell you *which* agent loop produced the call. The knowledge harness is
+gated by `trigger.py` — in `mode: chat` it only runs when triggered; in
+`mode: training` it's skipped entirely and instruction tools surface in the
+main loop. Evals need to pin assertions to the loop they're evaluating, and
+need a primitive that says "assert the knowledge harness actually fired."
+
+**Per-rule `phase` filter** (optional, default `any`, backward compatible):
+
+```yaml
+- type: tool.calls
+  tool: create_instruction
+  phase: knowledge          # main | knowledge | any
+  min_calls: 1
+
+- type: ordering
+  phase: knowledge
+  sequence:
+    - {tool_or_bind: search_instructions}
+    - {tool_or_bind: create_instruction}
+
+- type: field
+  phase: knowledge
+  target: {category: "tool:create_instruction", field: text}
+  matcher: {type: text.contains, value: "exclude cancelled"}
+```
+
+**`PhaseRule`** — dedicated primitive for phase-presence:
+
+```yaml
+- type: phase
+  phase: knowledge
+  occurred: true            # fail if no PlanDecision.phase == "knowledge_harness"
+```
+
+**New catalog categories** (with `build_final_snapshot` extractors):
+
+- `tool:create_artifact` → `mode` (page|slides), `visualization_ids` (list),
+  `title`.
+- `tool:edit_artifact` → input/output fields relevant for edit flows.
+- `tool:create_instruction` → `text`, `category`.
+- `tool:edit_instruction` → `text`.
+- `tool:search_instructions` → `query`.
+
+**Data path.** `ToolExecution.plan_decision_id` → `PlanDecision.phase`
+(nullable string, "main" | "knowledge_harness"). No migration.
+`build_final_snapshot` adds parallel arrays `tool_phases` and `phases_seen`;
+evaluator normalizes `"knowledge_harness" → "knowledge"` when filtering.
+
+**Use patterns** this unlocks:
+
+- Instruction authoring via `mode: training` — `tool.calls
+  create_instruction min_calls: 1` (no phase needed; lives in main).
+- Knowledge-harness reflex via `mode: chat` multi-turn with a correction
+  in turn 2 — `phase: knowledge, tool.calls create_instruction min_calls: 1`
+  plus `{type: phase, phase: knowledge, occurred: true}`.
+
+**Checklist:**
+
+- [ ] Add `phase` field to `ToolCallsRule`, `OrderingRule`, `FieldRule`.
+- [ ] Add `PhaseRule` to the `Rule` union.
+- [ ] `build_final_snapshot`: join `ToolExecution → PlanDecision.phase`;
+      populate `tool_phases`, `phases_seen`, and category-specific extractors
+      for the five new tool categories.
+- [ ] `evaluate_final`: filter per-rule by phase; handle `PhaseRule`; handle
+      new categories.
+- [ ] Sanity YAML exercising knowledge-harness trigger (committed this change).
 - [ ] Optional vision-judge rule over artifact screenshots.
 
 Until this lands, dashboard-style assertions use `ToolCallsRule` +

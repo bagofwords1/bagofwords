@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.eval import TestRun, TestResult, TestCase
 from app.models.agent_execution import AgentExecution
 from app.models.tool_execution import ToolExecution
+from app.models.plan_decision import PlanDecision
 from app.models.completion import Completion
 from app.schemas.test_expectations import (
     ExpectationsSpec,
@@ -15,8 +16,19 @@ from app.schemas.test_expectations import (
     FieldRule,
     ToolCallsRule,
     OrderingRule,
+    PhaseRule,
     Matcher,
 )
+
+
+# Phase normalisation: PlanDecision.phase is stored as "main" or
+# "knowledge_harness"; YAML says "knowledge". Normalise on read.
+def _normalize_phase(phase: Optional[str]) -> str:
+    if phase == "knowledge_harness":
+        return "knowledge"
+    if phase is None:
+        return "main"
+    return phase
 from app.schemas.test_results_schema import (
     RuleResult,
     RuleEvidence,
@@ -95,17 +107,37 @@ class TestEvaluationService:
         """
         snapshot: Dict[str, Any] = {}
 
-        # Tool sequence for the report (ordered by start time)
+        # Tool sequence for the report (ordered by start time). We also
+        # carry the phase of the owning PlanDecision so rules can filter to
+        # the main loop or the knowledge harness.
         try:
             rows = await db.execute(
-                select(ToolExecution.tool_name)
+                select(ToolExecution.tool_name, PlanDecision.phase)
                 .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                .outerjoin(PlanDecision, PlanDecision.id == ToolExecution.plan_decision_id)
                 .where(AgentExecution.report_id == str(report_id))
                 .order_by(ToolExecution.started_at.asc(), ToolExecution.created_at.asc())
             )
-            snapshot["tool_sequence"] = [tool for (tool,) in rows.all()]
+            seq_rows = rows.all()
+            snapshot["tool_sequence"] = [t for (t, _p) in seq_rows]
+            snapshot["tool_phases"] = [_normalize_phase(p) for (_t, p) in seq_rows]
         except Exception:
             snapshot["tool_sequence"] = []
+            snapshot["tool_phases"] = []
+
+        # Set of phases actually entered by PlanDecision for this report.
+        try:
+            pd_rows = await db.execute(
+                select(PlanDecision.phase)
+                .join(AgentExecution, AgentExecution.id == PlanDecision.agent_execution_id)
+                .where(AgentExecution.report_id == str(report_id))
+                .distinct()
+            )
+            snapshot["phases_seen"] = {
+                _normalize_phase(p) for (p,) in pd_rows.all()
+            }
+        except Exception:
+            snapshot["phases_seen"] = set()
 
         # Initialize create_data info (tool output will populate this)
         create_data_info = {"columns": [], "rows_count": 0, "code": "", "tables": []}
@@ -264,6 +296,72 @@ class TestEvaluationService:
             pass
         snapshot["clarify"] = clarify_info
 
+        # --------------------------------------------------------------
+        # Extra tool extractors (phase 3): artifact + instruction tools.
+        # Each block pulls the latest successful ToolExecution by name and
+        # publishes a small dict with the fields the catalog exposes.
+        # --------------------------------------------------------------
+
+        async def _latest_tool_args(tool_name: str, phase_filter: Optional[str] = None) -> Optional[Dict[str, Any]]:
+            """Return arguments_json of the latest successful call of ``tool_name``.
+
+            ``phase_filter`` is the DB value (``"main"`` or
+            ``"knowledge_harness"``), not the normalised one.
+            """
+            try:
+                stmt = (
+                    select(ToolExecution.arguments_json, ToolExecution.result_json)
+                    .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                    .outerjoin(PlanDecision, PlanDecision.id == ToolExecution.plan_decision_id)
+                    .where(AgentExecution.report_id == str(report_id))
+                    .where(ToolExecution.tool_name == tool_name)
+                    .where((ToolExecution.success == True) | (ToolExecution.status == "success"))
+                    .order_by(ToolExecution.started_at.desc(), ToolExecution.created_at.desc())
+                    .limit(1)
+                )
+                if phase_filter is not None:
+                    stmt = stmt.where(PlanDecision.phase == phase_filter)
+                row = (await db.execute(stmt)).first()
+                if row is None:
+                    return None
+                args, _res = row
+                return args if isinstance(args, dict) else None
+            except Exception:
+                return None
+
+        def _publish(key: str, args: Optional[Dict[str, Any]], fields: Tuple[str, ...]) -> None:
+            out: Dict[str, Any] = {}
+            if isinstance(args, dict):
+                for f in fields:
+                    out[f] = args.get(f)
+            snapshot[key] = out
+
+        _publish(
+            "create_artifact",
+            await _latest_tool_args("create_artifact"),
+            ("mode", "visualization_ids", "title"),
+        )
+        _publish(
+            "edit_artifact",
+            await _latest_tool_args("edit_artifact"),
+            ("mode", "visualization_ids"),
+        )
+        _publish(
+            "create_instruction",
+            await _latest_tool_args("create_instruction"),
+            ("text", "category"),
+        )
+        _publish(
+            "edit_instruction",
+            await _latest_tool_args("edit_instruction"),
+            ("text",),
+        )
+        _publish(
+            "search_instructions",
+            await _latest_tool_args("search_instructions"),
+            ("query",),
+        )
+
         return snapshot
 
     async def _build_trace_v2(
@@ -374,11 +472,44 @@ class TestEvaluationService:
             rule_results.append(RuleResult(ok=False, status="fail", message=message or "Expectation not evaluated (unmet condition)", actual=None, evidence=evidence))
             failed += 1
 
+        # Helpers for phase-scoped rules (phase 3)
+        def _phase_of(rule_obj) -> Optional[str]:
+            p = getattr(rule_obj, "phase", None)
+            if p in (None, "any"):
+                return None
+            return p
+
+        def _filtered_tool_sequence(rule_obj) -> List[str]:
+            p = _phase_of(rule_obj)
+            seq = snapshot.get("tool_sequence") or []
+            if p is None:
+                return list(seq)
+            phases = snapshot.get("tool_phases") or []
+            return [t for t, ph in zip(seq, phases) if ph == p]
+
         # Iterate rules 1:1 and build aligned results
         for rule in rules:
-            # Tool call counts
+            # Phase presence — "did this harness actually run?"
+            if isinstance(rule, PhaseRule):
+                phases_seen = snapshot.get("phases_seen") or set()
+                fired = rule.phase in phases_seen
+                ok = fired if rule.occurred else not fired
+                seen_sorted = sorted(phases_seen)
+                msg = None if ok else (
+                    f"phase '{rule.phase}' expected to "
+                    f"{'occur' if rule.occurred else 'not occur'}, "
+                    f"phases_seen={seen_sorted}"
+                )
+                push(
+                    ok, msg,
+                    actual={"phases_seen": seen_sorted, "fired": fired},
+                    evidence=None,
+                )
+                continue
+
+            # Tool call counts (optionally phase-scoped)
             if isinstance(rule, ToolCallsRule):
-                seq = snapshot.get("tool_sequence") or []
+                seq = _filtered_tool_sequence(rule)
                 count = sum(1 for t in seq if t == rule.tool)
                 min_calls = rule.min_calls or 0
                 max_calls = rule.max_calls
@@ -388,7 +519,11 @@ class TestEvaluationService:
                 ev = None
                 if rule.tool == "clarify":
                     ev = RuleEvidence(type="clarify")
-                msg = None if ok else f"{rule.tool} calls={count}, expected min={min_calls}, max={max_calls}"
+                phase_suffix = f" [phase={_phase_of(rule)}]" if _phase_of(rule) else ""
+                msg = None if ok else (
+                    f"{rule.tool} calls={count}, expected min={min_calls}, "
+                    f"max={max_calls}{phase_suffix}"
+                )
                 push(ok, msg, actual=count, evidence=ev)
                 continue
 
@@ -477,7 +612,7 @@ class TestEvaluationService:
 
                 # tool:clarify.* (support question text checks)
                 if cat == "tool:clarify":
-                    seq = snapshot.get("tool_sequence") or []
+                    seq = _filtered_tool_sequence(rule)
                     if "clarify" not in seq:
                         push_skipped("clarify tool not called", evidence=RuleEvidence(type="clarify"))
                         continue
@@ -494,6 +629,69 @@ class TestEvaluationService:
                         push(ok, None if ok else msg, actual=value, evidence=ev)
                     else:
                         push_skipped(f"clarify.{field} not available", evidence=RuleEvidence(type="clarify"))
+                    continue
+
+                # tool:create_artifact.*
+                if cat in ("tool:create_artifact", "tool:edit_artifact"):
+                    slot = "create_artifact" if cat == "tool:create_artifact" else "edit_artifact"
+                    info = snapshot.get(slot) or {}
+                    if not info:
+                        push_skipped(f"{cat.split(':',1)[1]} not called")
+                        continue
+                    if field == "mode":
+                        value = info.get("mode") or ""
+                        ok, msg = self._apply_matcher(str(value), rule.matcher)
+                        push(ok, None if ok else msg, actual=value)
+                        continue
+                    if field == "visualization_ids":
+                        values = info.get("visualization_ids") or []
+                        if not isinstance(values, list):
+                            values = []
+                        ok, msg = self._apply_list_matcher(values, rule.matcher)
+                        push(ok, None if ok else msg, actual=values)
+                        continue
+                    if field == "title":
+                        value = info.get("title") or ""
+                        ok, msg = self._apply_matcher(str(value), rule.matcher)
+                        push(ok, None if ok else msg, actual=value)
+                        continue
+                    push_skipped(f"{cat}.{field} not available")
+                    continue
+
+                # tool:create_instruction.* / tool:edit_instruction.*
+                if cat in ("tool:create_instruction", "tool:edit_instruction"):
+                    slot = "create_instruction" if cat == "tool:create_instruction" else "edit_instruction"
+                    info = snapshot.get(slot) or {}
+                    if not info:
+                        push_skipped(f"{cat.split(':',1)[1]} not called")
+                        continue
+                    if field == "text":
+                        value = info.get("text") or ""
+                        ok, msg = self._apply_matcher(str(value), rule.matcher)
+                        push(ok, None if ok else msg, actual=value)
+                        continue
+                    if field == "category" and cat == "tool:create_instruction":
+                        value = info.get("category") or ""
+                        ok, msg = self._apply_matcher(str(value), rule.matcher)
+                        push(ok, None if ok else msg, actual=value)
+                        continue
+                    push_skipped(f"{cat}.{field} not available")
+                    continue
+
+                # tool:search_instructions.*
+                if cat == "tool:search_instructions":
+                    info = snapshot.get("search_instructions") or {}
+                    if not info:
+                        push_skipped("search_instructions not called")
+                        continue
+                    if field == "query":
+                        values = info.get("query") or []
+                        if not isinstance(values, list):
+                            values = []
+                        ok, msg = self._apply_list_matcher(values, rule.matcher)
+                        push(ok, None if ok else msg, actual=values)
+                        continue
+                    push_skipped(f"{cat}.{field} not available")
                     continue
 
                 # Unsupported category/field -> pass (alignment only)

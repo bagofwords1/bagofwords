@@ -79,10 +79,17 @@ class TargetRef(BaseModel):
     bind: Optional[str] = None
 
 
+# Phase scoping. The DB stores PlanDecision.phase as "main" or
+# "knowledge_harness"; YAML says "knowledge" for brevity. Evaluator normalises
+# before filtering. ``None`` means "any phase" (backward compatible default).
+PhaseScope = Optional[Literal["main", "knowledge", "any"]]
+
+
 class FieldRule(BaseModel):
     type: Literal["field"] = "field"
     target: TargetRef
     matcher: Matcher
+    phase: PhaseScope = None
 
 
 class ToolCallsRule(BaseModel):
@@ -90,6 +97,7 @@ class ToolCallsRule(BaseModel):
     tool: str
     min_calls: int = 0
     max_calls: Optional[int] = None
+    phase: PhaseScope = None
 
 
 class OrderingStep(BaseModel):
@@ -107,12 +115,27 @@ class OrderingRule(BaseModel):
     mode: Literal["flexible", "strict", "exact"] = "flexible"
     allow_extra: bool = True
     sequence: List[OrderingStep]
+    phase: PhaseScope = None
+
+
+class PhaseRule(BaseModel):
+    """Assert that a given agent phase either ran or did not run.
+
+    Evaluated against ``snapshot["phases_seen"]`` which is populated from
+    ``PlanDecision.phase`` for the report. Useful for "did the knowledge
+    harness actually fire?" without overloading tool-count rules.
+    """
+
+    type: Literal["phase"] = "phase"
+    phase: Literal["main", "knowledge"]
+    occurred: bool = True
 
 
 Rule = Union[
     FieldRule,
     ToolCallsRule,
     OrderingRule,
+    PhaseRule,
 ]
 
 
@@ -268,6 +291,118 @@ def default_test_catalog() -> TestCatalog:
     #         FieldDescriptor(key="reasoning", label="Reasoning", value_type="text", allowed_ops=["text.contains", "text.equals", "text.regex"]),
     #     ]
     # ))
+
+    categories.append(CategoryDescriptor(
+        id="tool:create_artifact",
+        label="Create Artifact",
+        kind="tool",
+        tool_name="create_artifact",
+        fields=[
+            FieldDescriptor(
+                key="mode",
+                label="Mode (page | slides)",
+                value_type="text",
+                allowed_ops=["text.equals", "text.contains"],
+                io="input",
+                examples=["page", "slides"],
+            ),
+            FieldDescriptor(
+                key="visualization_ids",
+                label="Visualization IDs",
+                value_type="list<string>",
+                allowed_ops=["list.contains_any", "list.contains_all", "length.cmp"],
+                io="input",
+                examples=[["uuid-a", "uuid-b"]],
+            ),
+            FieldDescriptor(
+                key="title",
+                label="Title",
+                value_type="text",
+                allowed_ops=["text.contains", "text.equals", "text.regex"],
+                io="input",
+            ),
+        ],
+    ))
+
+    categories.append(CategoryDescriptor(
+        id="tool:edit_artifact",
+        label="Edit Artifact",
+        kind="tool",
+        tool_name="edit_artifact",
+        fields=[
+            FieldDescriptor(
+                key="mode",
+                label="Mode (page | slides)",
+                value_type="text",
+                allowed_ops=["text.equals"],
+                io="input",
+            ),
+            FieldDescriptor(
+                key="visualization_ids",
+                label="Visualization IDs",
+                value_type="list<string>",
+                allowed_ops=["list.contains_any", "list.contains_all", "length.cmp"],
+                io="input",
+            ),
+        ],
+    ))
+
+    categories.append(CategoryDescriptor(
+        id="tool:create_instruction",
+        label="Create Instruction",
+        kind="tool",
+        tool_name="create_instruction",
+        fields=[
+            FieldDescriptor(
+                key="text",
+                label="Instruction text",
+                value_type="text",
+                allowed_ops=["text.contains", "text.regex", "text.equals"],
+                io="input",
+                examples=["Exclude cancelled invoices from revenue totals"],
+            ),
+            FieldDescriptor(
+                key="category",
+                label="Category",
+                value_type="text",
+                allowed_ops=["text.equals", "text.contains"],
+                io="input",
+            ),
+        ],
+    ))
+
+    categories.append(CategoryDescriptor(
+        id="tool:edit_instruction",
+        label="Edit Instruction",
+        kind="tool",
+        tool_name="edit_instruction",
+        fields=[
+            FieldDescriptor(
+                key="text",
+                label="Updated instruction text",
+                value_type="text",
+                allowed_ops=["text.contains", "text.regex"],
+                io="input",
+            ),
+        ],
+    ))
+
+    categories.append(CategoryDescriptor(
+        id="tool:search_instructions",
+        label="Search Instructions",
+        kind="tool",
+        tool_name="search_instructions",
+        fields=[
+            FieldDescriptor(
+                key="query",
+                label="Query terms",
+                value_type="list<string>",
+                allowed_ops=["list.contains_any", "list.contains_all", "length.cmp"],
+                io="input",
+                examples=[["cancelled", "revenue"]],
+            ),
+        ],
+    ))
 
     # Judge / LLM Test (prompt + model selector). Model options are populated
     # dynamically in TestSuiteService.get_test_catalog
