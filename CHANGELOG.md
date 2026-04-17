@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.358
+- Reposition layout
+- SIEM integration
+- EntraID native support for OBO flow
+- OAuth for data connectors
+
 ## Version 0.0.356 (April 13, 2026)
 - Share dashboards / conversations with specific users or globally
 
