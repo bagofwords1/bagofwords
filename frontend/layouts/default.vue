@@ -212,6 +212,7 @@
   const mainNavItems: NavItem[] = [
     { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'Reports' },
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'Dashboards' },
+    { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'Scheduled' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'Files', hidden: true },
     { href: '/instructions', icon: 'heroicons-cube', label: 'Instructions' },
     { href: '/queries', component: LibraryIcon, label: 'Queries' },

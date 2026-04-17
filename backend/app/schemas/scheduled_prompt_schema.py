@@ -31,3 +31,21 @@ class ScheduledPromptSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ScheduledPromptReportInfo(BaseModel):
+    id: str
+    title: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduledPromptWithReport(ScheduledPromptSchema):
+    report: Optional[ScheduledPromptReportInfo] = None
+    user_name: Optional[str] = None
+
+
+class ScheduledPromptListResponse(BaseModel):
+    scheduled_prompts: List[ScheduledPromptWithReport]
+    meta: dict

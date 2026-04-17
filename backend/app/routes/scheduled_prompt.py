@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user
@@ -13,9 +13,47 @@ from app.schemas.scheduled_prompt_schema import (
     ScheduledPromptCreate,
     ScheduledPromptUpdate,
     ScheduledPromptSchema,
+    ScheduledPromptListResponse,
+    ScheduledPromptWithReport,
+    ScheduledPromptReportInfo,
 )
 
 router = APIRouter()
+
+
+@router.get("/scheduled-prompts", response_model=ScheduledPromptListResponse)
+async def list_all_scheduled_prompts(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    search: Optional[str] = None,
+    filter: str = Query('my'),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """List all scheduled prompts across all reports in the organization."""
+    result = await scheduled_prompt_service.list_all_scheduled_prompts(
+        db=db,
+        organization_id=organization.id,
+        page=page,
+        limit=limit,
+        search=search,
+        filter=filter,
+        current_user_id=current_user.id,
+    )
+
+    items = []
+    for sp in result["prompts"]:
+        report_info = ScheduledPromptReportInfo(id=sp.report.id, title=sp.report.title) if sp.report else None
+        user_name = sp.user.name if sp.user and hasattr(sp.user, 'name') else None
+        item = ScheduledPromptWithReport(
+            **ScheduledPromptSchema.model_validate(sp).model_dump(),
+            report=report_info,
+            user_name=user_name,
+        )
+        items.append(item)
+
+    return ScheduledPromptListResponse(scheduled_prompts=items, meta=result["meta"])
 
 
 @router.post("/reports/{report_id}/scheduled-prompts", response_model=ScheduledPromptSchema)

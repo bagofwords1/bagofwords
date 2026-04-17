@@ -1,6 +1,6 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-xl' }">
-        <UCard :ui="{ body: { padding: 'px-4 py-3 sm:p-4' }, header: { padding: 'px-4 py-3 sm:px-4 sm:py-3' }, footer: { padding: 'px-4 py-2 sm:px-4 sm:py-2' } }">
+    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl' }">
+        <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' }, footer: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
             <template #header>
                 <div class="flex items-center justify-between">
                     <h3 class="text-sm font-semibold text-gray-900">{{ isEditing ? 'Edit scheduled task' : 'Schedule a task' }}</h3>
@@ -18,7 +18,6 @@
                 :textareaContent="initialContent"
                 :hideScheduleButton="true"
                 :hideSubmitButton="true"
-                :compact="true"
                 @submitCompletion="handlePromptSubmit"
             />
 
