@@ -228,6 +228,25 @@ need a primitive that says "assert the knowledge harness actually fired."
   matcher: {type: text.contains, value: "exclude cancelled"}
 ```
 
+**Per-rule `turn` filter** — 1-indexed turn number; omit for any turn.
+Works on every rule type (including `PhaseRule`) and combines with `phase`:
+
+```yaml
+- type: tool.calls
+  tool: clarify
+  turn: 1                   # must happen in turn 1 specifically
+  min_calls: 1
+
+- type: phase
+  phase: knowledge
+  turn: 2                   # knowledge harness must fire during turn 2
+  occurred: true
+```
+
+Backed by a `Completion.turn_index`-ordered ranking of system completions;
+turn 1 = the earliest agent run on the report, regardless of the absolute
+`turn_index` value.
+
 **`PhaseRule`** — dedicated primitive for phase-presence:
 
 ```yaml

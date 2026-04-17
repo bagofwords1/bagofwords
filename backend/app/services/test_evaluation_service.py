@@ -107,37 +107,78 @@ class TestEvaluationService:
         """
         snapshot: Dict[str, Any] = {}
 
+        # Build a turn-number map: system Completion.id -> 1-indexed turn.
+        # Each user message opens a new turn; the agent runs against the
+        # system completion paired with that head. We rank system
+        # completions by turn_index asc so turn 1 is the earliest agent
+        # run regardless of absolute turn_index values.
+        try:
+            sys_rows = (
+                await db.execute(
+                    select(Completion.id, Completion.turn_index)
+                    .where(
+                        Completion.report_id == str(report_id),
+                        Completion.role == "system",
+                    )
+                    .order_by(Completion.turn_index.asc(), Completion.created_at.asc())
+                )
+            ).all()
+            turn_by_system: Dict[str, int] = {
+                str(cid): idx + 1 for idx, (cid, _ti) in enumerate(sys_rows)
+            }
+        except Exception:
+            turn_by_system = {}
+
         # Tool sequence for the report (ordered by start time). We also
-        # carry the phase of the owning PlanDecision so rules can filter to
-        # the main loop or the knowledge harness.
+        # carry the phase of the owning PlanDecision and the 1-indexed turn
+        # number so rules can filter to the main loop or the knowledge
+        # harness, and to a specific turn.
         try:
             rows = await db.execute(
-                select(ToolExecution.tool_name, PlanDecision.phase)
+                select(
+                    ToolExecution.tool_name,
+                    PlanDecision.phase,
+                    AgentExecution.completion_id,
+                )
                 .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
                 .outerjoin(PlanDecision, PlanDecision.id == ToolExecution.plan_decision_id)
                 .where(AgentExecution.report_id == str(report_id))
                 .order_by(ToolExecution.started_at.asc(), ToolExecution.created_at.asc())
             )
             seq_rows = rows.all()
-            snapshot["tool_sequence"] = [t for (t, _p) in seq_rows]
-            snapshot["tool_phases"] = [_normalize_phase(p) for (_t, p) in seq_rows]
+            snapshot["tool_sequence"] = [t for (t, _p, _c) in seq_rows]
+            snapshot["tool_phases"] = [_normalize_phase(p) for (_t, p, _c) in seq_rows]
+            snapshot["tool_turns"] = [
+                turn_by_system.get(str(c)) for (_t, _p, c) in seq_rows
+            ]
         except Exception:
             snapshot["tool_sequence"] = []
             snapshot["tool_phases"] = []
+            snapshot["tool_turns"] = []
 
-        # Set of phases actually entered by PlanDecision for this report.
+        # Set of phases actually entered by PlanDecision for this report,
+        # both globally and per turn (for PhaseRule with ``turn:`` set).
         try:
-            pd_rows = await db.execute(
-                select(PlanDecision.phase)
-                .join(AgentExecution, AgentExecution.id == PlanDecision.agent_execution_id)
-                .where(AgentExecution.report_id == str(report_id))
-                .distinct()
-            )
-            snapshot["phases_seen"] = {
-                _normalize_phase(p) for (p,) in pd_rows.all()
-            }
+            pd_rows = (
+                await db.execute(
+                    select(PlanDecision.phase, AgentExecution.completion_id)
+                    .join(AgentExecution, AgentExecution.id == PlanDecision.agent_execution_id)
+                    .where(AgentExecution.report_id == str(report_id))
+                )
+            ).all()
+            phases_seen: set = set()
+            phases_by_turn: Dict[int, set] = {}
+            for phase, comp_id in pd_rows:
+                norm = _normalize_phase(phase)
+                phases_seen.add(norm)
+                turn = turn_by_system.get(str(comp_id))
+                if turn is not None:
+                    phases_by_turn.setdefault(turn, set()).add(norm)
+            snapshot["phases_seen"] = phases_seen
+            snapshot["phases_by_turn"] = phases_by_turn
         except Exception:
             snapshot["phases_seen"] = set()
+            snapshot["phases_by_turn"] = {}
 
         # Initialize create_data info (tool output will populate this)
         create_data_info = {"columns": [], "rows_count": 0, "code": "", "tables": []}
@@ -472,42 +513,82 @@ class TestEvaluationService:
             rule_results.append(RuleResult(ok=False, status="fail", message=message or "Expectation not evaluated (unmet condition)", actual=None, evidence=evidence))
             failed += 1
 
-        # Helpers for phase-scoped rules (phase 3)
+        # Helpers for phase- and turn-scoped rules (phase 3)
         def _phase_of(rule_obj) -> Optional[str]:
             p = getattr(rule_obj, "phase", None)
             if p in (None, "any"):
                 return None
             return p
 
+        def _turn_of(rule_obj) -> Optional[int]:
+            t = getattr(rule_obj, "turn", None)
+            if t is None:
+                return None
+            try:
+                return int(t)
+            except Exception:
+                return None
+
         def _filtered_tool_sequence(rule_obj) -> List[str]:
-            p = _phase_of(rule_obj)
+            """Return tool names matching rule.phase and rule.turn; ``None``
+            for either means any."""
+            phase = _phase_of(rule_obj)
+            turn = _turn_of(rule_obj)
             seq = snapshot.get("tool_sequence") or []
-            if p is None:
+            if phase is None and turn is None:
                 return list(seq)
             phases = snapshot.get("tool_phases") or []
-            return [t for t, ph in zip(seq, phases) if ph == p]
+            turns = snapshot.get("tool_turns") or []
+            out: List[str] = []
+            for i, t in enumerate(seq):
+                if phase is not None and (i >= len(phases) or phases[i] != phase):
+                    continue
+                if turn is not None and (i >= len(turns) or turns[i] != turn):
+                    continue
+                out.append(t)
+            return out
+
+        def _scope_suffix(rule_obj) -> str:
+            parts = []
+            p = _phase_of(rule_obj)
+            if p:
+                parts.append(f"phase={p}")
+            t = _turn_of(rule_obj)
+            if t is not None:
+                parts.append(f"turn={t}")
+            return f" [{', '.join(parts)}]" if parts else ""
 
         # Iterate rules 1:1 and build aligned results
         for rule in rules:
             # Phase presence — "did this harness actually run?"
             if isinstance(rule, PhaseRule):
-                phases_seen = snapshot.get("phases_seen") or set()
+                rule_turn = _turn_of(rule)
+                if rule_turn is None:
+                    phases_seen = snapshot.get("phases_seen") or set()
+                else:
+                    phases_by_turn = snapshot.get("phases_by_turn") or {}
+                    phases_seen = phases_by_turn.get(rule_turn, set())
                 fired = rule.phase in phases_seen
                 ok = fired if rule.occurred else not fired
                 seen_sorted = sorted(phases_seen)
+                scope = f" (turn={rule_turn})" if rule_turn is not None else ""
                 msg = None if ok else (
                     f"phase '{rule.phase}' expected to "
-                    f"{'occur' if rule.occurred else 'not occur'}, "
+                    f"{'occur' if rule.occurred else 'not occur'}{scope}, "
                     f"phases_seen={seen_sorted}"
                 )
                 push(
                     ok, msg,
-                    actual={"phases_seen": seen_sorted, "fired": fired},
+                    actual={
+                        "phases_seen": seen_sorted,
+                        "fired": fired,
+                        "turn": rule_turn,
+                    },
                     evidence=None,
                 )
                 continue
 
-            # Tool call counts (optionally phase-scoped)
+            # Tool call counts (optionally phase- and/or turn-scoped)
             if isinstance(rule, ToolCallsRule):
                 seq = _filtered_tool_sequence(rule)
                 count = sum(1 for t in seq if t == rule.tool)
@@ -519,10 +600,9 @@ class TestEvaluationService:
                 ev = None
                 if rule.tool == "clarify":
                     ev = RuleEvidence(type="clarify")
-                phase_suffix = f" [phase={_phase_of(rule)}]" if _phase_of(rule) else ""
                 msg = None if ok else (
                     f"{rule.tool} calls={count}, expected min={min_calls}, "
-                    f"max={max_calls}{phase_suffix}"
+                    f"max={max_calls}{_scope_suffix(rule)}"
                 )
                 push(ok, msg, actual=count, evidence=ev)
                 continue

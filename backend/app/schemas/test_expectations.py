@@ -90,6 +90,9 @@ class FieldRule(BaseModel):
     target: TargetRef
     matcher: Matcher
     phase: PhaseScope = None
+    # Optional 1-indexed turn number. When set, only tool executions from
+    # that turn count. ``None`` = any turn (backward compatible).
+    turn: Optional[int] = None
 
 
 class ToolCallsRule(BaseModel):
@@ -98,6 +101,7 @@ class ToolCallsRule(BaseModel):
     min_calls: int = 0
     max_calls: Optional[int] = None
     phase: PhaseScope = None
+    turn: Optional[int] = None
 
 
 class OrderingStep(BaseModel):
@@ -116,6 +120,7 @@ class OrderingRule(BaseModel):
     allow_extra: bool = True
     sequence: List[OrderingStep]
     phase: PhaseScope = None
+    turn: Optional[int] = None
 
 
 class PhaseRule(BaseModel):
@@ -124,11 +129,15 @@ class PhaseRule(BaseModel):
     Evaluated against ``snapshot["phases_seen"]`` which is populated from
     ``PlanDecision.phase`` for the report. Useful for "did the knowledge
     harness actually fire?" without overloading tool-count rules.
+
+    Optional ``turn`` pins the assertion to a specific turn: "did the
+    knowledge harness fire during turn 2?".
     """
 
     type: Literal["phase"] = "phase"
     phase: Literal["main", "knowledge"]
     occurred: bool = True
+    turn: Optional[int] = None
 
 
 Rule = Union[
