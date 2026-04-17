@@ -23,6 +23,7 @@ class CreateArtifactInput(BaseModel):
         "## Theme\n"
         "Colors, dark/light, spacing, typography, design feel. Capture the user's style request verbatim — this section overrides all system defaults.\n"
         "Example: 'Flat BI style — white bg, no shadows, no gradients, subtle borders, tight spacing, neutral typography. NOT executive/marketing.'\n\n"
+        "CONTRACT: If your prompt specifies a cross-viz behavior (global filter, time comparison, slice/groupby, rank-across, drill-down), you MUST have already completed the Dashboard Contract preflight (see planner instructions): every viz_id in `visualization_ids` satisfies that contract directly, or you rebuilt its data via `create_data` this turn, or it was dropped/substituted because it was meaningless under the contract. Do NOT include a viz that can't participate in the declared contract — that ships a dashboard where the filter works on some charts and not others.\n\n"
         "CONTINUITY: When a `current_artifact` exists and the user is asking to improve/enhance/rework it, your prompt describes a CHANGE to that artifact, not a fresh build. "
         "Preserve the existing title (don't invent 'Enhanced X' / 'Improved Y') unless the user asked to rename. Describe ALL existing vizs in the layout (they're still on the canvas) plus the new additions. "
         "Prefer `edit_artifact` for small/additive changes; only use `create_artifact` when the change is structurally too large for surgical diffs — and even then, carry all prior viz_ids forward.\n\n"
@@ -34,7 +35,8 @@ class CreateArtifactInput(BaseModel):
         "Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. "
         "CONTINUITY: When a `current_artifact` exists in context, this list MUST be a superset of its existing viz_ids — carry forward every viz unless the user explicitly asked to remove one. "
         "Phrases like 'improve', 'add KPIs', 'make it amazing', 'redesign', 'add a chart' are ADDITIVE — they never imply removal. "
-        "Drop a viz only on explicit instruction ('remove the customers chart', 'get rid of the KPI row')."
+        "Drop a viz only on explicit instruction ('remove the customers chart', 'get rid of the KPI row') OR when the Dashboard Contract preflight classified it as meaningless under the contract (e.g., `Total Customers` under a customer filter = 1). "
+        "Every viz in this list must be able to participate in any cross-viz contract your prompt declares (filter/compare/slice/rank/drill) — if it can't, rebuild its data via `create_data` first and swap in the new viz_id, or drop it."
     ))
 
 
