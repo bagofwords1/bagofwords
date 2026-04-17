@@ -12,7 +12,6 @@ cases:
   - name: revenue_by_month_bar_chart
     prompt:
       content: "Show revenue by month as a bar chart"
-      mode: page
     expectations:
       spec_version: 1
       order_mode: strict
@@ -43,7 +42,6 @@ cases:
   - name: two_widget_dashboard
     prompt:
       content: "Build a dashboard with total revenue and top 5 customers by revenue"
-      mode: page
     expectations:
       spec_version: 1
       order_mode: flexible

@@ -46,8 +46,7 @@ No new services or routers. Extend the existing test-suite surface.
 | `backend/evals/suites/*.yaml`                       | 1     | pytest (canonical cases)        |
 | `tests/evals/conftest.py` fixtures                  | 2     | pytest                          |
 | `tests/evals/test_evals.py`                         | 2     | pytest                          |
-| Startup bootstrap (optional)                        | 3     | self-hosted installs            |
-| Artifact FieldRule extractors                       | 4     | richer assertions               |
+| Artifact FieldRule extractors                       | 3     | richer assertions               |
 
 ### File layout
 
@@ -85,8 +84,7 @@ cases:
   - name: <string>                   # unique per suite
     prompt:
       content: <string>
-      mentions: [...]?
-      mode: page | slides | null
+      mode: chat | deep | training | null   # default "chat"
       model: <provider>/<model>?     # resolved by service; no UUIDs
     data_source_slugs: [<slug>, ...]?  # per-case override
     expectations:
@@ -198,19 +196,13 @@ passes. CI job `evals` fails if any case fails.
 - [ ] `@pytest.mark.evals` in `pytest.ini` + nightly CI job with
       `ANTHROPIC_API_KEY` secret.
 
-### Phase 3 — bootstrap + docs (optional)
-
-- [ ] Startup bootstrap flag `EVALS_BOOTSTRAP_ORG_SLUG` that imports
-      `backend/evals/suites/*.yaml` on boot for self-hosted installs.
-- [ ] Customer docs: authoring suites, import API reference, round-trip via
-      `GET /export`.
-
-### Phase 4 — artifact FieldRule coverage (independent)
+### Phase 3 — artifact FieldRule coverage (independent)
 
 - [ ] Add `tool:create_artifact` / `tool:edit_artifact` to the test catalog
       in `app/schemas/test_expectations.py`.
 - [ ] Extend `TestEvaluationService.build_final_snapshot` to extract artifact
-      `mode`, `code`, generated components from `ToolExecution`.
+      `mode` (page | slides), `code`, generated components from
+      `ToolExecution`.
 - [ ] Optional vision-judge rule over artifact screenshots.
 
 Until this lands, dashboard-style assertions use `ToolCallsRule` +
