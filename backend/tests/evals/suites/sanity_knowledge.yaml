@@ -1,0 +1,57 @@
+name: Sanity · Knowledge Harness
+description: >
+  Verify the knowledge harness fires when trigger.py conditions are met,
+  and that it actually proposes instructions. The multi-turn case sends a
+  correction in turn 2 ("exclude cancelled invoices") which matches
+  CORRECTION_KEYWORDS in app/ai/agents/suggest_instructions/trigger.py.
+  Phase-scoped rules pin the assertions to the knowledge harness loop so
+  they don't accidentally match tool calls from the main analysis.
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: correction_triggers_knowledge_harness
+    turns:
+      - prompt:
+          content: "Show total invoice revenue by year"
+      - prompt:
+          content: >
+            Actually that's wrong — please exclude cancelled invoices from
+            the total. The revenue should not include anything with a
+            negative or zero total.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # The knowledge harness must actually enter the phase.
+        - type: phase
+          phase: knowledge
+          occurred: true
+
+        # Main analysis must still have run at least once.
+        - type: phase
+          phase: main
+          occurred: true
+
+        # Knowledge harness is expected to search existing instructions
+        # before proposing a new one (see search_instructions tool docs).
+        - type: tool.calls
+          tool: search_instructions
+          phase: knowledge
+          min_calls: 1
+
+        # And to propose at least one instruction capturing the correction.
+        - type: tool.calls
+          tool: create_instruction
+          phase: knowledge
+          min_calls: 1
+
+        # The proposed instruction text should reference the exclusion.
+        - type: field
+          target:
+            category: "tool:create_instruction"
+            field: text
+          matcher:
+            type: text.regex
+            pattern: "(?i)(cancel|exclude|negative|zero)"

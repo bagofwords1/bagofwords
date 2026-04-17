@@ -29,6 +29,10 @@ class TestCase(BaseSchema):
     # Optional: limit impact/trigger scope (list of DataSource ids)
     data_source_ids_json = Column(JSON, nullable=True, default=list)
 
+    # Multi-turn support (YAML-only). Turn 1 stays in prompt_json so the UI
+    # renders it as today; turns 2..N live here as [{"prompt": {...}}, ...].
+    additional_turns_json = Column(JSON, nullable=True, default=None)
+
     suite = relationship("TestSuite", back_populates="cases")
 
 

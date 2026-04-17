@@ -1,10 +1,17 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime
 
-from app.models.eval import TestSuite
+import yaml
 from fastapi import HTTPException
+
+from app.models.eval import TestSuite, TestCase
+from app.models.data_source import DataSource
+from app.models.llm_model import LLMModel
+from app.models.llm_provider import LLMProvider
 from app.schemas.test_expectations import TestCatalog, default_test_catalog
+from app.schemas.suite_yaml_schema import SuiteYaml, CaseYaml, PromptYaml, TurnYaml
 from app.services.llm_service import LLMService
 
 
@@ -124,5 +131,364 @@ class TestSuiteService:
             pass
 
         return catalog
+
+    # ------------------------------------------------------------------
+    # YAML import / export
+    # ------------------------------------------------------------------
+
+    async def _resolve_data_source_slugs(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        slugs: List[str],
+    ) -> List[str]:
+        """Return ordered list of DataSource IDs for the given names."""
+        if not slugs:
+            return []
+        res = await db.execute(
+            select(DataSource).where(
+                DataSource.organization_id == str(organization_id),
+                DataSource.name.in_([str(s) for s in slugs]),
+            )
+        )
+        rows = res.scalars().all()
+        by_name = {ds.name: str(ds.id) for ds in rows}
+        missing = [s for s in slugs if s not in by_name]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown data source slugs: {missing}",
+            )
+        return [by_name[s] for s in slugs]
+
+    async def _resolve_model_slug(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        model_slug: Optional[str],
+    ) -> Optional[str]:
+        """Resolve ``<provider>/<model>`` to LLMModel.model_id.
+
+        Matches provider by name or provider_type, and model by model_id or
+        name. Errors if the slug is set but unresolvable.
+        """
+        if not model_slug:
+            return None
+        if "/" not in model_slug:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model slug '{model_slug}' must be '<provider>/<model>'",
+            )
+        provider_part, model_part = model_slug.split("/", 1)
+        res = await db.execute(
+            select(LLMModel, LLMProvider)
+            .join(LLMModel.provider)
+            .where(LLMModel.organization_id == str(organization_id))
+        )
+        for model, provider in res.all():
+            if provider_part not in (provider.name, provider.provider_type):
+                continue
+            if model_part in (model.model_id, model.name):
+                return model.model_id
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown model slug: {model_slug}",
+        )
+
+    async def _reverse_model_slug(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        model_id: Optional[str],
+    ) -> Optional[str]:
+        """Best-effort reverse of _resolve_model_slug for export."""
+        if not model_id:
+            return None
+        res = await db.execute(
+            select(LLMModel, LLMProvider)
+            .join(LLMModel.provider)
+            .where(
+                LLMModel.organization_id == str(organization_id),
+                LLMModel.model_id == model_id,
+            )
+            .limit(1)
+        )
+        row = res.first()
+        if not row:
+            return None
+        model, provider = row
+        return f"{provider.name}/{model.model_id}"
+
+    async def _reverse_data_source_ids(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        ds_ids: Optional[List[str]],
+    ) -> List[str]:
+        if not ds_ids:
+            return []
+        res = await db.execute(
+            select(DataSource).where(
+                DataSource.organization_id == str(organization_id),
+                DataSource.id.in_([str(i) for i in ds_ids]),
+            )
+        )
+        rows = res.scalars().all()
+        by_id = {str(r.id): r.name for r in rows}
+        return [by_id[i] for i in ds_ids if i in by_id]
+
+    async def import_yaml(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        current_user,
+        yaml_text: str,
+        *,
+        strategy: str = "upsert",
+    ) -> Dict[str, Any]:
+        """Upsert a suite and its cases from YAML.
+
+        Returns a dict with the persisted suite + a mapping of
+        case-name -> case-id for convenience.
+        """
+        try:
+            raw = yaml.safe_load(yaml_text)
+        except yaml.YAMLError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}")
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail="YAML must decode to a mapping")
+        try:
+            suite_yaml = SuiteYaml.from_dict(raw)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid suite YAML: {e}")
+
+        # Suite-level data source IDs (used as default for cases without override)
+        suite_ds_ids = await self._resolve_data_source_slugs(
+            db, organization_id, suite_yaml.data_source_slugs
+        )
+
+        # Upsert suite by (org, name)
+        res = await db.execute(
+            select(TestSuite).where(
+                TestSuite.organization_id == str(organization_id),
+                TestSuite.name == suite_yaml.name,
+            )
+        )
+        suite = res.scalar_one_or_none()
+        if suite is None:
+            suite = TestSuite(
+                organization_id=str(organization_id),
+                name=suite_yaml.name,
+                description=suite_yaml.description,
+            )
+            db.add(suite)
+        else:
+            suite.description = suite_yaml.description
+            db.add(suite)
+        await db.commit()
+        await db.refresh(suite)
+
+        # Load existing cases so we can upsert by name and detect removals
+        res = await db.execute(
+            select(TestCase).where(TestCase.suite_id == str(suite.id))
+        )
+        existing_cases = {c.name: c for c in res.scalars().all()}
+
+        seen_names: set[str] = set()
+        cases_by_name: Dict[str, str] = {}
+
+        for case_yaml in suite_yaml.cases:
+            seen_names.add(case_yaml.name)
+            prompt_json, additional_turns_json = await self._build_case_payload(
+                db, organization_id, case_yaml, suite_ds_ids
+            )
+            case_ds_ids = (
+                await self._resolve_data_source_slugs(
+                    db, organization_id, case_yaml.data_source_slugs
+                )
+                if case_yaml.data_source_slugs is not None
+                else suite_ds_ids
+            )
+            expectations_json = case_yaml.expectations.model_dump()
+
+            tc = existing_cases.get(case_yaml.name)
+            if tc is None:
+                tc = TestCase(
+                    suite_id=str(suite.id),
+                    name=case_yaml.name,
+                    prompt_json=prompt_json,
+                    expectations_json=expectations_json,
+                    data_source_ids_json=case_ds_ids,
+                    additional_turns_json=additional_turns_json,
+                )
+                db.add(tc)
+            else:
+                tc.prompt_json = prompt_json
+                tc.expectations_json = expectations_json
+                tc.data_source_ids_json = case_ds_ids
+                tc.additional_turns_json = additional_turns_json
+                # Resurrect if it was soft-deleted in a previous sync
+                tc.deleted_at = None
+                db.add(tc)
+            await db.commit()
+            await db.refresh(tc)
+            cases_by_name[tc.name] = str(tc.id)
+
+        # Handle removed cases: soft-delete on upsert (preserves TestResult
+        # history), hard-delete on replace (full sync).
+        removed = [
+            c for name, c in existing_cases.items()
+            if name not in seen_names and c.deleted_at is None
+        ]
+        if removed:
+            now = datetime.utcnow()
+            if strategy == "replace":
+                for c in removed:
+                    await db.delete(c)
+            else:
+                for c in removed:
+                    c.deleted_at = now
+                    db.add(c)
+            await db.commit()
+
+        return {
+            "suite_id": str(suite.id),
+            "suite_name": suite.name,
+            "cases_by_name": cases_by_name,
+            "removed_case_names": [c.name for c in removed],
+        }
+
+    async def _build_case_payload(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        case_yaml: CaseYaml,
+        suite_ds_ids: List[str],
+    ) -> Tuple[Dict[str, Any], Optional[List[Dict[str, Any]]]]:
+        """Split YAML prompts/turns into the storage shape.
+
+        Single-turn → prompt_json only, additional_turns_json=None.
+        Multi-turn  → turn 1 → prompt_json; turns 2..N → additional_turns_json.
+        """
+        if case_yaml.is_multi_turn():
+            head, *rest = case_yaml.turns or []
+            head_model_id = await self._resolve_model_slug(
+                db, organization_id, head.prompt.model
+            )
+            prompt_json = head.prompt.to_prompt_schema(
+                model_id=head_model_id
+            ).model_dump()
+            additional: List[Dict[str, Any]] = []
+            for t in rest:
+                m_id = await self._resolve_model_slug(
+                    db, organization_id, t.prompt.model
+                )
+                additional.append({
+                    "prompt": t.prompt.to_prompt_schema(model_id=m_id).model_dump(),
+                })
+            return prompt_json, additional
+
+        assert case_yaml.prompt is not None  # validator guarantees
+        model_id = await self._resolve_model_slug(
+            db, organization_id, case_yaml.prompt.model
+        )
+        prompt_json = case_yaml.prompt.to_prompt_schema(
+            model_id=model_id
+        ).model_dump()
+        return prompt_json, None
+
+    async def export_yaml(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        current_user,
+        suite_id: str,
+    ) -> str:
+        """Serialize a suite + all cases back to YAML text."""
+        suite = await self.get_suite(db, organization_id, current_user, suite_id)
+        res = await db.execute(
+            select(TestCase)
+            .where(TestCase.suite_id == str(suite.id))
+            .where(TestCase.deleted_at.is_(None))
+            .order_by(TestCase.created_at.asc())
+        )
+        cases = res.scalars().all()
+
+        # All data source IDs used (dedup order-preserving)
+        all_ds_ids: List[str] = []
+        for c in cases:
+            for did in (c.data_source_ids_json or []):
+                if did not in all_ds_ids:
+                    all_ds_ids.append(did)
+        all_ds_slugs = await self._reverse_data_source_ids(
+            db, organization_id, all_ds_ids
+        )
+
+        out: Dict[str, Any] = {
+            "name": suite.name,
+            "cases": [],
+        }
+        if suite.description:
+            out["description"] = suite.description
+        if all_ds_slugs:
+            out["data_source_slugs"] = all_ds_slugs
+
+        for c in cases:
+            case_slugs = await self._reverse_data_source_ids(
+                db, organization_id, c.data_source_ids_json or []
+            )
+            case_dict: Dict[str, Any] = {"name": c.name}
+
+            pj = c.prompt_json or {}
+            additional = c.additional_turns_json or None
+
+            if additional:
+                turns_list: List[Dict[str, Any]] = []
+                head_prompt = await self._prompt_yaml_from_json(
+                    db, organization_id, pj
+                )
+                turns_list.append({"prompt": head_prompt})
+                for t in additional:
+                    tp = (t or {}).get("prompt") or {}
+                    turns_list.append({
+                        "prompt": await self._prompt_yaml_from_json(
+                            db, organization_id, tp
+                        ),
+                    })
+                case_dict["turns"] = turns_list
+            else:
+                case_dict["prompt"] = await self._prompt_yaml_from_json(
+                    db, organization_id, pj
+                )
+
+            # Only include per-case data_source_slugs when they differ from
+            # the suite-level list.
+            if case_slugs and case_slugs != all_ds_slugs:
+                case_dict["data_source_slugs"] = case_slugs
+
+            expectations = c.expectations_json or {"spec_version": 1, "rules": []}
+            case_dict["expectations"] = expectations
+
+            out["cases"].append(case_dict)
+
+        return yaml.safe_dump(out, sort_keys=False)
+
+    async def _prompt_yaml_from_json(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        prompt_json: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Shape a stored PromptSchema dict back into PromptYaml for export."""
+        out: Dict[str, Any] = {"content": prompt_json.get("content") or ""}
+        mode = prompt_json.get("mode")
+        if mode and mode != "chat":
+            out["mode"] = mode
+        model_slug = await self._reverse_model_slug(
+            db, organization_id, prompt_json.get("model_id")
+        )
+        if model_slug:
+            out["model"] = model_slug
+        return out
 
 

@@ -39,7 +39,11 @@ class TestCaseService:
         return tc
 
     async def get_case(self, db: AsyncSession, organization_id: str, current_user, case_id: str) -> TestCase:
-        res = await db.execute(select(TestCase).where(TestCase.id == case_id))
+        res = await db.execute(
+            select(TestCase)
+            .where(TestCase.id == case_id)
+            .where(TestCase.deleted_at.is_(None))
+        )
         case = res.scalar_one_or_none()
         if not case:
             raise HTTPException(status_code=404, detail="Test case not found")
@@ -75,7 +79,12 @@ class TestCaseService:
 
     async def list_cases(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> List[TestCase]:
         await self._get_suite(db, organization_id, current_user, suite_id)
-        res = await db.execute(select(TestCase).where(TestCase.suite_id == str(suite_id)).order_by(TestCase.created_at.asc()))
+        res = await db.execute(
+            select(TestCase)
+            .where(TestCase.suite_id == str(suite_id))
+            .where(TestCase.deleted_at.is_(None))
+            .order_by(TestCase.created_at.asc())
+        )
         return res.scalars().all()
 
     async def update_case(self, db: AsyncSession, organization_id: str, current_user, case_id: str, name: Optional[str], prompt_json: Optional[dict], expectations_json, data_source_ids_json: Optional[list]) -> TestCase:
@@ -129,7 +138,8 @@ class TestCaseService:
         # Base: suites in org
         from sqlalchemy import cast, String
         stmt = select(TestCase).join(TestSuite, TestCase.suite_id == TestSuite.id).where(
-            TestSuite.organization_id == str(organization_id)
+            TestSuite.organization_id == str(organization_id),
+            TestCase.deleted_at.is_(None),
         )
         if suite_ids:
             stmt = stmt.where(TestCase.suite_id.in_([str(s) for s in suite_ids]))

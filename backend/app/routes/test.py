@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -96,6 +97,48 @@ async def update_suite(suite_id: str, payload: TestSuiteUpdate, db: AsyncSession
 async def delete_suite(suite_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     await suite_service.delete_suite(db, str(organization.id), current_user, suite_id)
     return {"status": "deleted"}
+
+
+# Suites — YAML import / export
+@router.post("/suites/import")
+@requires_permission('manage_evals')
+async def import_suite_yaml(
+    request: Request,
+    strategy: str = Query("upsert", pattern="^(upsert|replace)$"),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Upsert a suite and its cases from a YAML body.
+
+    Body: raw YAML (``text/yaml`` or ``application/x-yaml``; body is read as
+    bytes so any text content type works). ``strategy=replace`` hard-deletes
+    cases absent from the YAML; default ``upsert`` leaves them intact.
+    """
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty YAML body")
+    try:
+        yaml_text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="YAML body must be UTF-8")
+    return await suite_service.import_yaml(
+        db, str(organization.id), current_user, yaml_text, strategy=strategy,
+    )
+
+
+@router.get("/suites/{suite_id}/export", response_class=PlainTextResponse)
+@requires_permission('manage_evals')
+async def export_suite_yaml(
+    suite_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Serialize a suite and its cases to YAML text."""
+    return await suite_service.export_yaml(
+        db, str(organization.id), current_user, suite_id,
+    )
 
 
 # Cases
