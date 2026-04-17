@@ -35,17 +35,19 @@ The import service is the seam that both consumers share.
 
 ### Components
 
-| Component                                | Phase | Consumer                         |
-| ---------------------------------------- | ----- | -------------------------------- |
-| `SuiteYaml` / `CaseYaml` pydantic        | 1     | service + tests                  |
-| `TestSuiteImportService`                 | 1     | HTTP route + pytest              |
-| `POST /api/tests/suites/import`          | 1     | customers + pytest (via client)  |
-| `GET  /api/tests/suites/{id}/export`     | 1     | customers (round-trip)           |
-| `backend/evals/suites/*.yaml`            | 1     | pytest (canonical cases)         |
-| `tests/evals/conftest.py` fixtures       | 2     | pytest                           |
-| `tests/evals/test_evals.py`              | 2     | pytest                           |
-| Startup bootstrap (optional)             | 3     | self-hosted installs             |
-| Artifact FieldRule extractors            | 4     | richer assertions                |
+No new services or routers. Extend the existing test-suite surface.
+
+| Change                                              | Phase | Consumer                        |
+| --------------------------------------------------- | ----- | ------------------------------- |
+| `SuiteYaml` / `CaseYaml` pydantic wrappers          | 1     | service + tests                 |
+| `TestSuiteService.import_yaml` / `export_yaml`      | 1     | routes + pytest                 |
+| `POST /api/tests/suites/import` (in `routes/test.py`)| 1    | customers + pytest via client   |
+| `GET  /api/tests/suites/{id}/export`                | 1     | customers (round-trip)          |
+| `backend/evals/suites/*.yaml`                       | 1     | pytest (canonical cases)        |
+| `tests/evals/conftest.py` fixtures                  | 2     | pytest                          |
+| `tests/evals/test_evals.py`                         | 2     | pytest                          |
+| Startup bootstrap (optional)                        | 3     | self-hosted installs            |
+| Artifact FieldRule extractors                       | 4     | richer assertions               |
 
 ### File layout
 
@@ -57,11 +59,11 @@ backend/evals/
     sanity_dashboards.yaml
     sanity_clarify.yaml
 backend/app/schemas/
-  suite_yaml_schema.py                 # SuiteYaml, CaseYaml (phase 1)
+  suite_yaml_schema.py                 # SuiteYaml, CaseYaml (phase 1, new)
 backend/app/services/
-  test_suite_import_service.py         # import_yaml / export_yaml (phase 1)
+  test_suite_service.py                # +import_yaml/+export_yaml (phase 1, edit)
 backend/app/routes/
-  test.py                              # +2 handlers (phase 1)
+  test.py                              # +2 handlers (phase 1, edit)
 backend/tests/evals/
   __init__.py
   conftest.py                          # loader, wait_for_run (phase 2)
@@ -131,13 +133,14 @@ passes. CI job `evals` fails if any case fails.
 
 ## Phases
 
-### Phase 1 — YAML import service + HTTP endpoints
+### Phase 1 — YAML on the existing test-suite surface
 
 - [ ] `SuiteYaml` / `CaseYaml` in `app/schemas/suite_yaml_schema.py`
       (re-embed existing `PromptSchema`, `ExpectationsSpec`).
-- [ ] `TestSuiteImportService.import_yaml` / `export_yaml`
+- [ ] Extend **`TestSuiteService`** with `import_yaml(...)` / `export_yaml(...)`
       (slug resolution, upsert by name, soft-delete removed cases).
-- [ ] Route handlers:
+      Reuse `TestCaseService` internals for case persistence — no duplication.
+- [ ] Add two handlers to **`routes/test.py`**:
       - `POST /api/tests/suites/import` — body: YAML string (or file upload).
       - `GET  /api/tests/suites/{id}/export` — returns YAML.
 - [ ] Unit tests: round-trip, slug resolution errors, upsert preserves IDs.
