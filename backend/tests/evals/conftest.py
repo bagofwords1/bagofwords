@@ -10,14 +10,17 @@ credential (``OPENAI_API_KEY_TEST``) because the agent actually runs.
 """
 
 import os
-import sqlite3
-import tempfile
 import time
 from pathlib import Path
 from typing import List, Tuple
 
 import pytest
 import yaml
+
+
+CHINOOK_DB_PATH = (
+    Path(__file__).resolve().parents[2] / "demo-datasources" / "chinook.sqlite"
+)
 
 
 # Resolve once at import; parametrize is evaluated at collection time.
@@ -65,85 +68,36 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture
-def eval_demo_sqlite_db():
-    """Deterministic sqlite with users + orders — matches prompts in
-    backend/evals/suites/sanity_*.yaml."""
-    with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
-        db_path = f.name
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.executescript(
-            """
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY,
-                email TEXT NOT NULL,
-                name TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE orders (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                total_amount REAL NOT NULL,
-                order_date TEXT NOT NULL
-            );
-            """
-        )
-        users = [
-            (i, f"user{i}@example.com", f"User {i}", "2025-01-01")
-            for i in range(1, 21)
-        ]
-        conn.executemany("INSERT INTO users VALUES (?, ?, ?, ?)", users)
-
-        # 10 orders per month for 12 months of 2025 = 120 rows, total revenue
-        # deterministic per month so sanity_dashboards has a stable target.
-        orders = []
-        order_id = 1
-        for month in range(1, 13):
-            for i in range(10):
-                user_id = (order_id % 20) + 1
-                amount = 100.0 + (order_id % 7) * 25.0
-                orders.append((order_id, user_id, amount, f"2025-{month:02d}-15"))
-                order_id += 1
-        conn.executemany(
-            "INSERT INTO orders VALUES (?, ?, ?, ?)", orders
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    yield db_path
-    try:
-        os.unlink(db_path)
-    except OSError:
-        pass
-
-
-@pytest.fixture
 def eval_env(
     create_user, login_user, whoami,
     create_llm_provider_and_models,
-    create_data_source, eval_demo_sqlite_db,
+    install_demo_data_source,
 ):
-    """Seed a fresh org with: admin user, LLM provider, eval_demo sqlite DS.
+    """Seed a fresh org with: admin user, LLM provider, and the committed
+    chinook demo data source (surfaced in the product as "Music Store").
 
-    Returns a dict with ``token`` and ``org_id`` so tests can reuse it.
+    Returns a dict with ``token``, ``org_id`` and the installed data source
+    id. Sanity YAMLs reference chinook tables (Album, Artist, Invoice,
+    InvoiceLine, Customer, …) via ``data_source_slugs: ["Music Store"]``.
     """
     if not os.getenv("OPENAI_API_KEY_TEST"):
         pytest.skip("OPENAI_API_KEY_TEST not set; skipping eval harness tests")
+    if not CHINOOK_DB_PATH.exists():
+        pytest.skip(f"Chinook demo db missing at {CHINOOK_DB_PATH}")
 
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
 
     create_llm_provider_and_models(user_token=token, org_id=org_id)
-    create_data_source(
-        name="eval_demo",
-        type="sqlite",
-        config={"database": eval_demo_sqlite_db},
-        credentials={},
-        user_token=token,
-        org_id=org_id,
+    result = install_demo_data_source(
+        demo_id="chinook", user_token=token, org_id=org_id,
     )
-    return {"token": token, "org_id": org_id}
+    return {
+        "token": token,
+        "org_id": org_id,
+        "data_source_id": result["data_source_id"],
+    }
 
 
 @pytest.fixture

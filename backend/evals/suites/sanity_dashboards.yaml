@@ -1,17 +1,17 @@
 name: Sanity · Dashboards
 description: >
-  Dashboard-artifact prompt coverage. Exercises the create_data → create_artifact
-  path. Assertions combine tool-level rules (counts + ordering) with a judge
-  rule on the final trace because FieldRule extractors for create_artifact are
-  deferred to phase 4 of the evals harness plan.
+  Dashboard-artifact prompt coverage against the Chinook demo. Exercises the
+  create_data → create_artifact path. Assertions combine tool-level rules
+  (counts + ordering) with a judge rule on the final trace because FieldRule
+  extractors for create_artifact are deferred to phase 3 of the evals plan.
 
 data_source_slugs:
-  - eval_demo
+  - Music Store
 
 cases:
-  - name: revenue_by_month_bar_chart
+  - name: revenue_by_year_bar_chart
     prompt:
-      content: "Show revenue by month as a bar chart"
+      content: "Show total invoice revenue by year as a bar chart"
     expectations:
       spec_version: 1
       order_mode: strict
@@ -35,11 +35,12 @@ cases:
           matcher:
             type: text.equals
             value: >
-              The final artifact must render a bar chart whose x-axis is month
-              and whose y-axis is revenue. Answer pass only if both axes are
-              correct and the chart type is explicitly a bar chart.
+              The final artifact must render a bar chart whose x-axis is
+              year and whose y-axis is total invoice revenue. Answer pass
+              only if both axes are correct and the chart type is
+              explicitly a bar chart.
 
-  - name: two_widget_dashboard
+  - name: top_customers_dashboard
     prompt:
       content: "Build a dashboard with total revenue and top 5 customers by revenue"
     expectations:
@@ -59,6 +60,7 @@ cases:
           matcher:
             type: text.equals
             value: >
-              The artifact must contain both (a) a total-revenue scalar or
-              widget and (b) a list or chart of the top 5 customers ranked by
-              revenue. Pass only if both are present and clearly labeled.
+              The artifact must contain both (a) a total invoice revenue
+              scalar or widget and (b) a list or chart of the top 5
+              customers ranked by revenue. Pass only if both are present
+              and clearly labeled.

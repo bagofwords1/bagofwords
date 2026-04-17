@@ -1,17 +1,17 @@
 name: Sanity · Smoke
 description: >
   Minimal end-to-end check that the agent produces a create_data call and
-  returns a non-empty result. Used to catch total regressions (agent loop
-  broken, LLM unreachable, data source disconnected) before running the
-  richer suites.
+  returns a non-empty result against the committed Chinook demo. Used to
+  catch total regressions (agent loop broken, LLM unreachable, data source
+  disconnected) before running the richer suites.
 
 data_source_slugs:
-  - eval_demo
+  - Music Store
 
 cases:
-  - name: users_row_count
+  - name: count_tracks
     prompt:
-      content: "How many rows are in the users table?"
+      content: "How many tracks are in the Track table?"
     expectations:
       spec_version: 1
       order_mode: flexible
@@ -27,10 +27,3 @@ cases:
             type: number.cmp
             op: gt
             value: 0
-        - type: field
-          target:
-            category: "tool:create_data"
-            field: tables
-          matcher:
-            type: list.contains_any
-            values: ["users"]

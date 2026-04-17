@@ -1,11 +1,11 @@
 name: Sanity · Clarify
 description: >
   Verifies the agent asks for clarification on genuinely ambiguous prompts
-  rather than guessing a schema or query. Useful as a guardrail against
-  prompt changes that make the agent over-eager.
+  rather than guessing. Runs against the Chinook demo so the agent has
+  schema in scope but no obvious single interpretation of the question.
 
 data_source_slugs:
-  - eval_demo
+  - Music Store
 
 cases:
   - name: vague_show_data
@@ -26,9 +26,9 @@ cases:
             type: text.regex
             pattern: "(?i)(which|what|specify)"
 
-  - name: ambiguous_metric
+  - name: ambiguous_best_performer
     prompt:
-      content: "What is our performance this quarter?"
+      content: "Who is our best performer this year?"
     expectations:
       spec_version: 1
       order_mode: flexible
@@ -42,4 +42,4 @@ cases:
             field: question
           matcher:
             type: text.regex
-            pattern: "(?i)(which metric|what.*metric|define|clarify)"
+            pattern: "(?i)(which|what.*mean|metric|define|clarify|artist|track|genre|employee|customer)"
