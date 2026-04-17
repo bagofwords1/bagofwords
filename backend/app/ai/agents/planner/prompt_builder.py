@@ -158,32 +158,45 @@ ERROR HANDLING (robust; no blind retries)
   - User asks "active user count": "Query `users` where `status = 'active'`. Return `user_id`, `signup_date`, `plan_type`, `country`. Return granular rows." (User asked for a count — but returning rows lets the viz layer count AND lets future turns filter by plan/country without re-querying.)
   - User asks "30-day rolling average of amount": "Query `orders`. Compute 30-day rolling average of `amount` by `order_date` using a window function. Include `order_date`, the rolling avg, and `customer_id`, `region`. This requires SQL-level computation."
 - **Cross-query alignment:** When past_observations show prior queries in this session, reuse their identity/dimension columns in new queries. If the prior customer query returned `customer_id`, a new payments query should include `customer_id` too — without asking. Consistency across sibling datasets is the foundation of every later dashboard.
-- **Continuity (applies whenever `<current_artifact>` is non-empty):** The `current_artifact` block is your **starting state**, not history. The user's message describes a *change* to it, not a fresh task. Specifically:
-  - **viz_ids are superset, never subset.** When calling `create_artifact` or `edit_artifact`, the `visualization_ids` you pass MUST include every `viz_id` listed in `<current_artifact>.<visualizations>` — plus any new ones you created this turn. Drop a viz only if the user explicitly said "remove X" (e.g., "remove the customers chart", "get rid of the KPI cards"). Phrases like "improve", "make it better", "add KPIs", "redesign", "make it amazing" are ADDITIVE — they never imply removal.
-  - **Title stability.** Keep the existing `<current_artifact>.<title>` unless the user asks to rename. Do not invent a new title ("Enhanced X Dashboard", "Improved Y") on an enhance-turn.
-  - **Reuse before create_data.** Before calling `create_data` for a count/aggregate KPI, check whether `<current_artifact>.<visualizations>` already contains rows that can produce it. Example: if a viz has 1000 rows with column `film_id`, "Total Films" = distinct count over that column — no new query needed; compute it client-side in the artifact code. Only call `create_data` when the required data is genuinely not on the canvas.
-  - **Create vs Edit on enhance-turns.** Prefer `edit_artifact` for additive/styling changes. Only escalate to `create_artifact` when the change is structurally too large — and when you do, carry ALL existing `viz_ids` forward.
-- **Dashboard planning (composability is mandatory, not aspirational):** When the user requests a dashboard (multiple related visualizations):
-  1. Before any `create_data` call in a dashboard request, plan the shared dimensions upfront — what columns should ALL the widgets carry so they can cross-filter? At minimum: the obvious join keys per the schema (e.g., `customer_id` for anything touching customers or their activity), plus shared time/category/geography columns.
-  2. Before calling `create_artifact`, AUDIT existing queries in past_observations against the intended filters. For each filter dimension the user wants (or that is obviously desirable — e.g., filter-by-customer on a customer+payments dashboard), verify every participating viz has a column that supports it (directly or via a rename `fieldMap`).
-  3. If any viz lacks a required dimension column, **RECREATE that query with the missing columns BEFORE calling create_artifact.** Do NOT build a dashboard with dead filters. This is not optional: a dashboard where "filter by customer" silently doesn't affect the payments list is a broken deliverable, not a partial one.
-  4. Only skip recreation if the missing column genuinely cannot be sourced (no join path in the schema) — in that case, do not wire the filter at all and note the limitation in your final_answer.
-- If the user asks for a dashboard/report/etc, create all the required widgets first (following the cross-filtering review above), then call the create_artifact tool once all queries were created.
-- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately — but first verify the existing widgets share enough dimension columns for cross-filtering. If not, consider recreating them or asking the user.
-- When calling create_artifact, choose the appropriate mode:
-  - Use mode="page" (default) for dashboards, reports, and interactive data displays
-  - Use mode="slides" for presentations, slide decks, or when the user mentions PowerPoint/PPTX export
-- **Writing artifact prompts:** When calling `create_artifact` (prompt) or `edit_artifact` (edit_prompt), write a DETAILED description that includes ALL user requirements accumulated across the conversation — not just the latest message. Include: layout structure, theme/colors/style, which visualizations go where, filters, KPI cards, and any design preferences the user mentioned in any previous turn. Missing details = missing features in the output.
-- **Create vs Edit artifacts:**
-  - Use `create_artifact` when building a brand new dashboard, when the user asks to rebuild/redesign, or when the requested change is large (e.g., "completely change the layout", "make it dark theme with gradients", "add filters to all charts"). Large changes lose context through surgical diffs — a full regeneration via `create_artifact` produces better results.
-  - Use `edit_artifact` for small, focused changes to an existing dashboard (e.g., "change the chart color", "fix the title", "remove the KPI card", "make the chart taller"). The `edit_artifact` tool applies surgical search/replace diffs — it works best when the change touches a small portion of the code.
-  - **If unsure whether the change is small or large:** call `read_artifact` first to inspect the current code, then decide. If the change would require modifying more than ~30% of the code, use `create_artifact`.
-  - To use `edit_artifact`, you need an `artifact_id`. Use the `current_artifact` from context (the most recent artifact in this report) when available — its `artifact_id` is always the latest version. If `current_artifact` is not set, fall back to the most recently created or edited artifact_id from the conversation history. Do NOT ask the user which artifact to edit unless there is genuine ambiguity (e.g., the user explicitly names a different artifact). If you still cannot find an artifact_id, call `read_artifact` to load it.
-  - **Edit that requires new data:** If the user asks to ADD a new chart/visualization to an existing dashboard (e.g., "add a revenue-by-country chart"), you must first call `create_data` to produce the new visualization, then call `edit_artifact` with BOTH the `artifact_id` AND `visualization_ids: [<new_viz_id>]`. The edit tool will merge the new visualization data with the existing ones automatically. Do NOT call `create_artifact` from scratch just because the edit needs new data — use the create_data → edit_artifact flow instead.
-  - **Artifact reflection:** If a `create_artifact` observation includes a screenshot and the result looks wrong (bad layout, missing charts, broken rendering, misaligned elements), use `edit_artifact` to fix it — do NOT call `create_artifact` again. The existing code is a better starting point than regenerating from scratch. Describe the specific visual issues in the `edit_instruction` (e.g., "the bar chart is cut off on the right side", "the KPI cards are overlapping").
-  - **After successful artifact create/edit:** When a `create_artifact` or `edit_artifact` observation shows success (no errors), set `analysis_complete=true` and provide a brief `final_answer` summarizing what was created or changed. Do NOT loop again unless the screenshot clearly shows visual issues that need fixing. The artifact is already saved and visible to the user — there is nothing left to do.
-  - **User reports visual issue after edit:** When the user says something is missing or wrong after an artifact edit (e.g., "I don't see filters", "no gradient"), call `read_artifact` with `load_screenshot=true` first to inspect BOTH the current code AND the last rendered screenshot, then call `edit_artifact` with specific, code-level instructions based on what you found (e.g., "add a FilterSelect component above the grid" rather than "add filters"). Vague edit prompts are the #1 cause of failed edits.
-  - **User asks to fix/add a filter:** Make sure the data and query allow setting such filter (e.g., the relevant column is present in the data). If not, clarify with the user or create the required data first.
+- **Artifact flow (create_artifact / edit_artifact / read_artifact).** Follow these four steps in order whenever this turn will produce an artifact tool call. Skip a step only when it doesn't apply.
+
+  ### Step A — Pick the right tool
+  - `create_artifact` — brand-new dashboard, rebuild/redesign, or a change too large for surgical diffs (~>30% of code). When `<current_artifact>` is non-empty, you still carry all existing viz_ids forward (see Step C).
+  - `edit_artifact` — small/focused changes to the current dashboard (color, title, a single viz, add/remove a filter, layout tweak). Needs an `artifact_id` — use `<current_artifact>.<artifact_id>` when present; otherwise call `read_artifact` first.
+  - `read_artifact` — when the next step depends on what the code currently says: user reports a visual issue ("I don't see the filters"), you're unsure if the change is small or large, or you have no `artifact_id`. Pass `load_screenshot=true` when the issue is visual.
+  - **Edit that needs new data:** `create_data` first (to produce the new viz), then `edit_artifact` with BOTH `artifact_id` AND `visualization_ids: [<new_viz_id>]`. Do not call `create_artifact` just because new data is needed.
+
+  ### Step B — Dashboard Contract preflight (MANDATORY when the turn adds or changes cross-viz behavior)
+
+  The user's ask often implies a **contract** — a cross-viz capability the dashboard must support. Name the contract explicitly in `reasoning_message` before selecting an artifact tool. Examples:
+    - "Add a customer filter" → filter contract on `customer_id` / `customer_full_name`
+    - "Compare this quarter to last" → comparison contract over a time dimension
+    - "Group by region" / "slice by region" → slice contract on `region`
+    - "Top 10 per category" → rank-across contract on `category`
+    - "Drill into revenue" → drill-down contract on a hierarchy
+    - If the turn is purely additive or cosmetic ("add a new chart", "make it prettier", "dark mode", "rename title"): **no contract** — skip to Step C.
+
+  If a contract exists, classify EVERY viz that will appear in the final artifact (existing ones from `<current_artifact>.<visualizations>` plus any new ones created this turn) against it:
+
+    1. **Satisfies** — the viz's `<columns>` already contain the required dimension (or a joinable key reachable from the data source schema). No action.
+    2. **Rebuildable** — the underlying data source schema contains the required column, but the current query aggregates it away or doesn't project it (e.g., `Total Payments` computed via `COUNT(*)` needs `customer_id` projected/grouped to respond to a customer filter). **Action: call `create_data` first to produce a new viz with the dimension, then use the NEW viz_id in the artifact call and drop the old viz_id.** Do not attach the contract to a viz whose data hasn't been rebuilt.
+    3. **Meaningless under contract** — applying the contract collapses the viz to a trivial or incorrect result (e.g., `Total Customers` under a customer-level filter = 1; `Total Revenue` under a comparison contract with no time dimension is unchangeable). **Action: drop the viz from the artifact OR replace it with a metric that stays meaningful under the contract (e.g., `Total Payments (for selected customer)` substitutes cleanly). Mention the drop/substitution in `final_answer` so the user isn't surprised.** The continuity superset rule yields to the contract here.
+    4. **Ambiguous** — you can't confidently tell whether/how the viz should respond (e.g., `Top Artists` under a customer filter — globally or per-selection? Which aggregation?). **Action: call `clarify` with a concrete question naming the viz(s) and the interpretations. Bundle all ambiguous vizs into one clarify message.**
+
+  **Never silently scope a contract to a subset of vizs that can mechanically accept it.** That ships a dashboard where the filter works on some charts and not others — a broken deliverable, not a partial one. If any viz is class 2, finish the rebuilds BEFORE calling the artifact tool.
+
+  ### Step C — Continuity & prompt quality (when `<current_artifact>` is non-empty)
+
+  - **viz_ids are superset, never subset.** `visualization_ids` passed to `create_artifact` / `edit_artifact` MUST include every viz_id from `<current_artifact>.<visualizations>` plus any new ones — UNLESS (a) the user explicitly said "remove X" / "get rid of X", or (b) Step B classified a viz as 3 (meaningless under contract). Phrases like "improve", "make it better", "add KPIs", "redesign", "make it amazing" are ADDITIVE — they never imply removal.
+  - **Title stability.** Keep `<current_artifact>.<title>` unless the user asked to rename. Do not invent "Enhanced X Dashboard" / "Improved Y" on enhance-turns.
+  - **Reuse before `create_data`.** If a viz already on the canvas has rows that can produce the metric client-side, compute it in the artifact code — don't re-query. Example: a viz with 1000 rows and a `film_id` column can produce "Total Films" via a distinct count without another query.
+  - **Writing the prompt / edit_prompt.** DETAIL everything accumulated across the conversation — layout, theme/colors/style, viz placement, filters (with the contract scope from Step B), KPI cards, design preferences from ANY previous turn. Missing details = missing features. Mode: `page` for dashboards/reports (default), `slides` for presentations/PPTX.
+
+  ### Step D — After the call
+
+  - **Success with no screenshot issues:** set `analysis_complete=true`, put a brief summary in `final_answer`, do not loop.
+  - **Screenshot shows visual bugs** (misalignment, overlap, cut-off, wrong colors): use `edit_artifact` (not another `create_artifact`) with a specific, code-level instruction ("the bar chart is cut off on the right", "KPI cards are overlapping").
+  - **User reports something missing after an edit** ("I don't see filters", "no gradient"): call `read_artifact` with `load_screenshot=true` first, then `edit_artifact` with a specific, code-level fix ("add a FilterSelect component above the grid"). Vague edit prompts are the #1 cause of failed edits.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), output your clarifying questions in assistant_message and call the clarify tool.
 - If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.
@@ -368,6 +381,13 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             lines.append(f"  <mode>{_esc(artifact.get('mode'))}</mode>")
         if artifact.get("version") is not None:
             lines.append(f"  <version>{_esc(artifact.get('version'))}</version>")
+
+        gen_prompt = artifact.get("generation_prompt")
+        if gen_prompt:
+            snippet = str(gen_prompt).strip()
+            if len(snippet) > 800:
+                snippet = snippet[:800] + "…"
+            lines.append(f"  <generation_prompt>{_esc(snippet)}</generation_prompt>")
 
         viz_list = artifact.get("visualizations") or []
         if viz_list:
