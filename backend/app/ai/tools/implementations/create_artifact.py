@@ -1538,22 +1538,58 @@ COLOR & IDENTITY:
 - Choose one dominant color (60-70%), 1-2 supporting tones, and one accent for highlights/CTAs.
 - Do NOT default to generic blue. Blue is fine if it fits the topic — but earn it, don't default to it.
 - Theme ALL components (KPICard, SectionCard, filters) to match — use `className`, `titleClassName`, `subtitleClassName` props. Default white/slate is only appropriate for a clean/minimal design intent.
+- Reuse semantic colors consistently across charts: the same dimension (e.g. "region", "status") should map to the same color everywhere it appears.
 
 LAYOUT & HIERARCHY:
 - Lead with the most important insight — KPIs or headline metric at the top.
 - Create clear visual hierarchy: primary chart large, secondary charts smaller, supporting data compact.
 - Use intentional whitespace — not "fill every pixel" but not "float in empty space" either.
 - Vary card sizes and chart heights to create rhythm. A grid of same-sized boxes is boring.
+- Scale density to the number of visualizations:
+  - 1-2 vizs → give them room: full-width hero chart, optionally with KPIs above.
+  - 3-4 vizs → KPI row + 1 hero (full or 2/3 width) + 1-2 supporting (1/3 or 1/2 width).
+  - 5-8 vizs → KPI row + 2-column grid of charts; group related ones in the same row.
+  - 9+ vizs → split into sections (e.g. "Overview", "Breakdown", "Details") with subheads between them.
+- Use Tailwind responsive grids: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4`. Never hardcode pixel widths — let the grid flow.
 
-TYPOGRAPHY & POLISH:
+TYPOGRAPHY & NARRATIVE:
 - Clean, modern typography. Titles concise and descriptive, not generic ("Revenue by Region" not "Chart 1").
 - Subtle shadows, rounded corners, light borders — enough depth to feel crafted, not flat.
 - Light mode default. Dark mode only if the topic or user suggests it.
+- Give the dashboard a short header (title + 1-line subtitle) describing what the user is looking at.
+- When multiple vizs belong to the same topic, group them under a section heading or SectionCard. Don't leave charts floating without context.
 
-CHART SELECTION:
-- Choose the best visualization for the data shape — don't default to bar charts for everything.
-- Standard charts (bar, line, pie, area) for simple relationships. Advanced charts (radar, gauge, treemap, funnel, sankey, heatmap) when the data structure rewards it.
-- Show data from different angles without redundancy. Each chart should reveal something the others don't.
+KPI DISCIPLINE:
+- A KPICard is for ONE headline number the user can read in a glance: total, average, count, percentage, ratio, trend delta.
+- Good KPI values: `$1.2M`, `48.3%`, `12,405 users`, `+14% MoM`. Bad KPI values: a chart, a list, a long sentence, raw unformatted numbers.
+- Always compute KPI values from `rows` via `useMemo` — never hardcode. Always format with `fmt()` for currency/percent/large numbers.
+- Derive KPIs from the SAME filtered dataset as the related chart (see FILTER DATA FLOW above).
+- 3-4 KPIs in a row is the sweet spot. More than 6 feels crowded; use a chart instead.
+- If you cannot honestly derive a KPI from the data — skip the KPI row. Never invent metrics or show placeholder zeroes.
+
+CHART SELECTION (match the chart to the data shape):
+- 1 number over time → line (or area if cumulative). Show the trend, not a single bar.
+- Ranked categories (top N) → horizontal bar, sorted descending, labels on left.
+- Part-to-whole (≤6 slices) → pie or donut. If >6 slices, switch to horizontal bar or treemap.
+- 2 numeric variables → scatter. Add a trend line only if the relationship is linear.
+- Distribution of a metric → histogram or box plot.
+- Flow / stage conversion → funnel or sankey.
+- Matrix of two categorical dimensions → heatmap.
+- Progress toward a target → gauge or progress bar.
+- Geographic data → map (if available) or ranked bar by region as fallback.
+- Small multiples (same chart across categories) → grid of small EChart components, same axes.
+- Raw records users need to scan → interactive table with filtering.
+- Don't default to a bar chart for everything. Don't use a pie chart for >6 categories or for trends over time.
+
+ANTI-PATTERNS (avoid these):
+- Hardcoded sample data / placeholder values — ALL data must come from `data.visualizations[N].rows`.
+- Repeating the same chart type for every viz when the data shape differs.
+- KPI cards that duplicate a chart (e.g. a "Total Revenue" KPI next to a single-value bar chart of the same number).
+- Two charts showing the same cut of the same data in different forms without a clear reason.
+- Filter controls that don't actually affect any chart on the page.
+- Charts with no axis labels, no tooltip, or no title when the data needs explanation.
+- Truncated labels ("Cate...", "Q1 20...") — format or rotate instead.
+- Unformatted raw numbers (`1523489.23`) in KPIs or tooltips — always run through `fmt()`.
 
 The goal: it should look like a designer built it for this specific dataset, not like a template was filled in.
 
@@ -1575,7 +1611,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 CRITICAL: ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. NEVER put return statements outside a function.
 
-RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji. ALWAYS guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
+RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive Tailwind grids (no hardcoded pixel widths). Handle zero rows and null/undefined cells. No hardcoded data. No UUIDs/branding/emoji. Format numbers with `fmt()`. ALWAYS guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`). NEVER destructure hooks from React — use `useState`, `useEffect`, `useMemo`, `useCallback`, `useRef` as globals.
 
 ⚠️ **CODE SIZE:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity.
 
