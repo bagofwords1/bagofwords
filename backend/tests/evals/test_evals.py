@@ -23,10 +23,13 @@ def test_eval_case(
     token = eval_env["token"]
     org_id = eval_env["org_id"]
 
+    print(f"\n[eval] case={suite_name}/{case_name}", flush=True)
+
     yaml_text = Path(yaml_path).read_text()
     imported = import_suite_yaml(yaml_text, user_token=token, org_id=org_id)
     assert imported.status_code == 200, imported.json()
     case_id = imported.json()["cases_by_name"][case_name]
+    print(f"[eval] imported case_id={case_id[:8]}", flush=True)
 
     # Kick off the agent via the batch endpoint (same path the UI uses).
     headers = {
@@ -40,6 +43,7 @@ def test_eval_case(
     )
     assert resp.status_code == 200, resp.json()
     run = resp.json()
+    print(f"[eval] run_id={run['id'][:8]} started", flush=True)
 
     results = wait_for_run(
         run["id"], user_token=token, org_id=org_id, timeout_s=240,

@@ -7,7 +7,7 @@ Two shipments, one loader:
 1. **Customer feature** — YAML import/export via HTTP so customers can version
    test suites in git and push them to their org.
 2. **Internal pytest evals** — a handful of YAML suites under
-   `backend/evals/suites/` that run through pytest like the existing e2e
+   `backend/tests/evals/suites/` that run through pytest like the existing e2e
    tests (`test_report.py`, `test_eval.py`), consuming the same HTTP endpoint
    via `test_client`.
 
@@ -43,20 +43,14 @@ No new services or routers. Extend the existing test-suite surface.
 | `TestSuiteService.import_yaml` / `export_yaml`      | 1     | routes + pytest                 |
 | `POST /api/tests/suites/import` (in `routes/test.py`)| 1    | customers + pytest via client   |
 | `GET  /api/tests/suites/{id}/export`                | 1     | customers (round-trip)          |
-| `backend/evals/suites/*.yaml`                       | 1     | pytest (canonical cases)        |
+| `backend/tests/evals/suites/*.yaml`                 | 1     | pytest (canonical cases)        |
 | `tests/evals/conftest.py` fixtures                  | 2     | pytest                          |
 | `tests/evals/test_evals.py`                         | 2     | pytest                          |
-| Artifact FieldRule extractors                       | 3     | richer assertions               |
+| Artifact / instruction FieldRule + phase/turn scope | 3     | richer assertions               |
 
 ### File layout
 
 ```
-backend/evals/
-  PLAN.md                              # this file
-  suites/
-    sanity_smoke.yaml
-    sanity_dashboards.yaml
-    sanity_clarify.yaml
 backend/app/schemas/
   suite_yaml_schema.py                 # SuiteYaml, CaseYaml (phase 1, new)
 backend/app/services/
@@ -65,9 +59,19 @@ backend/app/routes/
   test.py                              # +2 handlers (phase 1, edit)
 backend/tests/evals/
   __init__.py
+  PLAN.md                              # this file
   conftest.py                          # loader, wait_for_run (phase 2)
   test_evals.py                        # parametrized over YAML (phase 2)
+  suites/                              # canonical pytest cases
+    sanity_smoke.yaml
+    sanity_dashboards.yaml
+    sanity_clarify.yaml
+    sanity_knowledge.yaml
 ```
+
+Customer-authored suites live in the customer's own repo and are POST'd to
+`/api/tests/suites/import` — we don't need to ship them ourselves. The
+committed YAMLs above are purely pytest fixtures.
 
 ### YAML schema
 
@@ -183,7 +187,7 @@ passes. CI job `evals` fails if any case fails.
         later.
 - [ ] Unit tests: round-trip, slug resolution errors, upsert preserves IDs,
       multi-turn threading produces N `AgentExecution` rows.
-- [x] Sanity YAMLs checked in under `backend/evals/suites/` (this change).
+- [x] Sanity YAMLs checked in under `backend/tests/evals/suites/`.
 
 ### Phase 2 — pytest evals
 
