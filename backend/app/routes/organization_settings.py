@@ -9,7 +9,8 @@ from app.core.permissions_decorator import requires_permission
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.schemas.organization_settings_schema import (
     OrganizationSettingsSchema,
-    OrganizationSettingsUpdate
+    OrganizationSettingsUpdate,
+    SignupPolicySchema,
 )
 
 router = APIRouter(tags=["organization_settings"])
@@ -67,3 +68,24 @@ async def delete_general_icon(
     organization: Organization = Depends(get_current_organization)
 ):
     return await settings_service.remove_general_icon(db, organization, current_user)
+
+
+@router.get("/organization/signup-policy", response_model=SignupPolicySchema)
+@requires_permission('full_admin_access')
+async def get_signup_policy(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.get_signup_policy(db, organization, current_user)
+
+
+@router.put("/organization/signup-policy", response_model=SignupPolicySchema)
+@requires_permission('full_admin_access')
+async def update_signup_policy(
+    policy: SignupPolicySchema,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.update_signup_policy(db, organization, current_user, policy)

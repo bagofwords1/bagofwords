@@ -90,6 +90,11 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     """Configure pytest markers."""
     config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+    config.addinivalue_line(
+        "markers",
+        "evals: agent eval tests — real LLM + fixture data source; opt-in via "
+        "-m evals and require OPENAI_API_KEY_TEST (or equivalent) to be set.",
+    )
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_telemetry_for_tests():
@@ -100,7 +105,7 @@ from tests.fixtures.client import test_client
 from tests.fixtures.user import create_user
 from tests.fixtures.auth import login_user, whoami
 from tests.fixtures.organization import create_organization, add_organization_member, get_organization_members, update_organization_member, remove_organization_member, get_user_organizations
-from tests.fixtures.llm import create_llm_provider_and_models, get_models, get_default_model, set_llm_provider_as_default, toggle_llm_active_status, delete_llm_provider, create_openai_provider_with_base_url, update_llm_provider_base_url, create_azure_provider_and_models, create_bedrock_provider_and_models
+from tests.fixtures.llm import create_llm_provider_and_models, get_models, get_default_model, set_llm_provider_as_default, toggle_llm_active_status, delete_llm_provider, create_openai_provider_with_base_url, update_llm_provider_base_url, create_azure_provider_and_models, create_bedrock_provider_and_models, create_anthropic_provider_and_models
 from tests.fixtures.report import create_report, get_reports, get_report, update_report, delete_report, publish_report, rerun_report, schedule_report, get_public_report, fork_report, set_visibility, get_shares
 from tests.fixtures.completion import create_completion, get_completions, create_completion_stream
 from tests.fixtures.data_source import (
@@ -159,7 +164,7 @@ from tests.fixtures.instruction import create_instruction, create_global_instruc
 from tests.fixtures.entity import get_entities, get_entity, create_global_entity
 from tests.fixtures.console_metrics import get_console_metrics, get_console_metrics_comparison, get_timeseries_metrics, get_table_usage_metrics, get_top_users_metrics, get_recent_negative_feedback, get_diagnosis_dashboard_metrics, get_agent_execution_summaries, create_test_data_for_console, get_tool_usage_metrics, get_llm_usage_metrics
 from tests.fixtures.mention import get_available_mentions
-from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite, create_test_run, get_test_runs, get_test_run, get_suites_summary
+from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite, create_test_run, get_test_runs, get_test_run, get_suites_summary, import_suite_yaml, export_suite_yaml
 from tests.fixtures.file import upload_file, upload_csv_file, upload_excel_file, get_files, get_files_by_report, remove_file_from_report
 from tests.fixtures.organization_settings import get_organization_settings, update_organization_settings, upload_organization_icon, delete_organization_icon, get_organization_icon
 from tests.fixtures.api_key import create_api_key, list_api_keys, delete_api_key, api_key_request

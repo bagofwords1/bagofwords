@@ -8,11 +8,12 @@ from app.models.user import User
 from app.models.organization_settings import OrganizationSettings
 from app.ee.license import has_feature
 from app.schemas.organization_settings_schema import (
-    OrganizationSettingsCreate, 
+    OrganizationSettingsCreate,
     OrganizationSettingsUpdate,
     OrganizationSettingsConfig,
     FeatureConfig,
-    FeatureState
+    FeatureState,
+    SignupPolicySchema,
 )
 from datetime import datetime
 import os
@@ -399,6 +400,121 @@ class OrganizationSettingsService:
         await db.refresh(settings)
 
         return settings
+
+    async def get_signup_policy(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> SignupPolicySchema:
+        """Return the org's signup policy, defaulting to an empty/disabled one."""
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get("signup_policy") or {}
+        return SignupPolicySchema(
+            enabled=bool(raw.get("enabled", False)),
+            allowed_domains=list(raw.get("allowed_domains", []) or []),
+            auto_invite_role=str(raw.get("auto_invite_role") or "member"),
+        )
+
+    async def update_signup_policy(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        policy: SignupPolicySchema,
+    ) -> SignupPolicySchema:
+        """Validate and persist the org's signup policy.
+
+        Validation:
+        - domains are normalized (lowercase, trimmed), non-empty, contain a dot,
+          no '@' / whitespace / wildcard, deduped
+        - auto_invite_role must match an existing system or per-org role
+        """
+        if not has_feature("domain_signup"):
+            raise HTTPException(
+                status_code=402,
+                detail="Domain-based signup requires an enterprise license.",
+            )
+
+        from app.models.role import Role
+        from sqlalchemy import or_, and_
+
+        normalized_domains: list[str] = []
+        seen: set[str] = set()
+        for raw in (policy.allowed_domains or []):
+            if not isinstance(raw, str):
+                raise HTTPException(status_code=400, detail="Each domain must be a string")
+            d = raw.strip().lower()
+            if not d:
+                continue
+            if "@" in d or "*" in d or any(ch.isspace() for ch in d):
+                raise HTTPException(status_code=400, detail=f"Invalid domain: {raw!r}")
+            if "." not in d or len(d) > 253:
+                raise HTTPException(status_code=400, detail=f"Invalid domain: {raw!r}")
+            if d in seen:
+                continue
+            seen.add(d)
+            normalized_domains.append(d)
+
+        role_name = (policy.auto_invite_role or "").strip() or "member"
+        role_res = await db.execute(
+            select(Role).where(
+                Role.name == role_name,
+                Role.deleted_at.is_(None),
+                or_(
+                    and_(Role.is_system == True, Role.organization_id.is_(None)),
+                    Role.organization_id == organization.id,
+                ),
+            )
+        )
+        if not role_res.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail=f"Role '{role_name}' not found")
+
+        if policy.enabled and not normalized_domains:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one allowed domain is required when signup policy is enabled",
+            )
+
+        settings = await self.get_settings(db, organization, current_user)
+        if settings.config is None:
+            settings.config = {}
+
+        current_config = dict(settings.config)
+        current_config["signup_policy"] = {
+            "enabled": bool(policy.enabled),
+            "allowed_domains": normalized_domains,
+            "auto_invite_role": role_name,
+        }
+        settings.config = current_config
+        settings.updated_at = datetime.utcnow()
+        flag_modified(settings, "config")
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="settings.signup_policy_updated",
+                user_id=str(current_user.id),
+                resource_type="organization_settings",
+                resource_id=str(settings.id),
+                details={
+                    "enabled": bool(policy.enabled),
+                    "allowed_domains": normalized_domains,
+                    "auto_invite_role": role_name,
+                },
+            )
+        except Exception:
+            pass
+
+        return SignupPolicySchema(
+            enabled=bool(policy.enabled),
+            allowed_domains=normalized_domains,
+            auto_invite_role=role_name,
+        )
 
     async def update_ai_feature(
         self,

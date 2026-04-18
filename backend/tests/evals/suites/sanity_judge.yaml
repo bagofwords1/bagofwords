@@ -1,0 +1,42 @@
+name: Sanity · Judge
+description: >
+  Worked example of the judge rule pattern: a hard `tool.calls`
+  constraint ensures the agent actually produced an artifact, and a
+  concrete judge prompt verifies the *content* (the right tables were
+  joined and the output ranks the top 10 albums by revenue).
+
+  Kept intentionally lenient on create_artifact — the agent may or may
+  not wrap a single chart in an artifact, so the judge carries most of
+  the signal.
+
+tags: [artifacts, data, judge]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: top_albums_by_revenue
+    prompt:
+      content: "Create a dashboard of the top 10 albums by revenue"
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+
+        - type: tool.calls
+          tool: create_artifact
+          min_calls: 1
+
+        - type: judge
+          prompt: >
+            The trace must show BOTH of the following:
+            (a) a SQL query that joins the Album table with InvoiceLine
+                (directly or through Track) and aggregates revenue as
+                SUM(UnitPrice * Quantity) grouped by album, AND
+            (b) the final artifact/dashboard visibly presents up to 10
+                albums ranked by revenue in descending order.
+            Answer "pass" only if BOTH are clearly true. Cite the SQL
+            snippet and the visible album list in your reasoning.

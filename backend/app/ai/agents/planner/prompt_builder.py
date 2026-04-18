@@ -147,33 +147,56 @@ ERROR HANDLING (robust; no blind retries)
 - Prefer the smallest next action that produces observable progress.
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
-- **Master table over many small queries:** Prefer creating a single wide master table that covers the user's prompt rather than splitting into many narrow single-metric queries. A master table with multiple metric and dimension columns is more efficient (fewer queries) and enables cross-filtering between visualizations built from the same data. Only split into separate queries when the data comes from unrelated sources that don't join naturally, or the user explicitly asks for independent analyses.
-- A widget query should return granular rows with the target metric columns AND relevant additional columns (e.g., date, region, category) that enable downstream filtering and re-aggregation. Avoid pre-aggregating (SUM/COUNT/AVG) in SQL — return the raw rows and let the visualization layer handle aggregation. Keep additional columns to 3-4 most relevant ones. If the user explicitly requests a specific aggregation or pre-computed metric, honor that request.
-- **Writing interpreted_prompt for create_data:** Be prescriptive. Name the specific tables to query, the target columns the user cares about, and additional columns to include for filtering. Specify whether the coder should return granular rows or pre-aggregate. Examples:
-  - "Query `orders` joined with `customers` on `customer_id`. Target column: `amount`. Additional columns for filtering: `order_date`, `region`, `product_category`. Return granular rows — do not pre-aggregate."
-  - "Query `users` where `status = 'active'`. Target column: `user_id`. Additional columns: `signup_date`, `plan_type`, `country`. Return granular rows."
-  - "Query `orders`. Compute 30-day rolling average of `amount` by `order_date` using a window function. This requires SQL-level computation — pre-aggregate as needed."
-- **Cross-filtering between queries/widgets:** When creating multiple widgets in the same session, check past_observations or messages history for columns used in previous queries. If the new query touches related data, include the same additional columns (e.g., same date, region, category columns) in the interpreted_prompt to enable cross-filtering between visualizations.
-- **Dashboard planning (cross-filtering review):** When the user requests a dashboard (multiple related visualizations):
-  1. If creating widgets in the same prompt, plan all queries upfront to share common dimension columns (e.g., date, region, category) that enable cross-filtering between visualizations.
-  2. Before creating the dashboard artifact, review columns from existing queries in past_observations. Check whether they share common dimension columns for cross-filtering.
-  3. If existing queries lack shared dimensions or have poor filtering columns, consider recreating them with aligned columns — or ask the user which dimensions they want to filter by across the dashboard.
-- If the user asks for a dashboard/report/etc, create all the required widgets first (following the cross-filtering review above), then call the create_artifact tool once all queries were created.
-- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately — but first verify the existing widgets share enough dimension columns for cross-filtering. If not, consider recreating them or asking the user.
-- When calling create_artifact, choose the appropriate mode:
-  - Use mode="page" (default) for dashboards, reports, and interactive data displays
-  - Use mode="slides" for presentations, slide decks, or when the user mentions PowerPoint/PPTX export
-- **Writing artifact prompts:** When calling `create_artifact` (prompt) or `edit_artifact` (edit_prompt), write a DETAILED description that includes ALL user requirements accumulated across the conversation — not just the latest message. Include: layout structure, theme/colors/style, which visualizations go where, filters, KPI cards, and any design preferences the user mentioned in any previous turn. Missing details = missing features in the output.
-- **Create vs Edit artifacts:**
-  - Use `create_artifact` when building a brand new dashboard, when the user asks to rebuild/redesign, or when the requested change is large (e.g., "completely change the layout", "make it dark theme with gradients", "add filters to all charts"). Large changes lose context through surgical diffs — a full regeneration via `create_artifact` produces better results.
-  - Use `edit_artifact` for small, focused changes to an existing dashboard (e.g., "change the chart color", "fix the title", "remove the KPI card", "make the chart taller"). The `edit_artifact` tool applies surgical search/replace diffs — it works best when the change touches a small portion of the code.
-  - **If unsure whether the change is small or large:** call `read_artifact` first to inspect the current code, then decide. If the change would require modifying more than ~30% of the code, use `create_artifact`.
-  - To use `edit_artifact`, you need an `artifact_id`. Use the `active_artifact` from context (the most recent artifact in this report) when available — its `artifact_id` is always the latest version. If `active_artifact` is not set, fall back to the most recently created or edited artifact_id from the conversation history. Do NOT ask the user which artifact to edit unless there is genuine ambiguity (e.g., the user explicitly names a different artifact). If you still cannot find an artifact_id, call `read_artifact` to load it.
-  - **Edit that requires new data:** If the user asks to ADD a new chart/visualization to an existing dashboard (e.g., "add a revenue-by-country chart"), you must first call `create_data` to produce the new visualization, then call `edit_artifact` with BOTH the `artifact_id` AND `visualization_ids: [<new_viz_id>]`. The edit tool will merge the new visualization data with the existing ones automatically. Do NOT call `create_artifact` from scratch just because the edit needs new data — use the create_data → edit_artifact flow instead.
-  - **Artifact reflection:** If a `create_artifact` observation includes a screenshot and the result looks wrong (bad layout, missing charts, broken rendering, misaligned elements), use `edit_artifact` to fix it — do NOT call `create_artifact` again. The existing code is a better starting point than regenerating from scratch. Describe the specific visual issues in the `edit_instruction` (e.g., "the bar chart is cut off on the right side", "the KPI cards are overlapping").
-  - **After successful artifact create/edit:** When a `create_artifact` or `edit_artifact` observation shows success (no errors), set `analysis_complete=true` and provide a brief `final_answer` summarizing what was created or changed. Do NOT loop again unless the screenshot clearly shows visual issues that need fixing. The artifact is already saved and visible to the user — there is nothing left to do.
-  - **User reports visual issue after edit:** When the user says something is missing or wrong after an artifact edit (e.g., "I don't see filters", "no gradient"), call `read_artifact` with `load_screenshot=true` first to inspect BOTH the current code AND the last rendered screenshot, then call `edit_artifact` with specific, code-level instructions based on what you found (e.g., "add a FilterSelect component above the grid" rather than "add filters"). Vague edit prompts are the #1 cause of failed edits.
-  - **User asks to fix/add a filter:** Make sure the data and query allow setting such filter (e.g., the relevant column is present in the data). If not, clarify with the user or create the required data first.
+- **Forward-compatibility posture (applies to EVERY create_data call):** Treat every dataset as a building block for the rest of the session, not as a terminal answer. The user who just asked for "customer list" will almost certainly ask next for "payments for this customer", "customers by region", or "build a dashboard". If your output can't serve that next turn without being re-queried, you've under-delivered even if you technically answered the question.
+  - **Always include entity identity**: primary keys and natural FK columns (`customer_id`, `order_id`, `product_id`, etc.) — even when the user asked only for names/labels. IDs enable joins, filters, and drilldowns downstream.
+  - **Always include cheap dimensions**: date/time, region/geography, category/type, status — whatever's in the table and commonly used for filtering. Extra columns are nearly free; missing columns force re-querying.
+  - **Default to granular rows, not aggregates.** Let the visualization layer aggregate. Pre-aggregate in SQL ONLY when (a) the user explicitly asked for a specific aggregation, or (b) the computation genuinely requires SQL (window functions, rolling averages, cross-partition math).
+  - **Master table over many narrow queries.** When the user's prompt spans multiple metrics on related data, prefer one wide master table (multiple metric + dimension columns) over several single-metric queries. Fewer queries, natural cross-filtering. Split only when sources are genuinely unrelated or the user asked for independent analyses.
+- **Writing interpreted_prompt for create_data:** Be prescriptive. Name the specific tables to query, the target columns the user cares about, AND the identity/dimension columns that make the result composable. Specify whether the coder should return granular rows or pre-aggregate. Examples:
+  - User asks "list of customers": "Query `customers`. Return `customer_id`, `name`, `email`, `signup_date`, `country`, `plan_type`. Return granular rows — do not pre-aggregate." (Note: `customer_id` included even though user didn't ask — enables future joins/filters.)
+  - User asks "revenue by month": "Query `orders` joined with `customers` on `customer_id`. Target column: `amount`. Additional columns: `order_date`, `customer_id`, `region`, `product_category`. Return granular rows — do not pre-aggregate."
+  - User asks "active user count": "Query `users` where `status = 'active'`. Return `user_id`, `signup_date`, `plan_type`, `country`. Return granular rows." (User asked for a count — but returning rows lets the viz layer count AND lets future turns filter by plan/country without re-querying.)
+  - User asks "30-day rolling average of amount": "Query `orders`. Compute 30-day rolling average of `amount` by `order_date` using a window function. Include `order_date`, the rolling avg, and `customer_id`, `region`. This requires SQL-level computation."
+- **Cross-query alignment:** When past_observations show prior queries in this session, reuse their identity/dimension columns in new queries. If the prior customer query returned `customer_id`, a new payments query should include `customer_id` too — without asking. Consistency across sibling datasets is the foundation of every later dashboard.
+- **Artifact flow (create_artifact / edit_artifact / read_artifact).** Follow these four steps in order whenever this turn will produce an artifact tool call. Skip a step only when it doesn't apply.
+
+  ### Step A — Pick the right tool
+  - `create_artifact` — brand-new dashboard, rebuild/redesign, or a change too large for surgical diffs (~>30% of code). When `<current_artifact>` is non-empty, you still carry all existing viz_ids forward (see Step C).
+  - `edit_artifact` — small/focused changes to the current dashboard (color, title, a single viz, add/remove a filter, layout tweak). Needs an `artifact_id` — use `<current_artifact>.<artifact_id>` when present; otherwise call `read_artifact` first.
+  - `read_artifact` — when the next step depends on what the code currently says: user reports a visual issue ("I don't see the filters"), you're unsure if the change is small or large, or you have no `artifact_id`. Pass `load_screenshot=true` when the issue is visual.
+  - **Edit that needs new data:** `create_data` first (to produce the new viz), then `edit_artifact` with BOTH `artifact_id` AND `visualization_ids: [<new_viz_id>]`. Do not call `create_artifact` just because new data is needed.
+
+  ### Step B — Dashboard Contract preflight (MANDATORY when the turn adds or changes cross-viz behavior)
+
+  The user's ask often implies a **contract** — a cross-viz capability the dashboard must support. Name the contract explicitly in `reasoning_message` before selecting an artifact tool. Examples:
+    - "Add a customer filter" → filter contract on `customer_id` / `customer_full_name`
+    - "Compare this quarter to last" → comparison contract over a time dimension
+    - "Group by region" / "slice by region" → slice contract on `region`
+    - "Top 10 per category" → rank-across contract on `category`
+    - "Drill into revenue" → drill-down contract on a hierarchy
+    - If the turn is purely additive or cosmetic ("add a new chart", "make it prettier", "dark mode", "rename title"): **no contract** — skip to Step C.
+
+  If a contract exists, classify EVERY viz that will appear in the final artifact (existing ones from `<current_artifact>.<visualizations>` plus any new ones created this turn) against it:
+
+    1. **Satisfies** — the viz's `<columns>` already contain the required dimension (or a joinable key reachable from the data source schema). No action.
+    2. **Rebuildable** — the underlying data source schema contains the required column, but the current query aggregates it away or doesn't project it (e.g., `Total Payments` computed via `COUNT(*)` needs `customer_id` projected/grouped to respond to a customer filter). **Action: call `create_data` first to produce a new viz with the dimension, then use the NEW viz_id in the artifact call and drop the old viz_id.** Do not attach the contract to a viz whose data hasn't been rebuilt.
+    3. **Meaningless under contract** — applying the contract collapses the viz to a trivial or incorrect result (e.g., `Total Customers` under a customer-level filter = 1; `Total Revenue` under a comparison contract with no time dimension is unchangeable). **Action: drop the viz from the artifact OR replace it with a metric that stays meaningful under the contract (e.g., `Total Payments (for selected customer)` substitutes cleanly). Mention the drop/substitution in `final_answer` so the user isn't surprised.** The continuity superset rule yields to the contract here.
+    4. **Ambiguous** — you can't confidently tell whether/how the viz should respond (e.g., `Top Artists` under a customer filter — globally or per-selection? Which aggregation?). **Action: call `clarify` with a concrete question naming the viz(s) and the interpretations. Bundle all ambiguous vizs into one clarify message.**
+
+  **Never silently scope a contract to a subset of vizs that can mechanically accept it.** That ships a dashboard where the filter works on some charts and not others — a broken deliverable, not a partial one. If any viz is class 2, finish the rebuilds BEFORE calling the artifact tool.
+
+  ### Step C — Continuity & prompt quality (when `<current_artifact>` is non-empty)
+
+  - **viz_ids are superset, never subset.** `visualization_ids` passed to `create_artifact` / `edit_artifact` MUST include every viz_id from `<current_artifact>.<visualizations>` plus any new ones — UNLESS (a) the user explicitly said "remove X" / "get rid of X", or (b) Step B classified a viz as 3 (meaningless under contract). Phrases like "improve", "make it better", "add KPIs", "redesign", "make it amazing" are ADDITIVE — they never imply removal.
+  - **Title stability.** Keep `<current_artifact>.<title>` unless the user asked to rename. Do not invent "Enhanced X Dashboard" / "Improved Y" on enhance-turns.
+  - **Reuse before `create_data`.** If a viz already on the canvas has rows that can produce the metric client-side, compute it in the artifact code — don't re-query. Example: a viz with 1000 rows and a `film_id` column can produce "Total Films" via a distinct count without another query.
+  - **Writing the prompt / edit_prompt.** DETAIL everything accumulated across the conversation — layout, theme/colors/style, viz placement, filters (with the contract scope from Step B), KPI cards, design preferences from ANY previous turn. Missing details = missing features. Mode: `page` for dashboards/reports (default), `slides` for presentations/PPTX.
+
+  ### Step D — After the call
+
+  - **Success with no screenshot issues:** set `analysis_complete=true`, put a brief summary in `final_answer`, do not loop.
+  - **Screenshot shows visual bugs** (misalignment, overlap, cut-off, wrong colors): use `edit_artifact` (not another `create_artifact`) with a specific, code-level instruction ("the bar chart is cut off on the right", "KPI cards are overlapping").
+  - **User reports something missing after an edit** ("I don't see filters", "no gradient"): call `read_artifact` with `load_screenshot=true` first, then `edit_artifact` with a specific, code-level fix ("add a FilterSelect component above the grid"). Vague edit prompts are the #1 cause of failed edits.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), output your clarifying questions in assistant_message and call the clarify tool.
 - If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.
@@ -252,7 +275,7 @@ INPUT ENVELOPE
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
-  <active_artifact>{json.dumps(planner_input.active_artifact) if planner_input.active_artifact else 'None'}</active_artifact>
+  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}
   <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>
@@ -337,6 +360,57 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             count += history_summary.lower().count(keyword)
 
         return min(count, 5)  # Cap at 5 for safety
+
+    @staticmethod
+    def _render_current_artifact(artifact: Optional[Dict[str, Any]]) -> str:
+        """Render the current artifact as an XML block the planner treats as
+        starting state. Emits viz_ids, columns, and row counts so the planner
+        sees what's currently on the canvas — not just a title.
+        """
+        if not artifact:
+            return "<current_artifact>None</current_artifact>"
+
+        def _esc(s: Any) -> str:
+            return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        lines = ["<current_artifact>"]
+        lines.append(f"  <artifact_id>{_esc(artifact.get('artifact_id'))}</artifact_id>")
+        if artifact.get("title"):
+            lines.append(f"  <title>{_esc(artifact.get('title'))}</title>")
+        if artifact.get("mode"):
+            lines.append(f"  <mode>{_esc(artifact.get('mode'))}</mode>")
+        if artifact.get("version") is not None:
+            lines.append(f"  <version>{_esc(artifact.get('version'))}</version>")
+
+        gen_prompt = artifact.get("generation_prompt")
+        if gen_prompt:
+            snippet = str(gen_prompt).strip()
+            if len(snippet) > 800:
+                snippet = snippet[:800] + "…"
+            lines.append(f"  <generation_prompt>{_esc(snippet)}</generation_prompt>")
+
+        viz_list = artifact.get("visualizations") or []
+        if viz_list:
+            lines.append("  <visualizations>")
+            for v in viz_list:
+                attrs = [f'id="{_esc(v.get("viz_id"))}"']
+                if v.get("viz_title"):
+                    attrs.append(f'title="{_esc(v.get("viz_title"))}"')
+                if v.get("step_type"):
+                    attrs.append(f'type="{_esc(v.get("step_type"))}"')
+                if v.get("row_count") is not None:
+                    attrs.append(f'rows="{_esc(v.get("row_count"))}"')
+                cols = v.get("columns") or []
+                inner = ""
+                if cols:
+                    inner = f"\n      <columns>{_esc(', '.join(cols))}</columns>\n    "
+                lines.append(f"    <viz {' '.join(attrs)}>{inner}</viz>")
+            lines.append("  </visualizations>")
+        else:
+            lines.append("  <visualizations>(none)</visualizations>")
+
+        lines.append("</current_artifact>")
+        return "\n".join(lines)
 
     @staticmethod
     def _compact_past_observations(past_observations: Optional[list]) -> list:
