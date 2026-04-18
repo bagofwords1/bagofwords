@@ -5,6 +5,8 @@ description: >
   catch total regressions (agent loop broken, LLM unreachable, data source
   disconnected) before running the richer suites.
 
+tags: [smoke, data]
+
 data_source_slugs:
   - Music Store
 

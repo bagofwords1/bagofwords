@@ -7,6 +7,8 @@ description: >
   Phase-scoped rules pin the assertions to the knowledge harness loop so
   they don't accidentally match tool calls from the main analysis.
 
+tags: [knowledge, multi_turn]
+
 data_source_slugs:
   - Music Store
 

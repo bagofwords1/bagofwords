@@ -9,6 +9,8 @@ description: >
   not wrap a single chart in an artifact, so the judge carries most of
   the signal.
 
+tags: [artifacts, data, judge]
+
 data_source_slugs:
   - Music Store
 

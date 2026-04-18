@@ -49,6 +49,11 @@ class CaseYaml(BaseModel):
     turns: Optional[List[TurnYaml]] = None
     data_source_slugs: Optional[List[str]] = None
     expectations: ExpectationsSpec = Field(default_factory=ExpectationsSpec)
+    # Optional per-case tags. Merged with the suite-level tags on import;
+    # used by the pytest harness to filter runs via pytest markers and the
+    # ``EVAL_TAGS`` env var. Free-form strings but normalized to
+    # lowercase/underscore-separated to play well with marker expressions.
+    tags: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _one_of_prompt_or_turns(self) -> "CaseYaml":
@@ -68,8 +73,35 @@ class SuiteYaml(BaseModel):
     name: str
     description: Optional[str] = None
     data_source_slugs: List[str] = Field(default_factory=list)
+    # Suite-level tags apply to every case in the suite. Case-level tags
+    # are merged (not replaced) so a case picks up both.
+    tags: List[str] = Field(default_factory=list)
     cases: List[CaseYaml]
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "SuiteYaml":
         return cls.model_validate(raw)
+
+
+def normalize_tag(tag: str) -> str:
+    """Normalize a tag so it is a valid pytest marker name.
+
+    Lowercases and swaps spaces/hyphens for underscores. Tags with
+    characters outside ``[a-z0-9_]`` are left alone — callers may choose
+    to reject or accept them.
+    """
+    return (tag or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def merge_tags(*tag_lists: List[str]) -> List[str]:
+    """Union of tags (order-preserving, dedup'd, normalized)."""
+    seen = set()
+    out: List[str] = []
+    for lst in tag_lists:
+        for raw in lst or []:
+            t = normalize_tag(raw)
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            out.append(t)
+    return out

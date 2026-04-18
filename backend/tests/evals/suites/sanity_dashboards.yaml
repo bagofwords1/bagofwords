@@ -4,6 +4,8 @@ description: >
   create_data → create_artifact path. Assertions combine tool-level rules
   (counts + ordering) with a dedicated judge rule on the final trace.
 
+tags: [artifacts, data, judge]
+
 data_source_slugs:
   - Music Store
 

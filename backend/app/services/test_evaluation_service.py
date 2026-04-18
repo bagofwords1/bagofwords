@@ -536,8 +536,8 @@ class TestEvaluationService:
                 return None
 
         def _filtered_tool_sequence(rule_obj) -> List[str]:
-            """Return tool names matching rule.phase and rule.turn; ``None``
-            for either means any."""
+            """Return tool names matching rule.phase and rule.turn;
+            ``None`` for either means no filter."""
             phase = _phase_of(rule_obj)
             turn = _turn_of(rule_obj)
             seq = snapshot.get("tool_sequence") or []

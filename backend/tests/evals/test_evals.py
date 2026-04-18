@@ -150,12 +150,12 @@ def _append_report_line(entry: Dict[str, Any]) -> None:
     ids=[_display_for(m) for m in LLM_MATRIX] or None,
 )
 @pytest.mark.parametrize(
-    "yaml_path,suite_name,case_name",
+    "yaml_path,suite_name,case_name,tags",
     ALL_EVAL_CASES,
-    ids=[f"{s}/{c}" for _p, s, c in ALL_EVAL_CASES] or None,
+    ids=[f"{s}/{c}" for _p, s, c, _t in ALL_EVAL_CASES] or None,
 )
 def test_eval_case(
-    yaml_path, suite_name, case_name, llm_model,
+    yaml_path, suite_name, case_name, tags, llm_model,
     eval_env, import_suite_yaml, run_case_and_wait,
 ):
     env = eval_env(llm_model)
@@ -224,6 +224,7 @@ def test_eval_case(
         "llm": llm_display,
         "suite": suite_name,
         "case": case_name,
+        "tags": list(tags),
         "status": status,
         "failure_reason": result.get("failure_reason"),
         "harness_duration_ms": harness_duration_ms,

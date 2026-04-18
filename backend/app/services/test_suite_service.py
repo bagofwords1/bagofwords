@@ -11,7 +11,13 @@ from app.models.data_source import DataSource
 from app.models.llm_model import LLMModel
 from app.models.llm_provider import LLMProvider
 from app.schemas.test_expectations import TestCatalog, default_test_catalog
-from app.schemas.suite_yaml_schema import SuiteYaml, CaseYaml, PromptYaml, TurnYaml
+from app.schemas.suite_yaml_schema import (
+    SuiteYaml,
+    CaseYaml,
+    PromptYaml,
+    TurnYaml,
+    merge_tags,
+)
 from app.services.llm_service import LLMService
 
 
@@ -310,6 +316,7 @@ class TestSuiteService:
                 else suite_ds_ids
             )
             expectations_json = case_yaml.expectations.model_dump()
+            case_tags = merge_tags(suite_yaml.tags, case_yaml.tags)
 
             tc = existing_cases.get(case_yaml.name)
             if tc is None:
@@ -320,6 +327,7 @@ class TestSuiteService:
                     expectations_json=expectations_json,
                     data_source_ids_json=case_ds_ids,
                     additional_turns_json=additional_turns_json,
+                    tags_json=case_tags or None,
                 )
                 db.add(tc)
             else:
@@ -327,6 +335,7 @@ class TestSuiteService:
                 tc.expectations_json = expectations_json
                 tc.data_source_ids_json = case_ds_ids
                 tc.additional_turns_json = additional_turns_json
+                tc.tags_json = case_tags or None
                 # Resurrect if it was soft-deleted in a previous sync
                 tc.deleted_at = None
                 db.add(tc)
@@ -424,6 +433,20 @@ class TestSuiteService:
             db, organization_id, all_ds_ids
         )
 
+        # Tags shared by every case hoist to suite-level; per-case tags
+        # carry the rest.
+        per_case_tag_sets = [set(c.tags_json or []) for c in cases]
+        common_tags: List[str] = []
+        if per_case_tag_sets:
+            # intersection of all non-empty sets — if any case has no
+            # tags, there's no common set.
+            if all(per_case_tag_sets):
+                common = set.intersection(*per_case_tag_sets)
+                # preserve order from the first case
+                for t in (cases[0].tags_json or []):
+                    if t in common:
+                        common_tags.append(t)
+
         out: Dict[str, Any] = {
             "name": suite.name,
             "cases": [],
@@ -432,6 +455,8 @@ class TestSuiteService:
             out["description"] = suite.description
         if all_ds_slugs:
             out["data_source_slugs"] = all_ds_slugs
+        if common_tags:
+            out["tags"] = common_tags
 
         for c in cases:
             case_slugs = await self._reverse_data_source_ids(
@@ -465,6 +490,13 @@ class TestSuiteService:
             # the suite-level list.
             if case_slugs and case_slugs != all_ds_slugs:
                 case_dict["data_source_slugs"] = case_slugs
+
+            # Case-specific tags = case tags minus the suite-level common.
+            case_only_tags = [
+                t for t in (c.tags_json or []) if t not in common_tags
+            ]
+            if case_only_tags:
+                case_dict["tags"] = case_only_tags
 
             expectations = c.expectations_json or {"spec_version": 1, "rules": []}
             case_dict["expectations"] = expectations

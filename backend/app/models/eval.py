@@ -33,6 +33,10 @@ class TestCase(BaseSchema):
     # renders it as today; turns 2..N live here as [{"prompt": {...}}, ...].
     additional_turns_json = Column(JSON, nullable=True, default=None)
 
+    # Free-form tags used by the pytest eval harness (and future UI) for
+    # grouping / filtering cases. Stored as a list of normalized strings.
+    tags_json = Column(JSON, nullable=True, default=None)
+
     suite = relationship("TestSuite", back_populates="cases")
 
 
