@@ -293,18 +293,30 @@ const availableConnections = computed(() => {
 })
 
 // Status helpers
+function getEffectiveStatus(conn: any): 'success' | 'error' | 'unknown' {
+    // Local test result takes priority
+    const local = testResults.value[conn.id]
+    if (local) return local.success ? 'success' : 'error'
+    // Then API status
+    const api = String(conn.user_status?.connection || '').toLowerCase()
+    if (api === 'success') return 'success'
+    if (api === 'not_connected' || api === 'offline') return 'error'
+    // For user_required with credentials but no test yet
+    if (conn.auth_policy === 'user_required' && conn.user_status?.has_user_credentials) return 'success'
+    return 'unknown'
+}
+
 function getStatusClass(conn: any) {
-    const status = String(conn.user_status?.connection || '').toLowerCase()
-    if (status === 'success') return 'bg-green-50 text-green-700 border-green-200'
-    if (status === 'not_connected' || status === 'offline') return 'bg-red-50 text-red-700 border-red-200'
+    const s = getEffectiveStatus(conn)
+    if (s === 'success') return 'bg-green-50 text-green-700 border-green-200'
+    if (s === 'error') return 'bg-red-50 text-red-700 border-red-200'
     return 'bg-gray-50 text-gray-700 border-gray-200'
 }
 
 function getStatusLabel(conn: any) {
-    const status = String(conn.user_status?.connection || '').toLowerCase()
-    if (status === 'success') return 'Connected'
-    if (status === 'not_connected') return 'Not connected'
-    if (status === 'offline') return 'Offline'
+    const s = getEffectiveStatus(conn)
+    if (s === 'success') return 'Connected'
+    if (s === 'error') return 'Not connected'
     return 'Unknown'
 }
 
@@ -350,7 +362,7 @@ async function testUserConnection(connectionId: string) {
   if (!dsId.value || testingUserConnectionId.value) return
   testingUserConnectionId.value = connectionId
   try {
-    const response = await useMyFetch(`/connections/${connectionId}/test`, { method: 'POST' })
+    const response = await useMyFetch(`/connections/${connectionId}/test-my-credentials`, { method: 'POST' })
     testResults.value[connectionId] = (response.data as any)?.value || null
     await injectedFetchIntegration()
   } finally {

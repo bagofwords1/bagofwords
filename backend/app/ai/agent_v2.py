@@ -163,11 +163,14 @@ class AgentV2:
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
     async def _get_active_artifact(self) -> Optional[dict]:
-        """Get the most recent artifact for the current report."""
+        """Get the most recent artifact for the current report, enriched with
+        visualization-level state so the planner treats it as the starting
+        material for the next turn (not a stale label)."""
         if not self.report:
             return None
         try:
             from app.models.artifact import Artifact
+            from app.models.visualization import Visualization
             result = await self.db.execute(
                 select(Artifact)
                 .where(
@@ -178,17 +181,72 @@ class AgentV2:
                 .limit(1)
             )
             artifact = result.scalar_one_or_none()
-            if artifact:
-                return {
-                    "artifact_id": str(artifact.id),
-                    "title": artifact.title,
-                    "mode": artifact.mode,
-                    "version": artifact.version,
-                    "generation_prompt": artifact.generation_prompt,
-                }
+            if not artifact:
+                return None
+
+            viz_ids = []
+            if isinstance(artifact.content, dict):
+                raw_ids = artifact.content.get("visualization_ids") or []
+                viz_ids = [str(v) for v in raw_ids if v]
+
+            visualizations = []
+            if viz_ids:
+                viz_rows = await self.db.execute(
+                    select(Visualization).where(Visualization.id.in_(viz_ids))
+                )
+                viz_by_id = {str(v.id): v for v in viz_rows.scalars().all()}
+                for vid in viz_ids:
+                    viz = viz_by_id.get(vid)
+                    if not viz:
+                        continue
+                    step = None
+                    try:
+                        q = viz.query
+                        step = q.default_step if q and q.default_step else (q.steps[-1] if q and q.steps else None)
+                    except Exception:
+                        step = None
+
+                    columns = []
+                    row_count = None
+                    step_type = None
+                    if step is not None:
+                        step_type = step.type
+                        data_model = step.data_model if isinstance(step.data_model, dict) else None
+                        if data_model:
+                            cols = data_model.get("columns") or []
+                            columns = [c.get("name") for c in cols if isinstance(c, dict) and c.get("name")]
+                        data_payload = step.data if isinstance(step.data, dict) else None
+                        if data_payload:
+                            rows = data_payload.get("rows")
+                            if isinstance(rows, list):
+                                row_count = len(rows)
+                            if not columns:
+                                data_cols = data_payload.get("columns") or []
+                                columns = [
+                                    c.get("field") or c.get("name")
+                                    for c in data_cols
+                                    if isinstance(c, dict) and (c.get("field") or c.get("name"))
+                                ]
+
+                    visualizations.append({
+                        "viz_id": vid,
+                        "viz_title": viz.title or "",
+                        "step_type": step_type,
+                        "row_count": row_count,
+                        "columns": columns,
+                    })
+
+            return {
+                "artifact_id": str(artifact.id),
+                "title": artifact.title,
+                "mode": artifact.mode,
+                "version": artifact.version,
+                "generation_prompt": artifact.generation_prompt,
+                "visualizations": visualizations,
+            }
         except Exception:
-            pass
-        return None
+            logger.exception("_get_active_artifact failed")
+            return None
 
     async def _build_scheduled_context(self) -> Optional[dict]:
         """Build scheduled execution context if this completion is from a scheduled prompt."""

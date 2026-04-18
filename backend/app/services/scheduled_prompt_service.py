@@ -142,6 +142,65 @@ class ScheduledPromptService:
         )
         return list(result.scalars().all())
 
+    async def list_all_scheduled_prompts(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        page: int = 1,
+        limit: int = 20,
+        search: str = None,
+        filter: str = 'my',
+        current_user_id: str = None,
+    ) -> dict:
+        """List all scheduled prompts across all reports for an organization."""
+        from sqlalchemy import func
+        from sqlalchemy.orm import joinedload
+
+        query = (
+            select(ScheduledPrompt)
+            .join(Report, ScheduledPrompt.report_id == Report.id)
+            .filter(Report.organization_id == organization_id)
+            .filter(ScheduledPrompt.deleted_at == None)
+            .filter(Report.deleted_at == None)
+            .options(joinedload(ScheduledPrompt.report), joinedload(ScheduledPrompt.user))
+        )
+
+        if filter == 'my' and current_user_id:
+            query = query.filter(ScheduledPrompt.user_id == current_user_id)
+        elif filter == 'shared' and current_user_id:
+            query = query.filter(ScheduledPrompt.user_id != current_user_id)
+
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                Report.title.ilike(search_term)
+            )
+
+        # Count total
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        total_pages = max(1, (total + limit - 1) // limit)
+
+        # Fetch page
+        query = query.order_by(ScheduledPrompt.created_at.desc())
+        query = query.offset((page - 1) * limit).limit(limit)
+        result = await db.execute(query)
+        prompts = list(result.unique().scalars().all())
+
+        return {
+            "prompts": prompts,
+            "meta": {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            }
+        }
+
     async def get_scheduled_prompt(
         self,
         db: AsyncSession,

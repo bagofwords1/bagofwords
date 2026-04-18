@@ -1,5 +1,28 @@
 <template>
-    <div class="h-screen w-screen relative bg-gray-50 flex flex-col">
+    <!-- Access error overlay -->
+    <div v-if="accessError" class="h-screen w-screen flex items-center justify-center bg-gray-50">
+        <div class="text-center max-w-md mx-auto px-6">
+            <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
+            <h2 class="text-lg font-semibold text-gray-900 mb-2">
+                {{ accessError === 'login' ? 'Sign in required' : 'Access denied' }}
+            </h2>
+            <p class="text-sm text-gray-500 mb-6">
+                {{ accessError === 'login'
+                    ? 'You need to sign in to view this dashboard.'
+                    : 'You don\'t have permission to view this dashboard. Ask the owner to share it with you.' }}
+            </p>
+            <a v-if="accessError === 'login'" :href="`/users/sign-in?redirect=/r/${$route.params.id}`"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                Sign in
+            </a>
+            <a v-else href="/"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Go home
+            </a>
+        </div>
+    </div>
+
+    <div v-else class="h-screen w-screen relative bg-gray-50 flex flex-col">
         <!-- Top Bar -->
         <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white border-b border-gray-200 relative">
             <!-- Left: Back to app (absolute) -->
@@ -270,10 +293,26 @@ definePageMeta({
     auth: false
 });
 
+// Access error state
+const accessError = ref<'login' | 'denied' | null>(null);
+
 // Fetch report info
 async function loadReport() {
     try {
-        const { data } = await useMyFetch(`/api/r/${report_id}`);
+        const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}`);
+        if (fetchError.value) {
+            const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status;
+            if (status === 401) {
+                accessError.value = 'login';
+                return;
+            }
+            if (status === 403) {
+                accessError.value = 'denied';
+                return;
+            }
+            navigateTo('/not_found');
+            return;
+        }
         if (!data.value) {
             navigateTo('/not_found');
             return;

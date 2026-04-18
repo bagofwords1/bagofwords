@@ -283,8 +283,14 @@ class CompletionService:
 
             clients = {}
             for data_source in report.data_sources:
-                ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
-                clients.update(ds_clients)
+                try:
+                    ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
+                    clients.update(ds_clients)
+                except HTTPException as e:
+                    if e.status_code == 403:
+                        logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                    else:
+                        raise
             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
             _ = report.files
 
@@ -553,8 +559,14 @@ class CompletionService:
                             
                             clients = {}
                             for data_source in report_obj.data_sources:
-                                ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
-                                clients.update(ds_clients)
+                                try:
+                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                                    clients.update(ds_clients)
+                                except HTTPException as e:
+                                    if e.status_code == 403:
+                                        logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                                    else:
+                                        raise
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = report_obj.files
 
@@ -608,8 +620,14 @@ class CompletionService:
                     with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                         clients = {}
                         for data_source in report.data_sources:
-                            ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
-                            clients.update(ds_clients)
+                            try:
+                                ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
+                                clients.update(ds_clients)
+                            except HTTPException as e:
+                                if e.status_code == 403:
+                                    logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                                else:
+                                    raise
                         clients_span.set_attribute("data_sources.count", len(report.data_sources))
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                     _ = report.files
@@ -1913,8 +1931,14 @@ class CompletionService:
                             with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                                 clients = {}
                                 for data_source in report_obj.data_sources:
-                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
-                                    clients.update(ds_clients)
+                                    try:
+                                        ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                                        clients.update(ds_clients)
+                                    except HTTPException as e:
+                                        if e.status_code == 403:
+                                            logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                                        else:
+                                            raise
                                 clients_span.set_attribute("data_sources.count", len(report_obj.data_sources))
                             _alog(f"clients_constructed count={len(report_obj.data_sources)}")
 

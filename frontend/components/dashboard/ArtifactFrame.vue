@@ -106,8 +106,8 @@
           </a>
         </UTooltip>
 
-        <!-- Publish -->
-        <PublishModal v-if="report" :report="report" />
+        <!-- Share Dashboard -->
+        <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
       </div>
     </div>
 
@@ -283,7 +283,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
-import PublishModal from '../PublishModal.vue';
+import ShareModal from '../ShareModal.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
 

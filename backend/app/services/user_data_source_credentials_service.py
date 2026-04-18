@@ -223,9 +223,35 @@ class UserDataSourceCredentialsService:
             )
 
         # For user_required, check if user has credentials
+        # First check data-source-level credentials, then connection-level credentials (OAuth)
         row = None
         if data_source:
             row = await self.get_primary_active_row(db, data_source, user)
+
+        if not row:
+            # Check connection-level credentials (stored by OAuth flow)
+            from app.models.user_connection_credentials import UserConnectionCredentials
+            conn_cred_stmt = select(UserConnectionCredentials).where(
+                UserConnectionCredentials.connection_id == str(connection.id),
+                UserConnectionCredentials.user_id == str(user.id),
+                UserConnectionCredentials.is_active == True,
+            )
+            conn_cred = (await db.execute(conn_cred_stmt)).scalars().first()
+            if conn_cred:
+                # For user credentials, don't use system-level cached status —
+                # it reflects the service principal test, not the user's OAuth token.
+                # If user has last_used_at, they've successfully queried before.
+                user_conn_status = "success" if conn_cred.last_used_at else "unknown"
+                return DataSourceUserStatus(
+                    has_user_credentials=True,
+                    auth_mode=conn_cred.auth_mode,
+                    is_primary=conn_cred.is_primary,
+                    last_used_at=conn_cred.last_used_at,
+                    expires_at=conn_cred.expires_at,
+                    connection=user_conn_status,
+                    effective_auth="user",
+                    last_checked_at=conn_cred.last_used_at,
+                )
 
         if not row:
             # Owner/admin fallback: owner/admin can use system creds (e.g., SQLite)
@@ -264,18 +290,19 @@ class UserDataSourceCredentialsService:
                 effective_auth="none"
             )
 
-        # User has stored credentials
+        # User has stored credentials — use user-specific status, not system-level
+        user_conn_status = "success" if row.last_used_at else "unknown"
         return DataSourceUserStatus(
             has_user_credentials=True,
             auth_mode=row.auth_mode,
             is_primary=row.is_primary,
             last_used_at=row.last_used_at,
             expires_at=row.expires_at,
-            connection=get_cached_status(),
+            connection=user_conn_status,
             effective_auth="user",
             uses_fallback=False,
             credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
-            last_checked_at=get_last_checked_at(),
+            last_checked_at=row.last_used_at,
         )
 
     async def test_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> dict:

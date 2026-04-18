@@ -14,6 +14,7 @@ from app.models.instruction_version import InstructionVersion
 from app.models.instruction_reference import InstructionReference
 from app.models.organization import Organization
 from app.models.user import User
+from app.models.user_data_source_overlay import UserDataSourceTable
 
 from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem
 
@@ -167,7 +168,10 @@ class InstructionContextBuilder:
                 inst_ds_ids = {str(ds.id) for ds in inst.data_sources} if inst.data_sources else set()
                 if not inst_ds_ids or inst_ds_ids.intersection(data_source_ids):
                     filtered.append(inst)
-            return filtered
+            instructions = filtered
+
+        # Filter by per-user table accessibility (user_data_source_tables overlay)
+        instructions = await self._filter_instructions_by_table_accessibility(instructions)
 
         return instructions
 
@@ -274,6 +278,9 @@ class InstructionContextBuilder:
                 content_hash=version.content_hash,
                 build_number=bld.build_number,
             ))
+
+        # Filter by per-user table accessibility
+        items = await self._filter_items_by_table_accessibility(items)
 
         return items
 
@@ -398,6 +405,9 @@ class InstructionContextBuilder:
                 inst for inst in all_instructions
                 if not inst.data_sources or {str(ds.id) for ds in inst.data_sources}.intersection(data_source_ids)
             ]
+
+        # Filter by per-user table accessibility
+        all_instructions = await self._filter_instructions_by_table_accessibility(all_instructions)
 
         # Score and filter by keyword match (or include all if no keywords)
         scored: List[Tuple[Instruction, float]] = []
@@ -643,6 +653,9 @@ class InstructionContextBuilder:
         )
         items.extend(dep_items)
 
+        # Filter by per-user table accessibility
+        items = await self._filter_items_by_table_accessibility(items)
+
         logger.debug(
             f"_load_from_build: loaded {len(always_items)} always + "
             f"{len(intelligent_items)} intelligent + "
@@ -740,6 +753,9 @@ class InstructionContextBuilder:
             loaded_ids, max_instructions - len(items), build=None
         )
         items.extend(dep_items)
+
+        # Filter by per-user table accessibility
+        items = await self._filter_items_by_table_accessibility(items)
 
         logger.debug(
             f"_build_legacy: loaded {len(always_instructions)} always + "
@@ -937,6 +953,118 @@ class InstructionContextBuilder:
             for label in instruction.labels
         ]
     
+    async def _get_user_inaccessible_table_ids(self) -> Set[str]:
+        """Return datasource_table IDs the current user explicitly cannot access.
+
+        Only applies when user_data_source_tables rows exist (i.e. the connection
+        uses auth_policy='user_required' and an overlay sync has run).  If there
+        are no overlay rows for the user, returns an empty set (= no filtering).
+        """
+        if not self.current_user:
+            return set()
+
+        result = await self.db.execute(
+            select(UserDataSourceTable.data_source_table_id)
+            .where(
+                UserDataSourceTable.user_id == str(self.current_user.id),
+                UserDataSourceTable.is_accessible == False,
+                UserDataSourceTable.data_source_table_id.isnot(None),
+            )
+        )
+        return {row[0] for row in result.all()}
+
+    async def _filter_instructions_by_table_accessibility(
+        self,
+        instructions: List[Instruction],
+    ) -> List[Instruction]:
+        """Remove instructions whose table references are all inaccessible to the user.
+
+        Rules:
+        - No table references → keep (global / text-only instruction)
+        - All referenced tables inaccessible → exclude
+        - At least one referenced table accessible → keep
+        - No current_user → keep all (system/admin context)
+        """
+        inaccessible = await self._get_user_inaccessible_table_ids()
+        if not inaccessible:
+            return instructions
+
+        # Batch-load table references for all candidate instructions
+        instruction_ids = [str(inst.id) for inst in instructions]
+        if not instruction_ids:
+            return instructions
+
+        ref_result = await self.db.execute(
+            select(InstructionReference.instruction_id, InstructionReference.object_id)
+            .where(
+                InstructionReference.instruction_id.in_(instruction_ids),
+                InstructionReference.object_type == "datasource_table",
+            )
+        )
+
+        # Build map: instruction_id -> set of referenced table IDs
+        refs_by_instruction: Dict[str, Set[str]] = {}
+        for inst_id, table_id in ref_result.all():
+            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
+
+        filtered = []
+        for inst in instructions:
+            inst_id = str(inst.id)
+            table_refs = refs_by_instruction.get(inst_id)
+            if not table_refs:
+                # No table references — keep
+                filtered.append(inst)
+            elif table_refs - inaccessible:
+                # At least one accessible table — keep
+                filtered.append(inst)
+            else:
+                # All referenced tables inaccessible — exclude
+                logger.debug(
+                    f"Excluding instruction {inst_id} — all table refs inaccessible for user {self.current_user.id}"
+                )
+        return filtered
+
+    async def _filter_items_by_table_accessibility(
+        self,
+        items: List[InstructionItem],
+    ) -> List[InstructionItem]:
+        """Same as _filter_instructions_by_table_accessibility but for InstructionItem objects.
+
+        Used in build-based loading where we have InstructionItem (not ORM Instruction).
+        """
+        inaccessible = await self._get_user_inaccessible_table_ids()
+        if not inaccessible:
+            return items
+
+        item_ids = [item.id for item in items]
+        if not item_ids:
+            return items
+
+        ref_result = await self.db.execute(
+            select(InstructionReference.instruction_id, InstructionReference.object_id)
+            .where(
+                InstructionReference.instruction_id.in_(item_ids),
+                InstructionReference.object_type == "datasource_table",
+            )
+        )
+
+        refs_by_instruction: Dict[str, Set[str]] = {}
+        for inst_id, table_id in ref_result.all():
+            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
+
+        filtered = []
+        for item in items:
+            table_refs = refs_by_instruction.get(item.id)
+            if not table_refs:
+                filtered.append(item)
+            elif table_refs - inaccessible:
+                filtered.append(item)
+            else:
+                logger.debug(
+                    f"Excluding instruction {item.id} — all table refs inaccessible for user"
+                )
+        return filtered
+
     def _extract_keywords(self, text: str) -> Set[str]:
         """Extract meaningful keywords from text."""
         # Lowercase and split on non-alphanumeric (including underscores for better matching)

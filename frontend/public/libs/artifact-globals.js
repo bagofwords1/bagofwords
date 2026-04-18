@@ -48,6 +48,62 @@
     return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
+  // ── exportCSV() — trigger client-side CSV download ──────────────────────────
+  // Signature: exportCSV(rows, { columns, filename } = {})
+  //   rows      — array of objects (required)
+  //   columns   — optional. Either viz.columns ([{field,...}]) or string[] of keys.
+  //               Defaults to Object.keys(rows[0]).
+  //   filename  — optional, defaults to 'export.csv'. '.csv' appended if missing.
+  // Serializes RFC 4180 CSV with UTF-8 BOM (so Excel opens correctly).
+  window.exportCSV = function(rows, opts) {
+    opts = opts || {};
+    if (!Array.isArray(rows) || rows.length === 0) {
+      console.warn('[exportCSV] no rows to export');
+      return;
+    }
+    var fields;
+    if (Array.isArray(opts.columns) && opts.columns.length > 0) {
+      fields = opts.columns.map(function(c) {
+        return typeof c === 'string' ? c : (c && c.field);
+      }).filter(Boolean);
+    } else {
+      fields = Object.keys(rows[0] || {});
+    }
+    if (fields.length === 0) {
+      console.warn('[exportCSV] no columns to export');
+      return;
+    }
+
+    var escape = function(v) {
+      if (v == null) return '';
+      if (typeof v === 'object') { try { v = JSON.stringify(v); } catch (e) { v = String(v); } }
+      else v = String(v);
+      if (/[",\r\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+      return v;
+    };
+
+    var lines = [fields.map(escape).join(',')];
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i] || {};
+      var cells = [];
+      for (var j = 0; j < fields.length; j++) cells.push(escape(row[fields[j]]));
+      lines.push(cells.join(','));
+    }
+
+    var filename = opts.filename || 'export.csv';
+    if (!/\.csv$/i.test(filename)) filename += '.csv';
+
+    var blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 0);
+  };
+
   // ── CustomTooltip ───────────────────────────────────────────────────────────
   window.CustomTooltip = function(props) {
     if (!props.active || !props.payload || !props.payload.length) return null;

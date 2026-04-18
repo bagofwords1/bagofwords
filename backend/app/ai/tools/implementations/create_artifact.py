@@ -1479,6 +1479,7 @@ Each visualization:
 - Use `column.headerName` for display labels
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **NEVER hardcode data** — ALL values must come from `data.visualizations[N].rows`
+- **DEFENSIVE CODING**: Row values and properties can be `null`/`undefined`. ALWAYS use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call string methods on a value that could be nullish.
 
 YOUR VISUALIZATIONS:
 
@@ -1494,17 +1495,26 @@ FILTERING:
   - `<FilterDateRange>` for date/time columns (dtype contains "datetime" or values are date strings)
 - Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
 
+FILTER FEASIBILITY AUDIT — DO THIS FIRST, BEFORE WRITING CODE:
+Before wiring any cross-viz filter, verify it will actually work. A filter that looks wired but silently leaves some vizs untouched is a broken dashboard, not a partial one.
+
+For each dimension you intend to filter by:
+1. **Enumerate participating vizs** — which vizs should this filter affect? (Usually: any viz whose topic logically shares the dimension, e.g. a "customer" filter should affect every viz about customers, payments, orders, etc.)
+2. **Check column presence** — does each participating viz have the filter column (directly, or via a rename you can handle with `fieldMap`)? Check the `columns` array in YOUR VISUALIZATIONS below.
+3. **Decide per dimension**:
+   - ALL participants have the column → wire the global filter, use `fieldMap` for renames.
+   - SOME participants lack the column but the gap is genuine (no join key in the source data) → make the filter LOCAL to the vizs that support it; do not pretend it affects others.
+   - SOME participants lack the column but they SHOULD have it (the underlying data supports it, the query just didn't project the column) → **DO NOT wire the filter. Do not build the dashboard with a dead filter.** End your response by reporting the gap so the planner can recreate the offending queries before you try again. Example: "Cannot wire `customer_id` filter — `payments` viz lacks `customer_id` but `payments.customer_id` exists in schema. Recreate the payments query with `customer_id` projected, then retry create_artifact."
+
 FILTER PLACEMENT — global vs local:
-- **Global filter** (filter is important and affects multiple visualizations): place in a top-level filter bar above all content. Prefer one shared filter over duplicates — if two vizs have the same column with different names, use one filter + `fieldMap`.
-- **Local filter** (column only in 1 visualization): place INSIDE that visualization's `<SectionCard>`, visually next to the chart/table it affects.
-- If possible, prefer global — one filter controlling multiple vizs is better UX than many local filters.
-- When adding filters that affect multiple visualizations, add some indication in the UI that they are linked and filtered.
+- **Global filter** (column present in 2+ vizs AFTER the audit above): place in a top-level filter bar above all content. Use one shared filter + `fieldMap` for renames, not duplicates.
+- **Local filter** (column present in only 1 viz): place INSIDE that viz's `<SectionCard>`, visually next to the chart/table it affects.
+- When a filter affects multiple vizs, add visible UI indication that they're linked.
 
 FILTER DATA FLOW — CRITICAL:
-- Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
+- Every viz that passes the feasibility audit for a filter MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
 - KPI cards that summarize filtered data (sum, count, avg) MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
-- If a viz does NOT have the filter column, use its raw rows — `filterRows` will pass them through unchanged, so filtering is always safe.
-- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
+- Never call `filterRows` on a viz that doesn't have the filter column just to "be safe" — silently passing rows through makes the filter look active when it isn't. Audit first, wire second.
 
 EXAMPLE 1 — Global "region" filter affecting KPIs + bar chart + table:
   const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
@@ -1574,7 +1584,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 CRITICAL: ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. NEVER put return statements outside a function.
 
-RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji.
+RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji. ALWAYS guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
 
 ⚠️ **CODE SIZE:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity.
 

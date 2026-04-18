@@ -55,12 +55,12 @@
                         </button>
                         <button
                             class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
-                            :class="activeFilter === 'published'
+                            :class="activeFilter === 'shared'
                                 ? 'border-blue-500 text-blue-600'
                                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
-                            @click="setActiveFilter('published')"
+                            @click="setActiveFilter('shared')"
                         >
-                            <span>Organization Reports</span>
+                            <span>Shared with me</span>
                         </button>
                     </nav>
                 </div>
@@ -166,9 +166,6 @@
                                         Data Sources
                                     </th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Status
-                                    </th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Created
                                     </th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -182,7 +179,7 @@
                             <tbody class="bg-white divide-y divide-gray-200">
                                 <!-- Loading state -->
                                 <tr v-if="isLoading">
-                                    <td colspan="7" class="px-6 py-12 text-center">
+                                    <td colspan="6" class="px-6 py-12 text-center">
                                         <div class="flex items-center justify-center text-gray-500">
                                             <Spinner class="w-4 h-4 mr-2" />
                                             <span class="text-sm">Loading...</span>
@@ -219,6 +216,20 @@
                                             >
                                                 {{ report.title }}
                                             </NuxtLink>
+                                            <span class="inline-flex items-center gap-1 ml-2 -mt-0.5">
+                                                <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? `Dashboard: ${visibilityLabel(report.artifact_visibility)}` : 'Dashboard (private)'">
+                                                    <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
+                                                        Dashboard
+                                                        <Icon v-if="report.artifact_visibility !== 'none'" :name="visibilityIcon(report.artifact_visibility)" class="w-3 h-3" />
+                                                    </span>
+                                                </UTooltip>
+                                                <UTooltip v-if="report.conversation_visibility !== 'none'" :text="visibilityLabel(report.conversation_visibility)">
+                                                    <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
+                                                        Conversation
+                                                        <Icon :name="visibilityIcon(report.conversation_visibility)" class="w-3 h-3" />
+                                                    </span>
+                                                </UTooltip>
+                                            </span>
                                             <div v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count" class="text-[11px] text-gray-400 mt-0.5">
                                                 <span v-if="report.query_count">{{ report.query_count }} {{ report.query_count === 1 ? 'query' : 'queries' }}</span>
                                                 <span v-if="report.query_count && (report.artifact_count || report.scheduled_prompt_count || report.instruction_count)"> | </span>
@@ -284,33 +295,6 @@
                                             </UTooltip>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            <div class="flex items-center">
-                                                <span
-                                                    :class="[
-                                                        report.status === 'published'
-                                                            ? 'bg-green-100 text-green-800'
-                                                            : report.status === 'draft'
-                                                            ? 'bg-gray-100 text-gray-800'
-                                                            : 'bg-gray-100 text-gray-800',
-                                                        'px-2 py-1 text-xs font-medium rounded-full capitalize'
-                                                    ]"
-                                                >
-                                                    {{ report.status }}
-                                                </span>
-                                                <a
-                                                    v-if="report.status === 'published'"
-                                                    :href="`/r/${report.id}`"
-                                                    target="_blank"
-                                                    class="text-green-800"
-                                                >
-                                                    <Icon
-                                                        name="heroicons:arrow-top-right-on-square"
-                                                        class="inline-block w-4 h-4 ml-1"
-                                                    />
-                                                </a>
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                             {{ report.created_at.split('T')[0].split('-').reverse().join('/') }}
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -332,7 +316,7 @@
                                     </tr>
                                     <tr v-if="visibleReports.length === 0">
                                         <td
-                                            colspan="7"
+                                            colspan="6"
                                             class="px-6 py-12 text-center text-gray-500 text-sm"
                                         >
                                             <div class="flex flex-col items-center">
@@ -425,7 +409,7 @@ const router = useRouter()
 definePageMeta({ auth: true })
 
 const reports = ref<any[]>([])
-const activeFilter = ref<'my' | 'published'>('my')
+const activeFilter = ref<'my' | 'shared' | 'published'>('my')
 const currentPage = ref(1)
 const isLoading = ref(true)
 const pagination = ref({
@@ -446,10 +430,28 @@ const artifactFilter = ref<string>('all')
 const dataSources = ref<any[]>([])
 const { isExcel } = useExcel()
 
+const visibilityIcon = (v: string) => {
+    switch (v) {
+        case 'public': return 'heroicons:globe-alt'
+        case 'internal': return 'heroicons:building-office'
+        case 'shared': return 'heroicons:user-group'
+        default: return 'heroicons:lock-closed'
+    }
+}
+
+const visibilityLabel = (v: string) => {
+    switch (v) {
+        case 'public': return 'Anyone with link'
+        case 'internal': return 'Organization'
+        case 'shared': return 'Specific people'
+        default: return 'Private'
+    }
+}
+
 const statusFilterOptions = [
     { value: 'all', label: 'All Status' },
-    { value: 'draft', label: 'Draft' },
-    { value: 'published', label: 'Published' },
+    { value: 'draft', label: 'Private' },
+    { value: 'published', label: 'Shared' },
 ]
 
 const scheduleFilterOptions = [
@@ -466,9 +468,9 @@ const typeFilterOptions = [
 ]
 
 const artifactFilterOptions = [
-    { value: 'all', label: 'All Artifacts' },
-    { value: 'yes', label: 'With Artifact' },
-    { value: 'no', label: 'No Artifact' },
+    { value: 'all', label: 'All Dashboards' },
+    { value: 'yes', label: 'With Dashboard' },
+    { value: 'no', label: 'No Dashboard' },
 ]
 
 const dataSourceFilterOptions = computed(() => {
@@ -552,23 +554,16 @@ const changePage = async (page: number) => {
     await fetchReports(page, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
 }
 
-const setActiveFilter = async (filter: 'my' | 'published') => {
+const setActiveFilter = async (filter: 'my' | 'shared' | 'published') => {
     if (activeFilter.value === filter) return
     activeFilter.value = filter
-    // Sync status filter with selected tab
-    if (filter === 'published') {
-        // Organization tab: always published
-        statusFilter.value = 'published'
-    } else {
-        // My reports tab: show all by default
-        statusFilter.value = 'all'
-    }
+    statusFilter.value = 'all'
     currentPage.value = 1
     scheduledFilter.value = null
     typeFilter.value = 'all'
     dataSourceFilter.value = 'all'
     artifactFilter.value = 'all'
-    await fetchReports(1, filter, searchTerm.value, null, filter === 'published' ? 'published' : 'all')
+    await fetchReports(1, filter, searchTerm.value, null, 'all')
 }
 
 const setStatusFilter = async (status: 'all' | 'draft' | 'published') => {
@@ -610,7 +605,7 @@ const refreshReports = () => {
     return fetchReports(1, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
 }
 
-const fetchReports = async (page: number = 1, filter: 'my' | 'published' = 'my', search: string = '', scheduled: boolean | null = null, status: string | null = null) => {
+const fetchReports = async (page: number = 1, filter: 'my' | 'shared' | 'published' = 'my', search: string = '', scheduled: boolean | null = null, status: string | null = null) => {
     isLoading.value = true
     try {
         const response = await useMyFetch('/reports', {

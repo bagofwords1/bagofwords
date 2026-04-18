@@ -1,14 +1,41 @@
 <template>
   <div class="domain-selector">
-    <UPopover 
+    <!-- Loading / empty placeholder — reserves layout space while domains load -->
+    <div
+      v-if="loading || (!loading && domains.length === 0)"
+      :class="[
+        'flex items-center w-full rounded-lg',
+        'bg-white border border-gray-200 shadow-sm',
+        collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
+      ]"
+    >
+      <UTooltip v-if="collapsed" :text="loading ? 'Loading...' : 'No agents'" :popper="{ placement: 'right' }">
+        <Spinner v-if="loading" class="w-4 h-4 text-gray-300 animate-spin" />
+        <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-300" />
+      </UTooltip>
+      <template v-else>
+        <span v-if="showText" class="flex-1 text-left min-w-0">
+          <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">CONTEXT</span>
+          <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
+            <Spinner v-if="loading" class="w-3 h-3 text-gray-300 animate-spin flex-shrink-0" />
+            <span class="text-xs font-medium text-gray-400 truncate">
+              {{ loading ? 'Loading...' : 'No agents' }}
+            </span>
+          </span>
+        </span>
+      </template>
+    </div>
+
+    <UPopover
+      v-else
       :popper="{ placement: 'bottom-start', offsetDistance: 4, strategy: 'fixed' }"
-      :ui="{ 
+      :ui="{
         width: 'max-w-none',
         container: 'overflow-visible',
         inner: 'overflow-visible'
       }"
     >
-      <button 
+      <button
         :class="[
           'flex items-center w-full rounded-lg transition-all duration-200',
           'bg-white hover:bg-gray-50',

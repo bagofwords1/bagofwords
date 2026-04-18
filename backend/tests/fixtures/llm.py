@@ -86,6 +86,50 @@ def create_bedrock_provider_and_models(test_client):
 
 
 @pytest.fixture
+def create_anthropic_provider_and_models(test_client):
+    """Create an Anthropic provider + Claude 4.6 Sonnet and Haiku models.
+
+    Uses ``ANTHROPIC_API_KEY_TEST`` from env. Sets Sonnet as default and
+    Haiku as the small default so the judge and planner use sensible
+    models. Fails the test if the key is not set.
+    """
+    def _create(user_token=None, org_id=None):
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY_TEST", "")
+        if not anthropic_api_key:
+            pytest.fail("ANTHROPIC_API_KEY_TEST is not set")
+        headers = {}
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
+
+        response = test_client.post(
+            "/api/llm/providers",
+            json={
+                "name": "anthropic provider",
+                "provider_type": "anthropic",
+                "credentials": {"api_key": str(anthropic_api_key)},
+                "models": [
+                    {
+                        "model_id": "claude-sonnet-4-6",
+                        "name": "Claude 4.6 Sonnet",
+                        "is_custom": False,
+                    },
+                    {
+                        "model_id": "claude-haiku-4-5-20251001",
+                        "name": "Claude 4.5 Haiku",
+                        "is_custom": False,
+                    },
+                ],
+            },
+            headers=headers,
+        )
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
 def create_llm_provider_and_models(test_client):
     def _create_llm_provider_and_models(user_token=None, org_id=None, base_url=None):
         openai_api_key = os.getenv("OPENAI_API_KEY_TEST", "")

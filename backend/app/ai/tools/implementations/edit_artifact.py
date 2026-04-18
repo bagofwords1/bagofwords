@@ -417,6 +417,7 @@ DATA ACCESS:
 - Access values: `row[column.field]`, display labels: `column.headerName`
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
+- **DEFENSIVE CODING**: Row values can be `null`/`undefined`. ALWAYS guard before string methods: `(val || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()` on a potentially nullish value.
 
 AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<KPICard>` — `className` replaces default theme (bg-white, border, text-slate-900). `titleClassName`/`subtitleClassName` replace text defaults. `style` for inline overrides. Theme to match the dashboard's color story.
@@ -425,6 +426,15 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<FilterSearch>`, `<FilterDateRange>` — `className` replaces default theme.
 - `fmt()`, `<LoadingSpinner>`
 - All components are fully themeable. When the user's design calls for something these can't express — build custom React + Tailwind.
+
+DATA-CAPABILITY CHECK — DO THIS FIRST, BEFORE GENERATING DIFFS:
+Before producing any SEARCH/REPLACE blocks, verify the edit is achievable with the visualization data available. An edit that adds a filter/chart/KPI referencing a column that doesn't exist in any viz will silently break — surfacing the gap is far better than producing a broken diff.
+
+1. Read the edit request and enumerate any new data-dependent elements: filters, chart axes/series, KPI values, groupings, sort keys.
+2. For each new element, check VISUALIZATION DATA below: does the required column exist in the relevant viz's `columns` array?
+3. Decide:
+   - All required columns exist → proceed with the edit.
+   - A required column is missing → **STOP. Do not emit diffs.** Output a single line starting with `DATA_GAP:` describing what's missing and which viz needs to be recreated. Example: `DATA_GAP: Cannot add customer filter — payments viz (id=...) lacks customer_id column. Recreate the payments query with customer_id projected, then retry edit_artifact.` The planner will handle recreation and come back.
 
 FILTERING (if the edit involves adding, modifying, or fixing filters):
 
@@ -442,16 +452,20 @@ Use the built-in `useFilters()` hook — do NOT reimplement filter logic manuall
 - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
 - YOU choose which columns to filter using `dtype` and `unique_count` from column metadata — no auto-detection
 
+FILTER FEASIBILITY (same as data-capability check, applied to filters):
+- A filter only works on vizs whose `columns` include that field (directly or via `fieldMap`). Before wiring a global filter, list which vizs should be affected and confirm each has the column.
+- If some participating vizs lack the column, that's a DATA_GAP — do not wire a filter that silently no-ops on those vizs. Surface the gap and stop.
+- Never call `filterRows` on a viz that lacks the filter column "just in case" — silent pass-through is what makes dead filters invisible.
+
 FILTER PLACEMENT — global vs local:
-- **Global filter** (column in 2+ vizs): place in a top-level filter bar. Use `fieldMap` if column names differ across vizs.
+- **Global filter** (column in 2+ vizs after feasibility check): place in a top-level filter bar. Use `fieldMap` if column names differ across vizs.
 - **Local filter** (column in only 1 viz): place INSIDE that viz's `<SectionCard>`.
 
 FILTER DATA FLOW — CRITICAL:
-- Every viz whose rows contain the filter column MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
+- Every viz that passes the feasibility check for a filter MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
 - KPI cards summarizing filtered data MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
-- If unsure whether to filter a viz → filter it. Unnecessary filtering is harmless; missing filtering breaks the dashboard.
 
-WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders, KPI computations). If it reads from viz[N].rows and the viz should be filtered, switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
+WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders, KPI computations). If it reads from viz[N].rows and the viz should be filtered (AND has the filter column), switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DESIGN GUIDANCE (for style/theme edits)
@@ -817,6 +831,36 @@ Apply the edit now:"""
                 payload={
                     "output": {"success": False, "artifact_id": str(artifact.id), "error": "Stopped by user"},
                     "observation": {"summary": "Artifact edit stopped by user", "artifact_id": str(artifact.id), "stopped": True},
+                },
+            )
+            return
+
+        # Detect DATA_GAP signal — LLM refused the edit because required columns are missing.
+        # This must route the planner back to create_data, NOT to create_artifact.
+        data_gap_match = re.search(r"^DATA_GAP:\s*(.+?)$", buffer, re.MULTILINE)
+        if data_gap_match:
+            gap_message = data_gap_match.group(1).strip()
+            logger.info(f"edit_artifact: DATA_GAP detected — {gap_message}")
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "artifact_id": str(artifact.id),
+                        "error": gap_message,
+                    },
+                    "observation": {
+                        "summary": f"Edit blocked — data gap: {gap_message}",
+                        "error": {
+                            "type": "data_gap",
+                            "message": gap_message,
+                            "remediation": "Recreate the missing data via create_data with the required column(s) projected, then retry edit_artifact. Do NOT fall back to create_artifact — the gap is in the underlying data, not the artifact code.",
+                        },
+                        "artifact_id": str(artifact.id),
+                        "mode": artifact.mode,
+                        "version": artifact.version,
+                        "diff_applied": False,
+                    },
                 },
             )
             return

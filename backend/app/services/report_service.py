@@ -19,7 +19,7 @@ from app.models.report_file_association import report_file_association
 from fastapi import HTTPException
 
 import uuid
-from sqlalchemy import select, or_, func, cast, String as SAString
+from sqlalchemy import select, or_, func, cast, delete, String as SAString
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
@@ -44,6 +44,201 @@ class ReportService:
         self.widget_service = WidgetService()
         self.layout_service = DashboardLayoutService()
     
+    async def _check_visibility(
+        self,
+        db: AsyncSession,
+        report: Report,
+        visibility_field: str,
+        user=None,
+    ) -> None:
+        """Check if a user can access a report based on its visibility setting.
+
+        visibility_field: 'artifact_visibility' or 'conversation_visibility'
+        Raises 401 if login needed, 403 if denied, or passes silently if allowed.
+        """
+        from app.models.membership import Membership
+        from app.models.report_share import ReportShare
+
+        visibility = getattr(report, visibility_field, 'none') or 'none'
+
+        if visibility == 'none':
+            # Only owner can access
+            if user is None or str(user.id) != str(report.user_id):
+                raise HTTPException(status_code=404, detail="Not found")
+            return
+
+        if visibility == 'public':
+            return  # Anyone can view
+
+        if visibility == 'internal':
+            if user is None:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            stmt = select(Membership).where(
+                Membership.user_id == user.id,
+                Membership.organization_id == report.organization_id,
+            )
+            result = await db.execute(stmt)
+            if not result.scalar_one_or_none():
+                raise HTTPException(status_code=403, detail="Access denied")
+            return
+
+        if visibility == 'shared':
+            if user is None:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            # Owner always has access
+            if str(user.id) == str(report.user_id):
+                return
+            share_type = 'artifact' if visibility_field == 'artifact_visibility' else 'conversation'
+            stmt = select(ReportShare).where(
+                ReportShare.report_id == report.id,
+                ReportShare.user_id == user.id,
+                ReportShare.share_type == share_type,
+                ReportShare.deleted_at.is_(None),
+            )
+            result = await db.execute(stmt)
+            if not result.scalar_one_or_none():
+                raise HTTPException(status_code=403, detail="Access denied")
+            return
+
+    async def set_visibility(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        share_type: str,
+        visibility: str,
+        shared_user_ids: list[str] | None,
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Set visibility for artifact or conversation sharing.
+
+        share_type: 'artifact' or 'conversation'
+        visibility: 'none', 'shared', 'internal', 'public'
+        shared_user_ids: list of user IDs (required when visibility == 'shared')
+        """
+        from app.models.report_share import ReportShare
+
+        result = await db.execute(select(Report).filter(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        field = 'artifact_visibility' if share_type == 'artifact' else 'conversation_visibility'
+        setattr(report, field, visibility)
+
+        # Sync legacy fields for backward compatibility
+        if share_type == 'artifact':
+            report.status = 'published' if visibility != 'none' else 'draft'
+        elif share_type == 'conversation':
+            if visibility != 'none':
+                report.conversation_share_enabled = True
+                if not report.conversation_share_token:
+                    report.conversation_share_token = uuid.uuid4().hex
+            else:
+                report.conversation_share_enabled = False
+
+        # Update shares list
+        if visibility == 'shared' and shared_user_ids is not None:
+            # Remove existing shares for this type
+            await db.execute(
+                delete(ReportShare).where(
+                    ReportShare.report_id == report_id,
+                    ReportShare.share_type == share_type,
+                )
+            )
+            # Add new shares
+            for uid in shared_user_ids:
+                share = ReportShare(
+                    report_id=report_id,
+                    user_id=uid,
+                    share_type=share_type,
+                )
+                db.add(share)
+        elif visibility != 'shared':
+            # Clear shares if moving away from shared mode
+            await db.execute(
+                delete(ReportShare).where(
+                    ReportShare.report_id == report_id,
+                    ReportShare.share_type == share_type,
+                )
+            )
+
+        await db.commit()
+        await db.refresh(report)
+
+        # Telemetry
+        try:
+            await telemetry.capture(
+                "report_visibility_changed",
+                {
+                    "report_id": str(report.id),
+                    "share_type": share_type,
+                    "visibility": visibility,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="report.visibility_changed",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={
+                    "title": report.title,
+                    "share_type": share_type,
+                    "visibility": visibility,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "share_type": share_type,
+            "visibility": visibility,
+            "shared_user_ids": shared_user_ids or [],
+            "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
+        }
+
+    async def get_shares(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        share_type: str,
+    ) -> list[dict]:
+        """Get list of users a report is shared with for a given share_type."""
+        from app.models.report_share import ReportShare
+
+        stmt = (
+            select(ReportShare)
+            .options(selectinload(ReportShare.user))
+            .where(
+                ReportShare.report_id == report_id,
+                ReportShare.share_type == share_type,
+                ReportShare.deleted_at.is_(None),
+            )
+        )
+        result = await db.execute(stmt)
+        shares = result.scalars().all()
+
+        return [
+            {
+                "id": str(s.id),
+                "user_id": str(s.user_id),
+                "user_name": s.user.name if s.user else None,
+                "user_email": s.user.email if s.user else None,
+                "share_type": s.share_type,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in shares
+        ]
+
     async def _detect_app_version(self, db: AsyncSession, report_id: str) -> str:
         """Detect app version for routing decisions based on agent execution data."""
         from app.models.agent_execution import AgentExecution
@@ -118,6 +313,17 @@ class ReportService:
             # Conversation sharing
             conversation_share_enabled=bool(getattr(report, "conversation_share_enabled", False)),
             conversation_share_token=getattr(report, "conversation_share_token", None),
+            # Sharing visibility
+            artifact_visibility=getattr(report, "artifact_visibility", "none") or "none",
+            conversation_visibility=getattr(report, "conversation_visibility", "none") or "none",
+            artifact_shared_user_ids=[
+                str(s.user_id) for s in (report.shares or [])
+                if s.share_type == 'artifact' and s.deleted_at is None
+            ],
+            conversation_shared_user_ids=[
+                str(s.user_id) for s in (report.shares or [])
+                if s.share_type == 'conversation' and s.deleted_at is None
+            ],
             # Scheduled rerun notification subscribers
             notification_subscribers=getattr(report, "notification_subscribers", None),
         )
@@ -235,7 +441,12 @@ class ReportService:
         if report_data.title:
             report.title = report_data.title
         if report_data.status:
-            report.status = report_data.status 
+            report.status = report_data.status
+            # Sync artifact_visibility with legacy status field
+            if report_data.status == 'published':
+                report.artifact_visibility = 'public'
+            elif report_data.status == 'draft':
+                report.artifact_visibility = 'none'
         # Persist theme updates if present in payload
         if hasattr(report_data, 'theme_name') and report_data.theme_name is not None:
             report.theme_name = report_data.theme_name
@@ -449,8 +660,10 @@ class ReportService:
         
         if report.status == 'published':
             report.status = 'draft'
+            report.artifact_visibility = 'none'
         else:
             report.status = 'published'
+            report.artifact_visibility = 'public'
 
         await db.commit()
         await db.refresh(report)
@@ -484,14 +697,14 @@ class ReportService:
 
         return report
 
-    async def get_public_report(self, db: AsyncSession, report_id: str) -> ReportSchema:
+    async def get_public_report(self, db: AsyncSession, report_id: str, user=None) -> ReportSchema:
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-        
-        if report.status != 'published':
-            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Check artifact visibility (replaces old status == 'published' check)
+        await self._check_visibility(db, report, 'artifact_visibility', user)
         
         schema = ReportSchema.from_orm(report)
         # Enrich fork lineage
@@ -513,12 +726,13 @@ class ReportService:
 
         return schema
 
-    async def get_public_layouts(self, db: AsyncSession, report_id: str):
-        # Ensure report exists and is published
+    async def get_public_layouts(self, db: AsyncSession, report_id: str, user=None):
+        # Ensure report exists and has artifact visibility
         result = await db.execute(select(Report).where(Report.id == report_id).where(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
-        if not report or report.status != 'published':
+        if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+        await self._check_visibility(db, report, 'artifact_visibility', user)
 
         rows = await db.execute(
             select(DashboardLayoutVersion).where(DashboardLayoutVersion.report_id == report_id).order_by(
@@ -530,16 +744,17 @@ class ReportService:
         from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
         return [DashboardLayoutVersionSchema.from_orm(l) for l in layouts]
 
-    async def get_public_queries(self, db: AsyncSession, report_id: str, artifact_id: str | None = None):
-        """Get queries for a published report (public, no auth required).
+    async def get_public_queries(self, db: AsyncSession, report_id: str, artifact_id: str | None = None, user=None):
+        """Get queries for a shared report.
 
         If artifact_id is provided, only returns queries for visualizations used by that artifact.
         """
-        # Verify report exists and is published
+        # Verify report exists and check artifact visibility
         result = await db.execute(select(Report).where(Report.id == report_id))
         report = result.scalar_one_or_none()
-        if not report or report.status != 'published':
+        if not report:
             raise HTTPException(status_code=404, detail="Not found")
+        await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # If artifact_id provided, filter to only queries used by that artifact
         query_ids_filter = None
@@ -580,13 +795,14 @@ class ReportService:
         from app.schemas.query_schema import PublicQuerySchema
         return [PublicQuerySchema.model_validate(q) for q in queries]
 
-    async def get_public_step(self, db: AsyncSession, report_id: str, query_id: str):
-        """Get the default step for a query in a published report (public, no auth required)."""
-        # Verify report exists and is published
+    async def get_public_step(self, db: AsyncSession, report_id: str, query_id: str, user=None):
+        """Get the default step for a query in a shared report."""
+        # Verify report exists and check artifact visibility
         result = await db.execute(select(Report).where(Report.id == report_id))
         report = result.scalar_one_or_none()
-        if not report or report.status != 'published':
+        if not report:
             raise HTTPException(status_code=404, detail="Not found")
+        await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch query and verify it belongs to this report
         query_result = await db.execute(
@@ -630,13 +846,14 @@ class ReportService:
             view=view_dict,
         )
 
-    async def get_public_artifacts(self, db: AsyncSession, report_id: str):
-        """List artifacts for a published report (public, no auth required)."""
-        # Verify report exists and is published
+    async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):
+        """List artifacts for a shared report."""
+        # Verify report exists and check artifact visibility
         result = await db.execute(select(Report).where(Report.id == report_id))
         report = result.scalar_one_or_none()
-        if not report or report.status != 'published':
+        if not report:
             raise HTTPException(status_code=404, detail="Not found")
+        await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch artifacts for this report
         from app.models.artifact import Artifact
@@ -650,13 +867,14 @@ class ReportService:
         from app.schemas.artifact_schema import ArtifactListSchema
         return [ArtifactListSchema.model_validate(a) for a in artifacts]
 
-    async def get_public_artifact(self, db: AsyncSession, report_id: str, artifact_id: str):
-        """Get a specific artifact for a published report (public, no auth required)."""
-        # Verify report exists and is published
+    async def get_public_artifact(self, db: AsyncSession, report_id: str, artifact_id: str, user=None):
+        """Get a specific artifact for a shared report."""
+        # Verify report exists and check artifact visibility
         result = await db.execute(select(Report).where(Report.id == report_id))
         report = result.scalar_one_or_none()
-        if not report or report.status != 'published':
+        if not report:
             raise HTTPException(status_code=404, detail="Not found")
+        await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch the artifact and verify it belongs to this report
         from app.models.artifact import Artifact
@@ -708,16 +926,36 @@ class ReportService:
             if mode and mode in ('chat', 'deep', 'training'):
                 base_conditions.append(Report.mode == mode)
 
+            # Shared visibility: reports the user has been explicitly shared with
+            from app.models.report_share import ReportShare
+            shared_with_user = Report.id.in_(
+                select(ReportShare.report_id).where(
+                    ReportShare.user_id == current_user.id,
+                    ReportShare.deleted_at.is_(None),
+                )
+            )
+            # A report is "visible" if it has any non-none visibility and
+            # either it's public/internal or the user is in the share list
+            visible_to_user = or_(
+                Report.artifact_visibility.in_(['public', 'internal']),
+                Report.conversation_visibility.in_(['public', 'internal']),
+                shared_with_user,
+            )
+
             if filter == "my":
                 # Show only reports owned by current user
                 base_conditions.append(Report.user_id == current_user.id)
+            elif filter == "shared":
+                # Show reports shared with the user but NOT owned by them
+                base_conditions.append(visible_to_user)
+                base_conditions.append(Report.user_id != current_user.id)
             elif filter == "published":
-                # Show only published reports
-                base_conditions.append(Report.status == 'published')
+                # Legacy: show shared/published reports visible to the user
+                base_conditions.append(visible_to_user)
             else:
-                # Default: show reports user can view (owned by user OR published)
+                # Default: show reports user can view (owned OR visible)
                 base_conditions.append(
-                    or_(Report.status == 'published', Report.user_id == current_user.id)
+                    or_(Report.user_id == current_user.id, visible_to_user)
                 )
 
             # Optional search on report title and completion content
@@ -1204,9 +1442,11 @@ class ReportService:
             if not report.conversation_share_token:
                 report.conversation_share_token = uuid.uuid4().hex
             report.conversation_share_enabled = True
+            report.conversation_visibility = 'public'
         else:
             # Keep the token but disable sharing (allows re-enabling with same URL)
             report.conversation_share_enabled = False
+            report.conversation_visibility = 'none'
         
         await db.commit()
         await db.refresh(report)
@@ -1245,25 +1485,26 @@ class ReportService:
         }
 
     async def get_public_conversation(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         share_token: str,
         limit: int = 10,
-        before: str | None = None
+        before: str | None = None,
+        user=None,
     ) -> dict:
-        """Fetch a shared conversation by its token (public, no auth required)."""
+        """Fetch a shared conversation by its token."""
         result = await db.execute(
             select(Report)
             .options(selectinload(Report.user))
             .filter(Report.conversation_share_token == share_token)
         )
         report = result.scalar_one_or_none()
-        
+
         if not report:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        
-        if not report.conversation_share_enabled:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Check conversation visibility
+        await self._check_visibility(db, report, 'conversation_visibility', user)
         
         # Fetch completions for this report
         from app.models.completion import Completion

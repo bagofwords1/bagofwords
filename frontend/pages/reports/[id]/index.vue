@@ -443,7 +443,7 @@
 					:report_id="report_id"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
-					:latestInProgressCompletion="isStreaming ? {} : undefined"
+					:latestInProgressCompletion="isCompletionInProgress ? {} : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -644,6 +644,7 @@ import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -783,6 +784,10 @@ const isLoadingMore = ref<boolean>(false)
 const cursorBefore = ref<string | null>(null)
 const promptText = ref<string>('')
 const isStreaming = ref<boolean>(false)
+// Tracks whether the main completion (analysis) is still running.
+// Flips to false on completion.finished/error, even though isStreaming stays true
+// for the knowledge harness tail. Used to unblock the prompt box early.
+const isCompletionInProgress = ref<boolean>(false)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
 const scrollAnchor = ref<HTMLElement | null>(null)
@@ -1161,6 +1166,8 @@ function getToolComponent(toolName: string) {
 			return CreateInstructionTool
 		case 'edit_instruction':
 			return EditInstructionTool
+		case 'search_instructions':
+			return SearchInstructionsTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -1630,6 +1637,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps') && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
+						if ((payload.tool_name === 'create_instruction' || payload.tool_name === 'edit_instruction') && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
+						if (payload.tool_name === 'search_instructions' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+							const q = payload.arguments.query
+							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'instructions'))
+							;(lastBlock.tool_execution.result_json as any).search_query = q
+							lastBlock.tool_execution.result_summary = `Searching instructions for ${qStr}…`
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -1999,12 +2016,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				// the single source of truth for end-of-stream. Thumbs-up and
 				// stop→submit UI should gate on sysMessage.status, not isStreaming.
 			}
+			// Unblock the prompt box so the user can submit new prompts while
+			// the knowledge harness continues in the background.
+			isCompletionInProgress.value = false
 			// Note: loadReport and refreshContextEstimate are called after [DONE] to avoid blocking
 			break
 
 		case 'completion.error':
 			// Dedicated error event; ensure UI flips to error state and capture the message
 			sysMessage.status = 'error'
+			isCompletionInProgress.value = false
 			if (payload?.error) {
 				const msg = typeof payload.error === 'string' ? payload.error : (payload.error.message || '')
 				if (msg) sysMessage.error_message = String(msg)
@@ -2500,6 +2521,7 @@ function abortStream() {
 		console.error('Failed to send sigkill:', e)
 	}
 	isStreaming.value = false
+	isCompletionInProgress.value = false
 }
 
 function openTraceModal(completionId: string) {
@@ -2594,6 +2616,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 	if (isStreaming.value) abortStream()
 	currentController = new AbortController()
 	isStreaming.value = true
+	isCompletionInProgress.value = true
 
 	const requestBody = {
 		prompt: {
@@ -2745,6 +2768,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 		}
 	} finally {
 		isStreaming.value = false
+		isCompletionInProgress.value = false
 		currentController = null
 	}
 }

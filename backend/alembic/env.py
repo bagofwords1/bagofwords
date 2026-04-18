@@ -83,6 +83,7 @@ from app.models.group import Group
 from app.models.group_membership import GroupMembership
 from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
+from app.models.report_share import ReportShare
 
 from app.settings.config import settings
 

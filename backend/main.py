@@ -74,6 +74,7 @@ from app.routes import (
     mcp,
     build,
     connection,
+    connection_oauth,
     artifact,
     oauth_server,
     rbac,
@@ -218,6 +219,7 @@ app.include_router(mcp.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
+app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")

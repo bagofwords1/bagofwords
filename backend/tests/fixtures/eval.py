@@ -250,6 +250,56 @@ def get_test_run(test_client):
 
 
 @pytest.fixture
+def import_suite_yaml(test_client):
+    """POST /api/tests/suites/import with a raw YAML body."""
+    def _import(yaml_text, *, user_token=None, org_id=None, strategy=None):
+        if user_token is None:
+            pytest.fail("User token is required for import_suite_yaml")
+        if org_id is None:
+            pytest.fail("Organization ID is required for import_suite_yaml")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+            "Content-Type": "application/x-yaml",
+        }
+        params = {}
+        if strategy is not None:
+            params["strategy"] = strategy
+
+        response = test_client.post(
+            "/api/tests/suites/import",
+            content=yaml_text,
+            headers=headers,
+            params=params,
+        )
+        return response
+
+    return _import
+
+
+@pytest.fixture
+def export_suite_yaml(test_client):
+    """GET /api/tests/suites/{suite_id}/export; returns the Response object."""
+    def _export(suite_id, *, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for export_suite_yaml")
+        if org_id is None:
+            pytest.fail("Organization ID is required for export_suite_yaml")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+        return test_client.get(
+            f"/api/tests/suites/{suite_id}/export",
+            headers=headers,
+        )
+
+    return _export
+
+
+@pytest.fixture
 def get_suites_summary(test_client):
     """Get test suites summary with test counts."""
     def _get_suites_summary(*, user_token=None, org_id=None):

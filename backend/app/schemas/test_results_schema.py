@@ -64,6 +64,13 @@ class TestResultTotals(BaseModel):
     failed: int = 0
     skipped: int = 0
     duration_ms: Optional[int] = None
+    # Agent-execution metadata (populated by the evaluator when available).
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    total_iterations: Optional[int] = None
+    first_token_ms: Optional[int] = None
+    thinking_ms: Optional[int] = None
 
 
 class RuleSpec(BaseModel):

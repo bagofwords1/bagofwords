@@ -102,6 +102,14 @@ class OrganizationSettingsConfig(BaseModel):
 
     general: GeneralConfig = GeneralConfig()
 
+    # Signup policy (domain allowlist). Gate: full_admin_access.
+    class SignupPolicy(BaseModel):
+        enabled: bool = False
+        allowed_domains: List[str] = []
+        auto_invite_role: str = "member"
+
+    signup_policy: SignupPolicy = SignupPolicy()
+
     # Update defaults to use 'value' instead of 'enabled'
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
     enable_training_mode: FeatureConfig = FeatureConfig(value=True, name="Training Mode", description="Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines ", is_lab=False, editable=True)
@@ -157,4 +165,11 @@ class OrganizationSettingsSchema(OrganizationSettingsBase):
     updated_at: datetime
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+
+class SignupPolicySchema(BaseModel):
+    """Read/write shape for the per-org signup policy."""
+    enabled: bool = False
+    allowed_domains: List[str] = []
+    auto_invite_role: str = "member" 
