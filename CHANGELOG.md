@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.359 (April 19, 2026)
+- Enhance Sybase client for better code/timout/error handling
+- Add instruction button in Agent panel
+- Improve Dockerfile
+
 ## Version 0.0.358 (April 18, 2026)
 - SSO + OBO for data connections: OIDC login now extracts email from the id_token, syncs groups, and propagates user identity through to the warehouse
 - Entra ID native support for the On-Behalf-Of flow, including `offline_access` and hardened OAuth connection handling

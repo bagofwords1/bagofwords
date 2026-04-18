@@ -146,7 +146,10 @@ RUN mkdir -p /app/certs && \
       https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 
 # Create directories that the application needs to write to
-RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding /app/logs && \
+# These paths match volume mounts in docker-compose.yaml; they must exist with
+# app-user ownership so Docker seeds named volumes with writable perms on first run.
+RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding \
+             /app/backend/branding_uploads /app/backend/logs && \
     chown -R app:app /app
 
 WORKDIR /app

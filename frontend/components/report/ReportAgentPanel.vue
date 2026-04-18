@@ -86,18 +86,18 @@
             <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
           </div>
 
-          <!-- Instruction detail view -->
-          <div v-else-if="selectedInstruction" class="flex flex-col h-full -m-4">
+          <!-- Instruction form view (edit or create) -->
+          <div v-else-if="selectedInstruction || creatingInstruction" class="flex flex-col h-full -m-4">
             <button
-              @click="selectedInstruction = null"
+              @click="closeInstructionForm"
               class="flex items-center gap-1 px-4 pt-3 pb-2 text-xs text-gray-500 hover:text-gray-700 flex-shrink-0"
             >
               <Icon name="heroicons:chevron-left" class="w-3 h-3" />
               All Instructions
             </button>
-            <!-- Unpublished-build warning banner -->
+            <!-- Unpublished-build warning banner (edit mode only) -->
             <div
-              v-if="selectedInstruction.current_build_id && ['draft', 'pending_approval'].includes(selectedInstruction.current_build_status)"
+              v-if="selectedInstruction && selectedInstruction.current_build_id && ['draft', 'pending_approval'].includes(selectedInstruction.current_build_status)"
               class="mx-4 mb-2 px-2.5 py-1.5 rounded-md border border-amber-200 bg-amber-50 flex items-start gap-2"
             >
               <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
@@ -117,17 +117,17 @@
               </div>
             </div>
             <InstructionGlobalCreateComponent
-              :key="selectedInstruction.id"
-              :instruction="selectedInstruction"
+              :key="selectedInstruction?.id || 'new'"
+              :instruction="selectedInstruction || undefined"
+              :default-status="canCreateInstructions ? 'published' : 'draft'"
               @instruction-saved="onInstructionSaved"
-              @cancel="selectedInstruction = null"
+              @cancel="closeInstructionForm"
             />
           </div>
 
           <!-- Instructions list -->
           <template v-else>
             <div v-if="instructionsError" class="text-xs text-gray-500">{{ instructionsError }}</div>
-            <div v-else-if="instructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No instructions found</div>
             <template v-else>
               <!-- Filters -->
               <div class="flex flex-col gap-2 mb-3">
@@ -209,11 +209,22 @@
                       </button>
                     </div>
                   </div>
+                  <!-- Create / Suggest button -->
+                  <UButton
+                    size="xs"
+                    color="blue"
+                    icon="i-heroicons-plus"
+                    class="ml-auto"
+                    @click="creatingInstruction = true"
+                  >
+                    {{ canCreateInstructions ? 'Create' : 'Suggest' }}
+                  </UButton>
                 </div>
               </div>
 
               <!-- List -->
-              <div v-if="filteredInstructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No matching instructions</div>
+              <div v-if="instructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No instructions found</div>
+              <div v-else-if="filteredInstructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No matching instructions</div>
               <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
                 <button
                   v-for="inst in filteredInstructions"
@@ -410,7 +421,19 @@ const evalsCache = ref<Record<string, any[]>>({})
 
 // Instruction detail state
 const selectedInstruction = ref<any | null>(null)
+const creatingInstruction = ref(false)
 const instructionLoading = ref(false)
+
+const canCreateInstructions = computed(() => {
+  if (useCan('manage_instructions')) return true
+  if (!selectedAgentId.value) return false
+  return useCan('manage_instructions', { type: 'data_source', id: selectedAgentId.value })
+})
+
+function closeInstructionForm() {
+  selectedInstruction.value = null
+  creatingInstruction.value = false
+}
 
 // Instruction helpers & filters
 const helpers = useInstructionHelpers()
@@ -535,6 +558,7 @@ function selectAgent(agentId: string) {
 
 function onInstructionSaved() {
   selectedInstruction.value = null
+  creatingInstruction.value = false
   // Invalidate cache so list refreshes
   if (selectedAgentId.value) {
     delete instructionsCache.value[selectedAgentId.value]
@@ -641,6 +665,7 @@ watch([selectedAgentId, activeTab], ([agentId, tab]) => {
 watch(selectedAgentId, () => {
   activeTab.value = 'instructions'
   selectedInstruction.value = null
+  creatingInstruction.value = false
   instructionsError.value = null
   queriesError.value = null
   evalsError.value = null
@@ -653,6 +678,7 @@ watch(selectedAgentId, () => {
 function openInstruction(instruction: any) {
   activeTab.value = 'instructions'
   instructionLoading.value = false
+  creatingInstruction.value = false
   selectedInstruction.value = instruction
 }
 
@@ -660,6 +686,7 @@ function setInstructionLoading(value: boolean) {
   activeTab.value = 'instructions'
   if (value) {
     selectedInstruction.value = null
+    creatingInstruction.value = false
   }
   instructionLoading.value = value
 }
