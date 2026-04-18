@@ -104,8 +104,10 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
 def _fmt_trace(completions_trace: List[Dict[str, Any]]) -> str:
     """One-line conversation shape:
 
-        user("How many customers?") → system[create_data]
-         → user("total revenue?") → system[create_data, clarify]
+        user("How many customers?")
+         → system[create_data] "You have 59 customers"
+         → user("total revenue?")
+         → system[create_data] "$2,328.60"
     """
     parts: List[str] = []
     for comp in completions_trace or []:
@@ -121,10 +123,14 @@ def _fmt_trace(completions_trace: List[Dict[str, Any]]) -> str:
                 tool = (b.get("tool") or {}).get("name")
                 if tool:
                     tools_in_turn.append(tool)
-            if tools_in_turn:
-                parts.append(f"system[{', '.join(tools_in_turn)}]")
+            tools_str = f"[{', '.join(tools_in_turn)}]" if tools_in_turn else "[]"
+            content = (comp.get("content") or "").strip().replace("\n", " ")
+            if len(content) > 120:
+                content = content[:119] + "…"
+            if content:
+                parts.append(f'system{tools_str} "{content}"')
             else:
-                parts.append("system[]")
+                parts.append(f"system{tools_str}")
     return " → ".join(parts)
 
 
