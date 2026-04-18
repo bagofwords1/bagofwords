@@ -60,12 +60,19 @@ class WriteOfficeJsCodeTool(Tool):
                 "- The taskpane wraps your code in Excel.run(async ctx => { ... }), so write just the body.\n"
                 "- Load EVERY property before reading — including string properties like .address, .name, "
                 ".title.text. Pattern: range.load(['values','address']); await ctx.sync();\n"
-                "- Anchors: ctx.workbook.getActiveWorksheet(), ctx.workbook.worksheets.getItem(name), "
-                "sheet.getRange('A1:C3'), sheet.getUsedRange(), ctx.workbook.getSelectedRange().\n"
+                "- ANCHOR EXPLICITLY. Preferred: ctx.workbook.worksheets.getItem('<sheet>').getRange('<A1>'). "
+                "Also fine: sheet.getUsedRange(), sheet.getRange('A1:C3').\n"
+                "- DO NOT anchor at ctx.workbook.getSelectedRange() or ctx.workbook.getActiveWorksheet() unless the "
+                "user explicitly said 'here', 'at my cursor', or 'at my selection'. The cursor is stale by the time "
+                "this code runs and silently diverges from any placement you described in reasoning.\n"
+                "- READ FIRST when the target matters: load the destination range's values/address before writing, "
+                "confirm it's empty (or that the user said to overwrite), then write at the SAME explicit address.\n"
                 "- Writing: range.values = [[1,2],[3,4]]; range.formulas = [['=SUM(A:A)']]; "
                 "range.format.fill.color = '#FFEB9C'.\n"
                 "- Tables: sheet.tables.add('A1:C10', true). Charts: sheet.charts.add('ColumnClustered', range, 'Auto').\n"
-                "- Return only small JSON-serializable values (e.g. a sum, an address). Large returned ranges are truncated."
+                "- Return a small JSON object that includes where you wrote, e.g. "
+                "`return { success: true, wrote_to: range.address, rows: rc, cols: cc };` — this is what surfaces "
+                "in the next turn's context so you can verify the actual landing spot."
             ),
             category="action",
             version="1.0.0",
