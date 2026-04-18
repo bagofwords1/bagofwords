@@ -1,0 +1,57 @@
+name: Sanity · Dashboards
+description: >
+  Dashboard-artifact prompt coverage against the Chinook demo. Exercises the
+  create_data → create_artifact path. Assertions combine tool-level rules
+  (counts + ordering) with a dedicated judge rule on the final trace.
+
+tags: [artifacts, data, judge]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: revenue_by_year_bar_chart
+    prompt:
+      content: "Show total invoice revenue by year as a bar chart"
+    expectations:
+      spec_version: 1
+      order_mode: strict
+      rules:
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1
+        - type: tool.calls
+          tool: create_artifact
+          min_calls: 1
+        - type: ordering
+          mode: strict
+          allow_extra: true
+          sequence:
+            - tool_or_bind: create_data
+            - tool_or_bind: create_artifact
+        - type: judge
+          prompt: >
+            The final artifact must render a bar chart whose x-axis is
+            year and whose y-axis is total invoice revenue. Answer pass
+            only if both axes are correct and the chart type is
+            explicitly a bar chart.
+
+  - name: top_customers_dashboard
+    prompt:
+      content: "Build a dashboard with total revenue and top 5 customers by revenue"
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_data
+          min_calls: 2
+        - type: tool.calls
+          tool: create_artifact
+          min_calls: 1
+        - type: judge
+          prompt: >
+            The artifact must contain both (a) a total invoice revenue
+            scalar or widget and (b) a list or chart of the top 5
+            customers ranked by revenue. Pass only if both are present
+            and clearly labeled.

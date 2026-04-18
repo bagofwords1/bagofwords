@@ -1,0 +1,140 @@
+name: Build Branch Docker Image
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  authorize:
+    # Run on manual dispatch, or on a PR comment starting with `/build-image`
+    # from a trusted author (collaborator/member/owner). This keeps random PR
+    # commenters from triggering builds on public PRs.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       startsWith(github.event.comment.body, '/build-image') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.resolve.outputs.ref }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve ref and SHA
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REF="${{ github.ref_name }}"
+            SHA="${{ github.sha }}"
+          else
+            PR=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
+            REF=$(echo "$PR" | jq -r .head.ref)
+            SHA=$(echo "$PR" | jq -r .head.sha)
+          fi
+          echo "ref=$REF" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: React to trigger comment
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST \
+            repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content='rocket'
+
+  build-and-push:
+    needs: authorize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout resolved ref
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ needs.authorize.outputs.sha }}
+
+      - name: Compute image tag
+        run: |
+          SLUG=$(echo "${{ needs.authorize.outputs.ref }}" | sed 's|[/:]|-|g; s|[^A-Za-z0-9._-]|-|g')
+          SHORT_SHA=$(echo "${{ needs.authorize.outputs.sha }}" | cut -c1-7)
+          echo "image_tag=${SLUG}-${SHORT_SHA}" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet || true
+          docker system prune -af --volumes || true
+          docker buildx prune -af || true
+
+      - name: Build image (load locally)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: bagofwords/bagofwords:${{ env.image_tag }}
+
+      - name: Trivy scan summary (stdout)
+        if: ${{ success() }}
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: image
+          image-ref: bagofwords/bagofwords:${{ env.image_tag }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
+      - name: Scan image with Trivy (SARIF)
+        if: ${{ success() }}
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: image
+          image-ref: bagofwords/bagofwords:${{ env.image_tag }}
+          format: sarif
+          exit-code: 0
+          severity: CRITICAL,HIGH
+          output: trivy-results.sarif
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Push Docker image (no :latest)
+        if: success()
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          no-cache: true
+          platforms: linux/amd64,linux/arm64
+          tags: bagofwords/bagofwords:${{ env.image_tag }}
+
+      - name: Comment image tag back on PR
+        if: github.event_name == 'issue_comment' && success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST \
+            repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+            -f body="Pushed \`bagofwords/bagofwords:${{ env.image_tag }}\`"

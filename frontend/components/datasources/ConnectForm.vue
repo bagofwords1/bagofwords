@@ -15,9 +15,9 @@
         <div v-if="fields.config" class="p-3 rounded border">
           <div class="text-sm font-medium text-gray-700 mb-2">Configuration</div>
           <div v-for="field in configFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
-            <div class="flex justify-between items-baseline mb-1">
+            <div class="mb-1">
               <label :for="field.field_name" class="text-xs text-gray-700">{{ field.title || field.field_name }}</label>
-              <span class="text-xs text-gray-500">{{ field.description }}</span>
+              <span v-if="field.description" class="text-xs text-gray-400 ml-3">{{ field.description }}</span>
             </div>
             <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
             <input v-else-if="field.type === 'integer' || field.type === 'number' || uiType(field) === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
@@ -58,7 +58,7 @@
 
           <!-- Locked state: show masked fields -->
           <div v-if="credentialsLocked && showSystemCredentialFields">
-            <div v-for="field in credentialFields" :key="field.field_name" class="mb-2">
+            <div v-for="field in coreCredentialFields" :key="field.field_name" class="mb-2">
               <label class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
               <input type="text" disabled value="••••••••" class="block w-full px-3 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-400 cursor-not-allowed" />
             </div>
@@ -66,19 +66,36 @@
 
           <!-- Unlocked state: editable fields -->
           <template v-if="!credentialsLocked">
-            <div v-if="showSystemCredentialFields" v-for="field in credentialFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
-              <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-              <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-              <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
-              <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
-              <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-            </div>
+            <template v-if="showSystemCredentialFields" v-for="field in coreCredentialFields" :key="field.field_name">
+              <div class="mb-2" @change="clearTestResult()">
+                <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
+                <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
+                <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
+                <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+              </div>
+            </template>
           </template>
 
           <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
             <span class="text-xs text-gray-700">Require user authentication</span>
           </div>
+
+          <!-- OAuth credential overrides (only visible when user auth is enabled) -->
+          <template v-if="!credentialsLocked && require_user_auth && oauthCredentialFields.length">
+            <div class="border-t border-gray-200 mt-3 pt-3">
+              <div class="text-xs font-medium text-gray-500 mb-2">OAuth Credentials (optional)</div>
+              <p class="text-xs text-gray-400 mb-2">Only needed if user sign-in uses a different app registration than the service principal above.</p>
+              <template v-for="field in oauthCredentialFields" :key="field.field_name">
+                <div class="mb-2" @change="clearTestResult()">
+                  <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
+                  <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                  <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                </div>
+              </template>
+            </div>
+          </template>
 
         </div>
 
@@ -220,6 +237,16 @@ const credentialFields = computed(() => {
   return Object.entries(credsSchema.properties).map(([field_name, schema]: any) => ({ field_name, ...schema }))
 })
 
+// Core credential fields (exclude oauth_* fields)
+const coreCredentialFields = computed(() => {
+  return credentialFields.value.filter((f: any) => !f.field_name.startsWith('oauth_'))
+})
+
+// OAuth override fields (only oauth_* fields, shown separately when user auth is enabled)
+const oauthCredentialFields = computed(() => {
+  return credentialFields.value.filter((f: any) => f.field_name.startsWith('oauth_'))
+})
+
 const selectedTitle = computed(() => {
   const match = (available_ds.value || []).find((x: any) => String(x.type) === String(selectedType.value))
   return match?.title || selectedType.value
@@ -252,7 +279,11 @@ async function fetchAvailable() {
 async function fetchFields() {
   if (!selectedType.value) return
   try {
-    const res = await useMyFetch(`/data_sources/${selectedType.value}/fields?auth_policy=${auth_policy.value}` as any, { method: 'GET' })
+    // Admin connection setup always shows system-scoped auth variants (service principal,
+    // username/password, etc.) regardless of the "require user auth" toggle. The toggle
+    // only determines what gets persisted on the connection (auth_policy/allowed_user_auth_modes);
+    // admins still need to configure the system credentials the app uses for OAuth app registration.
+    const res = await useMyFetch(`/data_sources/${selectedType.value}/fields?auth_policy=system_only` as any, { method: 'GET' })
     fields.value = (res.data as any)?.value || { config: null, credentials: null }
     // set default auth
     const authMeta = fields.value?.auth
@@ -340,6 +371,11 @@ function handleAuthChange() {
 
 const canSubmit = computed(() => !!selectedType.value && !submitting.value)
 
+// Strip empty-string credential values (e.g., optional oauth_client_id left blank)
+function cleanCredentials(creds: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(Object.entries(creds).filter(([_, v]) => v != null && v !== ''))
+}
+
 async function onSubmit() {
   if (submitting.value || !selectedType.value) return
   submitting.value = true
@@ -348,7 +384,7 @@ async function onSubmit() {
       name: name.value || selectedType.value,
       type: selectedType.value,
       config: { ...formData.config, auth_type: selectedAuth.value || undefined },
-      credentials: showSystemCredentialFields.value ? formData.credentials : {},
+      credentials: showSystemCredentialFields.value ? cleanCredentials(formData.credentials) : {},
       is_public: is_public.value,
       auth_policy: auth_policy.value,
       generate_summary: use_llm_onboarding.value,
@@ -369,7 +405,7 @@ async function onSubmit() {
       if (!credentialsLocked.value) {
         const hasNewCredentials = Object.values(formData.credentials).some(v => v && String(v).trim())
         if (hasNewCredentials) {
-          connectionPayload.credentials = formData.credentials
+          connectionPayload.credentials = cleanCredentials(formData.credentials)
         }
       }
       
@@ -400,7 +436,7 @@ async function onSubmit() {
         name: name.value || selectedType.value,
         type: selectedType.value,
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
-        credentials: showSystemCredentialFields.value ? formData.credentials : {},
+        credentials: showSystemCredentialFields.value ? cleanCredentials(formData.credentials) : {},
         auth_policy: auth_policy.value
       }
       const res = await useMyFetch('/connections', { method: 'POST', body: JSON.stringify(connectionPayload), headers: { 'Content-Type': 'application/json' } })
@@ -448,7 +484,7 @@ async function testConnection() {
       }
       // Only send credential overrides if user explicitly unlocked them
       if (!credentialsLocked.value && showSystemCredentialFields.value && formData.credentials && Object.keys(formData.credentials).length > 0) {
-        overrides.credentials = formData.credentials
+        overrides.credentials = cleanCredentials(formData.credentials)
       }
       res = await useMyFetch(`/connections/${props.connectionId}/test`, {
         method: 'POST',
@@ -462,7 +498,7 @@ async function testConnection() {
         type: selectedType.value,
         // Include auth_type so backend can select correct credentials schema (e.g., Snowflake keypair)
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
-        credentials: showSystemCredentialFields.value ? formData.credentials : {},
+        credentials: showSystemCredentialFields.value ? cleanCredentials(formData.credentials) : {},
         is_public: is_public.value
       }
       res = await useMyFetch('/data_sources/test_connection', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
@@ -489,12 +525,8 @@ function clearTestResult() {
   testResultOk.value = null
 }
 
-watch(require_user_auth, (val) => {
-  // Preserve existing credential values when toggling auth policy
+watch(require_user_auth, () => {
   clearTestResult()
-  // Refresh fields since schema can depend on auth policy
-  preserveOnNextFetch.value = true
-  fetchFields()
 })
 
 watch(

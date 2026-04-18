@@ -266,6 +266,14 @@
                                                 </UTooltip>
                                             </div>
                                             <div
+                                                v-if="report.external_platform && report.external_platform.platform_type == 'excel'"
+                                                class="ml-2 h-3 inline mr-2"
+                                            >
+                                                <UTooltip text="Created via Excel">
+                                                    <img src="/data_sources_icons/excel.png" class="h-3 inline" />
+                                                </UTooltip>
+                                            </div>
+                                            <div
                                                 v-if="report.cron_schedule && !report.has_scheduled_prompts"
                                                 class="ml-2 h-3 inline mr-2"
                                             >

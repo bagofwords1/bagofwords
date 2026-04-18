@@ -25,6 +25,7 @@ TIER_FEATURES = {
         "scim",
         "custom_roles",
         "ldap",
+        "domain_signup",
     ],
 }
 

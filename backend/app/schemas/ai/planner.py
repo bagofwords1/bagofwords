@@ -110,4 +110,7 @@ class PlannerInput(BaseModel):
     # Knowledge harness trigger conditions (formatted block injected into knowledge-mode prompt)
     trigger_conditions: Optional[str] = None
 
+    # Platform-specific context (e.g. Excel selection data) — injected into prompt, not part of user message
+    platform_context: Optional[Dict[str, Any]] = None
+
 

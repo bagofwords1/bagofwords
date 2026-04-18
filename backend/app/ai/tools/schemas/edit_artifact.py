@@ -15,15 +15,19 @@ class EditArtifactInput(BaseModel):
     edit_prompt: str = Field(..., description=(
         "Structured edit request. Be specific about what to change. Use relevant sections:\n\n"
         "## Layout changes\n"
-        "What to move, add, remove, resize. E.g., 'Move KPI row above the chart grid', 'Add a new bar chart in the bottom-right panel'.\n\n"
+        "What to move, add, resize. E.g., 'Move KPI row above the chart grid', 'Add a new bar chart in the bottom-right panel'. "
+        "Only describe REMOVAL if the user explicitly asked to remove something — otherwise the edit is additive.\n\n"
         "## Style changes\n"
         "Colors, theme, spacing, typography changes. Capture the user's visual intent verbatim — this overrides existing styling.\n"
         "E.g., 'Switch to dark mode with slate-900 bg', 'Remove all shadows and gradients, flat BI look'.\n\n"
         "## Filter changes\n"
-        "Add/remove/fix filter behavior. E.g., 'Add global year filter across all vizs', 'Remove the city local filter'.\n\n"
+        "Add/remove/fix filter behavior. E.g., 'Add global year filter across all vizs', 'Remove the city local filter'. "
+        "If this edit introduces a NEW cross-viz filter (or comparison/slice/rank/drill), you MUST have completed the Dashboard Contract preflight first (see planner): every viz in the final artifact satisfies the filter, has been rebuilt via `create_data` to satisfy it, or was substituted/dropped because it was meaningless under it. Do NOT scope a new global filter to only a subset of vizs that mechanically accept it — that ships a broken dashboard.\n\n"
         "## Data changes\n"
         "Chart type changes, KPI calculations, new data mappings. E.g., 'Change bar chart to horizontal bars', 'Show top 6 artists instead of 10'.\n\n"
-        "Only include sections relevant to the edit. Also use this to fix visual issues (e.g., 'the bar chart is cut off', 'KPI cards are overlapping')."
+        "Only include sections relevant to the edit. Also use this to fix visual issues (e.g., 'the bar chart is cut off', 'KPI cards are overlapping').\n\n"
+        "CONTINUITY: Edits are ADDITIVE by default. Phrases like 'improve', 'make it amazing', 'add KPIs', 'redesign' never imply removing existing vizs or content. "
+        "Preserve the existing title unless the user asked to rename."
     ))
     visualization_ids: Optional[List[str]] = Field(default=None, description="List of NEW visualization IDs to include in the artifact. IMPORTANT: If you called create_data before this edit, you MUST pass the resulting visualization_id(s) here. Without them, the new visualizations will not appear in the dashboard. Existing visualization IDs from the original artifact are kept automatically — only pass new ones.")
     title: Optional[str] = Field(default=None, description="Updated title for the artifact. If not provided, the existing title is kept.")

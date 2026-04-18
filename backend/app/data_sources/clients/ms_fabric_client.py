@@ -18,10 +18,11 @@ class MsFabricClient(DataSourceClient):
         self,
         server_hostname: str,
         database: str,
-        tenant_id: str,
-        client_id: str,
-        client_secret: str,
+        tenant_id: str = None,
+        client_id: str = None,
+        client_secret: str = None,
         schema: Optional[str] = None,
+        access_token: str = None,
     ):
         self.server_hostname = server_hostname
         self.database = database
@@ -29,6 +30,7 @@ class MsFabricClient(DataSourceClient):
         self.client_id = client_id
         self.client_secret = client_secret
         self.schema = schema
+        self._delegated_access_token = access_token
 
         # Parse comma-separated schemas if provided
         self._schemas: List[str] = []
@@ -43,6 +45,9 @@ class MsFabricClient(DataSourceClient):
 
     def _get_access_token(self) -> str:
         """Get Azure AD access token for SQL endpoint."""
+        if self._delegated_access_token:
+            return self._delegated_access_token
+
         credential = ClientSecretCredential(
             tenant_id=self.tenant_id,
             client_id=self.client_id,
@@ -114,6 +119,13 @@ class MsFabricClient(DataSourceClient):
 
             where_clauses = [f"c.TABLE_CATALOG = '{self.database}'"]
             where_clauses.append("c.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA', 'queryinsights')")
+            # Filter to objects the connecting principal actually has SELECT on.
+            # INFORMATION_SCHEMA shows objects whose existence is visible (e.g. via REFERENCES,
+            # CONTROL, or schema membership), which is broader than SELECT — so a user with
+            # DENY SELECT still sees the table listed without this filter.
+            where_clauses.append(
+                "HAS_PERMS_BY_NAME(QUOTENAME(c.TABLE_SCHEMA) + '.' + QUOTENAME(c.TABLE_NAME), 'OBJECT', 'SELECT') = 1"
+            )
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"c.TABLE_SCHEMA IN ({schema_list})")
@@ -178,6 +190,11 @@ class MsFabricClient(DataSourceClient):
 
             where_clauses = [f"TABLE_CATALOG = '{self.database}'"]
             where_clauses.append("TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA', 'queryinsights')")
+            # Filter to objects the connecting principal actually has SELECT on
+            # (see _get_tables_enriched for rationale).
+            where_clauses.append(
+                "HAS_PERMS_BY_NAME(QUOTENAME(TABLE_SCHEMA) + '.' + QUOTENAME(TABLE_NAME), 'OBJECT', 'SELECT') = 1"
+            )
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"TABLE_SCHEMA IN ({schema_list})")

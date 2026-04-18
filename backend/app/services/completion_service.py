@@ -283,12 +283,19 @@ class CompletionService:
 
             clients = {}
             for data_source in report.data_sources:
-                ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
-                clients.update(ds_clients)
+                try:
+                    ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
+                    clients.update(ds_clients)
+                except HTTPException as e:
+                    if e.status_code == 403:
+                        logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                    else:
+                        raise
             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
             _ = report.files
 
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
+            resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
             agent = AgentV2(
                 db=db,
                 organization=organization,
@@ -303,6 +310,8 @@ class CompletionService:
                 step=step,
                 clients=clients,
                 mode=completion_data.prompt.mode,
+                platform=resolved_platform,
+                platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                 build_id=resolved_build_id,
             )
 
@@ -550,11 +559,18 @@ class CompletionService:
                             
                             clients = {}
                             for data_source in report_obj.data_sources:
-                                ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
-                                clients.update(ds_clients)
+                                try:
+                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                                    clients.update(ds_clients)
+                                except HTTPException as e:
+                                    if e.status_code == 403:
+                                        logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                                    else:
+                                        raise
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = report_obj.files
 
+                            resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
                             agent = AgentV2(
                                 db=session,
                                 organization=organization,
@@ -568,6 +584,8 @@ class CompletionService:
                                 widget=widget_obj,
                                 step=step_obj,
                                 clients=clients,
+                                platform=resolved_platform,
+                                platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                                 build_id=resolved_build_id,
                             )
                             await agent.main_execution()
@@ -602,11 +620,18 @@ class CompletionService:
                     with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                         clients = {}
                         for data_source in report.data_sources:
-                            ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
-                            clients.update(ds_clients)
+                            try:
+                                ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
+                                clients.update(ds_clients)
+                            except HTTPException as e:
+                                if e.status_code == 403:
+                                    logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                                else:
+                                    raise
                         clients_span.set_attribute("data_sources.count", len(report.data_sources))
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                     _ = report.files
+                    resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
                     agent = AgentV2(
                         db=db,
                         organization=organization,
@@ -620,6 +645,8 @@ class CompletionService:
                         widget=widget,
                         step=step,
                         clients=clients,
+                        platform=resolved_platform,
+                        platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                         build_id=resolved_build_id,
                     )
                     span.add_event("agent_execution_started")
@@ -1750,6 +1777,7 @@ class CompletionService:
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
             last_completion = await self.get_last_completion(db, report.id)
+            resolved_ep = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
             completion = Completion(
                 prompt=prompt_dict,
                 model=model.model_id,
@@ -1761,7 +1789,7 @@ class CompletionService:
                 status="success",
                 user_id=current_user.id,
                 external_user_id=external_user_id,
-                external_platform=external_platform
+                external_platform=resolved_ep
             )
 
             # Create system completion (parent_id will be set after flush)
@@ -1776,7 +1804,7 @@ class CompletionService:
                 message_type="table",
                 role="system",
                 status="in_progress",
-                external_platform=external_platform,
+                external_platform=resolved_ep,
                 external_user_id=external_user_id
             )
 
@@ -1796,6 +1824,36 @@ class CompletionService:
                     detail=f"Failed to save completions: {str(e)}"
                 )
             _log("db_commit_flush")
+
+            # Link report to Excel platform for icon display (get-or-create, same as MCP pattern)
+            if resolved_ep == 'excel' and not report.external_platform_id:
+                try:
+                    from app.services.external_platform_service import ExternalPlatformService
+                    from app.models.external_platform import ExternalPlatform
+                    ep_service = ExternalPlatformService()
+                    try:
+                        excel_platform = await ep_service.get_platform_by_type(db, str(organization.id), "excel")
+                    except Exception:
+                        excel_platform = None
+                    if not excel_platform:
+                        excel_platform = ExternalPlatform(
+                            organization_id=str(organization.id),
+                            platform_type="excel",
+                            platform_config={"name": "Excel Add-in"},
+                            is_active=True,
+                        )
+                        db.add(excel_platform)
+                        await db.flush()
+                    from sqlalchemy import update as sa_update
+                    await db.execute(
+                        sa_update(Report)
+                        .where(Report.id == str(report.id))
+                        .values(external_platform_id=str(excel_platform.id))
+                    )
+                    await db.commit()
+                except Exception:
+                    pass  # Non-critical — icon display is cosmetic
+                _log("excel_platform_linked")
 
             span.set_attribute("completion.head_id", str(completion.id))
             span.set_attribute("completion.system_id", str(system_completion.id))
@@ -1873,8 +1931,14 @@ class CompletionService:
                             with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                                 clients = {}
                                 for data_source in report_obj.data_sources:
-                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
-                                    clients.update(ds_clients)
+                                    try:
+                                        ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                                        clients.update(ds_clients)
+                                    except HTTPException as e:
+                                        if e.status_code == 403:
+                                            logger.warning(f"Skipping data source {data_source.name}: {e.detail}")
+                                        else:
+                                            raise
                                 clients_span.set_attribute("data_sources.count", len(report_obj.data_sources))
                             _alog(f"clients_constructed count={len(report_obj.data_sources)}")
 
@@ -1884,6 +1948,7 @@ class CompletionService:
                             _alog("files_preloaded")
 
                             # Create agent with event queue
+                            resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
                             agent = AgentV2(
                                 db=session,
                                 organization=organization,
@@ -1891,6 +1956,8 @@ class CompletionService:
                                 model=model,
                                 small_model=small_model,
                                 mode=completion_data.prompt.mode,
+                                platform=resolved_platform,
+                                platform_context=completion_data.prompt.platform_context if completion_data.prompt else None,
                                 report=report_obj,
                                 messages=[],
                                 head_completion=completion_obj,
@@ -2067,6 +2134,55 @@ class CompletionService:
         response_completions = response_completions.scalars().all()
         return response_completions
     
+    async def submit_tool_result(
+        self,
+        db: AsyncSession,
+        completion_id: str,
+        tool_call_id: str,
+        body: dict,
+        current_user: User = None,
+        organization: Organization = None,
+    ):
+        """Resolve a pending Office.js tool call with the result posted from the taskpane."""
+        from app.ai.tools.officejs_registry import pending_officejs_registry
+
+        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
+        completion = completion.scalars().first()
+        if not completion:
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        # Org-scope check: the completion's report must belong to this organization.
+        report_row = await db.execute(select(Report).where(Report.id == completion.report_id))
+        report = report_row.scalars().first()
+        if not report or (organization and str(report.organization_id) != str(organization.id)):
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        # Only the user who initiated the Office.js tool call may resolve it.
+        # Prevents another org member from poisoning a pending execution by
+        # guessing the tool_call_id.
+        if current_user is not None and completion.user_id is not None and \
+                str(completion.user_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Not allowed to resolve this tool call")
+
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Body must be an object")
+
+        result = {
+            "success": bool(body.get("success", False)),
+            "return_value": body.get("return_value"),
+            "error": body.get("error"),
+            "logs": body.get("logs") or [],
+            "ranges_touched": body.get("ranges_touched") or [],
+        }
+
+        resolved = pending_officejs_registry.resolve(tool_call_id, result)
+        if not resolved:
+            raise HTTPException(
+                status_code=404,
+                detail="No pending tool call with that id (timed out, already resolved, or wrong id).",
+            )
+        return {"ok": True}
+
     async def update_completion_sigkill(self, db: AsyncSession, completion_id: str, current_user: User = None, organization: Organization = None):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()

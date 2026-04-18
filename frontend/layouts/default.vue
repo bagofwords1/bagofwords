@@ -11,7 +11,7 @@
     </div>
   <aside id="separator-sidebar"
     :class="[
-      'fixed left-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full sm:translate-x-0 border-r-[3px] border-gray-100',
+      'fixed left-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full sm:translate-x-0 border-r border-gray-200/80',
       isCollapsed ? 'w-14' : 'w-48',
       showGlobalOnboardingBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
     ]"
@@ -36,86 +36,87 @@
           </button>
     <div class="h-full px-3 py-4 bg-gray-50 flex flex-col justify-between">
 
-      <ul class="font-normal text-sm">
+      <ul class="font-normal text-[13px]">
         <li>
             <button @click="router.push('/')" class="flex items-center justify-center p-1 text-gray-700 group">
-              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-10 max-w-[120px] object-contain'" />
+              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-8 max-w-[120px] object-contain'" />
             </button>
         </li>
 
-        <!-- Domain Selector - Context for all navigation below (hidden if no domains) -->
-        <li v-if="hasDomains" class="mt-6 mb-4">
+        <!-- Domain Selector - Context for all navigation below -->
+        <li class="mt-4 mb-2">
           <DomainSelector :collapsed="isCollapsed" :show-text="showText" />
         </li>
 
-        <li class="">
-          <div class="flex mt-2">
+        <li>
              <button
                name="create-report"
                @click="createNewReport"
                :disabled="creatingReport"
                :class="[
-                 'flex items-center px-2 py-2 w-full rounded-lg text-blue-500 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed',
-                 isCollapsed ? 'justify-center' : 'gap-3'
+                 'flex items-center px-3 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed',
+                 isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
               <UTooltip v-if="isCollapsed" :text="creatingReport ? 'Creating...' : 'New report'" :popper="{ placement: 'right' }">
-                <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <span class="flex items-center justify-center w-[18px] h-[18px]">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
                 </span>
               </UTooltip>
               <template v-else>
-                <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <span class="flex items-center justify-center w-[18px] h-[18px]">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
                 </span>
-                <span v-if="showText" class="text-sm font-medium">{{ creatingReport ? 'Creating...' : 'New report' }}</span>
+                <span v-if="showText" class="font-medium">{{ creatingReport ? 'Creating...' : 'New report' }}</span>
               </template>
             </button>
-          </div>
         </li>
 
         <template v-for="item in mainNavItems" :key="item.href">
+        <li v-if="item.section && !isCollapsed && (!item.adminOnly || isAdmin)" class="pt-3 pb-1 px-3">
+          <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ item.section }}</span>
+        </li>
         <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="{ hidden: item.hidden }">
           <a :href="item.href" :class="[
-            'flex items-center px-2 py-2 w-full rounded-lg',
-            isRouteActive(item.href) ? 'text-black bg-gray-200' : 'text-gray-600 hover:text-black hover:bg-gray-200',
-            isCollapsed ? 'justify-center' : 'gap-3'
+            'flex items-center px-3 py-1.5 w-full rounded-md',
+            isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+            isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="item.label" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
+              <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" />
               </span>
             </UTooltip>
             <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
+              <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" />
               </span>
-              <span v-if="showText" class="text-sm">{{ item.label }}</span>
+              <span v-if="showText">{{ item.label }}</span>
             </template>
           </a>
         </li>
         </template>
       </ul>
-      <ul class="font-normal text-sm">
+      <ul class="font-normal text-[13px]">
         <li v-for="item in bottomNavItems" :key="item.href">
           <a :href="item.href" :target="item.external ? '_blank' : undefined" :class="[
-            'flex items-center px-2 py-2 w-full rounded-lg',
-            item.external ? 'text-gray-600 hover:text-black hover:bg-gray-200' : (isRouteActive(item.href) ? 'text-black bg-gray-200' : 'text-gray-600 hover:text-black hover:bg-gray-200'),
-            isCollapsed ? 'justify-center' : 'gap-3'
+            'flex items-center px-3 py-1.5 w-full rounded-md',
+            item.external ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-100' : (isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'),
+            isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="item.label" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
+              <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon :name="item.icon" />
               </span>
             </UTooltip>
             <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
+              <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon :name="item.icon" />
               </span>
-              <span v-if="showText" class="text-sm">{{ item.label }}</span>
+              <span v-if="showText">{{ item.label }}</span>
             </template>
           </a>
         </li>
@@ -123,46 +124,46 @@
           <button
             @click="showMcpModal = true"
             :class="[
-              'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-              isCollapsed ? 'justify-center' : 'gap-3'
+              'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+              isCollapsed ? 'justify-center' : 'gap-2.5'
             ]"
           >
             <UTooltip v-if="isCollapsed" text="MCP - Connect Claude/Cursor to your data" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <McpIcon class="w-5 h-5" />
+              <span class="flex items-center justify-center w-[18px] h-[18px]">
+                <McpIcon class="w-[18px] h-[18px]" />
               </span>
             </UTooltip>
             <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <McpIcon class="w-5 h-5" />
+              <span class="flex items-center justify-center w-[18px] h-[18px]">
+                <McpIcon class="w-[18px] h-[18px]" />
               </span>
-              <span v-if="showText" class="text-sm">MCP Server</span>
+              <span v-if="showText">MCP Server</span>
             </template>
           </button>
         </li>
         <li>
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }">
              <button :class="[
-               'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-               isCollapsed ? 'justify-center' : 'gap-3'
+               'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+               isCollapsed ? 'justify-center' : 'gap-2.5'
              ]">
               <UTooltip v-if="isCollapsed" :text="`Logged in as ${currentUserName}`" :popper="{ placement: 'right' }">
-                <div class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-xs font-bold rounded-full">
+                <div class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
                   {{ userInitial }}
                 </div>
               </UTooltip>
               <template v-else>
-                <div class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-xs font-bold rounded-full">
+                <div class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
                   {{ userInitial }}
                 </div>
-                <span v-if="showText" class="text-sm truncate">{{ currentUserName }}</span>
+                <span v-if="showText" class="truncate">{{ currentUserName }}</span>
               </template>
             </button>
           </UDropdown>
         </li>
         <li v-if="version">
           <UTooltip text="Version" :popper="{ placement: 'right' }">
-            <div class="text-[9px] text-gray-500 p-0 cursor-pointer hover:text-gray-900">
+            <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900">
               {{ version }}
             </div>
           </UTooltip>
@@ -206,13 +207,16 @@
     hidden?: boolean
     adminOnly?: boolean
     permission?: string
+    section?: string
   }
   const mainNavItems: NavItem[] = [
-    { href: '/reports', icon: 'heroicons-chart-pie', label: 'Reports' },
+    { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'Reports' },
+    { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'Dashboards' },
+    { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'Scheduled' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'Files', hidden: true },
     { href: '/instructions', icon: 'heroicons-cube', label: 'Instructions' },
     { href: '/queries', component: LibraryIcon, label: 'Queries' },
-    { href: '/monitoring', component: ActivityIcon, label: 'Monitoring', adminOnly: true },
+    { href: '/monitoring', component: ActivityIcon, label: 'Monitoring', adminOnly: true, section: 'Manage' },
     { href: '/evals', icon: 'heroicons-check-circle', label: 'Evals', permission: 'manage_evals' },
   ]
 

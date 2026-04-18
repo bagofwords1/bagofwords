@@ -143,3 +143,18 @@ async def get_completions_v2(
 @router.post("/api/completions/{completion_id}/sigkill")
 async def update_completion_sigkill(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)
+
+
+@requires_permission('create_reports')
+@router.post("/api/completions/{completion_id}/tool-results/{tool_call_id}")
+async def submit_tool_result(
+    completion_id: str,
+    tool_call_id: str,
+    body: dict,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Accept an Office.js execution result from the Excel taskpane and resolve
+    the waiting tool future. Used by the write_officejs_code tool."""
+    return await completion_service.submit_tool_result(db, completion_id, tool_call_id, body, current_user, organization)

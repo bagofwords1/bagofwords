@@ -61,15 +61,16 @@ class PowerBIClient(DataSourceClient):
 
     def __init__(
         self,
-        tenant_id: str,
-        client_id: str,
-        client_secret: str,
+        tenant_id: str = None,
+        client_id: str = None,
+        client_secret: str = None,
+        access_token: str = None,
     ):
         self.tenant_id = tenant_id
         self.client_id = client_id
         self.client_secret = client_secret
 
-        self._access_token: Optional[str] = None
+        self._access_token: Optional[str] = access_token
         self._http: Optional[requests.Session] = None
 
     def connect(self):
@@ -78,6 +79,11 @@ class PowerBIClient(DataSourceClient):
         Reuses cached token if already authenticated.
         """
         if self._http and self._access_token:
+            return
+
+        # If a delegated access_token was provided, just set up the session
+        if self._access_token:
+            self._http = requests.Session()
             return
 
         auth_url = self.AUTH_URL.format(tenant_id=self.tenant_id)

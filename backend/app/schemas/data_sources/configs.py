@@ -124,6 +124,18 @@ class SnowflakeConfig(BaseModel):
 # BigQuery - credentials_json already contains all auth info
 class BigQueryCredentials(BaseModel):
     credentials_json: str = Field(..., title="Service Account JSON", description="", json_schema_extra={"ui:type": "textarea"})
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Google OAuth 2.0 Client ID for user sign-in (from Google Cloud Console > Credentials > OAuth 2.0 Client IDs)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Google OAuth 2.0 Client Secret for user sign-in",
+        json_schema_extra={"ui:type": "password"}
+    )
 
 
 class BigQueryConfig(BaseModel):
@@ -553,6 +565,12 @@ class DatabricksSqlConfig(BaseModel):
     )
 
 
+# OAuth Delegated Credentials (empty — user provides nothing, OAuth flow populates tokens)
+class OAuthDelegatedCredentials(BaseModel):
+    """No user input needed. The OAuth authorization code flow populates tokens automatically."""
+    pass
+
+
 # Power BI
 class PowerBICredentials(BaseModel):
     tenant_id: str = Field(
@@ -571,6 +589,18 @@ class PowerBICredentials(BaseModel):
         ...,
         title="Client Secret",
         description="Azure AD App Registration Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="App Registration Client ID for user sign-in (authorization code flow). If blank, falls back to Client ID above.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="App Registration Secret for user sign-in. If blank, falls back to Client Secret above.",
         json_schema_extra={"ui:type": "password"}
     )
 
@@ -598,6 +628,18 @@ class MSFabricCredentials(BaseModel):
         ...,
         title="Client Secret",
         description="Azure AD App Registration Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="App Registration Client ID for user sign-in (authorization code flow). If blank, falls back to Client ID above.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="App Registration Secret for user sign-in. If blank, falls back to Client Secret above.",
         json_schema_extra={"ui:type": "password"}
     )
 

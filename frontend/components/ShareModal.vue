@@ -164,6 +164,7 @@ const sharedUsers = ref<any[]>([])
 const copyLabel = ref('Copy link')
 
 const currentVisibility = ref('none')
+const conversationShareToken = ref<string | null>(null)
 
 const visibilityOptions = [
     { value: 'none', label: 'Private', description: 'Only you can access', icon: 'heroicons:lock-closed' },
@@ -199,7 +200,7 @@ const shareUrl = computed(() => {
     if (props.shareType === 'artifact') {
         return `${window.location.origin}/r/${props.report.id}`
     }
-    const token = props.report.conversation_share_token
+    const token = conversationShareToken.value || props.report?.conversation_share_token
     return token ? `${window.location.origin}/c/${token}` : ''
 })
 
@@ -285,6 +286,10 @@ const fetchVisibility = async () => {
         if (res.data.value) {
             const data = res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
+            if (data.conversation_share_token !== undefined) {
+                conversationShareToken.value = data.conversation_share_token
+                if (props.report) props.report.conversation_share_token = data.conversation_share_token
+            }
         }
     } catch { /* silent */ }
 }
@@ -311,6 +316,13 @@ const saveVisibility = async (visibility: string, userIds?: string[]) => {
 
         if (props.report) {
             props.report[visibilityField.value] = visibility
+        }
+
+        const data = res.data.value as any
+        if (props.shareType === 'conversation' && data) {
+            const token = data.conversation_share_token ?? null
+            conversationShareToken.value = token
+            if (props.report) props.report.conversation_share_token = token
         }
 
         toast.add({
@@ -379,6 +391,7 @@ const copyLink = async () => {
 const openModal = async () => {
     modalOpen.value = true
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
+    conversationShareToken.value = props.report?.conversation_share_token ?? null
     await Promise.all([fetchMembers(), fetchVisibility(), fetchShares()])
 }
 
