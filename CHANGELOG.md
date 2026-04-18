@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.358
+## Version 0.0.358 (April 18, 2026)
 - SSO + OBO for data connections: OIDC login now extracts email from the id_token, syncs groups, and propagates user identity through to the warehouse
 - Entra ID native support for the On-Behalf-Of flow, including `offline_access` and hardened OAuth connection handling
 - Permission overlay revokes stale rows when a user loses upstream access; data sources returning 403 are skipped instead of failing the run
