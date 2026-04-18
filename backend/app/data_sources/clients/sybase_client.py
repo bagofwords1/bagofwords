@@ -12,6 +12,7 @@ from app.ai.prompt_formatters import TableFormatter
 
 FREETDS_SYSTEM_CONF = "/etc/freetds/freetds.conf"
 FREETDS_CUSTOM_CONF = "/tmp/freetds.conf"
+QUERY_TIMEOUT_SECONDS = 60
 
 
 class SybaseClient(DataSourceClient):
@@ -60,9 +61,8 @@ class SybaseClient(DataSourceClient):
         conn = None
         try:
             conn = pyodbc.connect(self._connection_string())
+            conn.timeout = QUERY_TIMEOUT_SECONDS
             yield conn
-        except Exception as e:
-            raise RuntimeError(f"{e}")
         finally:
             if conn is not None:
                 conn.close()
@@ -162,7 +162,7 @@ class SybaseClient(DataSourceClient):
         Table references: ALWAYS use owner.table_name without quotes (e.g., BI.mytable, DBA.mytable).
         Date values: Dates may be stored as integers in YYYYMMDD format (e.g., 20230510). Check column types.
         Date ranges: Use BETWEEN for date ranges (e.g., sale_date BETWEEN 20230101 AND 20231231).
-        Pagination: use TOP n (after SELECT) or LIMIT n (at end). "TOP 5 START AT 11" skips 10 rows (1-based). FETCH FIRST is NOT supported.
+        Pagination: use TOP n (between SELECT and columns). "TOP 5 START AT 11" skips 10 rows (1-based). LIMIT and FETCH FIRST are NOT supported.
         Current date/time: NOW(), GETDATE(), TODAY(), CURRENT DATE / CURRENT TIMESTAMP (space, not underscore).
         Date arithmetic: DATEADD(day, 7, date), DATEDIFF(day, d1, d2), DATEPART(year, date) or YEAR(date).
         Date formatting: DATEFORMAT(date, 'YYYY-MM-DD HH:NN:SS') — minutes are NN, not MI.
@@ -173,7 +173,14 @@ class SybaseClient(DataSourceClient):
         Boolean: BIT type with 0/1, not TRUE/FALSE.
         Not-equal: Use <> (not !=).
 
-        DO NOT use: EXTRACT(), INTERVAL, TO_CHAR(), STRING_AGG(), ILIKE, GENERATE_SERIES(), FETCH FIRST.
+        DO NOT use: EXTRACT(), INTERVAL, TO_CHAR(), STRING_AGG(), ILIKE, GENERATE_SERIES(), FETCH FIRST, LIMIT.
+
+        Performance notes:
+        - Avoid wrapping filtered/joined columns in functions (LOWER, TRIM, CAST) — breaks index use.
+        - Avoid leading-wildcard LIKE '%x%' on large tables.
+        - Prefer exact match (hotel = 'ABC') or IN (...) over text search on names/descriptions.
+        - Column-to-column predicates (col_a > col_b) can't use indexes — add a tight literal filter alongside.
+        - Queries have a 60s timeout. Narrow date ranges first; don't rely on retries.
         """
         description = f"Sybase SQL Anywhere database at {self.host}:{self.port}/{self.database}\n\n"
         description += system_prompt
