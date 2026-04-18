@@ -102,6 +102,10 @@ class ToolCallsRule(BaseModel):
     max_calls: Optional[int] = None
     phase: PhaseScope = None
     turn: Optional[int] = None
+    # Filter by outcome: None = count every invocation; True = only
+    # successful calls; False = only failed/errored calls. Backed by
+    # ``ToolExecution.success`` / ``ToolExecution.status``.
+    successful: Optional[bool] = None
 
 
 class OrderingStep(BaseModel):

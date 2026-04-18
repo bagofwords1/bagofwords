@@ -27,6 +27,7 @@ cases:
         - type: tool.calls
           tool: create_artifact
           min_calls: 1
+          successful: true    # must actually succeed, not just be invoked
 
         - type: judge
           prompt: >
