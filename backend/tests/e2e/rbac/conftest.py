@@ -87,12 +87,17 @@ def enterprise_license(monkeypatch):
     # Also patch the re-exports in routes that imported at module load
     import app.routes.rbac as rbac_routes
     monkeypatch.setattr(rbac_routes, "require_enterprise", lambda feature=None: (lambda fn: fn), raising=False)
-    # Clear cached instances
+    # Save and restore so the session-scoped fake (see tests/e2e/conftest.py)
+    # survives this fixture's teardown.
+    saved_cached = ee_license._cached_license
+    saved_initialized = ee_license._cache_initialized
     ee_license._cached_license = fake_info
     ee_license._cache_initialized = True
-    yield fake_info
-    ee_license._cached_license = None
-    ee_license._cache_initialized = False
+    try:
+        yield fake_info
+    finally:
+        ee_license._cached_license = saved_cached
+        ee_license._cache_initialized = saved_initialized
 
 
 # ────────────────────────────────────────────────────────────────────────
