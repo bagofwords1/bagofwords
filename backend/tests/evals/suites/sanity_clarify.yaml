@@ -4,6 +4,8 @@ description: >
   rather than guessing. Runs against the Chinook demo so the agent has
   schema in scope but no obvious single interpretation of the question.
 
+tags: [clarify]
+
 data_source_slugs:
   - Music Store
 

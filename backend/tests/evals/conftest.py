@@ -96,15 +96,30 @@ LLM_MATRIX: List[Dict[str, Any]] = _select_eval_models()
 SUITES_DIR = Path(__file__).resolve().parent / "suites"
 
 
-def _load_all_yaml_cases() -> List[Tuple[str, str, str]]:
-    """Return ``(yaml_path, suite_name, case_name)`` triples for every case.
+def _normalize_tag(tag: str) -> str:
+    return (tag or "").strip().lower().replace("-", "_").replace(" ", "_")
 
-    Reads each YAML file only far enough to discover case names — the
-    service is the real validator at import time.
+
+def _case_tags(suite_raw: Dict[str, Any], case_raw: Dict[str, Any]) -> List[str]:
+    """Merged normalized tags: suite-level + case-level, deduped."""
+    seen = set()
+    out: List[str] = []
+    for raw in (suite_raw.get("tags") or []) + (case_raw.get("tags") or []):
+        t = _normalize_tag(raw)
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def _load_all_yaml_cases() -> List[Tuple[str, str, str, Tuple[str, ...]]]:
+    """Return ``(yaml_path, suite_name, case_name, tags)`` tuples for every
+    case. Tags are normalized (lowercased, hyphens/spaces → underscores)
+    so they can be used directly as pytest markers.
     """
     if not SUITES_DIR.exists():
         return []
-    out: List[Tuple[str, str, str]] = []
+    out: List[Tuple[str, str, str, Tuple[str, ...]]] = []
     for path in sorted(SUITES_DIR.glob("*.yaml")):
         try:
             raw = yaml.safe_load(path.read_text()) or {}
@@ -113,27 +128,84 @@ def _load_all_yaml_cases() -> List[Tuple[str, str, str]]:
         suite_name = raw.get("name") or path.stem
         for case in raw.get("cases") or []:
             name = (case or {}).get("name")
-            if name:
-                out.append((str(path), suite_name, name))
+            if not name:
+                continue
+            out.append((
+                str(path),
+                suite_name,
+                name,
+                tuple(_case_tags(raw, case)),
+            ))
     return out
 
 
 ALL_EVAL_CASES = _load_all_yaml_cases()
 
+# Every distinct tag across the suites — used to register markers so
+# ``-m artifacts`` doesn't trigger "unknown marker" warnings.
+ALL_EVAL_TAGS: List[str] = sorted({t for _p, _s, _c, tags in ALL_EVAL_CASES for t in tags})
+
+
+def pytest_configure(config):
+    """Register markers discovered from YAML tags so ``-m <tag>`` works
+    cleanly. Done here (not in the root conftest) so new suites can add
+    tags without touching global setup."""
+    for tag in ALL_EVAL_TAGS:
+        config.addinivalue_line(
+            "markers",
+            f"{tag}: eval-suite tag (auto-registered from YAML)",
+        )
+
 
 def pytest_collection_modifyitems(config, items):
-    """Auto-apply ``evals`` marker to everything under tests/evals/."""
+    """Auto-apply ``evals`` + per-case YAML tags as pytest markers, and
+    honour ``EVAL_TAGS`` as a pre-filter on top of marker expressions.
+
+    ``EVAL_TAGS`` accepts a comma-separated list; a case matches if any
+    of its tags appear (OR semantics). Combine with pytest ``-m`` for
+    finer-grained boolean expressions.
+    """
     evals_root = Path(__file__).resolve().parent
+    tag_filter = {
+        _normalize_tag(t)
+        for t in (os.getenv("EVAL_TAGS") or "").split(",")
+        if t.strip()
+    }
+    # Build a map from parametrize id suffix (case name portion) to tag list.
+    tags_by_case_name: Dict[str, Tuple[str, ...]] = {}
+    for _p, _s, case_name, tags in ALL_EVAL_CASES:
+        tags_by_case_name[case_name] = tags
+
+    deselected: List[pytest.Item] = []
+    kept: List[pytest.Item] = []
     for item in items:
         try:
             test_path = Path(str(item.fspath)).resolve()
-        except Exception:
-            continue
-        try:
             test_path.relative_to(evals_root)
-        except ValueError:
+        except Exception:
+            kept.append(item)
             continue
         item.add_marker(pytest.mark.evals)
+
+        # Apply tag markers from the matching parametrize case. pytest's
+        # ``callspec.params`` carries the ``case_name`` parameter.
+        case_name = None
+        try:
+            case_name = item.callspec.params.get("case_name")
+        except Exception:
+            pass
+        tags = tags_by_case_name.get(case_name, ())
+        for t in tags:
+            item.add_marker(getattr(pytest.mark, t))
+
+        if tag_filter and not (tag_filter & set(tags)):
+            deselected.append(item)
+        else:
+            kept.append(item)
+
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = kept
 
 
 def _install_llm_provider_from_detail(
