@@ -42,11 +42,6 @@ cases:
           tool: create_data
           min_calls: 3
 
-        # Final turn must produce an artifact. We do NOT require
-        # successful=true here because create_artifact's success flag
-        # includes headless rendering (needs vendored JS libs). The
-        # judge reads the generated code directly from the trace, so
-        # render-side failures don't block the content assertion.
         - type: tool.calls
           tool: create_artifact
           min_calls: 1

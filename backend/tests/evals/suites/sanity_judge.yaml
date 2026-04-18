@@ -29,13 +29,6 @@ cases:
         - type: tool.calls
           tool: create_artifact
           min_calls: 1
-          # Intentionally NOT `successful: true` — create_artifact's
-          # success flag includes the headless-browser render step,
-          # which needs vendored JS libs (scripts/download-vendor-libs.sh).
-          # The judge reads the generated code from arguments_json /
-          # result_json, which is populated regardless of whether the
-          # render step succeeds. Use `successful: true` only when you
-          # actually want to gate on rendering (not in sanity evals).
 
         - type: judge
           prompt: >

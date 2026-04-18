@@ -140,8 +140,6 @@ class TestEvaluationService:
                     ToolExecution.tool_name,
                     PlanDecision.phase,
                     AgentExecution.completion_id,
-                    ToolExecution.success,
-                    ToolExecution.status,
                 )
                 .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
                 .outerjoin(PlanDecision, PlanDecision.id == ToolExecution.plan_decision_id)
@@ -149,27 +147,15 @@ class TestEvaluationService:
                 .order_by(ToolExecution.started_at.asc(), ToolExecution.created_at.asc())
             )
             seq_rows = rows.all()
-            snapshot["tool_sequence"] = [t for (t, _p, _c, _s, _st) in seq_rows]
-            snapshot["tool_phases"] = [_normalize_phase(p) for (_t, p, _c, _s, _st) in seq_rows]
+            snapshot["tool_sequence"] = [t for (t, _p, _c) in seq_rows]
+            snapshot["tool_phases"] = [_normalize_phase(p) for (_t, p, _c) in seq_rows]
             snapshot["tool_turns"] = [
-                turn_by_system.get(str(c)) for (_t, _p, c, _s, _st) in seq_rows
-            ]
-            # Tri-state success: True if ToolExecution.success OR status=="success",
-            # False if either says failure, None if unknown.
-            def _succ(succ_val, status_val):
-                if succ_val is True or status_val == "success":
-                    return True
-                if succ_val is False or status_val in ("error", "failed"):
-                    return False
-                return None
-            snapshot["tool_successes"] = [
-                _succ(s, st) for (_t, _p, _c, s, st) in seq_rows
+                turn_by_system.get(str(c)) for (_t, _p, c) in seq_rows
             ]
         except Exception:
             snapshot["tool_sequence"] = []
             snapshot["tool_phases"] = []
             snapshot["tool_turns"] = []
-            snapshot["tool_successes"] = []
 
         # Set of phases actually entered by PlanDecision for this report,
         # both globally and per turn (for PhaseRule with ``turn:`` set).
@@ -550,27 +536,21 @@ class TestEvaluationService:
                 return None
 
         def _filtered_tool_sequence(rule_obj) -> List[str]:
-            """Return tool names matching rule.phase, rule.turn, and
-            rule.successful; ``None`` for any filter means no filter."""
+            """Return tool names matching rule.phase and rule.turn;
+            ``None`` for either means no filter."""
             phase = _phase_of(rule_obj)
             turn = _turn_of(rule_obj)
-            successful = getattr(rule_obj, "successful", None)
             seq = snapshot.get("tool_sequence") or []
-            if phase is None and turn is None and successful is None:
+            if phase is None and turn is None:
                 return list(seq)
             phases = snapshot.get("tool_phases") or []
             turns = snapshot.get("tool_turns") or []
-            successes = snapshot.get("tool_successes") or []
             out: List[str] = []
             for i, t in enumerate(seq):
                 if phase is not None and (i >= len(phases) or phases[i] != phase):
                     continue
                 if turn is not None and (i >= len(turns) or turns[i] != turn):
                     continue
-                if successful is not None:
-                    s = successes[i] if i < len(successes) else None
-                    if s is not successful:  # None never matches either True or False
-                        continue
                 out.append(t)
             return out
 
@@ -582,11 +562,6 @@ class TestEvaluationService:
             t = _turn_of(rule_obj)
             if t is not None:
                 parts.append(f"turn={t}")
-            s = getattr(rule_obj, "successful", None)
-            if s is True:
-                parts.append("successful=true")
-            elif s is False:
-                parts.append("successful=false")
             return f" [{', '.join(parts)}]" if parts else ""
 
         # Iterate rules 1:1 and build aligned results

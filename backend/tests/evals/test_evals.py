@@ -41,10 +41,6 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
         desc = f"tool.calls {rule_spec.get('tool')} min={rule_spec.get('min_calls', 0)}"
         if rule_spec.get("max_calls") is not None:
             desc += f" max={rule_spec['max_calls']}"
-        if rule_spec.get("successful") is True:
-            desc += " successful=true"
-        elif rule_spec.get("successful") is False:
-            desc += " successful=false"
     elif rule_type == "ordering":
         mode = rule_spec.get("mode", "flexible")
         seq = [step.get("tool_or_bind") for step in (rule_spec.get("sequence") or [])]
