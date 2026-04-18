@@ -102,36 +102,55 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
 
 
 def _fmt_trace(completions_trace: List[Dict[str, Any]]) -> str:
-    """One-line conversation shape:
+    """Multi-line conversation trace with planner thinking per block:
 
-        user("How many customers?")
-         → system[create_data] "You have 59 customers"
-         → user("total revenue?")
-         → system[create_data] "$2,328.60"
+        [turn 0] user: "How many customers?"
+        [turn 1] system [create_data] "You have 59 customers"
+            thinking: I need to count distinct customer IDs…
+            thinking (create_data): Selecting COUNT(DISTINCT CustomerId)…
+        [turn 2] user: "total revenue?"
+        [turn 3] system [create_data] "$2,328.60"
+            thinking: Revenue is SUM(Invoice.Total)…
     """
-    parts: List[str] = []
+    def _short(s: Optional[str], n: int) -> str:
+        s = (s or "").strip().replace("\n", " ")
+        if len(s) > n:
+            s = s[: n - 1] + "…"
+        return s
+
+    lines: List[str] = []
     for comp in completions_trace or []:
         role = comp.get("role")
+        turn = comp.get("turn_index", 0)
         if role == "user":
-            prompt = (comp.get("prompt") or "").strip().replace("\n", " ")
-            if len(prompt) > 60:
-                prompt = prompt[:59] + "…"
-            parts.append(f'user("{prompt}")')
-        else:
-            tools_in_turn: List[str] = []
-            for b in comp.get("blocks") or []:
-                tool = (b.get("tool") or {}).get("name")
-                if tool:
-                    tools_in_turn.append(tool)
-            tools_str = f"[{', '.join(tools_in_turn)}]" if tools_in_turn else "[]"
-            content = (comp.get("content") or "").strip().replace("\n", " ")
-            if len(content) > 120:
-                content = content[:119] + "…"
-            if content:
-                parts.append(f'system{tools_str} "{content}"')
-            else:
-                parts.append(f"system{tools_str}")
-    return " → ".join(parts)
+            lines.append(f"[turn {turn}] user: \"{_short(comp.get('prompt'), 200)}\"")
+            continue
+
+        # system completion — tool list + final content, then each
+        # block's reasoning if present.
+        tools_in_turn: List[str] = []
+        for b in comp.get("blocks") or []:
+            tool = (b.get("tool") or {}).get("name")
+            if tool:
+                tools_in_turn.append(tool)
+        tools_str = f"[{', '.join(tools_in_turn)}]" if tools_in_turn else "[]"
+        content = _short(comp.get("content"), 200)
+        head = f"[turn {turn}] system {tools_str}"
+        if content:
+            head += f' "{content}"'
+        lines.append(head)
+
+        seen: set = set()
+        for b in comp.get("blocks") or []:
+            reason = _short(b.get("reasoning"), 200)
+            if not reason or reason in seen:
+                continue
+            seen.add(reason)
+            tool_name = (b.get("tool") or {}).get("name")
+            prefix = f"({tool_name}) " if tool_name else ""
+            lines.append(f"    thinking: {prefix}{reason}")
+
+    return "\n".join(lines)
 
 
 def _format_result_report(
@@ -164,9 +183,11 @@ def _format_result_report(
     if result.get("failure_reason"):
         header.append(f"  failure_reason={result['failure_reason']}")
 
-    trace_line = _fmt_trace(completions_trace or [])
-    if trace_line:
-        header.append(f"  trace: {trace_line}")
+    trace_block = _fmt_trace(completions_trace or [])
+    if trace_block:
+        header.append("  trace:")
+        for line in trace_block.splitlines():
+            header.append(f"    {line}")
 
     rule_lines: List[str] = []
     for i, (spec, rr) in enumerate(zip(rule_specs, rule_results), 1):
@@ -265,9 +286,11 @@ def test_eval_case(
     # Always surface the conversation shape so pass-case output is
     # informative, not just silent success. Failure output adds the
     # rule-by-rule breakdown below.
-    trace_line = _fmt_trace(completions_trace)
-    if trace_line:
-        print(f"[eval] trace: {trace_line}", flush=True)
+    trace_block = _fmt_trace(completions_trace)
+    if trace_block:
+        print("[eval] trace:", flush=True)
+        for line in trace_block.splitlines():
+            print(f"  {line}", flush=True)
 
     _append_report_line({
         "llm": llm_display,
