@@ -1156,6 +1156,11 @@ class TestRunService:
                                     message_type="table",
                                     role="user",
                                     status="success",
+                                    # Carry user_id from the original head so
+                                    # downstream tools (e.g. create_artifact)
+                                    # see a real user and don't violate
+                                    # NOT NULL constraints.
+                                    user_id=getattr(head, "user_id", None),
                                 )
                                 session.add(next_head)
                                 await session.commit()
@@ -1376,26 +1381,31 @@ class TestRunService:
                                         failure_reason=str(e),
                                         agent_execution_id=None,
                                     )
-                                try:
-                                    await central_queue.put((
-                                        str(r.id),
-                                        SSEEvent(
-                                            event="result.update",
-                                            completion_id=str(system_completion.id),
-                                            data={
-                                                "result_id": str(r.id),
-                                                "status": "error",
-                                                "failure_reason": str(e),
-                                            },
-                                        ),
-                                    ))
-                                except Exception:
-                                    pass
                             except Exception as _persist_err:
                                 logging.warning(
                                     f"[stream_run] failed to persist error "
                                     f"status for result={r.id}: {_persist_err!r}"
                                 )
+                            # ALWAYS emit a terminal result.update, even if
+                            # the DB persist above failed, so the streamer
+                            # can mark this result finished and close the
+                            # stream cleanly instead of hanging until the
+                            # client times out.
+                            try:
+                                await central_queue.put((
+                                    str(r.id),
+                                    SSEEvent(
+                                        event="result.update",
+                                        completion_id=str(system_completion.id),
+                                        data={
+                                            "result_id": str(r.id),
+                                            "status": "error",
+                                            "failure_reason": str(e),
+                                        },
+                                    ),
+                                ))
+                            except Exception:
+                                pass
                         finally:
                             eq.finish()
 
