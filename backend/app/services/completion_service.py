@@ -2177,6 +2177,11 @@ class CompletionService:
 
         resolved = pending_officejs_registry.resolve(tool_call_id, result)
         if not resolved:
+            logger.warning(
+                "officejs tool-result arrived for unknown/closed tool_call_id=%s (completion_id=%s, success=%s). "
+                "Likely the tool already timed out or was cancelled before the taskpane responded.",
+                tool_call_id, completion_id, result.get("success"),
+            )
             raise HTTPException(
                 status_code=404,
                 detail="No pending tool call with that id (timed out, already resolved, or wrong id).",

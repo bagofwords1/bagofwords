@@ -328,7 +328,16 @@ def _build_taskpane_html(base_url: str) -> str:
   function runOfficeJsCode(req) {{
     var id = req && req.id;
     var code = req && req.code;
+    // completion_id is echoed back to the report iframe so it can POST to the
+    // correct completion endpoint without relying on a Vue ref being set.
+    var completionId = req && req.completion_id;
     if (!id || typeof code !== "string") return;
+
+    function postResult(body) {{
+      body.id = id;
+      if (completionId) body.completion_id = completionId;
+      postToApp({{ type: "officeJsResult", data: JSON.stringify(body) }});
+    }}
 
     // Tier-1 validation: catch SyntaxErrors via the Function constructor before
     // touching the workbook. LLM hallucinations (unterminated strings, stray
@@ -337,16 +346,16 @@ def _build_taskpane_html(base_url: str) -> str:
     try {{
       fn = new Function("ctx", "return (async () => {{" + code + "\\n}})();");
     }} catch (e) {{
-      if (cancelledOfficeJsIds[id]) {{ delete cancelledOfficeJsIds[id]; return; }}
-      postToApp({{
-        type: "officeJsResult",
-        data: JSON.stringify({{
-          id: id,
-          success: false,
-          error: "SyntaxError: " + (e && e.message ? e.message : String(e)),
-          logs: [],
-          ranges_touched: []
-        }})
+      if (cancelledOfficeJsIds[id]) {{
+        console.warn("[bow-officejs] dropping syntax-error result for cancelled id", id);
+        delete cancelledOfficeJsIds[id];
+        return;
+      }}
+      postResult({{
+        success: false,
+        error: "SyntaxError: " + (e && e.message ? e.message : String(e)),
+        logs: [],
+        ranges_touched: []
       }});
       return;
     }}
@@ -363,30 +372,30 @@ def _build_taskpane_html(base_url: str) -> str:
     Excel.run(function(ctx) {{
       return Promise.resolve(fn(ctx)).then(function(returnValue) {{
         return ctx.sync().then(function() {{
-          if (cancelledOfficeJsIds[id]) {{ delete cancelledOfficeJsIds[id]; return; }}
-          postToApp({{
-            type: "officeJsResult",
-            data: JSON.stringify({{
-              id: id,
-              success: true,
-              return_value: truncateOfficeJsValue(returnValue),
-              logs: logs.slice(0, 50),
-              ranges_touched: []
-            }})
+          if (cancelledOfficeJsIds[id]) {{
+            console.warn("[bow-officejs] dropping success result for cancelled id", id);
+            delete cancelledOfficeJsIds[id];
+            return;
+          }}
+          postResult({{
+            success: true,
+            return_value: truncateOfficeJsValue(returnValue),
+            logs: logs.slice(0, 50),
+            ranges_touched: []
           }});
         }});
       }});
     }}).catch(function(e) {{
-      if (cancelledOfficeJsIds[id]) {{ delete cancelledOfficeJsIds[id]; return; }}
-      postToApp({{
-        type: "officeJsResult",
-        data: JSON.stringify({{
-          id: id,
-          success: false,
-          error: (e && e.message) ? e.message : String(e),
-          logs: logs.slice(0, 50),
-          ranges_touched: []
-        }})
+      if (cancelledOfficeJsIds[id]) {{
+        console.warn("[bow-officejs] dropping runtime-error result for cancelled id", id);
+        delete cancelledOfficeJsIds[id];
+        return;
+      }}
+      postResult({{
+        success: false,
+        error: (e && e.message) ? e.message : String(e),
+        logs: logs.slice(0, 50),
+        ranges_touched: []
       }});
     }}).then(function() {{ console.log = origLog; }});
   }}

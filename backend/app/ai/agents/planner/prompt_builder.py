@@ -125,6 +125,7 @@ PLAN TYPE DECISION FRAMEWORK
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
 - If the user attached a screenshot or an image -- describe it in reasoning - don't use inspect_data for images
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
+{chr(10) + 'EXCEL PLATFORM (the user is inside the Excel add-in — see <excel_context> and <officejs_cheatsheet> below)' + chr(10) + '- The active workbook is NOT a connected database. Its cells do not appear in the schema index.' + chr(10) + '- For questions about the live sheet, use read_excel_as_csv / read_excel_range to read, reason locally, then write_to_excel / write_officejs_code to respond.' + chr(10) + '- Use create_data / describe_tables / inspect_data ONLY when the user is asking about connected database tables visible in the schema index, not the active workbook.' if planner_input.external_platform == 'excel' else ''}
 
 {'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Use search_mcps to discover available external tools and get their full input schemas before calling execute_mcp.' + chr(10) + '- Use execute_mcp to invoke an external tool. Tabular results are auto-saved as CSV files accessible by create_data.' + chr(10) + '- Flow: search_mcps → execute_mcp → (optional: write_csv) → create_data for visualization.' if planner_input.mcp_tools_enabled else ''}
 - Use write_csv to generate or transform data into a CSV file using Python/pandas code. The resulting CSV can be loaded by create_data for visualization.
@@ -328,6 +329,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             values = ctx.get('selectionValues', [])
             truncated = ctx.get('truncated', False)
             lines.append('<excel_context>')
+            lines.append('  This is the user\'s selection at the moment their message was sent — a snapshot, possibly stale. The selection may be (a) the subject of the question ("summarize this"), (b) an insertion point for new output ("add a chart here"), or (c) incidental. Infer which from the user\'s message; if unclear, ask.')
             lines.append(f'  Selected range: {address} (sheet: {sheet}, {rows} rows x {cols} columns)')
             if truncated:
                 lines.append(f'  Note: selection truncated (showing {len(values)} of {ctx.get("totalCellCount", "?")} cells)')
@@ -335,15 +337,16 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                 lines.append(f'  Values: {json.dumps(values)}')
             lines.append('</excel_context>')
 
-        if PromptBuilder._has_tool(planner_input, 'write_officejs_code'):
+        excel_tools = ['read_excel_range', 'read_excel_as_csv', 'write_to_excel', 'write_officejs_code']
+        if PromptBuilder._has_any_tool(planner_input, excel_tools):
             lines.append('<officejs_cheatsheet>')
-            lines.append('  Tool: write_officejs_code — runs in the user\'s Excel taskpane. The taskpane wraps your code in Excel.run(async ctx => { ... }), so write just the body.')
-            lines.append('  Load before read: range.load([\'values\',\'address\']); await ctx.sync();')
-            lines.append('  Anchors: ctx.workbook.getActiveWorksheet(), ctx.workbook.worksheets.getItem(name), sheet.getRange(\'A1:C3\'), sheet.getUsedRange(), ctx.workbook.getSelectedRange().')
-            lines.append('  Writing: range.values = [[1,2],[3,4]]; range.formulas = [[\'=SUM(A:A)\']]; range.format.fill.color = \'#FFEB9C\'.')
-            lines.append('  Tables: sheet.tables.add(\'A1:C10\', true). Charts: sheet.charts.add(\'ColumnClustered\', range, \'Auto\').')
-            lines.append('  Return only small JSON-serializable values (e.g. a sum, an address). Large returned ranges are truncated.')
-            lines.append('  Prefer write_to_excel for plain table dumps; use write_officejs_code for formulas, formatting, charts, pivots, multi-sheet, or reading ranges.')
+            lines.append('  Tool selection:')
+            lines.append('    - read_excel_range — read known A1 ranges (values, optional formulas). Best for a handful of cells or formula inspection.')
+            lines.append('    - read_excel_as_csv — read a whole table/range and get back a CSV string. Best for analyzing a full table end-to-end.')
+            lines.append('    - write_to_excel — append a structured table at the selected cell. Cheapest for plain data dumps.')
+            lines.append('    - write_officejs_code — anything the above cannot do (formulas, formatting, charts, pivots, multi-sheet ops, discovery scans).')
+            lines.append('  Prefer read_excel_as_csv over read_excel_range when the user is asking about a table; prefer read_excel_range when you need formulas or just a few cells.')
+            lines.append('  NEVER use write_officejs_code just to read cells — the read_excel_* tools are faster, cheaper, and can\'t time out on missing-.load() bugs.')
             lines.append('</officejs_cheatsheet>')
 
         return '\n  '.join(lines) if lines else ''
@@ -352,6 +355,14 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
     def _has_tool(planner_input: PlannerInput, tool_name: str) -> bool:
         for tool in planner_input.tool_catalog or []:
             if getattr(tool, 'name', None) == tool_name:
+                return True
+        return False
+
+    @staticmethod
+    def _has_any_tool(planner_input: PlannerInput, tool_names: List[str]) -> bool:
+        names = set(tool_names)
+        for tool in planner_input.tool_catalog or []:
+            if getattr(tool, 'name', None) in names:
                 return True
         return False
 

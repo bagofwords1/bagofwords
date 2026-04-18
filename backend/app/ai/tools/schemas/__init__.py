@@ -20,6 +20,8 @@ from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
 from .write_csv import WriteCsvInput, WriteCsvOutput
 from .write_to_excel import WriteToExcelInput, WriteToExcelOutput
 from .write_officejs_code import WriteOfficeJsCodeInput, WriteOfficeJsCodeOutput
+from .read_excel_range import ReadExcelRangeInput, ReadExcelRangeOutput, ReadExcelRangeItem
+from .read_excel_as_csv import ReadExcelAsCsvInput, ReadExcelAsCsvOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -73,6 +75,11 @@ __all__ = [
     "WriteToExcelOutput",
     "WriteOfficeJsCodeInput",
     "WriteOfficeJsCodeOutput",
+    "ReadExcelRangeInput",
+    "ReadExcelRangeOutput",
+    "ReadExcelRangeItem",
+    "ReadExcelAsCsvInput",
+    "ReadExcelAsCsvOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",

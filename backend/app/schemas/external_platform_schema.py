@@ -9,6 +9,7 @@ class PlatformType(str, Enum):
     WHATSAPP = "whatsapp"
     EMAIL = "email"
     MCP = "mcp"
+    EXCEL = "excel"
 
 class ExternalPlatformBase(BaseModel):
     platform_type: PlatformType

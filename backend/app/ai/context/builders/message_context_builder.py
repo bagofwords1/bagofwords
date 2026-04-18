@@ -62,6 +62,109 @@ def _digest_knowledge_tool(tool_execution) -> str:
     return ""
 
 
+def _digest_excel_tool(tool_execution) -> str:
+    """Digest for Excel bridge tools.
+
+    Covers write_officejs_code, write_to_excel, read_excel_range, and
+    read_excel_as_csv. Returns empty string when the tool isn't one of these
+    so callers can fall through.
+
+    Why: without this the planner sees only the generic result_summary
+    (truncated to 60 chars), losing return_value/data — so multi-turn
+    reasoning over Excel has to re-run every probe.
+    """
+    name = tool_execution.tool_name
+    if name not in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv'):
+        return ""
+    rj = tool_execution.result_json or {}
+    parts: list[str] = []
+
+    if name == 'write_officejs_code':
+        args = getattr(tool_execution, 'arguments_json', None) or {}
+        desc = args.get('description')
+        if desc:
+            parts.append(f"desc: {str(desc)[:80]}")
+        if rj.get('success') is False:
+            err = rj.get('error') or 'unknown error'
+            parts.append(f"FAILED: {str(err)[:160]}")
+            return "; ".join(parts)
+        rv = rj.get('return_value')
+        if rv is not None:
+            try:
+                rv_str = json.dumps(rv, default=str)
+            except Exception:
+                rv_str = str(rv)
+            if len(rv_str) > 400:
+                rv_str = rv_str[:400] + '…'
+            parts.append(f"return_value: {rv_str}")
+        ranges = rj.get('ranges_touched') or []
+        if ranges:
+            shown = ', '.join(str(r) for r in ranges[:5])
+            if len(ranges) > 5:
+                shown += f'… +{len(ranges) - 5}'
+            parts.append(f"ranges: {shown}")
+        return "; ".join(parts)
+
+    if name == 'write_to_excel':
+        if rj.get('success') is False:
+            err = rj.get('error_message') or rj.get('error') or 'unknown error'
+            return f"FAILED: {str(err)[:160]}"
+        rc = rj.get('row_count')
+        cc = rj.get('column_count')
+        if rc is not None and cc is not None:
+            return f"wrote {rc} rows × {cc} cols"
+        return ""
+
+    if name == 'read_excel_range':
+        if rj.get('success') is False:
+            err = rj.get('error') or 'unknown error'
+            return f"FAILED: {str(err)[:160]}"
+        ranges = rj.get('ranges') or []
+        for r in ranges[:3]:
+            addr = r.get('address', '?')
+            rc = r.get('row_count', 0)
+            cc = r.get('col_count', 0)
+            parts.append(f"{addr} ({rc}×{cc})")
+            vals = r.get('values')
+            if vals is not None:
+                try:
+                    vs = json.dumps(vals, default=str)
+                except Exception:
+                    vs = str(vals)
+                if len(vs) > 400:
+                    vs = vs[:400] + '…'
+                parts.append(f"values: {vs}")
+        if len(ranges) > 3:
+            parts.append(f"(+{len(ranges) - 3} more ranges)")
+        if rj.get('truncated'):
+            parts.append("TRUNCATED (cell_limit hit)")
+        return "; ".join(parts)
+
+    if name == 'read_excel_as_csv':
+        if rj.get('success') is False:
+            err = rj.get('error') or 'unknown error'
+            return f"FAILED: {str(err)[:160]}"
+        rc = rj.get('row_count')
+        cc = rj.get('col_count')
+        if rc is not None and cc is not None:
+            parts.append(f"{rc}×{cc}")
+        fid = rj.get('file_id')
+        if fid:
+            parts.append(f"file_id: {fid}")
+        fname = rj.get('file_name')
+        if fname:
+            parts.append(f"file: {fname}")
+        csv = rj.get('csv') or ''
+        if csv:
+            snippet = csv if len(csv) <= 500 else csv[:500] + '…'
+            parts.append(f"csv:\n{snippet}")
+        if rj.get('truncated'):
+            parts.append("TRUNCATED")
+        return "; ".join(parts)
+
+    return ""
+
+
 class MessageContextBuilder:
     """
     Builds conversation message context for agent execution.
@@ -429,6 +532,10 @@ class MessageContextBuilder:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                     digest = _digest_knowledge_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
+                                    digest = _digest_excel_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
@@ -980,6 +1087,10 @@ class MessageContextBuilder:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                 digest = _digest_knowledge_tool(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
+                                digest = _digest_excel_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:

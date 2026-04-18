@@ -1,4 +1,4 @@
-import asyncio
+import json
 import logging
 from typing import Any, AsyncIterator, Dict, Optional, Type
 
@@ -6,7 +6,11 @@ from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
-from app.ai.tools.officejs_registry import pending_officejs_registry
+from app.ai.tools.officejs_bridge import (
+    await_result,
+    make_cancel_action,
+    make_run_action,
+)
 from app.ai.tools.schemas.events import (
     ToolEndEvent,
     ToolEvent,
@@ -22,15 +26,25 @@ from app.ai.tools.schemas.write_officejs_code import (
 logger = logging.getLogger(__name__)
 
 
-WAIT_TIMEOUT_S = 55  # Below ToolMetadata.timeout_seconds and the runner's hard_timeout.
+def _truncate_return_value(rv: Any, max_len: int = 400) -> Optional[str]:
+    """Render return_value as a short JSON snippet for the observation summary."""
+    if rv is None:
+        return None
+    try:
+        s = json.dumps(rv, default=str)
+    except Exception:
+        s = str(rv)
+    if len(s) > max_len:
+        s = s[:max_len] + "…"
+    return s
 
 
 class WriteOfficeJsCodeTool(Tool):
     """Execute arbitrary Office.js code in the user's Excel taskpane.
 
-    Novel pattern: the tool pauses on an asyncio.Future until the taskpane posts
-    the result back via a side-channel HTTP endpoint. Races the future against
-    sigkill_event (user-initiated stop) and a wall-clock timeout.
+    Dispatches the code via SSE (tool.partial), then awaits a Future that the
+    taskpane resolves by POSTing the result back to /tool-results/{id}. See
+    officejs_bridge for the shared await/race logic.
     """
 
     @property
@@ -39,8 +53,19 @@ class WriteOfficeJsCodeTool(Tool):
             name="write_officejs_code",
             description=(
                 "Execute Office.js code in the user's Excel spreadsheet. Use for formulas, "
-                "formatting, charts, pivots, multi-sheet operations, or reading specific ranges. "
-                "For plain append-a-table use write_to_excel instead (cheaper, more reliable)."
+                "formatting, charts, pivots, multi-sheet operations, or anything the "
+                "read_excel_* / write_to_excel tools cannot do. For reads prefer "
+                "read_excel_range or read_excel_as_csv — they are cheaper and safer.\n\n"
+                "CODE AUTHORING RULES (the `code` argument):\n"
+                "- The taskpane wraps your code in Excel.run(async ctx => { ... }), so write just the body.\n"
+                "- Load EVERY property before reading — including string properties like .address, .name, "
+                ".title.text. Pattern: range.load(['values','address']); await ctx.sync();\n"
+                "- Anchors: ctx.workbook.getActiveWorksheet(), ctx.workbook.worksheets.getItem(name), "
+                "sheet.getRange('A1:C3'), sheet.getUsedRange(), ctx.workbook.getSelectedRange().\n"
+                "- Writing: range.values = [[1,2],[3,4]]; range.formulas = [['=SUM(A:A)']]; "
+                "range.format.fill.color = '#FFEB9C'.\n"
+                "- Tables: sheet.tables.add('A1:C10', true). Charts: sheet.charts.add('ColumnClustered', range, 'Auto').\n"
+                "- Return only small JSON-serializable values (e.g. a sum, an address). Large returned ranges are truncated."
             ),
             category="action",
             version="1.0.0",
@@ -67,8 +92,16 @@ class WriteOfficeJsCodeTool(Tool):
         data = WriteOfficeJsCodeInput(**tool_input)
 
         tool_call_id = runtime_ctx.get("tool_call_id")
+        system_completion = runtime_ctx.get("system_completion")
+        completion_id = str(system_completion.id) if system_completion is not None else None
+        sigkill_event = runtime_ctx.get("sigkill_event")
+
+        yield ToolStartEvent(
+            type="tool.start",
+            payload={"title": data.description or "Running Excel code"},
+        )
+
         if not tool_call_id:
-            yield ToolStartEvent(type="tool.start", payload={"title": "Running Excel code"})
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -81,70 +114,28 @@ class WriteOfficeJsCodeTool(Tool):
             )
             return
 
-        sigkill_event: Optional[asyncio.Event] = runtime_ctx.get("sigkill_event")
-
-        yield ToolStartEvent(
-            type="tool.start",
-            payload={"title": data.description or "Running Excel code"},
-        )
-
-        future = pending_officejs_registry.register(tool_call_id)
-
-        # Hand the code off to the taskpane. Kept on tool.partial (not tool.end)
-        # so the UI keeps the tool in 'running' state while we wait.
         yield ToolPartialEvent(
             type="tool.partial",
             payload={
-                "excel_action": {
-                    "type": "runOfficeJs",
-                    "id": tool_call_id,
-                    "code": data.code,
-                    "description": data.description,
-                },
+                "excel_action": make_run_action(
+                    tool_call_id=tool_call_id,
+                    code=data.code,
+                    description=data.description,
+                    completion_id=completion_id,
+                ),
             },
         )
 
-        result: Optional[Dict[str, Any]] = None
-        cancelled = False
-        timed_out = False
-
-        result_task = asyncio.ensure_future(future)
-        sigkill_task = (
-            asyncio.ensure_future(sigkill_event.wait())
-            if sigkill_event is not None
-            else None
+        result, cancelled, timed_out = await await_result(
+            tool_call_id=tool_call_id,
+            sigkill_event=sigkill_event,
         )
-        waiters = [result_task] + ([sigkill_task] if sigkill_task is not None else [])
-
-        try:
-            done, pending = await asyncio.wait(
-                waiters,
-                timeout=WAIT_TIMEOUT_S,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            if sigkill_task is not None and sigkill_task in done:
-                cancelled = True
-            elif result_task in done:
-                try:
-                    result = result_task.result()
-                except Exception as e:
-                    logger.error("write_officejs_code future errored: %s", e, exc_info=True)
-                    result = {"success": False, "error": f"Internal error awaiting result: {e}"}
-            else:
-                timed_out = True
-
-            for task in pending:
-                task.cancel()
-        finally:
-            pending_officejs_registry.forget(tool_call_id)
 
         if cancelled or timed_out:
-            # Best-effort: tell the taskpane to discard any late result.
             yield ToolProgressEvent(
                 type="tool.progress",
                 payload={
-                    "excel_action": {"type": "cancelOfficeJs", "id": tool_call_id},
+                    "excel_action": make_cancel_action(tool_call_id),
                     "stage": "cancel_notified",
                 },
             )
@@ -163,6 +154,12 @@ class WriteOfficeJsCodeTool(Tool):
             return
 
         if timed_out:
+            logger.warning(
+                "write_officejs_code timed out (tool_call_id=%s, completion_id=%s) — "
+                "likely a bridge silent-drop: check taskpane console and handleOfficeJsResult.",
+                tool_call_id,
+                completion_id,
+            )
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -180,11 +177,14 @@ class WriteOfficeJsCodeTool(Tool):
 
         result = result or {"success": False, "error": "No result returned."}
         ranges_touched = result.get("ranges_touched") or []
-        summary = (
-            f"Excel code executed successfully ({len(ranges_touched)} ranges touched)."
-            if result.get("success")
-            else f"Excel code failed: {result.get('error') or 'unknown error'}"
-        )
+        if result.get("success"):
+            parts = [f"Excel code executed ({len(ranges_touched)} ranges touched)"]
+            rv_snippet = _truncate_return_value(result.get("return_value"))
+            if rv_snippet is not None:
+                parts.append(f"return_value: {rv_snippet}")
+            summary = "; ".join(parts)
+        else:
+            summary = f"Excel code failed: {result.get('error') or 'unknown error'}"
 
         yield ToolEndEvent(
             type="tool.end",

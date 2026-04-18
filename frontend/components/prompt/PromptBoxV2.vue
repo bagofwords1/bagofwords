@@ -858,28 +858,12 @@ const submitTooltip = computed(() => {
     return ''
 })
 
-function formatExcelSelectionPrefix(): string {
-    if (!isExcel.value || !excelSelection.value || excelSelectionDismissed.value) return ''
-    const s = excelSelection.value
-    const vals = s.selectionValues
-    const lines = [`[Excel selection: ${s.sheetName} ${s.address}]`]
-    if (vals && vals.length > 0) {
-        lines.push(...vals.map((row: readonly any[]) =>
-            row.map((v: any) => v == null ? '' : String(v)).join(', ')
-        ))
-    }
-    if (s.truncated) lines.push(`... truncated (${s.totalCellCount} total cells)`)
-    return lines.join('\n')
-}
-
 function submit() {
     if (!canSubmit.value) return
 
-    // Prepend Excel selection data if hint is active
-    const excelPrefix = formatExcelSelectionPrefix()
-    if (excelPrefix) {
-        text.value = excelPrefix + '\n\n' + text.value
-    }
+    // Excel selection is delivered via prompt.platform_context on the parent
+    // submit path (see onSubmitCompletion). It is intentionally NOT prepended
+    // to the user-visible text here.
 
     // Organize inline mentions by type
     const mentionsByType = {

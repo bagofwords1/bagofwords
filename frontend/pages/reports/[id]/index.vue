@@ -2337,16 +2337,23 @@ const handleOfficeJsResult = async (event: MessageEvent) => {
     let parsed: any = data.data
     try { if (typeof parsed === 'string') parsed = JSON.parse(parsed) } catch { return }
     if (!parsed || !parsed.id) return
-    const { id, ...body } = parsed
-    const completionId = currentOfficeJsCompletionId.value
-    if (!completionId) return
+    const { id, completion_id: echoedCompletionId, ...body } = parsed
+    // Prefer the echoed completion_id (embedded in the runOfficeJs action by
+    // the backend). Falling back to the ref covers older tool calls that
+    // dispatched before the echo was added. If both are missing we silently
+    // drop — which was the silent-drop bug; warn loudly so it's debuggable.
+    const completionId = echoedCompletionId || currentOfficeJsCompletionId.value
+    if (!completionId) {
+        console.warn('[bow-officejs] dropping result — no completion_id (echoed or ref). tool_call_id=', id)
+        return
+    }
     try {
         await useMyFetch(`/api/completions/${completionId}/tool-results/${id}`, {
             method: 'POST',
             body,
         })
     } catch (e) {
-        console.warn('Failed to POST officeJsResult back to backend', e)
+        console.warn('[bow-officejs] POST officeJsResult failed', { tool_call_id: id, completion_id: completionId, error: e })
     }
 }
 
