@@ -451,14 +451,40 @@ def run_case_and_wait(test_client):
                         continue
                     tools_for_result: List[Dict[str, Any]] = []
                     completions_for_result: List[Dict[str, Any]] = []
-                    for comp in (item.get("completions") or []):
-                        # Only enrich system completions (user turns carry
-                        # just the prompt).
-                        if comp.get("role") != "system":
+                    # Include BOTH user and system completions in order so
+                    # the JSONL reads as a full conversation trace:
+                    #   user prompt → system (tools + final) →
+                    #   user prompt → system (tools + final) → …
+                    sorted_completions = sorted(
+                        item.get("completions") or [],
+                        key=lambda c: (c.get("turn_index") or 0),
+                    )
+                    for comp in sorted_completions:
+                        role = comp.get("role")
+                        entry: Dict[str, Any] = {
+                            "turn_index": comp.get("turn_index"),
+                            "role": role,
+                            "status": comp.get("status"),
+                        }
+                        if role == "user":
+                            prompt_obj = comp.get("prompt") or {}
+                            entry["prompt"] = _truncate(
+                                prompt_obj.get("content") if isinstance(prompt_obj, dict) else prompt_obj,
+                                2000,
+                            )
+                            completions_for_result.append(entry)
                             continue
+                        # System completion: final answer + ordered blocks.
+                        entry["agent_execution_id"] = comp.get("agent_execution_id")
+                        entry["content"] = _truncate(
+                            (comp.get("completion") or {}).get("content")
+                            if isinstance(comp.get("completion"), dict)
+                            else comp.get("completion"),
+                            2000,
+                        )
                         blocks_out: List[Dict[str, Any]] = []
                         for block in (comp.get("completion_blocks") or []):
-                            entry: Dict[str, Any] = {
+                            b: Dict[str, Any] = {
                                 "seq": block.get("seq"),
                                 "block_index": block.get("block_index"),
                                 "phase": block.get("phase"),
@@ -470,14 +496,14 @@ def run_case_and_wait(test_client):
                             }
                             pd = block.get("plan_decision") or {}
                             if pd:
-                                entry["plan"] = {
+                                b["plan"] = {
                                     "action": pd.get("action_name"),
                                     "analysis_complete": pd.get("analysis_complete"),
                                     "loop_index": pd.get("loop_index"),
                                 }
                             te = block.get("tool_execution") or {}
                             if te:
-                                entry["tool"] = {
+                                b["tool"] = {
                                     "name": te.get("tool_name"),
                                     "duration_ms": te.get("duration_ms"),
                                     "status": te.get("status"),
@@ -490,19 +516,9 @@ def run_case_and_wait(test_client):
                                         "status": te.get("status"),
                                         "success": te.get("success"),
                                     })
-                            blocks_out.append(entry)
-                        completions_for_result.append({
-                            "turn_index": comp.get("turn_index"),
-                            "agent_execution_id": comp.get("agent_execution_id"),
-                            "status": comp.get("status"),
-                            "content": _truncate(
-                                (comp.get("completion") or {}).get("content")
-                                if isinstance(comp.get("completion"), dict)
-                                else comp.get("completion"),
-                                2000,
-                            ),
-                            "blocks": blocks_out,
-                        })
+                            blocks_out.append(b)
+                        entry["blocks"] = blocks_out
+                        completions_for_result.append(entry)
                     tool_traces[rid] = tools_for_result
                     completions_by_result[rid] = completions_for_result
                     if tools_for_result:

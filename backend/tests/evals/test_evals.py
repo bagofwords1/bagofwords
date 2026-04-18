@@ -101,8 +101,38 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _fmt_trace(completions_trace: List[Dict[str, Any]]) -> str:
+    """One-line conversation shape:
+
+        user("How many customers?") → system[create_data]
+         → user("total revenue?") → system[create_data, clarify]
+    """
+    parts: List[str] = []
+    for comp in completions_trace or []:
+        role = comp.get("role")
+        if role == "user":
+            prompt = (comp.get("prompt") or "").strip().replace("\n", " ")
+            if len(prompt) > 60:
+                prompt = prompt[:59] + "…"
+            parts.append(f'user("{prompt}")')
+        else:
+            tools_in_turn: List[str] = []
+            for b in comp.get("blocks") or []:
+                tool = (b.get("tool") or {}).get("name")
+                if tool:
+                    tools_in_turn.append(tool)
+            if tools_in_turn:
+                parts.append(f"system[{', '.join(tools_in_turn)}]")
+            else:
+                parts.append("system[]")
+    return " → ".join(parts)
+
+
 def _format_result_report(
-    result: Dict[str, Any], *, case_label: str, llm_display: str,
+    result: Dict[str, Any], *,
+    case_label: str,
+    llm_display: str,
+    completions_trace: List[Dict[str, Any]] | None = None,
 ) -> str:
     rj = result.get("result_json") or {}
     totals = rj.get("totals") or {}
@@ -127,6 +157,10 @@ def _format_result_report(
         header.append(f"  {'  '.join(meta_bits)}")
     if result.get("failure_reason"):
         header.append(f"  failure_reason={result['failure_reason']}")
+
+    trace_line = _fmt_trace(completions_trace or [])
+    if trace_line:
+        header.append(f"  trace: {trace_line}")
 
     rule_lines: List[str] = []
     for i, (spec, rr) in enumerate(zip(rule_specs, rule_results), 1):
@@ -222,6 +256,13 @@ def test_eval_case(
     tool_trace: List[Dict[str, Any]] = tool_traces.get(result.get("id")) or []
     completions_trace: List[Dict[str, Any]] = completions_by_result.get(result.get("id")) or []
 
+    # Always surface the conversation shape so pass-case output is
+    # informative, not just silent success. Failure output adds the
+    # rule-by-rule breakdown below.
+    trace_line = _fmt_trace(completions_trace)
+    if trace_line:
+        print(f"[eval] trace: {trace_line}", flush=True)
+
     _append_report_line({
         "llm": llm_display,
         "suite": suite_name,
@@ -242,6 +283,9 @@ def test_eval_case(
     if status != "pass":
         pytest.fail(
             _format_result_report(
-                result, case_label=case_label, llm_display=llm_display,
+                result,
+                case_label=case_label,
+                llm_display=llm_display,
+                completions_trace=completions_trace,
             )
         )
