@@ -328,6 +328,43 @@ class TestRunService:
                 pass
         return rows
 
+    async def get_result_transcript(
+        self,
+        db: AsyncSession,
+        organization,
+        current_user,
+        result_id: str,
+        max_messages: int = 40,
+    ) -> str:
+        """Render the message-context view of a TestResult's report using
+        the same ``MessageContextBuilder`` the agent uses internally.
+
+        This gives eval reports the same digests (tool summaries, row
+        counts, viz ids, etc.) without duplicating the tool-specific
+        logic here.
+        """
+        # Resolve result → report (org-scoped).
+        res = await db.execute(select(TestResult).where(TestResult.id == str(result_id)))
+        result = res.scalar_one_or_none()
+        if not result:
+            raise HTTPException(status_code=404, detail="Test result not found")
+        _ = await self.get_run(db, str(organization.id), current_user, str(result.run_id))
+
+        report = await db.get(Report, str(result.report_id))
+        if not report:
+            raise HTTPException(status_code=404, detail="Report for result not found")
+
+        from app.ai.context.builders.message_context_builder import MessageContextBuilder
+        # Ensure org.settings is loaded so the builder can read
+        # allow_llm_see_data without triggering a lazy lookup from a
+        # closed session.
+        try:
+            await organization.get_settings(db)
+        except Exception:
+            pass
+        builder = MessageContextBuilder(db=db, organization=organization, report=report, user=current_user)
+        return await builder.build_context(max_messages=max_messages)
+
     async def get_result(self, db: AsyncSession, organization_id: str, current_user, result_id: str) -> TestResult:
         res = await db.execute(select(TestResult).where(TestResult.id == result_id))
         result = res.scalar_one_or_none()

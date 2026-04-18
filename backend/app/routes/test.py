@@ -254,6 +254,23 @@ async def get_result(result_id: str, db: AsyncSession = Depends(get_async_db), o
     return await run_service.get_result(db, str(organization.id), current_user, result_id)
 
 
+@router.get("/results/{result_id}/transcript", response_class=PlainTextResponse)
+@requires_permission('manage_evals')
+async def get_result_transcript(
+    result_id: str,
+    max_messages: int = Query(40, ge=1, le=200),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Plain-text transcript for a test result, rendered by
+    ``MessageContextBuilder`` — same view the agent sees internally
+    (user turns + assistant thinking/responses + tool digests)."""
+    return await run_service.get_result_transcript(
+        db, organization, current_user, result_id, max_messages=max_messages,
+    )
+
+
 @router.get("/rules/catalog")
 @requires_permission('manage_evals')
 async def get_rules_catalog(db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):

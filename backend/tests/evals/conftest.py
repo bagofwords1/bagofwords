@@ -430,6 +430,7 @@ def run_case_and_wait(test_client):
         # round-trip.
         tool_traces: Dict[str, List[Dict[str, Any]]] = {}
         completions_by_result: Dict[str, List[Dict[str, Any]]] = {}
+        transcripts: Dict[str, str] = {}
 
         def _truncate(val: Optional[str], limit: int) -> Optional[str]:
             if val is None:
@@ -527,6 +528,18 @@ def run_case_and_wait(test_client):
                             f"tools={' → '.join(t['tool'] for t in tools_for_result)}",
                             flush=True,
                         )
+                    # Pull the agent's own message-context view via the
+                    # new transcript endpoint — same renderer as the
+                    # context injected into the LLM each turn.
+                    try:
+                        t_resp = test_client.get(
+                            f"/api/tests/results/{rid}/transcript",
+                            headers=headers,
+                        )
+                        if t_resp.status_code == 200:
+                            transcripts[rid] = t_resp.text
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -540,6 +553,7 @@ def run_case_and_wait(test_client):
             "results": results,
             "tool_traces": tool_traces,
             "completions": completions_by_result,
+            "transcripts": transcripts,
         }
 
     return _run

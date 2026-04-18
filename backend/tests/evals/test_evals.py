@@ -158,6 +158,7 @@ def _format_result_report(
     case_label: str,
     llm_display: str,
     completions_trace: List[Dict[str, Any]] | None = None,
+    transcript: str | None = None,
 ) -> str:
     rj = result.get("result_json") or {}
     totals = rj.get("totals") or {}
@@ -183,11 +184,18 @@ def _format_result_report(
     if result.get("failure_reason"):
         header.append(f"  failure_reason={result['failure_reason']}")
 
-    trace_block = _fmt_trace(completions_trace or [])
-    if trace_block:
-        header.append("  trace:")
-        for line in trace_block.splitlines():
+    # Prefer the server transcript when available; otherwise fall back
+    # to the compact block formatter.
+    if transcript and transcript.strip():
+        header.append("  transcript:")
+        for line in transcript.splitlines():
             header.append(f"    {line}")
+    else:
+        trace_block = _fmt_trace(completions_trace or [])
+        if trace_block:
+            header.append("  trace:")
+            for line in trace_block.splitlines():
+                header.append(f"    {line}")
 
     rule_lines: List[str] = []
     for i, (spec, rr) in enumerate(zip(rule_specs, rule_results), 1):
@@ -242,6 +250,7 @@ def test_eval_case(
     results = run_data["results"]
     tool_traces = run_data.get("tool_traces") or {}
     completions_by_result = run_data.get("completions") or {}
+    transcripts = run_data.get("transcripts") or {}
     assert len(results) == 1
     result = results[0]
     status = result.get("status")
@@ -282,15 +291,23 @@ def test_eval_case(
 
     tool_trace: List[Dict[str, Any]] = tool_traces.get(result.get("id")) or []
     completions_trace: List[Dict[str, Any]] = completions_by_result.get(result.get("id")) or []
+    transcript: str = transcripts.get(result.get("id")) or ""
 
-    # Always surface the conversation shape so pass-case output is
-    # informative, not just silent success. Failure output adds the
-    # rule-by-rule breakdown below.
-    trace_block = _fmt_trace(completions_trace)
-    if trace_block:
-        print("[eval] trace:", flush=True)
-        for line in trace_block.splitlines():
+    # Always surface the conversation, pass or fail. Prefer the
+    # server-rendered transcript (same renderer the agent uses to
+    # build its own message context — includes per-tool digests).
+    # Fall back to our compact formatter if the endpoint didn't
+    # respond.
+    if transcript.strip():
+        print("[eval] transcript:", flush=True)
+        for line in transcript.splitlines():
             print(f"  {line}", flush=True)
+    else:
+        trace_block = _fmt_trace(completions_trace)
+        if trace_block:
+            print("[eval] trace:", flush=True)
+            for line in trace_block.splitlines():
+                print(f"  {line}", flush=True)
 
     _append_report_line({
         "llm": llm_display,
@@ -307,6 +324,11 @@ def test_eval_case(
         # with its ordered blocks (planner reasoning, tool calls with
         # durations, final answer content). Strings are truncated.
         "completions": completions_trace,
+        # MessageContextBuilder-rendered transcript — same view the
+        # agent's own context hub produces. Includes per-tool digests
+        # (rows × cols, viz ids, etc.) without duplicating the logic
+        # in the harness.
+        "transcript": transcript,
     })
 
     if status != "pass":
@@ -316,5 +338,6 @@ def test_eval_case(
                 case_label=case_label,
                 llm_display=llm_display,
                 completions_trace=completions_trace,
+                transcript=transcript,
             )
         )
