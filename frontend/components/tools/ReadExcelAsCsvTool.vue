@@ -11,45 +11,36 @@
         class="w-3 h-3 mr-1 text-gray-400"
       />
       <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500">
-        <Icon name="heroicons-code-bracket" class="w-3 h-3 mr-1 text-gray-400" />
-        Running Excel code…{{ description ? ' ' + description : '' }}
+        <Icon name="heroicons-document-text" class="w-3 h-3 mr-1 text-gray-400" />
+        Reading {{ rangeLabel }} as CSV…
       </span>
       <span v-else-if="succeeded" class="text-gray-700 flex items-center">
         <Icon name="heroicons-check" class="w-3 h-3 mr-1 text-green-500" />
-        <span class="align-middle">Ran Excel code</span>
-        <span v-if="description" class="ml-1.5 text-[10px] text-gray-400 truncate max-w-[320px]">· {{ description }}</span>
+        <span class="align-middle">Read {{ rangeLabel }} as CSV</span>
+        <span v-if="truncated" class="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700">truncated</span>
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 mr-1" />
-        <span class="align-middle">Excel code failed</span>
-        <span v-if="isSyntaxError" class="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 flex-shrink-0">syntax</span>
+        <span class="align-middle">CSV read failed</span>
         <span v-if="errorMessage" class="ml-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
     </div>
 
     <Transition name="fade">
       <div v-if="!collapsed && hasDetail" class="mt-2 ml-4 text-xs text-gray-600">
-        <pre v-if="code" class="code-block text-[11px] text-gray-800 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ code }}</code></pre>
-        <div v-if="logs && logs.length" class="mt-2">
-          <div class="text-[10px] text-gray-400 mb-0.5">Logs ({{ logs.length }})</div>
-          <pre class="code-block text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ logs.join('\n') }}</code></pre>
-        </div>
-        <div v-if="returnValueFormatted" class="mt-2">
-          <div class="text-[10px] text-gray-400 mb-0.5">Returned</div>
-          <pre class="code-block text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ returnValueFormatted }}</code></pre>
-        </div>
+        <div class="text-[10px] text-gray-400 mb-0.5">CSV</div>
+        <pre class="code-block text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ csvPreview }}</code></pre>
       </div>
     </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 interface ToolExecution {
   id: string
   tool_name: string
-  tool_action?: string
   status: string
   result_summary?: string
   result_json?: any
@@ -66,32 +57,35 @@ const status = computed<string>(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 const aj = computed<any>(() => props.toolExecution?.arguments_json || {})
 
-const code = computed<string>(() => aj.value?.code || '')
-const description = computed<string>(() => aj.value?.description || '')
+const sheetName = computed<string>(() => aj.value?.sheet_name || '')
+const range = computed<string>(() => aj.value?.range || '')
 
 const isRunning = computed<boolean>(() => status.value === 'running' || (!('success' in rj.value) && status.value !== 'success' && status.value !== 'error' && status.value !== 'stopped'))
 const succeeded = computed<boolean>(() => !isRunning.value && rj.value?.success === true)
 const errorMessage = computed<string>(() => rj.value?.error || props.toolExecution?.result_summary || '')
-const isSyntaxError = computed<boolean>(() => typeof errorMessage.value === 'string' && errorMessage.value.startsWith('SyntaxError:'))
+const truncated = computed<boolean>(() => !!rj.value?.truncated)
 
-const logs = computed<string[]>(() => Array.isArray(rj.value?.logs) ? rj.value.logs : [])
-
-const returnValueFormatted = computed<string>(() => {
-  const rv = rj.value?.return_value
-  if (rv === undefined || rv === null) return ''
-  try { return typeof rv === 'string' ? rv : JSON.stringify(rv, null, 2) } catch { return String(rv) }
+const rangeLabel = computed<string>(() => {
+  if (!sheetName.value) return 'Excel range'
+  return range.value ? `${sheetName.value}!${range.value}` : sheetName.value
 })
 
-const hasDetail = computed<boolean>(() => !!code.value || logs.value.length > 0 || !!returnValueFormatted.value)
+const csv = computed<string>(() => rj.value?.csv || '')
+
+const csvPreview = computed<string>(() => {
+  const s = csv.value
+  if (!s) return ''
+  const MAX_CHARS = 4000
+  const MAX_LINES = 40
+  let out = s.length > MAX_CHARS ? s.slice(0, MAX_CHARS) + '\n…' : s
+  const lines = out.split('\n')
+  if (lines.length > MAX_LINES) out = lines.slice(0, MAX_LINES).join('\n') + '\n…'
+  return out
+})
+
+const hasDetail = computed<boolean>(() => !!csv.value)
 
 const collapsed = ref(true)
-watch(
-  () => [isRunning.value, succeeded.value, errorMessage.value],
-  () => {
-    if (!isRunning.value && !succeeded.value && hasDetail.value) collapsed.value = false
-  },
-  { immediate: true },
-)
 </script>
 
 <style scoped>

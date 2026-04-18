@@ -427,7 +427,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'excel'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-green-50 text-green-700 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
@@ -643,6 +643,8 @@ import MCPTool from '~/components/tools/MCPTool.vue'
 import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
 import WriteToExcelTool from '~/components/tools/WriteToExcelTool.vue'
 import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
+import ReadExcelRangeTool from '~/components/tools/ReadExcelRangeTool.vue'
+import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -1169,6 +1171,10 @@ function getToolComponent(toolName: string) {
 			return WriteToExcelTool
 		case 'write_officejs_code':
 			return WriteOfficeJsCodeTool
+		case 'read_excel_range':
+			return ReadExcelRangeTool
+		case 'read_excel_as_csv':
+			return ReadExcelAsCsvTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':

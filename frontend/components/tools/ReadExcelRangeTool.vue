@@ -11,32 +11,28 @@
         class="w-3 h-3 mr-1 text-gray-400"
       />
       <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500">
-        <Icon name="heroicons-code-bracket" class="w-3 h-3 mr-1 text-gray-400" />
-        Running Excel code…{{ description ? ' ' + description : '' }}
+        <Icon name="heroicons-table-cells" class="w-3 h-3 mr-1 text-gray-400" />
+        Reading {{ rangeLabel }}…
       </span>
       <span v-else-if="succeeded" class="text-gray-700 flex items-center">
         <Icon name="heroicons-check" class="w-3 h-3 mr-1 text-green-500" />
-        <span class="align-middle">Ran Excel code</span>
-        <span v-if="description" class="ml-1.5 text-[10px] text-gray-400 truncate max-w-[320px]">· {{ description }}</span>
+        <span class="align-middle">Read {{ rangeLabel }}</span>
+        <span v-if="truncated" class="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700">truncated</span>
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 mr-1" />
-        <span class="align-middle">Excel code failed</span>
-        <span v-if="isSyntaxError" class="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 flex-shrink-0">syntax</span>
+        <span class="align-middle">Read failed</span>
         <span v-if="errorMessage" class="ml-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
     </div>
 
     <Transition name="fade">
-      <div v-if="!collapsed && hasDetail" class="mt-2 ml-4 text-xs text-gray-600">
-        <pre v-if="code" class="code-block text-[11px] text-gray-800 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ code }}</code></pre>
-        <div v-if="logs && logs.length" class="mt-2">
-          <div class="text-[10px] text-gray-400 mb-0.5">Logs ({{ logs.length }})</div>
-          <pre class="code-block text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ logs.join('\n') }}</code></pre>
-        </div>
-        <div v-if="returnValueFormatted" class="mt-2">
-          <div class="text-[10px] text-gray-400 mb-0.5">Returned</div>
-          <pre class="code-block text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ returnValueFormatted }}</code></pre>
+      <div v-if="!collapsed && hasDetail" class="mt-2 ml-4 space-y-2 text-xs text-gray-600">
+        <div v-for="(r, idx) in ranges" :key="idx">
+          <div class="text-[10px] text-gray-400 mb-0.5">
+            {{ r.address }} <span v-if="r.row_count != null && r.col_count != null">· {{ r.row_count }}×{{ r.col_count }}</span>
+          </div>
+          <pre v-if="r.preview" class="code-block text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ r.preview }}</code></pre>
         </div>
       </div>
     </Transition>
@@ -44,12 +40,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 interface ToolExecution {
   id: string
   tool_name: string
-  tool_action?: string
   status: string
   result_summary?: string
   result_json?: any
@@ -66,32 +61,49 @@ const status = computed<string>(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})
 const aj = computed<any>(() => props.toolExecution?.arguments_json || {})
 
-const code = computed<string>(() => aj.value?.code || '')
-const description = computed<string>(() => aj.value?.description || '')
+const sheetName = computed<string>(() => aj.value?.sheet_name || '')
+const requestedRanges = computed<string[]>(() => Array.isArray(aj.value?.ranges) ? aj.value.ranges : [])
 
 const isRunning = computed<boolean>(() => status.value === 'running' || (!('success' in rj.value) && status.value !== 'success' && status.value !== 'error' && status.value !== 'stopped'))
 const succeeded = computed<boolean>(() => !isRunning.value && rj.value?.success === true)
 const errorMessage = computed<string>(() => rj.value?.error || props.toolExecution?.result_summary || '')
-const isSyntaxError = computed<boolean>(() => typeof errorMessage.value === 'string' && errorMessage.value.startsWith('SyntaxError:'))
+const truncated = computed<boolean>(() => !!rj.value?.truncated)
 
-const logs = computed<string[]>(() => Array.isArray(rj.value?.logs) ? rj.value.logs : [])
-
-const returnValueFormatted = computed<string>(() => {
-  const rv = rj.value?.return_value
-  if (rv === undefined || rv === null) return ''
-  try { return typeof rv === 'string' ? rv : JSON.stringify(rv, null, 2) } catch { return String(rv) }
+const rangeLabel = computed<string>(() => {
+  const list = requestedRanges.value
+  if (!sheetName.value) return 'Excel range'
+  if (!list.length) return sheetName.value
+  if (list.length === 1) return `${sheetName.value}!${list[0]}`
+  return `${sheetName.value}!${list[0]} +${list.length - 1}`
 })
 
-const hasDetail = computed<boolean>(() => !!code.value || logs.value.length > 0 || !!returnValueFormatted.value)
+const resultRanges = computed<any[]>(() => Array.isArray(rj.value?.ranges) ? rj.value.ranges : [])
+
+function previewFor(values: any[][] | undefined, maxRows = 6, maxCols = 8): string {
+  if (!Array.isArray(values) || !values.length) return ''
+  const rows = values.slice(0, maxRows).map(row => {
+    const cells = (Array.isArray(row) ? row : []).slice(0, maxCols).map(v => {
+      if (v === null || v === undefined) return ''
+      const s = typeof v === 'string' ? v : JSON.stringify(v)
+      return s.length > 40 ? s.slice(0, 37) + '…' : s
+    })
+    const more = (Array.isArray(row) && row.length > maxCols) ? ', …' : ''
+    return cells.join('\t') + more
+  })
+  const more = values.length > maxRows ? '\n…' : ''
+  return rows.join('\n') + more
+}
+
+const ranges = computed(() => resultRanges.value.map(r => ({
+  address: r?.address || '',
+  row_count: r?.row_count,
+  col_count: r?.col_count,
+  preview: previewFor(r?.values),
+})))
+
+const hasDetail = computed<boolean>(() => ranges.value.some(r => !!r.preview))
 
 const collapsed = ref(true)
-watch(
-  () => [isRunning.value, succeeded.value, errorMessage.value],
-  () => {
-    if (!isRunning.value && !succeeded.value && hasDetail.value) collapsed.value = false
-  },
-  { immediate: true },
-)
 </script>
 
 <style scoped>

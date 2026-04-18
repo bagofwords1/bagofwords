@@ -11,9 +11,14 @@ class WriteOfficeJsCodeInput(BaseModel):
             "useful to the planner (e.g. a computed sum). Do not return whole ranges."
         ),
     )
-    description: Optional[str] = Field(
-        default=None,
-        description="One-line description of what the code does (surfaced in UI).",
+    description: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Short, past-tense-friendly label shown in the UI — e.g. "
+            "\"Check headers at selected cell\" or \"Add a pie chart to Sheet1\". or \"Turn A1:C10 into a table\"."
+            "Required. One sentence, no trailing period."
+        ),
     )
 
 
