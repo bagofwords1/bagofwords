@@ -180,6 +180,7 @@ def test_eval_case(
 
     results = run_data["results"]
     tool_traces = run_data.get("tool_traces") or {}
+    completions_by_result = run_data.get("completions") or {}
     assert len(results) == 1
     result = results[0]
     status = result.get("status")
@@ -219,6 +220,7 @@ def test_eval_case(
         rules_summary.append(entry)
 
     tool_trace: List[Dict[str, Any]] = tool_traces.get(result.get("id")) or []
+    completions_trace: List[Dict[str, Any]] = completions_by_result.get(result.get("id")) or []
 
     _append_report_line({
         "llm": llm_display,
@@ -231,6 +233,10 @@ def test_eval_case(
         "totals": rj.get("totals"),
         "rules": rules_summary,
         "tools": tool_trace,
+        # Per-turn agent breakdown: one system-completion per turn, each
+        # with its ordered blocks (planner reasoning, tool calls with
+        # durations, final answer content). Strings are truncated.
+        "completions": completions_trace,
     })
 
     if status != "pass":

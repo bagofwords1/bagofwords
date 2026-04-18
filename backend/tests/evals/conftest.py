@@ -423,10 +423,22 @@ def run_case_and_wait(test_client):
                 )
             time.sleep(0.5)
 
-        # 4. Trailing tool trace per result (best-effort). Returned to the
-        # caller so it can be included in the JSONL report without a
-        # second HTTP round-trip.
+        # 4. Trailing trace per result (best-effort) — flat tool list +
+        # structured per-completion breakdown (turn, reasoning, action,
+        # tool per block). Both returned so the JSONL report can carry
+        # eyeball-friendly + machine-readable views without a second HTTP
+        # round-trip.
         tool_traces: Dict[str, List[Dict[str, Any]]] = {}
+        completions_by_result: Dict[str, List[Dict[str, Any]]] = {}
+
+        def _truncate(val: Optional[str], limit: int) -> Optional[str]:
+            if val is None:
+                return None
+            s = str(val).strip()
+            if len(s) > limit:
+                return s[: limit - 1] + "…"
+            return s or None
+
         try:
             status_resp = test_client.get(
                 f"/api/tests/runs/{run_id}/status", headers=headers,
@@ -438,19 +450,61 @@ def run_case_and_wait(test_client):
                     if not rid:
                         continue
                     tools_for_result: List[Dict[str, Any]] = []
+                    completions_for_result: List[Dict[str, Any]] = []
                     for comp in (item.get("completions") or []):
+                        # Only enrich system completions (user turns carry
+                        # just the prompt).
+                        if comp.get("role") != "system":
+                            continue
+                        blocks_out: List[Dict[str, Any]] = []
                         for block in (comp.get("completion_blocks") or []):
+                            entry: Dict[str, Any] = {
+                                "seq": block.get("seq"),
+                                "block_index": block.get("block_index"),
+                                "phase": block.get("phase"),
+                                "title": block.get("title"),
+                                "status": block.get("status"),
+                                "duration_ms": block.get("duration_ms"),
+                                "reasoning": _truncate(block.get("reasoning"), 500),
+                                "content": _truncate(block.get("content"), 1000),
+                            }
+                            pd = block.get("plan_decision") or {}
+                            if pd:
+                                entry["plan"] = {
+                                    "action": pd.get("action_name"),
+                                    "analysis_complete": pd.get("analysis_complete"),
+                                    "loop_index": pd.get("loop_index"),
+                                }
                             te = block.get("tool_execution") or {}
-                            name = te.get("tool_name")
-                            if not name:
-                                continue
-                            tools_for_result.append({
-                                "tool": name,
-                                "duration_ms": te.get("duration_ms"),
-                                "status": te.get("status"),
-                                "success": te.get("success"),
-                            })
+                            if te:
+                                entry["tool"] = {
+                                    "name": te.get("tool_name"),
+                                    "duration_ms": te.get("duration_ms"),
+                                    "status": te.get("status"),
+                                    "success": te.get("success"),
+                                }
+                                if te.get("tool_name"):
+                                    tools_for_result.append({
+                                        "tool": te.get("tool_name"),
+                                        "duration_ms": te.get("duration_ms"),
+                                        "status": te.get("status"),
+                                        "success": te.get("success"),
+                                    })
+                            blocks_out.append(entry)
+                        completions_for_result.append({
+                            "turn_index": comp.get("turn_index"),
+                            "agent_execution_id": comp.get("agent_execution_id"),
+                            "status": comp.get("status"),
+                            "content": _truncate(
+                                (comp.get("completion") or {}).get("content")
+                                if isinstance(comp.get("completion"), dict)
+                                else comp.get("completion"),
+                                2000,
+                            ),
+                            "blocks": blocks_out,
+                        })
                     tool_traces[rid] = tools_for_result
+                    completions_by_result[rid] = completions_for_result
                     if tools_for_result:
                         print(
                             f"[eval] result={str(rid)[:8]} "
@@ -469,6 +523,7 @@ def run_case_and_wait(test_client):
             "run_id": run_id,
             "results": results,
             "tool_traces": tool_traces,
+            "completions": completions_by_result,
         }
 
     return _run
