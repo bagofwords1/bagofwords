@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
+from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
@@ -32,6 +33,13 @@ async def list_all_scheduled_prompts(
     organization: Organization = Depends(get_current_organization),
 ):
     """List all scheduled prompts across all reports in the organization."""
+    # `filter=shared` returns other users' prompt text + report titles, which
+    # bypasses the owner_only gate on the report-scoped scheduled-prompt
+    # endpoints. Restrict cross-user visibility to admins only.
+    if filter == 'shared':
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if FULL_ADMIN not in resolved.org_permissions:
+            raise HTTPException(status_code=403, detail="Not allowed to list shared scheduled prompts")
     result = await scheduled_prompt_service.list_all_scheduled_prompts(
         db=db,
         organization_id=organization.id,

@@ -332,6 +332,8 @@ async def test_my_connection_credentials(
     organization: Organization = Depends(get_current_organization),
 ):
     """Test a connection using the current user's saved credentials."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, user, connection)
     result = await connection_service.test_user_connection(
         db=db,
         connection_id=connection_id,

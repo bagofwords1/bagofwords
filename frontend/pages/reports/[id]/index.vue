@@ -1681,12 +1681,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					// Best-effort cancel of a running Office.js execution in the taskpane
 					// (sigkill or timeout path from the backend tool).
 					const cancelAction = payload.payload?.excel_action
-					if (cancelAction && cancelAction.type === 'cancelOfficeJs') {
+					if (cancelAction && cancelAction.type === 'cancelOfficeJs' && isExcel.value) {
 						try {
 							window.parent.postMessage({
 								type: 'cancelOfficeJs',
 								data: JSON.stringify(cancelAction)
-							}, '*')
+							}, window.location.origin)
 						} catch (e) {
 							console.warn('Failed to forward cancelOfficeJs to Excel taskpane:', e)
 						}
@@ -1896,12 +1896,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					// Forward Office.js code execution to the Excel taskpane.
 					const excelAction = payload.payload?.excel_action
-					if (excelAction && excelAction.type === 'runOfficeJs') {
+					if (excelAction && excelAction.type === 'runOfficeJs' && isExcel.value) {
 						try {
 							window.parent.postMessage({
 								type: 'runOfficeJs',
 								data: JSON.stringify(excelAction)
-							}, '*')
+							}, window.location.origin)
 						} catch (e) {
 							console.warn('Failed to forward runOfficeJs to Excel taskpane:', e)
 						}
@@ -1997,13 +1997,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						} catch {}
 					}
 					// If write_to_excel completed, forward data to Excel taskpane via postMessage
-					if (payload.tool_name === 'write_to_excel' && payload.status === 'success' && payload.result_json?.excel_action) {
+					if (payload.tool_name === 'write_to_excel' && payload.status === 'success' && payload.result_json?.excel_action && isExcel.value) {
 						try {
 							const action = payload.result_json.excel_action
 							window.parent.postMessage({
 								type: action.type,
 								data: JSON.stringify(action.data)
-							}, '*')
+							}, window.location.origin)
 						} catch (e) {
 							console.warn('Failed to forward write_to_excel data to Excel taskpane:', e)
 						}
@@ -2327,6 +2327,11 @@ async function refreshDashboardFast() {
 
 // Ensure dashboard pane opens only when currently closed
 const handleOfficeJsResult = async (event: MessageEvent) => {
+    // Only accept messages from the hosting taskpane (same-origin parent).
+    // The Excel taskpane is served from the same BOW instance as the report,
+    // so cross-origin or same-tab-script posts must be rejected.
+    if (event.source !== window.parent) return
+    if (event.origin !== window.location.origin) return
     const data = event.data
     if (!data || data.type !== 'officeJsResult') return
     let parsed: any = data.data

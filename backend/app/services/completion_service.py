@@ -2157,6 +2157,13 @@ class CompletionService:
         if not report or (organization and str(report.organization_id) != str(organization.id)):
             raise HTTPException(status_code=404, detail="Completion not found")
 
+        # Only the user who initiated the Office.js tool call may resolve it.
+        # Prevents another org member from poisoning a pending execution by
+        # guessing the tool_call_id.
+        if current_user is not None and completion.user_id is not None and \
+                str(completion.user_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Not allowed to resolve this tool call")
+
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail="Body must be an object")
 
