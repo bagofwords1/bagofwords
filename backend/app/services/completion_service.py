@@ -2134,6 +2134,48 @@ class CompletionService:
         response_completions = response_completions.scalars().all()
         return response_completions
     
+    async def submit_tool_result(
+        self,
+        db: AsyncSession,
+        completion_id: str,
+        tool_call_id: str,
+        body: dict,
+        current_user: User = None,
+        organization: Organization = None,
+    ):
+        """Resolve a pending Office.js tool call with the result posted from the taskpane."""
+        from app.ai.tools.officejs_registry import pending_officejs_registry
+
+        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
+        completion = completion.scalars().first()
+        if not completion:
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        # Org-scope check: the completion's report must belong to this organization.
+        report_row = await db.execute(select(Report).where(Report.id == completion.report_id))
+        report = report_row.scalars().first()
+        if not report or (organization and str(report.organization_id) != str(organization.id)):
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Body must be an object")
+
+        result = {
+            "success": bool(body.get("success", False)),
+            "return_value": body.get("return_value"),
+            "error": body.get("error"),
+            "logs": body.get("logs") or [],
+            "ranges_touched": body.get("ranges_touched") or [],
+        }
+
+        resolved = pending_officejs_registry.resolve(tool_call_id, result)
+        if not resolved:
+            raise HTTPException(
+                status_code=404,
+                detail="No pending tool call with that id (timed out, already resolved, or wrong id).",
+            )
+        return {"ok": True}
+
     async def update_completion_sigkill(self, db: AsyncSession, completion_id: str, current_user: User = None, organization: Organization = None):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()

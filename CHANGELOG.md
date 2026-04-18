@@ -5,6 +5,9 @@
 - SIEM integration
 - EntraID native support for OBO flow
 - OAuth for data connectors
+- Evals (dogfooding) for analytics and dashboard generations 
+- Native export to CSV function for artifacts
+- Excel specific tools
 
 ## Version 0.0.356 (April 13, 2026)
 - Share dashboards / conversations with specific users or globally

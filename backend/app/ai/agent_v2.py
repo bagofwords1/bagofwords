@@ -20,6 +20,7 @@ from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
+from app.ai.tools.officejs_registry import pending_officejs_registry
 from app.project_manager import ProjectManager
 from app.models.step import Step
 from app.models.widget import Widget
@@ -632,6 +633,16 @@ class AgentV2:
                     }
                     continue
 
+                # === Start tool execution tracking (persisted row + tool.started SSE) ===
+                tool_execution = await self.project_manager.start_tool_execution_from_models(
+                    self.db,
+                    agent_execution=self.current_execution,
+                    plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
+                    tool_name=tool_name,
+                    tool_action=getattr(action, "type", None),
+                    tool_input_model=tool_input,
+                )
+
                 runtime_ctx = {
                     "db": self.db,
                     "organization": self.organization,
@@ -652,17 +663,9 @@ class AgentV2:
                     "mode": "knowledge",
                     "platform": self.platform,
                     "platform_context": self.platform_context,
+                    "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                    "pending_officejs_registry": pending_officejs_registry,
                 }
-
-                # === Start tool execution tracking (persisted row + tool.started SSE) ===
-                tool_execution = await self.project_manager.start_tool_execution_from_models(
-                    self.db,
-                    agent_execution=self.current_execution,
-                    plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
-                    tool_name=tool_name,
-                    tool_action=getattr(action, "type", None),
-                    tool_input_model=tool_input,
-                )
                 try:
                     seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
                     await self._emit_sse_event(SSEEvent(
@@ -1832,6 +1835,8 @@ class AgentV2:
                             "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
                             "platform": self.platform,
                             "platform_context": self.platform_context,
+                            "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                            "pending_officejs_registry": pending_officejs_registry,
                         }
 
                         # Emit generic output event for tools that stream results (inspect_data, answer_question)

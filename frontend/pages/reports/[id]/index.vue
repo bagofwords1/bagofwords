@@ -641,6 +641,8 @@ import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import MCPTool from '~/components/tools/MCPTool.vue'
 import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
+import WriteToExcelTool from '~/components/tools/WriteToExcelTool.vue'
+import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -1057,6 +1059,9 @@ if (import.meta.client) {
 	window.addEventListener('resize', checkMobile)
 }
 
+// Completion id currently wired up to forward Office.js results back to the backend.
+const currentOfficeJsCompletionId = ref<string | null>(null)
+
 // Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
 const reportArtifacts = ref<any[]>([])
@@ -1160,6 +1165,10 @@ function getToolComponent(toolName: string) {
 			return MCPTool
 		case 'write_csv':
 			return WriteCsvTool
+		case 'write_to_excel':
+			return WriteToExcelTool
+		case 'write_officejs_code':
+			return WriteOfficeJsCodeTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':
@@ -1471,6 +1480,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Stash backend system completion id for stop-generation (sigkill)
 			if (payload && payload.system_completion_id) {
 				sysMessage.system_completion_id = payload.system_completion_id
+				currentOfficeJsCompletionId.value = payload.system_completion_id
 			}
 			break
 
@@ -1666,6 +1676,20 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					} else {
 						lastBlock.tool_execution.status = 'running'
+					}
+
+					// Best-effort cancel of a running Office.js execution in the taskpane
+					// (sigkill or timeout path from the backend tool).
+					const cancelAction = payload.payload?.excel_action
+					if (cancelAction && cancelAction.type === 'cancelOfficeJs') {
+						try {
+							window.parent.postMessage({
+								type: 'cancelOfficeJs',
+								data: JSON.stringify(cancelAction)
+							}, '*')
+						} catch (e) {
+							console.warn('Failed to forward cancelOfficeJs to Excel taskpane:', e)
+						}
 					}
 
 					// Record progress stage for tool-specific UIs
@@ -1869,6 +1893,24 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						// Backward-compatibility: append streaming delta
 						rj.answer = (rj.answer || '') + delta
 						lastBlock.status = 'in_progress'
+					}
+					// Forward Office.js code execution to the Excel taskpane.
+					const excelAction = payload.payload?.excel_action
+					if (excelAction && excelAction.type === 'runOfficeJs') {
+						try {
+							window.parent.postMessage({
+								type: 'runOfficeJs',
+								data: JSON.stringify(excelAction)
+							}, '*')
+						} catch (e) {
+							console.warn('Failed to forward runOfficeJs to Excel taskpane:', e)
+						}
+						if (lastBlock.tool_execution) {
+							lastBlock.tool_execution.arguments_json = lastBlock.tool_execution.arguments_json || {}
+							const aj: any = lastBlock.tool_execution.arguments_json
+							if (excelAction.code && !aj.code) aj.code = excelAction.code
+							if (excelAction.description && !aj.description) aj.description = excelAction.description
+						}
 					}
 				}
 			}
@@ -2284,6 +2326,25 @@ async function refreshDashboardFast() {
 }
 
 // Ensure dashboard pane opens only when currently closed
+const handleOfficeJsResult = async (event: MessageEvent) => {
+    const data = event.data
+    if (!data || data.type !== 'officeJsResult') return
+    let parsed: any = data.data
+    try { if (typeof parsed === 'string') parsed = JSON.parse(parsed) } catch { return }
+    if (!parsed || !parsed.id) return
+    const { id, ...body } = parsed
+    const completionId = currentOfficeJsCompletionId.value
+    if (!completionId) return
+    try {
+        await useMyFetch(`/api/completions/${completionId}/tool-results/${id}`, {
+            method: 'POST',
+            body,
+        })
+    } catch (e) {
+        console.warn('Failed to POST officeJsResult back to backend', e)
+    }
+}
+
 onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
@@ -2291,6 +2352,7 @@ onMounted(() => {
     window.addEventListener('artifact:open', ((ev: CustomEvent) => {
         handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
     }) as EventListener)
+    window.addEventListener('message', handleOfficeJsResult)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -2399,6 +2461,7 @@ onUnmounted(() => {
 	if (import.meta.client) {
 		window.removeEventListener('resize', checkMobile)
 	}
+	window.removeEventListener('message', handleOfficeJsResult)
 	document.removeEventListener('mousemove', handleResize)
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'

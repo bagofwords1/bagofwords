@@ -315,25 +315,45 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
     def _format_platform_context(planner_input: PlannerInput) -> str:
         """Render platform-specific context (e.g. Excel selection) for injection into the prompt."""
         ctx = getattr(planner_input, 'platform_context', None)
-        if not ctx:
-            return ''
         platform = planner_input.external_platform
-        if platform == 'excel':
+        if platform != 'excel':
+            return ''
+
+        lines: List[str] = []
+        if ctx:
             address = ctx.get('address', 'unknown')
             sheet = ctx.get('sheetName', 'unknown')
             rows = ctx.get('rowCount', 0)
             cols = ctx.get('columnCount', 0)
             values = ctx.get('selectionValues', [])
             truncated = ctx.get('truncated', False)
-            lines = [f'<excel_context>']
+            lines.append('<excel_context>')
             lines.append(f'  Selected range: {address} (sheet: {sheet}, {rows} rows x {cols} columns)')
             if truncated:
                 lines.append(f'  Note: selection truncated (showing {len(values)} of {ctx.get("totalCellCount", "?")} cells)')
             if values:
                 lines.append(f'  Values: {json.dumps(values)}')
             lines.append('</excel_context>')
-            return '\n  '.join(lines)
-        return ''
+
+        if PromptBuilder._has_tool(planner_input, 'write_officejs_code'):
+            lines.append('<officejs_cheatsheet>')
+            lines.append('  Tool: write_officejs_code — runs in the user\'s Excel taskpane. The taskpane wraps your code in Excel.run(async ctx => { ... }), so write just the body.')
+            lines.append('  Load before read: range.load([\'values\',\'address\']); await ctx.sync();')
+            lines.append('  Anchors: ctx.workbook.getActiveWorksheet(), ctx.workbook.worksheets.getItem(name), sheet.getRange(\'A1:C3\'), sheet.getUsedRange(), ctx.workbook.getSelectedRange().')
+            lines.append('  Writing: range.values = [[1,2],[3,4]]; range.formulas = [[\'=SUM(A:A)\']]; range.format.fill.color = \'#FFEB9C\'.')
+            lines.append('  Tables: sheet.tables.add(\'A1:C10\', true). Charts: sheet.charts.add(\'ColumnClustered\', range, \'Auto\').')
+            lines.append('  Return only small JSON-serializable values (e.g. a sum, an address). Large returned ranges are truncated.')
+            lines.append('  Prefer write_to_excel for plain table dumps; use write_officejs_code for formulas, formatting, charts, pivots, multi-sheet, or reading ranges.')
+            lines.append('</officejs_cheatsheet>')
+
+        return '\n  '.join(lines) if lines else ''
+
+    @staticmethod
+    def _has_tool(planner_input: PlannerInput, tool_name: str) -> bool:
+        for tool in planner_input.tool_catalog or []:
+            if getattr(tool, 'name', None) == tool_name:
+                return True
+        return False
 
     @staticmethod
     def _format_user_prompt(planner_input: PlannerInput) -> str:

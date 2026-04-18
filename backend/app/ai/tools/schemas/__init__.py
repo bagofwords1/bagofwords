@@ -19,6 +19,7 @@ from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
 from .write_csv import WriteCsvInput, WriteCsvOutput
 from .write_to_excel import WriteToExcelInput, WriteToExcelOutput
+from .write_officejs_code import WriteOfficeJsCodeInput, WriteOfficeJsCodeOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -70,6 +71,8 @@ __all__ = [
     "WriteCsvOutput",
     "WriteToExcelInput",
     "WriteToExcelOutput",
+    "WriteOfficeJsCodeInput",
+    "WriteOfficeJsCodeOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",
