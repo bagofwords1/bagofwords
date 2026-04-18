@@ -101,8 +101,64 @@ def _fmt_rule(rule_spec: Dict[str, Any], rule_result: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _fmt_trace(completions_trace: List[Dict[str, Any]]) -> str:
+    """Multi-line conversation trace with planner thinking per block:
+
+        [turn 0] user: "How many customers?"
+        [turn 1] system [create_data] "You have 59 customers"
+            thinking: I need to count distinct customer IDs…
+            thinking (create_data): Selecting COUNT(DISTINCT CustomerId)…
+        [turn 2] user: "total revenue?"
+        [turn 3] system [create_data] "$2,328.60"
+            thinking: Revenue is SUM(Invoice.Total)…
+    """
+    def _short(s: Optional[str], n: int) -> str:
+        s = (s or "").strip().replace("\n", " ")
+        if len(s) > n:
+            s = s[: n - 1] + "…"
+        return s
+
+    lines: List[str] = []
+    for comp in completions_trace or []:
+        role = comp.get("role")
+        turn = comp.get("turn_index", 0)
+        if role == "user":
+            lines.append(f"[turn {turn}] user: \"{_short(comp.get('prompt'), 200)}\"")
+            continue
+
+        # system completion — tool list + final content, then each
+        # block's reasoning if present.
+        tools_in_turn: List[str] = []
+        for b in comp.get("blocks") or []:
+            tool = (b.get("tool") or {}).get("name")
+            if tool:
+                tools_in_turn.append(tool)
+        tools_str = f"[{', '.join(tools_in_turn)}]" if tools_in_turn else "[]"
+        content = _short(comp.get("content"), 200)
+        head = f"[turn {turn}] system {tools_str}"
+        if content:
+            head += f' "{content}"'
+        lines.append(head)
+
+        seen: set = set()
+        for b in comp.get("blocks") or []:
+            reason = _short(b.get("reasoning"), 200)
+            if not reason or reason in seen:
+                continue
+            seen.add(reason)
+            tool_name = (b.get("tool") or {}).get("name")
+            prefix = f"({tool_name}) " if tool_name else ""
+            lines.append(f"    thinking: {prefix}{reason}")
+
+    return "\n".join(lines)
+
+
 def _format_result_report(
-    result: Dict[str, Any], *, case_label: str, llm_display: str,
+    result: Dict[str, Any], *,
+    case_label: str,
+    llm_display: str,
+    completions_trace: List[Dict[str, Any]] | None = None,
+    transcript: str | None = None,
 ) -> str:
     rj = result.get("result_json") or {}
     totals = rj.get("totals") or {}
@@ -127,6 +183,19 @@ def _format_result_report(
         header.append(f"  {'  '.join(meta_bits)}")
     if result.get("failure_reason"):
         header.append(f"  failure_reason={result['failure_reason']}")
+
+    # Prefer the server transcript when available; otherwise fall back
+    # to the compact block formatter.
+    if transcript and transcript.strip():
+        header.append("  transcript:")
+        for line in transcript.splitlines():
+            header.append(f"    {line}")
+    else:
+        trace_block = _fmt_trace(completions_trace or [])
+        if trace_block:
+            header.append("  trace:")
+            for line in trace_block.splitlines():
+                header.append(f"    {line}")
 
     rule_lines: List[str] = []
     for i, (spec, rr) in enumerate(zip(rule_specs, rule_results), 1):
@@ -180,6 +249,8 @@ def test_eval_case(
 
     results = run_data["results"]
     tool_traces = run_data.get("tool_traces") or {}
+    completions_by_result = run_data.get("completions") or {}
+    transcripts = run_data.get("transcripts") or {}
     assert len(results) == 1
     result = results[0]
     status = result.get("status")
@@ -219,6 +290,24 @@ def test_eval_case(
         rules_summary.append(entry)
 
     tool_trace: List[Dict[str, Any]] = tool_traces.get(result.get("id")) or []
+    completions_trace: List[Dict[str, Any]] = completions_by_result.get(result.get("id")) or []
+    transcript: str = transcripts.get(result.get("id")) or ""
+
+    # Always surface the conversation, pass or fail. Prefer the
+    # server-rendered transcript (same renderer the agent uses to
+    # build its own message context — includes per-tool digests).
+    # Fall back to our compact formatter if the endpoint didn't
+    # respond.
+    if transcript.strip():
+        print("[eval] transcript:", flush=True)
+        for line in transcript.splitlines():
+            print(f"  {line}", flush=True)
+    else:
+        trace_block = _fmt_trace(completions_trace)
+        if trace_block:
+            print("[eval] trace:", flush=True)
+            for line in trace_block.splitlines():
+                print(f"  {line}", flush=True)
 
     _append_report_line({
         "llm": llm_display,
@@ -231,11 +320,24 @@ def test_eval_case(
         "totals": rj.get("totals"),
         "rules": rules_summary,
         "tools": tool_trace,
+        # Per-turn agent breakdown: one system-completion per turn, each
+        # with its ordered blocks (planner reasoning, tool calls with
+        # durations, final answer content). Strings are truncated.
+        "completions": completions_trace,
+        # MessageContextBuilder-rendered transcript — same view the
+        # agent's own context hub produces. Includes per-tool digests
+        # (rows × cols, viz ids, etc.) without duplicating the logic
+        # in the harness.
+        "transcript": transcript,
     })
 
     if status != "pass":
         pytest.fail(
             _format_result_report(
-                result, case_label=case_label, llm_display=llm_display,
+                result,
+                case_label=case_label,
+                llm_display=llm_display,
+                completions_trace=completions_trace,
+                transcript=transcript,
             )
         )

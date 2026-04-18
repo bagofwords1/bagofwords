@@ -13,7 +13,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 import yaml
@@ -423,10 +423,23 @@ def run_case_and_wait(test_client):
                 )
             time.sleep(0.5)
 
-        # 4. Trailing tool trace per result (best-effort). Returned to the
-        # caller so it can be included in the JSONL report without a
-        # second HTTP round-trip.
+        # 4. Trailing trace per result (best-effort) — flat tool list +
+        # structured per-completion breakdown (turn, reasoning, action,
+        # tool per block). Both returned so the JSONL report can carry
+        # eyeball-friendly + machine-readable views without a second HTTP
+        # round-trip.
         tool_traces: Dict[str, List[Dict[str, Any]]] = {}
+        completions_by_result: Dict[str, List[Dict[str, Any]]] = {}
+        transcripts: Dict[str, str] = {}
+
+        def _truncate(val: Optional[str], limit: int) -> Optional[str]:
+            if val is None:
+                return None
+            s = str(val).strip()
+            if len(s) > limit:
+                return s[: limit - 1] + "…"
+            return s or None
+
         try:
             status_resp = test_client.get(
                 f"/api/tests/runs/{run_id}/status", headers=headers,
@@ -438,25 +451,95 @@ def run_case_and_wait(test_client):
                     if not rid:
                         continue
                     tools_for_result: List[Dict[str, Any]] = []
-                    for comp in (item.get("completions") or []):
+                    completions_for_result: List[Dict[str, Any]] = []
+                    # Include BOTH user and system completions in order so
+                    # the JSONL reads as a full conversation trace:
+                    #   user prompt → system (tools + final) →
+                    #   user prompt → system (tools + final) → …
+                    sorted_completions = sorted(
+                        item.get("completions") or [],
+                        key=lambda c: (c.get("turn_index") or 0),
+                    )
+                    for comp in sorted_completions:
+                        role = comp.get("role")
+                        entry: Dict[str, Any] = {
+                            "turn_index": comp.get("turn_index"),
+                            "role": role,
+                            "status": comp.get("status"),
+                        }
+                        if role == "user":
+                            prompt_obj = comp.get("prompt") or {}
+                            entry["prompt"] = _truncate(
+                                prompt_obj.get("content") if isinstance(prompt_obj, dict) else prompt_obj,
+                                2000,
+                            )
+                            completions_for_result.append(entry)
+                            continue
+                        # System completion: final answer + ordered blocks.
+                        entry["agent_execution_id"] = comp.get("agent_execution_id")
+                        entry["content"] = _truncate(
+                            (comp.get("completion") or {}).get("content")
+                            if isinstance(comp.get("completion"), dict)
+                            else comp.get("completion"),
+                            2000,
+                        )
+                        blocks_out: List[Dict[str, Any]] = []
                         for block in (comp.get("completion_blocks") or []):
+                            b: Dict[str, Any] = {
+                                "seq": block.get("seq"),
+                                "block_index": block.get("block_index"),
+                                "phase": block.get("phase"),
+                                "title": block.get("title"),
+                                "status": block.get("status"),
+                                "duration_ms": block.get("duration_ms"),
+                                "reasoning": _truncate(block.get("reasoning"), 500),
+                                "content": _truncate(block.get("content"), 1000),
+                            }
+                            pd = block.get("plan_decision") or {}
+                            if pd:
+                                b["plan"] = {
+                                    "action": pd.get("action_name"),
+                                    "analysis_complete": pd.get("analysis_complete"),
+                                    "loop_index": pd.get("loop_index"),
+                                }
                             te = block.get("tool_execution") or {}
-                            name = te.get("tool_name")
-                            if not name:
-                                continue
-                            tools_for_result.append({
-                                "tool": name,
-                                "duration_ms": te.get("duration_ms"),
-                                "status": te.get("status"),
-                                "success": te.get("success"),
-                            })
+                            if te:
+                                b["tool"] = {
+                                    "name": te.get("tool_name"),
+                                    "duration_ms": te.get("duration_ms"),
+                                    "status": te.get("status"),
+                                    "success": te.get("success"),
+                                }
+                                if te.get("tool_name"):
+                                    tools_for_result.append({
+                                        "tool": te.get("tool_name"),
+                                        "duration_ms": te.get("duration_ms"),
+                                        "status": te.get("status"),
+                                        "success": te.get("success"),
+                                    })
+                            blocks_out.append(b)
+                        entry["blocks"] = blocks_out
+                        completions_for_result.append(entry)
                     tool_traces[rid] = tools_for_result
+                    completions_by_result[rid] = completions_for_result
                     if tools_for_result:
                         print(
                             f"[eval] result={str(rid)[:8]} "
                             f"tools={' → '.join(t['tool'] for t in tools_for_result)}",
                             flush=True,
                         )
+                    # Pull the agent's own message-context view via the
+                    # new transcript endpoint — same renderer as the
+                    # context injected into the LLM each turn.
+                    try:
+                        t_resp = test_client.get(
+                            f"/api/tests/results/{rid}/transcript",
+                            headers=headers,
+                        )
+                        if t_resp.status_code == 200:
+                            transcripts[rid] = t_resp.text
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -469,6 +552,8 @@ def run_case_and_wait(test_client):
             "run_id": run_id,
             "results": results,
             "tool_traces": tool_traces,
+            "completions": completions_by_result,
+            "transcripts": transcripts,
         }
 
     return _run
