@@ -24,7 +24,7 @@ spec:
           image: "{{.Values.image.registry}}/{{.Values.image.repository}}:{{.Values.image.tag}}"
           imagePullPolicy: Always
           ports:
-            - containerPort: 8000
+            - containerPort: 3000
           resources:
             requests:
               cpu: 2
@@ -43,20 +43,20 @@ spec:
           startupProbe:
             httpGet:
               path: /health
-              port: 8000
+              port: 3000
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health
-              port: 8000
+              port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
-              port: 8000
+              port: 3000
             initialDelaySeconds: 15
             periodSeconds: 20
           volumeMounts:

@@ -17,7 +17,7 @@ spec:
               service:
                 name: bowapp
                 port:
-                  number: 8000
+                  number: 3000
   {{- if .Values.ingress.tls.enabled }}
   tls:
     - hosts:

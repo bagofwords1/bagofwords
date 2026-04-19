@@ -13,7 +13,7 @@
 
 {$DOMAIN:localhost} {
     # Reverse proxy to the app
-    reverse_proxy app:8000
+    reverse_proxy app:3000
 
     # Enable compression
     encode gzip zstd

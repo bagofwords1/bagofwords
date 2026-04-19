@@ -6,7 +6,7 @@
 docker build -t bow .
 
 # Run the container
-docker run -p 8000:8000 bow 
+docker run -p 3000:3000 bow 
 ```
 ## Dockerfile Overview
 
@@ -33,7 +33,7 @@ This multi-stage Dockerfile builds a full-stack application:
 - Copies the generated SPA into `/app/frontend/dist`; FastAPI serves it
   directly when `SERVE_FRONTEND=1`
 - Sets environment variables and uses `tini` as entrypoint
-- Exposes port 8000
+- Exposes port 3000
 - Runs via `start.sh`
 
 ## Requirements
@@ -57,7 +57,7 @@ odbcinst -q -d -n "ODBC Driver 18 for SQL Server"
 deployment:
   type: "saas"  # Options: "saas" or "self_hosted"
 
-base_url: http://0.0.0.0:8000
+base_url: http://0.0.0.0:3000
   
 # Feature Flags
 features:

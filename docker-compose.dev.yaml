@@ -11,7 +11,7 @@
 #   POSTGRES_PASSWORD=your_secure_pw     # PostgreSQL password (CHANGE THIS!)
 #   POSTGRES_DB=bagofwords               # Database name
 #   POSTGRES_PORT=5432                   # PostgreSQL port (optional)
-#   APP_PORT=8000                        # Application port (optional)
+#   APP_PORT=3000                        # Application port (optional)
 #   BOW_ENCRYPTION_KEY=                  # Fernet encryption key (44 chars, ends with =)
 #   BOW_LICENSE_KEY=                     # Enterprise license key (optional)
 #
@@ -48,7 +48,7 @@ services:
     container_name: bow-app-dev
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_PORT:-3000}:3000"
     environment:
       - ENVIRONMENT=production
       # Database configuration
@@ -68,7 +68,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/"]
       interval: 30s
       timeout: 5s
       retries: 3

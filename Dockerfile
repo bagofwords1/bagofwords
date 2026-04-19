@@ -176,11 +176,11 @@ ENV SERVE_FRONTEND=1
 ENV FRONTEND_DIST_DIR=/app/frontend/dist
 
 # Expose the uvicorn port (documentational).
-EXPOSE 8000
+EXPOSE 3000
 
 # Healthcheck against uvicorn, which now serves both the SPA and the API.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD curl -fsS http://localhost:8000/ || exit 1
+  CMD curl -fsS http://localhost:3000/ || exit 1
 
 USER app
 

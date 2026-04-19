@@ -102,7 +102,7 @@ done
 # same process via SERVE_FRONTEND=1). tini reaps it on shutdown.
 exec uvicorn main:app \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port 3000 \
     --ws websockets \
     --log-level info \
     --workers "$WORKERS" \
