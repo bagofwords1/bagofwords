@@ -1,0 +1,985 @@
+from __future__ import annotations
+
+from app.data_sources.clients.base import DataSourceClient
+from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import StringIO
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
+import logging
+import re
+import xml.etree.ElementTree as ET
+
+import pandas as pd
+import requests
+from requests_ntlm import HttpNtlmAuth
+
+
+logger = logging.getLogger(__name__)
+
+
+_RDL_NS_RE = re.compile(r"^\{[^}]+\}")
+
+
+def _strip_ns(tag: str) -> str:
+    return _RDL_NS_RE.sub("", tag or "")
+
+
+def _clr_to_dtype(clr: Optional[str]) -> str:
+    if not clr:
+        return "unknown"
+    c = clr.rsplit(".", 1)[-1].lower()
+    mapping = {
+        "int16": "int",
+        "int32": "int",
+        "int64": "int",
+        "byte": "int",
+        "sbyte": "int",
+        "uint16": "int",
+        "uint32": "int",
+        "uint64": "int",
+        "decimal": "decimal",
+        "double": "float",
+        "single": "float",
+        "float": "float",
+        "boolean": "bool",
+        "bool": "bool",
+        "string": "string",
+        "char": "string",
+        "datetime": "datetime",
+        "datetimeoffset": "datetime",
+        "timespan": "duration",
+        "guid": "string",
+        "object": "unknown",
+    }
+    return mapping.get(c, c)
+
+
+class PowerBIReportServerClient(DataSourceClient):
+    """
+    Power BI Report Server (on-prem) client.
+
+    Discovers metadata via REST API v2.0 with NTLM authentication:
+      - Power BI reports (.pbix) — report metadata, data sources, parameters, roles
+      - Paginated reports (RDL) — reports with embedded SQL queries extracted from RDL XML
+      - Shared datasets (.rsd) — column schema + embedded query
+      - Shared data sources — connection metadata for lineage
+      - KPIs — threshold and trend definitions
+      - Folder structure
+
+    Executes queries:
+      - RDL paginated reports: via /Reports({id})/Export/CSV
+      - Shared datasets: via Model.GetData action
+      - Power BI reports (.pbix): NotImplementedError — REST API does not expose the
+        embedded semantic model. Requires XMLA (out of v1 scope).
+    """
+
+    API_SUFFIX = "/Reports/api/v2.0"
+
+    def __init__(
+        self,
+        server_url: str,
+        username: str,
+        password: str,
+        domain: Optional[str] = None,
+        verify_ssl: bool = True,
+        ca_bundle_path: Optional[str] = None,
+        xmla_endpoint: Optional[str] = None,
+    ):
+        if not server_url:
+            raise ValueError("server_url is required")
+        if not username:
+            raise ValueError("username is required")
+        if password is None:
+            raise ValueError("password is required")
+
+        self.server_url = server_url.rstrip("/")
+        self.username = username
+        self.password = password
+        self.domain = domain
+        self.verify_ssl = verify_ssl
+        self.ca_bundle_path = ca_bundle_path
+        self.xmla_endpoint = xmla_endpoint
+
+        self._session: Optional[requests.Session] = None
+
+    # ------------------------------------------------------------------
+    # URL / auth plumbing
+    # ------------------------------------------------------------------
+
+    def _api_base(self) -> str:
+        """Derive /Reports/api/v2.0 base URL from the configured server_url.
+
+        Accepts all of:
+          - http://host
+          - http://host/Reports
+          - http://host/Reports/api/v2.0
+        """
+        url = self.server_url
+        if url.endswith("/api/v2.0"):
+            return url
+        if url.endswith("/Reports"):
+            return url + "/api/v2.0"
+        # server root — append /Reports/api/v2.0
+        return url + self.API_SUFFIX
+
+    def _report_server_root(self) -> str:
+        """Return the /ReportServer base, used for legacy SOAP endpoints (export, XMLA)."""
+        url = self.server_url
+        for suffix in ("/Reports/api/v2.0", "/Reports"):
+            if url.endswith(suffix):
+                url = url[: -len(suffix)]
+                break
+        return url
+
+    def _ntlm_user(self) -> str:
+        if self.domain and "\\" not in self.username and "@" not in self.username:
+            return f"{self.domain}\\{self.username}"
+        return self.username
+
+    def connect(self):
+        if self._session is not None:
+            return
+        session = requests.Session()
+        session.auth = HttpNtlmAuth(self._ntlm_user(), self.password)
+        if self.ca_bundle_path:
+            session.verify = self.ca_bundle_path
+        else:
+            session.verify = bool(self.verify_ssl)
+        self._session = session
+
+    def _get(self, path: str, *, accept: str = "application/json", stream: bool = False, timeout: int = 60) -> requests.Response:
+        self.connect()
+        base = self._api_base()
+        url = path if path.startswith("http") else f"{base}{path}"
+        return self._session.get(url, headers={"Accept": accept}, stream=stream, timeout=timeout)
+
+    def _get_json(self, path: str, *, timeout: int = 60) -> Any:
+        r = self._get(path, timeout=timeout)
+        if r.status_code >= 300:
+            raise RuntimeError(f"GET {path} failed: HTTP {r.status_code} {r.text[:300]}")
+        return r.json()
+
+    def _get_odata_value(self, path: str, *, timeout: int = 60) -> List[Dict]:
+        data = self._get_json(path, timeout=timeout) or {}
+        return data.get("value") or []
+
+    def _post_json(self, path: str, body: Dict, *, timeout: int = 120) -> Any:
+        self.connect()
+        base = self._api_base()
+        url = path if path.startswith("http") else f"{base}{path}"
+        r = self._session.post(url, json=body, headers={"Accept": "application/json"}, timeout=timeout)
+        if r.status_code >= 300:
+            raise RuntimeError(f"POST {path} failed: HTTP {r.status_code} {r.text[:300]}")
+        if not r.content:
+            return None
+        return r.json()
+
+    # ------------------------------------------------------------------
+    # Discovery — REST list endpoints
+    # ------------------------------------------------------------------
+
+    def get_system_info(self) -> Dict:
+        return self._get_json("/System")
+
+    def list_folders(self) -> List[Dict]:
+        return self._get_odata_value("/Folders")
+
+    def list_catalog_items(self) -> List[Dict]:
+        return self._get_odata_value("/CatalogItems")
+
+    def list_powerbi_reports(self) -> List[Dict]:
+        return self._get_odata_value("/PowerBIReports")
+
+    def list_paginated_reports(self) -> List[Dict]:
+        return self._get_odata_value("/Reports")
+
+    def list_shared_datasets(self) -> List[Dict]:
+        return self._get_odata_value("/Datasets")
+
+    def list_shared_data_sources(self) -> List[Dict]:
+        return self._get_odata_value("/DataSources")
+
+    def list_kpis(self) -> List[Dict]:
+        return self._get_odata_value("/Kpis")
+
+    def get_powerbi_report_datasources(self, report_id: str) -> List[Dict]:
+        return self._get_odata_value(f"/PowerBIReports({report_id})/DataSources")
+
+    def get_powerbi_report_parameters(self, report_id: str) -> List[Dict]:
+        return self._get_odata_value(f"/PowerBIReports({report_id})/DataModelParameters")
+
+    def get_powerbi_report_roles(self, report_id: str) -> List[Dict]:
+        return self._get_odata_value(f"/PowerBIReports({report_id})/DataModelRoles")
+
+    def get_paginated_report_datasources(self, report_id: str) -> List[Dict]:
+        return self._get_odata_value(f"/Reports({report_id})/DataSources")
+
+    def get_paginated_report_parameters(self, report_id: str) -> List[Dict]:
+        return self._get_odata_value(f"/Reports({report_id})/ParameterDefinitions")
+
+    def get_shared_dataset_schema(self, dataset_id: str) -> Optional[Dict]:
+        r = self._get(f"/Datasets({dataset_id})/Model.GetSchema")
+        if r.status_code >= 300:
+            r = self._get(f"/Datasets({dataset_id})/Schema")
+        if r.status_code >= 300:
+            return None
+        try:
+            return r.json()
+        except Exception:
+            return None
+
+    def get_shared_dataset_parameters(self, dataset_id: str) -> List[Dict]:
+        try:
+            return self._get_odata_value(f"/Datasets({dataset_id})/ParameterDefinitions")
+        except Exception:
+            return []
+
+    def download_catalog_item_content(self, item_id: str) -> bytes:
+        r = self._get(f"/CatalogItems({item_id})/Content/$value", accept="application/octet-stream", timeout=300)
+        if r.status_code >= 300:
+            raise RuntimeError(f"Download content for {item_id} failed: HTTP {r.status_code}")
+        return r.content
+
+    # ------------------------------------------------------------------
+    # RDL parsing — extract CommandText, fields, parameters from report XML
+    # ------------------------------------------------------------------
+
+    def parse_rdl_content(self, xml_bytes: bytes) -> Dict[str, Any]:
+        """Parse an RDL (.rdl) XML blob and extract datasets with their queries and fields.
+
+        Returns:
+            {
+              "data_sources": [{"name", "connection_string", "data_provider"}],
+              "datasets": [{
+                  "name", "data_source_name", "command_type", "command_text",
+                  "fields": [{"name", "data_field", "dtype"}],
+                  "parameters": [{"name", "value"}]
+              }],
+              "parameters": [{"name", "data_type", "prompt", "default_values"}]
+            }
+        """
+        try:
+            root = ET.fromstring(xml_bytes)
+        except ET.ParseError as e:
+            raise RuntimeError(f"Invalid RDL XML: {e}")
+
+        out: Dict[str, Any] = {"data_sources": [], "datasets": [], "parameters": []}
+
+        for ds in root.iter():
+            tag = _strip_ns(ds.tag)
+            if tag == "DataSource":
+                name = ds.get("Name", "")
+                cs = None
+                dp = None
+                for child in ds.iter():
+                    ct = _strip_ns(child.tag)
+                    if ct == "ConnectString":
+                        cs = (child.text or "").strip()
+                    elif ct == "DataProvider":
+                        dp = (child.text or "").strip()
+                out["data_sources"].append({"name": name, "connection_string": cs, "data_provider": dp})
+
+        for node in root.iter():
+            if _strip_ns(node.tag) != "DataSet":
+                continue
+            ds_name = node.get("Name", "")
+            query_cmd_type: Optional[str] = None
+            query_cmd_text: Optional[str] = None
+            query_ds_name: Optional[str] = None
+            query_params: List[Dict[str, Any]] = []
+            fields: List[Dict[str, Any]] = []
+
+            for child in node:
+                ctag = _strip_ns(child.tag)
+                if ctag == "Query":
+                    for qc in child:
+                        qtag = _strip_ns(qc.tag)
+                        if qtag == "CommandType":
+                            query_cmd_type = (qc.text or "").strip() or None
+                        elif qtag == "CommandText":
+                            query_cmd_text = (qc.text or "")
+                        elif qtag == "DataSourceName":
+                            query_ds_name = (qc.text or "").strip() or None
+                        elif qtag == "QueryParameters":
+                            for qp in qc:
+                                if _strip_ns(qp.tag) == "QueryParameter":
+                                    qp_name = qp.get("Name", "")
+                                    qp_val = None
+                                    for vnode in qp:
+                                        if _strip_ns(vnode.tag) == "Value":
+                                            qp_val = (vnode.text or "").strip()
+                                            break
+                                    query_params.append({"name": qp_name, "value": qp_val})
+                elif ctag == "Fields":
+                    for fnode in child:
+                        if _strip_ns(fnode.tag) != "Field":
+                            continue
+                        fname = fnode.get("Name", "")
+                        data_field = None
+                        type_name = None
+                        for fc in fnode:
+                            fct = _strip_ns(fc.tag)
+                            if fct == "DataField":
+                                data_field = (fc.text or "").strip() or None
+                            elif fct == "TypeName":
+                                type_name = (fc.text or "").strip() or None
+                        fields.append({
+                            "name": fname,
+                            "data_field": data_field,
+                            "dtype": _clr_to_dtype(type_name),
+                            "clr_type": type_name,
+                        })
+
+            out["datasets"].append({
+                "name": ds_name,
+                "data_source_name": query_ds_name,
+                "command_type": query_cmd_type or "Text",
+                "command_text": query_cmd_text,
+                "fields": fields,
+                "parameters": query_params,
+            })
+
+        for node in root.iter():
+            if _strip_ns(node.tag) != "ReportParameter":
+                continue
+            p_name = node.get("Name", "")
+            p_type = None
+            p_prompt = None
+            default_vals: List[str] = []
+            for child in node:
+                ct = _strip_ns(child.tag)
+                if ct == "DataType":
+                    p_type = (child.text or "").strip() or None
+                elif ct == "Prompt":
+                    p_prompt = (child.text or "").strip() or None
+                elif ct == "DefaultValue":
+                    for vs in child.iter():
+                        if _strip_ns(vs.tag) == "Value" and vs.text:
+                            default_vals.append(vs.text.strip())
+            out["parameters"].append({
+                "name": p_name,
+                "data_type": p_type,
+                "prompt": p_prompt,
+                "default_values": default_vals,
+            })
+
+        return out
+
+    # ------------------------------------------------------------------
+    # test_connection
+    # ------------------------------------------------------------------
+
+    def test_connection(self) -> Dict:
+        try:
+            self.connect()
+        except Exception as e:
+            return {"success": False, "message": f"Session init failed: {e}"}
+
+        try:
+            sys_info = self.get_system_info()
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "Unauthorized" in msg:
+                return {"success": False, "message": f"Authentication failed: check username, domain, and password ({msg[:180]})"}
+            return {"success": False, "message": f"Cannot reach server: {msg[:200]}"}
+
+        product = sys_info.get("ProductName") or "Power BI Report Server"
+        version = sys_info.get("ProductVersion") or ""
+
+        try:
+            pbi = self.list_powerbi_reports()
+            paginated = self.list_paginated_reports()
+            shared_datasets = self.list_shared_datasets()
+            kpis = self.list_kpis()
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Authenticated with {product} {version} but could not list catalog: {e}",
+                "connectivity": True,
+            }
+
+        return {
+            "success": True,
+            "message": (
+                f"Connected to {product} {version}. "
+                f"Found {len(pbi)} Power BI report(s), {len(paginated)} paginated report(s), "
+                f"{len(shared_datasets)} shared dataset(s), {len(kpis)} KPI(s)."
+            ),
+            "powerbi_reports": len(pbi),
+            "paginated_reports": len(paginated),
+            "shared_datasets": len(shared_datasets),
+            "kpis": len(kpis),
+            "product_version": version,
+        }
+
+    # ------------------------------------------------------------------
+    # get_schemas — build BOW Table objects
+    # ------------------------------------------------------------------
+
+    def get_schemas(self) -> List[Table]:
+        """Build Table objects for:
+          - Each Power BI report (.pbix) — one Table per report (columns empty; metadata carries data sources)
+          - Each paginated report (RDL) dataset — one Table per DataSet inside the RDL (columns + CommandText)
+          - Each shared dataset (.rsd) — one Table with schema columns and CommandText
+          - Each KPI — one Table representing the metric (for LLM awareness)
+        """
+        self.connect()
+        tables: List[Table] = []
+
+        # Fetch top-level lists in parallel
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            pbi_f = pool.submit(self.list_powerbi_reports)
+            rdl_f = pool.submit(self.list_paginated_reports)
+            ds_f = pool.submit(self.list_shared_datasets)
+            kpi_f = pool.submit(self.list_kpis)
+            dsrc_f = pool.submit(self.list_shared_data_sources)
+
+            try:
+                pbi_reports = pbi_f.result()
+            except Exception as e:
+                logger.warning(f"list_powerbi_reports failed: {e}")
+                pbi_reports = []
+            try:
+                rdl_reports = rdl_f.result()
+            except Exception as e:
+                logger.warning(f"list_paginated_reports failed: {e}")
+                rdl_reports = []
+            try:
+                shared_datasets = ds_f.result()
+            except Exception as e:
+                logger.warning(f"list_shared_datasets failed: {e}")
+                shared_datasets = []
+            try:
+                kpis = kpi_f.result()
+            except Exception as e:
+                logger.warning(f"list_kpis failed: {e}")
+                kpis = []
+            try:
+                shared_ds_sources = dsrc_f.result()
+            except Exception as e:
+                logger.warning(f"list_shared_data_sources failed: {e}")
+                shared_ds_sources = []
+
+        # ---- Power BI reports ----
+        if pbi_reports:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                ds_futs = {pool.submit(self.get_powerbi_report_datasources, r["Id"]): r for r in pbi_reports}
+                param_futs = {pool.submit(self.get_powerbi_report_parameters, r["Id"]): r for r in pbi_reports}
+                role_futs = {pool.submit(self.get_powerbi_report_roles, r["Id"]): r for r in pbi_reports}
+
+                pbi_data: Dict[str, Dict[str, Any]] = {r["Id"]: {"data_sources": [], "parameters": [], "roles": []} for r in pbi_reports}
+                for fut in as_completed(ds_futs):
+                    r = ds_futs[fut]
+                    try:
+                        pbi_data[r["Id"]]["data_sources"] = fut.result()
+                    except Exception as e:
+                        logger.debug(f"pbi {r['Id']} DataSources failed: {e}")
+                for fut in as_completed(param_futs):
+                    r = param_futs[fut]
+                    try:
+                        pbi_data[r["Id"]]["parameters"] = fut.result()
+                    except Exception as e:
+                        logger.debug(f"pbi {r['Id']} Parameters failed: {e}")
+                for fut in as_completed(role_futs):
+                    r = role_futs[fut]
+                    try:
+                        pbi_data[r["Id"]]["roles"] = fut.result()
+                    except Exception as e:
+                        logger.debug(f"pbi {r['Id']} Roles failed: {e}")
+
+            for r in pbi_reports:
+                rid = r["Id"]
+                name = r.get("Name") or rid
+                info = pbi_data[rid]
+
+                connection_summary = []
+                for src in info["data_sources"]:
+                    dmd = src.get("DataModelDataSource") or {}
+                    connection_summary.append({
+                        "type": dmd.get("Type"),
+                        "kind": dmd.get("Kind"),
+                        "auth_type": dmd.get("AuthType"),
+                        "connection_string": src.get("ConnectionString") or "",
+                        "model_connection_name": dmd.get("ModelConnectionName"),
+                    })
+
+                metadata_json = {
+                    "powerbi_report_server": {
+                        "report_type": "PowerBIReport",
+                        "report_id": rid,
+                        "report_name": name,
+                        "path": r.get("Path"),
+                        "parent_folder_id": r.get("ParentFolderId"),
+                        "size": r.get("Size"),
+                        "created_by": r.get("CreatedBy"),
+                        "modified_by": r.get("ModifiedBy"),
+                        "modified_date": r.get("ModifiedDate"),
+                        "data_sources": connection_summary,
+                        "parameters": [
+                            {"name": p.get("Name"), "value_type": p.get("ValueType"), "is_required": p.get("IsRequired"), "current_value": p.get("CurrentValue")}
+                            for p in info["parameters"]
+                        ],
+                        "roles": [{"name": rl.get("Name"), "model_permissions": rl.get("ModelPermissions")} for rl in info["roles"]],
+                        "queryable": False,
+                        "query_note": "Power BI .pbix embedded model is not queryable via REST. Requires XMLA endpoint (not configured in v1).",
+                    }
+                }
+
+                tables.append(Table(
+                    name=f"pbix:{name}",
+                    description=f"Power BI report on PBIRS. {len(connection_summary)} data source(s).",
+                    columns=[],
+                    pks=[],
+                    fks=[],
+                    is_active=True,
+                    metadata_json=metadata_json,
+                ))
+
+        # ---- Paginated RDL reports: download content + parse ----
+        if rdl_reports:
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                content_futs = {pool.submit(self.download_catalog_item_content, r["Id"]): r for r in rdl_reports}
+                for fut in as_completed(content_futs):
+                    r = content_futs[fut]
+                    rid = r["Id"]
+                    rname = r.get("Name") or rid
+                    try:
+                        xml_bytes = fut.result()
+                        parsed = self.parse_rdl_content(xml_bytes)
+                    except Exception as e:
+                        logger.warning(f"RDL {rname} parse failed: {e}")
+                        tables.append(Table(
+                            name=f"rdl:{rname}",
+                            description="Paginated RDL report (failed to parse content)",
+                            columns=[],
+                            pks=[],
+                            fks=[],
+                            is_active=True,
+                            metadata_json={"powerbi_report_server": {
+                                "report_type": "Report",
+                                "report_id": rid,
+                                "report_name": rname,
+                                "path": r.get("Path"),
+                                "parse_error": str(e),
+                                "queryable": True,
+                                "query_note": "Execute via execute_query(report_id=..., format='CSV').",
+                            }},
+                        ))
+                        continue
+
+                    report_params = parsed.get("parameters") or []
+                    report_sources = parsed.get("data_sources") or []
+
+                    for dset in parsed.get("datasets") or []:
+                        dsname = dset.get("name") or ""
+                        columns = [
+                            TableColumn(
+                                name=fld["name"],
+                                dtype=fld.get("dtype") or "unknown",
+                                description=fld.get("data_field") if fld.get("data_field") and fld.get("data_field") != fld["name"] else None,
+                                metadata={"role": "column", "data_field": fld.get("data_field"), "clr_type": fld.get("clr_type")},
+                            )
+                            for fld in dset.get("fields") or []
+                            if fld.get("name")
+                        ]
+                        cmd_text = dset.get("command_text") or ""
+                        metadata_json = {
+                            "powerbi_report_server": {
+                                "report_type": "Report",
+                                "report_id": rid,
+                                "report_name": rname,
+                                "path": r.get("Path"),
+                                "dataset_name": dsname,
+                                "data_source_name": dset.get("data_source_name"),
+                                "command_type": dset.get("command_type"),
+                                "command_text": cmd_text,
+                                "query_parameters": dset.get("parameters") or [],
+                                "report_parameters": report_params,
+                                "report_data_sources": report_sources,
+                                "queryable": True,
+                                "query_note": "Execute via execute_query(report_id=..., format='CSV'). Single dataset per execution — RDL export returns full rendered report data.",
+                            }
+                        }
+                        tables.append(Table(
+                            name=f"rdl:{rname}/{dsname}" if dsname else f"rdl:{rname}",
+                            description=(cmd_text or "")[:240] if cmd_text else None,
+                            columns=columns,
+                            pks=[],
+                            fks=[],
+                            is_active=True,
+                            metadata_json=metadata_json,
+                        ))
+
+                    if not (parsed.get("datasets") or []):
+                        tables.append(Table(
+                            name=f"rdl:{rname}",
+                            description="Paginated RDL report (no DataSets declared)",
+                            columns=[],
+                            pks=[],
+                            fks=[],
+                            is_active=True,
+                            metadata_json={"powerbi_report_server": {
+                                "report_type": "Report",
+                                "report_id": rid,
+                                "report_name": rname,
+                                "path": r.get("Path"),
+                                "queryable": True,
+                                "query_note": "Execute via execute_query(report_id=..., format='CSV').",
+                            }},
+                        ))
+
+        # ---- Shared datasets: fetch schema + content ----
+        if shared_datasets:
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                schema_futs = {pool.submit(self.get_shared_dataset_schema, d["Id"]): d for d in shared_datasets}
+                content_futs = {pool.submit(self.download_catalog_item_content, d["Id"]): d for d in shared_datasets}
+                param_futs = {pool.submit(self.get_shared_dataset_parameters, d["Id"]): d for d in shared_datasets}
+
+                schemas: Dict[str, Any] = {}
+                contents: Dict[str, bytes] = {}
+                params: Dict[str, List[Dict]] = {}
+
+                for fut in as_completed(schema_futs):
+                    d = schema_futs[fut]
+                    try:
+                        schemas[d["Id"]] = fut.result()
+                    except Exception as e:
+                        logger.debug(f"dataset {d['Id']} schema failed: {e}")
+                for fut in as_completed(content_futs):
+                    d = content_futs[fut]
+                    try:
+                        contents[d["Id"]] = fut.result()
+                    except Exception as e:
+                        logger.debug(f"dataset {d['Id']} content failed: {e}")
+                for fut in as_completed(param_futs):
+                    d = param_futs[fut]
+                    try:
+                        params[d["Id"]] = fut.result()
+                    except Exception as e:
+                        logger.debug(f"dataset {d['Id']} params failed: {e}")
+
+            for d in shared_datasets:
+                did = d["Id"]
+                dname = d.get("Name") or did
+                columns: List[TableColumn] = []
+                schema_obj = schemas.get(did) or {}
+                for col in schema_obj.get("Columns") or schema_obj.get("columns") or []:
+                    cname = col.get("Name") or col.get("name")
+                    if not cname:
+                        continue
+                    columns.append(TableColumn(
+                        name=cname,
+                        dtype=(col.get("DataType") or col.get("dataType") or "unknown"),
+                        description=None,
+                        metadata={"role": "column"},
+                    ))
+
+                cmd_text = None
+                parsed_content: Dict[str, Any] = {}
+                if did in contents:
+                    try:
+                        parsed_content = self.parse_rdl_content(contents[did])
+                        datasets = parsed_content.get("datasets") or []
+                        if datasets and datasets[0].get("command_text"):
+                            cmd_text = datasets[0]["command_text"]
+                            if not columns:
+                                for fld in datasets[0].get("fields") or []:
+                                    if fld.get("name"):
+                                        columns.append(TableColumn(
+                                            name=fld["name"],
+                                            dtype=fld.get("dtype") or "unknown",
+                                            description=None,
+                                            metadata={"role": "column", "data_field": fld.get("data_field")},
+                                        ))
+                    except Exception as e:
+                        logger.debug(f"dataset {did} RSD parse failed: {e}")
+
+                metadata_json = {
+                    "powerbi_report_server": {
+                        "report_type": "Dataset",
+                        "dataset_id": did,
+                        "dataset_name": dname,
+                        "path": d.get("Path"),
+                        "command_text": cmd_text,
+                        "parameters": [
+                            {"name": p.get("Name"), "value_type": p.get("ValueType"), "is_required": p.get("IsRequired")}
+                            for p in params.get(did, [])
+                        ],
+                        "queryable": True,
+                        "query_note": "Execute via execute_query(dataset_id=...). Uses Model.GetData action. Supports parameters via the parameters kwarg.",
+                    }
+                }
+                tables.append(Table(
+                    name=f"dataset:{dname}",
+                    description=(cmd_text or "")[:240] if cmd_text else None,
+                    columns=columns,
+                    pks=[],
+                    fks=[],
+                    is_active=True,
+                    metadata_json=metadata_json,
+                ))
+
+        # ---- KPIs ----
+        for k in kpis or []:
+            kid = k.get("Id")
+            kname = k.get("Name") or kid
+            metadata_json = {
+                "powerbi_report_server": {
+                    "report_type": "Kpi",
+                    "kpi_id": kid,
+                    "kpi_name": kname,
+                    "path": k.get("Path"),
+                    "value_format": k.get("ValueFormat"),
+                    "visualization": k.get("Visualization"),
+                    "current_value": (k.get("Values") or {}).get("Value") if isinstance(k.get("Values"), dict) else None,
+                    "goal_value": (k.get("Values") or {}).get("Goal") if isinstance(k.get("Values"), dict) else None,
+                    "status": (k.get("Values") or {}).get("Status") if isinstance(k.get("Values"), dict) else None,
+                    "queryable": False,
+                    "query_note": "KPIs are computed metrics, not queryable tables. Value is accessible via metadata_json.",
+                }
+            }
+            tables.append(Table(
+                name=f"kpi:{kname}",
+                description=f"KPI metric (format={k.get('ValueFormat')})",
+                columns=[],
+                pks=[],
+                fks=[],
+                is_active=True,
+                metadata_json=metadata_json,
+            ))
+
+        return tables
+
+    def get_schema(self, table_name: str) -> Table:
+        tables = self.get_schemas()
+        for t in tables:
+            if t.name == table_name:
+                return t
+
+        lowered = (table_name or "").lower()
+        for t in tables:
+            pbi = (t.metadata_json or {}).get("powerbi_report_server") or {}
+            candidates = [
+                pbi.get("report_id"),
+                pbi.get("dataset_id"),
+                pbi.get("kpi_id"),
+                pbi.get("report_name"),
+                pbi.get("dataset_name"),
+                pbi.get("kpi_name"),
+                pbi.get("path"),
+            ]
+            for c in candidates:
+                if c and str(c).lower() == lowered:
+                    return t
+
+        raise RuntimeError(f"Table not found: {table_name}")
+
+    # ------------------------------------------------------------------
+    # execute_query
+    # ------------------------------------------------------------------
+
+    def execute_query(
+        self,
+        query: Optional[str] = None,
+        table_name: Optional[str] = None,
+        report_id: Optional[str] = None,
+        dataset_id: Optional[str] = None,
+        format: str = "CSV",
+        parameters: Optional[Dict[str, Any]] = None,
+        max_rows: Optional[int] = None,
+    ) -> pd.DataFrame:
+        """Execute a query against a PBIRS asset.
+
+        Routing:
+          - If report_id → Reports/Export/{format} (RDL paginated report).
+          - If dataset_id → Datasets({id})/Model.GetData action (shared dataset).
+          - If table_name starts with "rdl:" or "dataset:" or "pbix:" → resolve IDs from table metadata.
+          - Power BI (.pbix) reports raise NotImplementedError.
+
+        `query` is accepted for API symmetry but not used for RDL/Dataset executions
+        (queries are stored in the RDL/RSD content). For shared datasets you can
+        pass parameters via the `parameters` kwarg.
+        """
+        if table_name and not (report_id or dataset_id):
+            t = self.get_schema(table_name)
+            pbi = (t.metadata_json or {}).get("powerbi_report_server") or {}
+            rt = pbi.get("report_type")
+            if rt == "Report":
+                report_id = pbi.get("report_id")
+            elif rt == "Dataset":
+                dataset_id = pbi.get("dataset_id")
+            elif rt == "PowerBIReport":
+                raise NotImplementedError(
+                    "Power BI (.pbix) reports cannot be queried via the PBIRS REST API. "
+                    "The embedded semantic model requires an XMLA endpoint (SSAS) which is not "
+                    "supported in this v1 integration. Options: (1) upload the logic as a paginated (RDL) report, "
+                    "(2) query the underlying data source directly, or (3) enable and configure the XMLA endpoint."
+                )
+            elif rt == "Kpi":
+                raise ValueError(f"KPI '{table_name}' is a computed metric, not a queryable table. Inspect its metadata_json for the current value.")
+            else:
+                raise ValueError(f"Could not route execute_query for table '{table_name}' (report_type={rt}).")
+
+        if report_id:
+            return self._execute_paginated_report(report_id, fmt=format, parameters=parameters, max_rows=max_rows)
+        if dataset_id:
+            return self._execute_shared_dataset(dataset_id, parameters=parameters, max_rows=max_rows)
+
+        raise ValueError(
+            "execute_query requires one of: table_name, report_id, or dataset_id. "
+            "Power BI (.pbix) reports are not queryable; use paginated (RDL) reports or shared datasets."
+        )
+
+    def _execute_paginated_report(
+        self,
+        report_id: str,
+        *,
+        fmt: str = "CSV",
+        parameters: Optional[Dict[str, Any]] = None,
+        max_rows: Optional[int] = None,
+    ) -> pd.DataFrame:
+        self.connect()
+        export_url = f"{self._report_server_root()}/ReportServer/Pages/ReportViewer.aspx"
+        # Try REST v2 export first
+        v2_url = f"{self._api_base()}/Reports({report_id})/Export/{fmt}"
+        params = {}
+        if parameters:
+            for k, v in parameters.items():
+                params[k] = v
+        r = self._session.get(v2_url, params=params, timeout=300)
+        if r.status_code >= 300:
+            # Fallback to legacy ReportServer URL access
+            path = self._lookup_report_path(report_id)
+            if not path:
+                raise RuntimeError(f"Export failed: HTTP {r.status_code}. And no report path resolved for fallback.")
+            qs = {"rs:Format": fmt, "rs:Command": "Render"}
+            if parameters:
+                qs.update(parameters)
+            r = self._session.get(
+                f"{self._report_server_root()}/ReportServer?{quote(path, safe='/')}",
+                params=qs,
+                timeout=300,
+            )
+            if r.status_code >= 300:
+                raise RuntimeError(f"Export fallback failed: HTTP {r.status_code} {r.text[:300]}")
+
+        content_type = (r.headers.get("Content-Type") or "").lower()
+        if fmt.upper() == "CSV" or "csv" in content_type or "text" in content_type:
+            df = pd.read_csv(StringIO(r.content.decode("utf-8-sig", errors="replace")))
+        else:
+            raise RuntimeError(f"Unsupported export format '{fmt}' for DataFrame conversion (Content-Type={content_type}).")
+
+        if max_rows is not None and max_rows > 0 and len(df) > max_rows:
+            df = df.head(max_rows)
+        return df
+
+    def _lookup_report_path(self, report_id: str) -> Optional[str]:
+        try:
+            data = self._get_json(f"/Reports({report_id})")
+            return data.get("Path")
+        except Exception:
+            return None
+
+    def _execute_shared_dataset(
+        self,
+        dataset_id: str,
+        *,
+        parameters: Optional[Dict[str, Any]] = None,
+        max_rows: Optional[int] = None,
+    ) -> pd.DataFrame:
+        body: Dict[str, Any] = {}
+        if parameters:
+            body["Parameters"] = [{"Name": k, "Value": v} for k, v in parameters.items()]
+        if max_rows is not None and max_rows > 0:
+            body["maxRows"] = max_rows
+
+        result = self._post_json(f"/Datasets({dataset_id})/Model.GetData", body, timeout=300)
+        # Per OData metadata, GetData returns Edm.String — usually a CSV or JSON blob
+        if result is None:
+            return pd.DataFrame()
+        if isinstance(result, dict):
+            val = result.get("value")
+            if val is None:
+                return pd.DataFrame()
+            text = val
+        elif isinstance(result, str):
+            text = result
+        else:
+            text = str(result)
+
+        text = text.strip()
+        if not text:
+            return pd.DataFrame()
+        if text.startswith("{") or text.startswith("["):
+            try:
+                import json as _json
+                parsed = _json.loads(text)
+                if isinstance(parsed, list):
+                    return pd.DataFrame(parsed)
+                if isinstance(parsed, dict) and isinstance(parsed.get("rows"), list):
+                    return pd.DataFrame(parsed["rows"])
+            except Exception:
+                pass
+        return pd.read_csv(StringIO(text))
+
+    # ------------------------------------------------------------------
+    # Prompt / description
+    # ------------------------------------------------------------------
+
+    def prompt_schema(self) -> str:
+        return ServiceFormatter(self.get_schemas()).table_str
+
+    @property
+    def description(self) -> str:
+        return "Power BI Report Server (on-prem): discover Power BI reports, paginated reports, shared datasets, KPIs; execute paginated reports and datasets." + self.system_prompt()
+
+    def system_prompt(self) -> str:
+        return """
+## Power BI Report Server (on-prem) Guide
+
+This connector exposes the contents of an on-prem Power BI Report Server via its REST API.
+
+### Table naming convention
+
+Tables returned by `get_schemas()` are prefixed by kind so the LLM can route correctly:
+
+- `pbix:<ReportName>` — a Power BI (.pbix) interactive report.
+  - **Not queryable** via this connector. The embedded Analysis Services model needs XMLA.
+  - Use `metadata_json.powerbi_report_server.data_sources` to understand its backing sources (Excel, SQL, etc.).
+
+- `rdl:<ReportName>/<DataSetName>` — a dataset defined inside a paginated (RDL) report.
+  - The real SQL query is in `metadata_json.powerbi_report_server.command_text`.
+  - Query it with `execute_query(table_name="rdl:...", parameters={...})`. Returns a DataFrame from CSV export.
+  - A single RDL export renders the whole report; don't expect to run arbitrary SQL against it.
+
+- `dataset:<SharedDatasetName>` — a shared dataset (.rsd) with an embedded query.
+  - Query with `execute_query(table_name="dataset:...", parameters={...})`.
+  - Parameters and the underlying query are in `metadata_json.powerbi_report_server`.
+
+- `kpi:<KpiName>` — a KPI tile. Value/goal/status are in metadata. Not queryable.
+
+### Choosing what to query
+
+- If the user asks about a Power BI (.pbix) report, you can cite its data sources but must
+  explain that direct querying requires either uploading an RDL equivalent or the XMLA endpoint.
+- If a shared dataset or RDL exists with the data they want, prefer those.
+
+### Executing queries
+
+```python
+# RDL report (or a specific dataset inside it):
+df = client.execute_query(table_name="rdl:Sales Report/MainDataset")
+
+# Shared dataset with parameters:
+df = client.execute_query(table_name="dataset:Daily Orders", parameters={"Region": "EU"})
+```
+
+The `query` argument is kept for API symmetry with other connectors but is ignored here — the
+query text lives in the report/dataset definition on the server.
+"""
+
+
+# Compatibility aliases for dynamic resolver
+PowerbiReportServerClient = PowerBIReportServerClient
