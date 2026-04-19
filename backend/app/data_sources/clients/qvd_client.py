@@ -149,23 +149,18 @@ class QVDClient(DataSourceClient):
             return cache_path
 
         try:
-            from pyqvd import QvdTable
+            import qvd
         except ImportError:
             raise ImportError(
-                "The 'pyqvd' package is required for QVD support. "
-                "Install it with: pip install pyqvd"
+                "The 'qvdrs' package is required for QVD support. "
+                "Install it with: pip install qvdrs"
             )
 
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
-        df = QvdTable.from_qvd(filepath).to_pandas()
-        # Object-dtype columns from QVD can contain mixed Python types
-        # (numbers alongside strings). pyarrow's parquet writer rejects those;
-        # coercing to pandas StringDtype produces VARCHAR in DuckDB either way.
-        obj_cols = df.select_dtypes(include=["object"]).columns
-        if len(obj_cols):
-            df[obj_cols] = df[obj_cols].astype("string")
-        df.to_parquet(tmp_path, index=False)
+        # Direct QVD → Parquet via Rust; no pandas intermediate. On a 4GB QVD
+        # this is ~30× faster and uses a fraction of the RAM vs pyqvd.
+        qvd.convert_qvd_to_parquet(filepath, str(tmp_path))
         os.replace(tmp_path, cache_path)
 
         for old in _CACHE_DIR.glob(f"{file_hash}_*.parquet"):
