@@ -9,6 +9,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+# Disable Nagle on uvicorn's accepted sockets so SSE/WebSocket streaming
+# isn't coalesced into jumpy bursts. Must run before uvicorn imports the
+# protocol classes it will instantiate.
+from app.core.tcp_nodelay import enable_tcp_nodelay
+enable_tcp_nodelay()
+
 # Add this before app initialization
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, help='Path to custom config file')
