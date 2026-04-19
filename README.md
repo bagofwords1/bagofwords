@@ -40,12 +40,12 @@ Chat, visualize, and run deep analysis on your data - with memory, rules managem
 
 ```bash
 # runs with SQLite (default)
-docker run -p 3000:3000 bagofwords/bagofwords
+docker run -p 8000:8000 bagofwords/bagofwords
 ```
 
 ### Or, run with a ready PostgreSQL instance
 ```bash
-docker run -p 3000:3000 \
+docker run -p 8000:8000 \
   -e BOW_DATABASE_URL=postgresql://user:password@localhost:5432/dbname \
   bagofwords/bagofwords
 ```

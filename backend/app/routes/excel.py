@@ -27,7 +27,7 @@ def _get_base_url(request: Request) -> str:
       2. Infer from the incoming request (fallback for dev)
     """
     configured = (settings.bow_config.base_url or "").rstrip("/")
-    if configured and configured not in ("http://0.0.0.0:3000",):
+    if configured and configured not in ("http://0.0.0.0:3000", "http://0.0.0.0:8000"):
         return configured
     # Fallback: build from request headers (works behind reverse proxies that
     # set X-Forwarded-{Proto,Host}).

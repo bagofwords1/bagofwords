@@ -37,7 +37,7 @@ MCP_PROTOCOL_VERSION = "2025-11-25"
 def _resource_metadata_url(request: Request) -> str:
     """Build the well-known URL for the WWW-Authenticate header."""
     configured = settings.bow_config.base_url
-    if configured and configured != "http://0.0.0.0:3000":
+    if configured and configured not in ("http://0.0.0.0:3000", "http://0.0.0.0:8000"):
         base = configured.rstrip("/")
     else:
         base = f"{request.url.scheme}://{request.url.netloc}"

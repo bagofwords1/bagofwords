@@ -214,7 +214,7 @@ def generate_fernet_key():
 
 class BowConfig(BaseModel):
     deployment: DeploymentConfig = DeploymentConfig()
-    base_url: Optional[str] = Field(default="http://0.0.0.0:3000")
+    base_url: Optional[str] = Field(default="http://0.0.0.0:8000")
     features: FeatureFlags = FeatureFlags()
     auth: AuthConfig = AuthConfig()
     google_oauth: GoogleOAuth = GoogleOAuth()

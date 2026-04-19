@@ -2,7 +2,6 @@
 
 # Set environment variables
 export ENVIRONMENT=production
-export NODE_ENV=production
 
 # Generate BOW_ENCRYPTION_KEY if not provided (must happen BEFORE workers fork)
 if [ -z "$BOW_ENCRYPTION_KEY" ]; then
@@ -99,12 +98,13 @@ for i in {1..3}; do
     sleep $((4 * i))
 done
 
-# Start the backend service
-uvicorn main:app --host 0.0.0.0 --port 8000 --ws websockets --log-level info --workers "$WORKERS" --loop uvloop --http httptools &
-
-# Wait 5s for the backend to start
-sleep 5
-
-# Start the frontend service
-cd /app/frontend
-exec node .output/server/index.mjs
+# Start uvicorn as the single foreground process (SPA is served from the
+# same process via SERVE_FRONTEND=1). tini reaps it on shutdown.
+exec uvicorn main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --ws websockets \
+    --log-level info \
+    --workers "$WORKERS" \
+    --loop uvloop \
+    --http httptools

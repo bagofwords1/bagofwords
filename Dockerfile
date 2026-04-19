@@ -71,7 +71,10 @@ RUN yarn install --frozen-lockfile
 COPY ./scripts/download-vendor-libs.sh /app/scripts/download-vendor-libs.sh
 RUN bash /app/scripts/download-vendor-libs.sh /app/frontend/public/libs
 
-RUN yarn build
+# `nuxt generate` produces a fully static SPA under .output/public, which
+# FastAPI serves directly in production (see backend/app/core/spa.py).
+# This replaces the previous `yarn build` + Node runtime pattern.
+RUN yarn generate
 
 FROM ubuntu:24.04
 
@@ -82,12 +85,12 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install Python runtime, Node.js 22 (runtime only), and minimal system libs
+# Install Python runtime and minimal system libs. Node.js is no longer
+# needed at runtime: the frontend is pre-generated as static files by the
+# frontend-builder stage and served directly by FastAPI.
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5 vim-tiny && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
     curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
     ARCH="$(dpkg --print-architecture)" && \
     echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod-24.04.list && \
@@ -128,13 +131,13 @@ RUN playwright install-deps chromium
 # Copy demo data sources (SQLite/DuckDB files for demo databases)
 COPY --chown=app:app ./backend/demo-datasources /app/backend/demo-datasources
 
-# Copy only the built Nuxt output to keep the image small
-COPY --from=frontend-builder --chown=app:app /app/frontend/.output /app/frontend/.output
+# Copy the generated static SPA (nuxt generate output includes all public/
+# assets — libs, artifact-sandbox.html, icons, etc. — copied automatically).
+COPY --from=frontend-builder --chown=app:app /app/frontend/.output/public /app/frontend/dist
 
-# Copy sandbox HTML for artifact validation (used by headless browser)
+# Keep the legacy public paths available for backend headless browser
+# rendering code that reads files from disk (not over HTTP).
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/artifact-sandbox.html /app/frontend/public/artifact-sandbox.html
-
-# Copy vendored JS libs for backend headless browser rendering (airgapped support)
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/libs /app/frontend/public/libs
 
 # Copy runtime configs and scripts
@@ -161,8 +164,6 @@ COPY --chown=app:app ./bow-config.yaml /app/bow-config.yaml
 # Set executable permissions for start.sh
 RUN chmod +x /app/start.sh
 
-# Define environment variable for Node to run in production mode
-ENV NODE_ENV=production
 ENV ENVIRONMENT=production
 ENV GIT_PYTHON_REFRESH=quiet
 
@@ -170,12 +171,16 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=UTF-8
 ENV HOME=/home/app
 
-# Expose ports (documentational)
-EXPOSE 3000
+# Tell FastAPI to serve the generated SPA from disk.
+ENV SERVE_FRONTEND=1
+ENV FRONTEND_DIST_DIR=/app/frontend/dist
 
-# Healthcheck against the Nuxt server; 
+# Expose the uvicorn port (documentational).
+EXPOSE 8000
+
+# Healthcheck against uvicorn, which now serves both the SPA and the API.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD curl -fsS http://localhost:3000/ || exit 1
+  CMD curl -fsS http://localhost:8000/ || exit 1
 
 USER app
 

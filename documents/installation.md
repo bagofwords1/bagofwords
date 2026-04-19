@@ -6,7 +6,7 @@
 docker build -t bow .
 
 # Run the container
-docker run -p 3000:3000 bow 
+docker run -p 8000:8000 bow 
 ```
 ## Dockerfile Overview
 
@@ -21,18 +21,19 @@ This multi-stage Dockerfile builds a full-stack application:
 ### 2. Frontend Stage  
 - Base: Ubuntu 24.04
 - Installs Node.js 22 and Yarn
-- Builds the Nuxt frontend (`frontend/.output`)
+- Generates the static SPA via `nuxt generate` (`frontend/.output/public`)
 
 ### 3. Final Stage
 - Base: Ubuntu 24.04
-- Installs Python runtime, Node.js 22 (runtime), and ODBC components
+- Installs Python runtime and ODBC components (no Node.js at runtime)
   - Microsoft ODBC Driver 18 for SQL Server (`msodbcsql18`)
   - SQL Server tools (`mssql-tools18`)
   - `unixodbc`
 - Copies Python venv and backend app code
-- Copies built Nuxt output to serve the frontend
+- Copies the generated SPA into `/app/frontend/dist`; FastAPI serves it
+  directly when `SERVE_FRONTEND=1`
 - Sets environment variables and uses `tini` as entrypoint
-- Exposes port 3000
+- Exposes port 8000
 - Runs via `start.sh`
 
 ## Requirements
@@ -56,7 +57,7 @@ odbcinst -q -d -n "ODBC Driver 18 for SQL Server"
 deployment:
   type: "saas"  # Options: "saas" or "self_hosted"
 
-base_url: http://0.0.0.0:3000
+base_url: http://0.0.0.0:8000
   
 # Feature Flags
 features:

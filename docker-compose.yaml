@@ -48,9 +48,8 @@ services:
     container_name: bow-app
     restart: unless-stopped
     expose:
-      - "3000"
+      - "8000"
     environment:
-      - NODE_ENV=production
       - ENVIRONMENT=production
       # Database configuration
       - BOW_DATABASE_URL=postgresql://${POSTGRES_USER:-bow}:${POSTGRES_PASSWORD:-bowpassword}@postgres:5432/${POSTGRES_DB:-bagofwords}
@@ -69,7 +68,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
       interval: 30s
       timeout: 5s
       retries: 3
