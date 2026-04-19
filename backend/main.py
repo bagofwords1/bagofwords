@@ -10,6 +10,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+# Disable Nagle on uvicorn's accepted sockets so SSE/WebSocket streaming
+# isn't coalesced into jumpy bursts. Must run before uvicorn imports the
+# protocol classes it will instantiate.
+from app.core.tcp_nodelay import enable_tcp_nodelay
+enable_tcp_nodelay()
+
 # Add this before app initialization
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, help='Path to custom config file')
@@ -33,6 +39,7 @@ from app.settings.config import settings
 from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler
+from app.core.spa import mount_spa
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
@@ -182,6 +189,12 @@ app.include_router(
 
 # Google OAuth is handled by custom OIDC router for uniform behavior
 
+@app.get("/health", include_in_schema=False)
+async def health():
+    """Liveness probe — used by k8s, docker healthcheck, and CI wait loops."""
+    return {"status": "ok"}
+
+
 app.include_router(demo_data_source.router, prefix="/api")  # Must be before data_source for /data_sources/demos to match
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
@@ -226,9 +239,19 @@ app.include_router(artifact.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
+# External-facing aliases: MCP clients and the Excel add-in connect to
+# /mcp and /excel directly (these paths were previously provided by the
+# Nuxt reverse-proxy rewrites /mcp→/api/mcp, /excel→/api/excel).
+app.include_router(mcp.router)
+app.include_router(excel.router)
+
 # SCIM 2.0 provisioning endpoints (mounted at /scim/v2, not under /api)
 from app.ee.scim.routes import scim_router
 app.include_router(scim_router)
+
+# SPA: serve generated Nuxt output at / when SERVE_FRONTEND=1.
+# Must be the last route registration so it only catches unmatched paths.
+mount_spa(app)
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():

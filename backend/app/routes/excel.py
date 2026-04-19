@@ -22,18 +22,12 @@ router = APIRouter(prefix="/excel", tags=["excel"])
 def _get_base_url(request: Request) -> str:
     """Return the externally-reachable base URL for this BOW instance.
 
-    Priority:
-      1. bow_config.base_url (operator-configured, authoritative)
-      2. Infer from the incoming request (fallback for dev)
+    Delegates to the shared helper so /excel, /mcp, and /.well-known/* all
+    derive the public origin the same way (X-Forwarded-* aware, so URLs
+    behind Caddy/ALB point at the public host instead of the upstream).
     """
-    configured = (settings.bow_config.base_url or "").rstrip("/")
-    if configured and configured not in ("http://0.0.0.0:3000",):
-        return configured
-    # Fallback: build from request headers (works behind reverse proxies that
-    # set X-Forwarded-{Proto,Host}).
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host", request.headers.get("host", "localhost"))
-    return f"{scheme}://{host}"
+    from app.core.base_url import derive_base_url
+    return derive_base_url(request)
 
 
 # ---------------------------------------------------------------------------
