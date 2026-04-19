@@ -4,6 +4,7 @@ import uvicorn
 import argparse
 import uuid
 import time
+from datetime import datetime
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy import text
@@ -34,6 +35,7 @@ from app.core.cors import init_cors
 from app.core.scheduler import scheduler
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
+from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.core.otel import setup_telemetry, instrument_app
 
 from app.routes import (
@@ -338,6 +340,24 @@ async def startup_event():
         logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
     except Exception as e:
         logger.error(f"Failed to schedule purge job: {e}")
+
+    # Background warmup of QVD Parquet caches so the first create_data/inspect_data
+    # on a 1-5GB QVD doesn't block the UI for minutes.
+    try:
+        scheduler.add_job(
+            warm_all_qvd_caches,
+            trigger="interval",
+            minutes=15,
+            id="qvd_warmup",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=300,
+            next_run_time=datetime.now(),
+        )
+        logger.info("Scheduled job: qvd_warmup every 15m (runs once at startup)")
+    except Exception as e:
+        logger.error(f"Failed to schedule QVD warmup job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if settings.bow_config.ldap.enabled and has_feature("ldap"):

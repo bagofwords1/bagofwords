@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import glob
 import hashlib
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,11 +16,35 @@ import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
+from app.settings.logging_config import get_logger
 
+
+logger = get_logger(__name__)
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "qvd_cache"
 _HEADER_END_TAG = b"</QvdTableHeader>"
 _HEADER_SCAN_LIMIT = 4 * 1024 * 1024
+
+# Cross-instance coordination for warmup. Same (abspath, mtime) → one parse.
+# Lazily initialized on first use so we bind to the running event loop.
+_INFLIGHT: dict[Path, "asyncio.Task[Path]"] = {}
+_INFLIGHT_LOCK: asyncio.Lock | None = None
+_WARMUP_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _get_inflight_lock() -> asyncio.Lock:
+    global _INFLIGHT_LOCK
+    if _INFLIGHT_LOCK is None:
+        _INFLIGHT_LOCK = asyncio.Lock()
+    return _INFLIGHT_LOCK
+
+
+def _get_warmup_semaphore() -> asyncio.Semaphore:
+    # A 5GB QVD → ~20GB RAM during pyqvd parse; one at a time per pod.
+    global _WARMUP_SEMAPHORE
+    if _WARMUP_SEMAPHORE is None:
+        _WARMUP_SEMAPHORE = asyncio.Semaphore(1)
+    return _WARMUP_SEMAPHORE
 
 
 class QVDClient(DataSourceClient):
@@ -150,6 +176,80 @@ class QVDClient(DataSourceClient):
                     pass
         return cache_path
 
+    async def _warm_one(self, filepath: str) -> Path:
+        """Parse one QVD to Parquet under the pod-wide warmup semaphore."""
+        sem = _get_warmup_semaphore()
+        async with sem:
+            _, cache_path = self._cache_key(filepath)
+            if cache_path.exists():
+                return cache_path
+            try:
+                size = os.path.getsize(filepath)
+            except OSError:
+                size = -1
+            t0 = time.perf_counter()
+            logger.info(
+                "qvd.warm.start",
+                extra={"qvd_file": filepath, "qvd_bytes": size},
+            )
+            try:
+                result = await asyncio.to_thread(self._ensure_parquet, filepath)
+            except Exception as exc:
+                logger.exception(
+                    "qvd.warm.failed",
+                    extra={
+                        "qvd_file": filepath,
+                        "qvd_elapsed_s": round(time.perf_counter() - t0, 2),
+                        "qvd_error": str(exc),
+                    },
+                )
+                raise
+            logger.info(
+                "qvd.warm.parquet_done",
+                extra={
+                    "qvd_file": filepath,
+                    "qvd_cache": str(result),
+                    "qvd_elapsed_s": round(time.perf_counter() - t0, 2),
+                },
+            )
+            return result
+
+    async def aensure_warm(self, filepath: str) -> Path:
+        """
+        Ensure the Parquet cache for `filepath` is populated.
+        Deduplicates in-flight parses by (abspath, mtime) so concurrent callers
+        share one parse task.
+        """
+        _, cache_path = self._cache_key(filepath)
+        if cache_path.exists():
+            return cache_path
+
+        lock = _get_inflight_lock()
+        async with lock:
+            task = _INFLIGHT.get(cache_path)
+            if task is None or task.done():
+                task = asyncio.create_task(self._warm_one(filepath))
+                _INFLIGHT[cache_path] = task
+
+                def _cleanup(t: "asyncio.Task[Path]", key: Path = cache_path) -> None:
+                    # Only drop the entry if it's still ours (mtime may have moved on).
+                    if _INFLIGHT.get(key) is t:
+                        _INFLIGHT.pop(key, None)
+
+                task.add_done_callback(_cleanup)
+        return await task
+
+    async def awarm_all(self) -> List[Path]:
+        """Warm every resolved QVD file. Errors on individual files are logged, not raised."""
+        paths: List[Path] = []
+        for filepath in self._resolve_files():
+            try:
+                paths.append(await self.aensure_warm(filepath))
+            except Exception:
+                # _warm_one already logged qvd.warm.failed
+                continue
+        return paths
+
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con: duckdb.DuckDBPyConnection | None = None
@@ -259,3 +359,66 @@ df = client.execute_query("SELECT product, SUM(amount) AS total FROM sales GROUP
 
 
 QvdClient = QVDClient
+
+
+async def warm_all_qvd_caches() -> None:
+    """
+    Scheduled maintenance: walk every active QVD Connection and ensure its
+    Parquet caches are warm. Designed to run on an APScheduler interval.
+    A single module-level semaphore caps concurrent pyqvd parses at 1 per pod.
+    """
+    from sqlalchemy import select
+
+    from app.dependencies import async_session_maker
+    from app.models.connection import Connection
+
+    t0 = time.perf_counter()
+    async with async_session_maker() as db:
+        rows = (
+            await db.execute(
+                select(Connection).where(
+                    Connection.type == "qvd",
+                    Connection.is_active.is_(True),
+                    Connection.deleted_at.is_(None),
+                )
+            )
+        ).scalars().all()
+
+    if not rows:
+        logger.info("qvd.warmup.sweep", extra={"qvd_connections": 0})
+        return
+
+    logger.info("qvd.warmup.sweep.start", extra={"qvd_connections": len(rows)})
+    warmed = 0
+    failed = 0
+    for conn in rows:
+        try:
+            client = conn.get_client()
+        except Exception as exc:
+            logger.warning(
+                "qvd.warmup.client_init_failed",
+                extra={"connection_id": str(conn.id), "qvd_error": str(exc)},
+            )
+            failed += 1
+            continue
+        if not isinstance(client, QVDClient):
+            continue
+        try:
+            await client.awarm_all()
+            warmed += 1
+        except Exception as exc:
+            logger.warning(
+                "qvd.warmup.connection_failed",
+                extra={"connection_id": str(conn.id), "qvd_error": str(exc)},
+            )
+            failed += 1
+
+    logger.info(
+        "qvd.warmup.sweep.done",
+        extra={
+            "qvd_connections": len(rows),
+            "qvd_warmed": warmed,
+            "qvd_failed": failed,
+            "qvd_elapsed_s": round(time.perf_counter() - t0, 2),
+        },
+    )
