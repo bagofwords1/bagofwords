@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.360 (April 19, 2026)
+- Fix QVD type parsing
+- Improving qvd -> duckdb reliability and performance
+
 ## Version 0.0.359 (April 19, 2026)
 - Enhance Sybase client for better code/timout/error handling
 - Add instruction button in Agent panel
