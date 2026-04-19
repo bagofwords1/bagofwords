@@ -41,3 +41,6 @@ backend/app.db
 
 # Sandbox session state (credentials, tokens, IDs)
 backend/sandbox_state.json
+
+# Claude Code local settings overrides
+.claude/settings.local.json
