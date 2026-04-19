@@ -37,6 +37,19 @@ RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
 # Install Playwright browser (chromium only to save space)
 RUN playwright install chromium --with-deps
 
+FROM rust:1-slim-bookworm AS qvd2parquet-builder
+
+WORKDIR /build/qvd2parquet
+COPY ./tools/qvd2parquet/Cargo.toml ./tools/qvd2parquet/Cargo.lock ./
+# Pre-build dependencies against a stub main so cargo caches the dep graph.
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && \
+    cargo build --release --locked && \
+    rm -rf src target/release/qvd2parquet target/release/qvd2parquet.d \
+           target/release/deps/qvd2parquet-* 2>/dev/null || true
+COPY ./tools/qvd2parquet/src ./src
+RUN cargo build --release --locked && \
+    strip target/release/qvd2parquet
+
 FROM ubuntu:24.04 AS frontend-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -117,6 +130,9 @@ RUN groupadd -r app \
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
+
+# Streaming QVD → Parquet converter (bounded RAM; replaces in-process qvdrs wheel)
+COPY --from=qvd2parquet-builder /build/qvd2parquet/target/release/qvd2parquet /usr/local/bin/qvd2parquet
 
 # Copy pre-cached tiktoken encodings for airgapped environments
 COPY --from=backend-builder --chown=app:app /opt/tiktoken_cache /opt/tiktoken_cache

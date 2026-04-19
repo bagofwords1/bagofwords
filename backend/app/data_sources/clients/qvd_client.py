@@ -5,6 +5,8 @@ import glob
 import hashlib
 import os
 import re
+import shutil
+import subprocess
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
@@ -25,6 +27,13 @@ _CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / 
 _HEADER_END_TAG = b"</QvdTableHeader>"
 _HEADER_SCAN_LIMIT = 4 * 1024 * 1024
 
+# Resolved once at import. Override with QVD2PARQUET_BIN for dev/test.
+_QVD2PARQUET_BIN = (
+    os.environ.get("QVD2PARQUET_BIN")
+    or shutil.which("qvd2parquet")
+    or "/usr/local/bin/qvd2parquet"
+)
+
 # Cross-instance coordination for warmup. Same (abspath, mtime) → one parse.
 # Lazily initialized on first use so we bind to the running event loop.
 _INFLIGHT: dict[Path, "asyncio.Task[Path]"] = {}
@@ -40,7 +49,9 @@ def _get_inflight_lock() -> asyncio.Lock:
 
 
 def _get_warmup_semaphore() -> asyncio.Semaphore:
-    # A 5GB QVD → ~20GB RAM during pyqvd parse; one at a time per pod.
+    # qvd2parquet streams; RAM bounded by symbol tables + chunk buffer.
+    # We still cap concurrency at 1 per pod since parse is disk+CPU bound
+    # and parallel warmups would just thrash each other.
     global _WARMUP_SEMAPHORE
     if _WARMUP_SEMAPHORE is None:
         _WARMUP_SEMAPHORE = asyncio.Semaphore(1)
@@ -148,19 +159,47 @@ class QVDClient(DataSourceClient):
         if cache_path.exists():
             return cache_path
 
-        try:
-            import qvd
-        except ImportError:
-            raise ImportError(
-                "The 'qvdrs' package is required for QVD support. "
-                "Install it with: pip install qvdrs"
-            )
-
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
-        # Direct QVD → Parquet via Rust; no pandas intermediate. On a 4GB QVD
-        # this is ~30× faster and uses a fraction of the RAM vs pyqvd.
-        qvd.convert_qvd_to_parquet(filepath, str(tmp_path))
+        # Streaming QVD → Parquet via standalone Rust binary. Bounded RAM
+        # (symbol tables + ~64K-row chunk buffer) vs the in-process qvdrs
+        # wheel which materialized the full table (~13× file size, OOM on 4GB+).
+        try:
+            result = subprocess.run(
+                [_QVD2PARQUET_BIN, filepath, str(tmp_path)],
+                check=True,
+                timeout=3600,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"qvd2parquet binary not found at {_QVD2PARQUET_BIN}. "
+                "Set QVD2PARQUET_BIN or install the binary at /usr/local/bin/qvd2parquet."
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"qvd2parquet failed on {filepath}: exit={exc.returncode} "
+                f"stderr={(exc.stderr or '').strip()!r}"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"qvd2parquet timed out after {exc.timeout}s on {filepath}"
+            ) from exc
+
+        if result.stderr:
+            logger.info(
+                "qvd2parquet.done",
+                extra={"qvd_file": filepath, "qvd2parquet_stderr": result.stderr.strip()},
+            )
         os.replace(tmp_path, cache_path)
 
         for old in _CACHE_DIR.glob(f"{file_hash}_*.parquet"):
