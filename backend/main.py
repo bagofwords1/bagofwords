@@ -4,10 +4,17 @@ import uvicorn
 import argparse
 import uuid
 import time
+from datetime import datetime
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+
+# Disable Nagle on uvicorn's accepted sockets so SSE/WebSocket streaming
+# isn't coalesced into jumpy bursts. Must run before uvicorn imports the
+# protocol classes it will instantiate.
+from app.core.tcp_nodelay import enable_tcp_nodelay
+enable_tcp_nodelay()
 
 # Add this before app initialization
 parser = argparse.ArgumentParser()
@@ -32,8 +39,10 @@ from app.settings.config import settings
 from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler
+from app.core.spa import mount_spa
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
+from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.core.otel import setup_telemetry, instrument_app
 
 from app.routes import (
@@ -74,6 +83,7 @@ from app.routes import (
     mcp,
     build,
     connection,
+    connection_oauth,
     artifact,
     oauth_server,
     rbac,
@@ -179,6 +189,12 @@ app.include_router(
 
 # Google OAuth is handled by custom OIDC router for uniform behavior
 
+@app.get("/health", include_in_schema=False)
+async def health():
+    """Liveness probe — used by k8s, docker healthcheck, and CI wait loops."""
+    return {"status": "ok"}
+
+
 app.include_router(demo_data_source.router, prefix="/api")  # Must be before data_source for /data_sources/demos to match
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
@@ -218,13 +234,24 @@ app.include_router(mcp.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
+app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
+# External-facing aliases: MCP clients and the Excel add-in connect to
+# /mcp and /excel directly (these paths were previously provided by the
+# Nuxt reverse-proxy rewrites /mcp→/api/mcp, /excel→/api/excel).
+app.include_router(mcp.router)
+app.include_router(excel.router)
+
 # SCIM 2.0 provisioning endpoints (mounted at /scim/v2, not under /api)
 from app.ee.scim.routes import scim_router
 app.include_router(scim_router)
+
+# SPA: serve generated Nuxt output at / when SERVE_FRONTEND=1.
+# Must be the last route registration so it only catches unmatched paths.
+mount_spa(app)
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
@@ -336,6 +363,24 @@ async def startup_event():
         logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
     except Exception as e:
         logger.error(f"Failed to schedule purge job: {e}")
+
+    # Background warmup of QVD Parquet caches so the first create_data/inspect_data
+    # on a 1-5GB QVD doesn't block the UI for minutes.
+    try:
+        scheduler.add_job(
+            warm_all_qvd_caches,
+            trigger="interval",
+            minutes=15,
+            id="qvd_warmup",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=300,
+            next_run_time=datetime.now(),
+        )
+        logger.info("Scheduled job: qvd_warmup every 15m (runs once at startup)")
+    except Exception as e:
+        logger.error(f"Failed to schedule QVD warmup job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if settings.bow_config.ldap.enabled and has_feature("ldap"):

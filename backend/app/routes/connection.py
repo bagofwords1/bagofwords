@@ -324,6 +324,31 @@ async def test_connection(
     )
 
 
+@router.post("/{connection_id}/test-my-credentials", response_model=ConnectionTestResult)
+async def test_my_connection_credentials(
+    connection_id: str,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Test a connection using the current user's saved credentials."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, user, connection)
+    result = await connection_service.test_user_connection(
+        db=db,
+        connection_id=connection_id,
+        organization=organization,
+        current_user=user,
+    )
+    return ConnectionTestResult(
+        success=result.get("success", False),
+        message=result.get("message", ""),
+        connectivity=result.get("connectivity", result.get("success", False)),
+        schema_access=result.get("schema_access", False),
+        table_count=result.get("table_count", 0),
+    )
+
+
 @router.post("/{connection_id}/refresh")
 @requires_permission('manage_connections')  # Admin-only
 async def refresh_connection_schema(

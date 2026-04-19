@@ -74,6 +74,42 @@ cd frontend
 npx playwright install --with-deps chromium
 ```
 
+### Vendored JS libs (required for `create_artifact`)
+
+The artifact tool inlines Tailwind / React / ReactDOM / Babel / ECharts
+into the HTML it sends to Playwright for rendering. It reads them from
+`frontend/public/libs/`. On a fresh checkout that directory only holds
+`artifact-globals.js`; without the rest, **any eval or interactive run
+that exercises `create_artifact` fails with `FileNotFoundError:
+tailwindcss-3.4.16.js`**.
+
+Default (requires CDN egress):
+
+```bash
+bash scripts/download-vendor-libs.sh frontend/public/libs
+```
+
+npm fallback (for sandboxes that block the Tailwind / unpkg CDNs but
+allow the npm registry):
+
+```bash
+tmpdir=$(mktemp -d) && cd "$tmpdir" && npm init -y >/dev/null
+npm install --silent --prefer-offline --no-audit --no-fund \
+  react@18 react-dom@18 @babel/standalone echarts @tailwindcss/browser
+LIBS=/home/user/bagofwords/frontend/public/libs
+cp node_modules/@tailwindcss/browser/dist/index.global.js   "$LIBS/tailwindcss-3.4.16.js"
+cp node_modules/react/umd/react.development.js               "$LIBS/react-18.development.js"
+cp node_modules/react-dom/umd/react-dom.development.js       "$LIBS/react-dom-18.development.js"
+cp node_modules/@babel/standalone/babel.min.js               "$LIBS/babel-standalone.min.js"
+cp node_modules/echarts/dist/echarts.min.js                  "$LIBS/echarts-5.min.js"
+cd - && rm -rf "$tmpdir"
+```
+
+`@tailwindcss/browser` is v4; the rendered artifacts look slightly
+different from production (v3 Play CDN) but the tool completes and
+persists its generated code so the judge can evaluate content — which
+is what eval cases actually need.
+
 Note: The dev config is loaded from `configs/bow-config.dev.yaml` (not the root `bow-config.yaml`).
 
 ## Session State: `backend/sandbox_state.json`
@@ -289,6 +325,48 @@ TESTING=true pytest -s -m ai --db=sqlite --disable-warnings
 ```
 
 Pytest uses its own isolated DB (not `app.db`). Each test gets a fresh DB via fixtures. This matches CI exactly.
+
+### Agent evals
+
+The eval harness lives under `backend/tests/evals/`; suites are YAMLs
+under `backend/tests/evals/suites/`. Cases run end-to-end against a
+real LLM (skipped cleanly when the provider key is missing). Tag
+markers come from each YAML so you can scope runs.
+
+```bash
+cd backend
+source .venv/bin/activate
+
+# single provider (all sanity cases ≈ 6 × duration-per-case)
+ANTHROPIC_API_KEY_TEST=sk-ant-... \
+  EVAL_LLMS="anthropic:claude-sonnet-4-6" \
+  pytest -s tests/evals -m evals
+
+# filter by tag (marker expressions work)
+pytest -s tests/evals -m "evals and artifacts"
+pytest -s tests/evals -m "evals and not judge"
+EVAL_TAGS=smoke pytest -s tests/evals -m evals
+
+# multiple providers at once
+OPENAI_API_KEY_TEST=sk-... ANTHROPIC_API_KEY_TEST=sk-ant-... \
+  EVAL_LLMS="all" \
+  pytest -s tests/evals -m evals
+```
+
+Per-case output appends to `$BOW_EVAL_REPORT` (default
+`/tmp/bow_eval_report.jsonl`): one JSON line with status, failure
+reason, totals (duration/tokens/iterations), rule-by-rule verdicts
+(including judge prompt + reasoning), a flat tool trace, and a
+per-turn completions breakdown (planner reasoning, tool calls,
+final answer text per block) — useful for pivoting across providers.
+
+Requires:
+- the vendored JS libs populated (above) for any case that calls
+  `create_artifact`,
+- `BOW_DATABASE_URL=sqlite:///db/app.db` and `TESTING=true` (the test
+  conftest wires up an isolated DB but the config loader still needs
+  the env var set),
+- chinook demo at `backend/demo-datasources/chinook.sqlite` (committed).
 
 ## Frontend Validation: Playwright + Claude's Eyes
 

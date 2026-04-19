@@ -8,7 +8,14 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-gray-400" />
-          Creating instruction...
+          <span v-if="instructionText" class="truncate max-w-[300px]">Creating: {{ truncatedText }}</span>
+          <span v-else>Creating instruction...</span>
+          <span v-if="category" class="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
+          <Icon
+            v-if="instructionText"
+            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+            class="w-3 h-3 ml-1 text-gray-400 shrink-0"
+          />
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-green-500" />
@@ -42,7 +49,7 @@
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
+      <div v-if="isExpanded && (status !== 'running' || instructionText)" class="mt-2 space-y-2">
         <!-- Instruction card - similar to InstructionSuggestions -->
         <div class="hover:bg-gray-50 border border-gray-150 rounded-md p-3 transition-colors">
           <!-- Instruction text - click to edit -->
@@ -289,7 +296,7 @@ const errorMessage = computed(() => {
 })
 
 function toggleExpanded() {
-  if (status.value !== 'running') {
+  if (status.value !== 'running' || instructionText.value) {
     isExpanded.value = !isExpanded.value
   }
 }

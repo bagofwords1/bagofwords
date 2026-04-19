@@ -22,6 +22,7 @@
         <MembersComponent v-if="activeTab === 'members'" :organization="organization" />
         <RolesManager v-if="activeTab === 'roles'" :organization="organization" />
         <GroupsManager v-if="activeTab === 'groups'" :organization="organization" />
+        <SignupPolicyManager v-if="activeTab === 'signup'" :organization="organization" />
     </div>
 </template>
 
@@ -37,6 +38,7 @@ const tabs = [
     { key: 'members', label: 'Members' },
     { key: 'roles', label: 'Roles', permission: 'manage_roles', feature: 'custom_roles' },
     { key: 'groups', label: 'Groups', permission: 'manage_groups', feature: 'custom_roles' },
+    { key: 'signup', label: 'Signup', permission: 'full_admin_access', feature: 'domain_signup' },
 ]
 
 const visibleTabs = computed(() =>

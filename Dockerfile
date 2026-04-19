@@ -37,6 +37,19 @@ RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
 # Install Playwright browser (chromium only to save space)
 RUN playwright install chromium --with-deps
 
+FROM rust:1-slim-bookworm AS qvd2parquet-builder
+
+WORKDIR /build/qvd2parquet
+COPY ./tools/qvd2parquet/Cargo.toml ./tools/qvd2parquet/Cargo.lock ./
+# Pre-build dependencies against a stub main so cargo caches the dep graph.
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && \
+    cargo build --release --locked && \
+    rm -rf src target/release/qvd2parquet target/release/qvd2parquet.d \
+           target/release/deps/qvd2parquet-* 2>/dev/null || true
+COPY ./tools/qvd2parquet/src ./src
+RUN cargo build --release --locked && \
+    strip target/release/qvd2parquet
+
 FROM ubuntu:24.04 AS frontend-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -71,7 +84,10 @@ RUN yarn install --frozen-lockfile
 COPY ./scripts/download-vendor-libs.sh /app/scripts/download-vendor-libs.sh
 RUN bash /app/scripts/download-vendor-libs.sh /app/frontend/public/libs
 
-RUN yarn build
+# `nuxt generate` produces a fully static SPA under .output/public, which
+# FastAPI serves directly in production (see backend/app/core/spa.py).
+# This replaces the previous `yarn build` + Node runtime pattern.
+RUN yarn generate
 
 FROM ubuntu:24.04
 
@@ -82,12 +98,12 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Install Python runtime, Node.js 22 (runtime only), and minimal system libs
+# Install Python runtime and minimal system libs. Node.js is no longer
+# needed at runtime: the frontend is pre-generated as static files by the
+# frontend-builder stage and served directly by FastAPI.
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5 vim-tiny && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
     curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
     ARCH="$(dpkg --print-architecture)" && \
     echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod-24.04.list && \
@@ -115,6 +131,9 @@ COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 
+# Streaming QVD → Parquet converter (bounded RAM; replaces in-process qvdrs wheel)
+COPY --from=qvd2parquet-builder /build/qvd2parquet/target/release/qvd2parquet /usr/local/bin/qvd2parquet
+
 # Copy pre-cached tiktoken encodings for airgapped environments
 COPY --from=backend-builder --chown=app:app /opt/tiktoken_cache /opt/tiktoken_cache
 ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache
@@ -128,13 +147,13 @@ RUN playwright install-deps chromium
 # Copy demo data sources (SQLite/DuckDB files for demo databases)
 COPY --chown=app:app ./backend/demo-datasources /app/backend/demo-datasources
 
-# Copy only the built Nuxt output to keep the image small
-COPY --from=frontend-builder --chown=app:app /app/frontend/.output /app/frontend/.output
+# Copy the generated static SPA (nuxt generate output includes all public/
+# assets — libs, artifact-sandbox.html, icons, etc. — copied automatically).
+COPY --from=frontend-builder --chown=app:app /app/frontend/.output/public /app/frontend/dist
 
-# Copy sandbox HTML for artifact validation (used by headless browser)
+# Keep the legacy public paths available for backend headless browser
+# rendering code that reads files from disk (not over HTTP).
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/artifact-sandbox.html /app/frontend/public/artifact-sandbox.html
-
-# Copy vendored JS libs for backend headless browser rendering (airgapped support)
 COPY --from=frontend-builder --chown=app:app /app/frontend/public/libs /app/frontend/public/libs
 
 # Copy runtime configs and scripts
@@ -146,7 +165,10 @@ RUN mkdir -p /app/certs && \
       https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 
 # Create directories that the application needs to write to
-RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding /app/logs && \
+# These paths match volume mounts in docker-compose.yaml; they must exist with
+# app-user ownership so Docker seeds named volumes with writable perms on first run.
+RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding \
+             /app/backend/branding_uploads /app/backend/logs && \
     chown -R app:app /app
 
 WORKDIR /app
@@ -158,8 +180,6 @@ COPY --chown=app:app ./bow-config.yaml /app/bow-config.yaml
 # Set executable permissions for start.sh
 RUN chmod +x /app/start.sh
 
-# Define environment variable for Node to run in production mode
-ENV NODE_ENV=production
 ENV ENVIRONMENT=production
 ENV GIT_PYTHON_REFRESH=quiet
 
@@ -167,12 +187,17 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=UTF-8
 ENV HOME=/home/app
 
-# Expose ports (documentational)
+# Tell FastAPI to serve the generated SPA from disk.
+ENV SERVE_FRONTEND=1
+ENV FRONTEND_DIST_DIR=/app/frontend/dist
+
+# Expose the uvicorn port (documentational).
 EXPOSE 3000
 
-# Healthcheck against the Nuxt server; 
+# Healthcheck against /health so failures reflect backend readiness, not
+# just the static SPA index (which would always 200 even if uvicorn was wedged).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD curl -fsS http://localhost:3000/ || exit 1
+  CMD curl -fsS http://localhost:3000/health || exit 1
 
 USER app
 

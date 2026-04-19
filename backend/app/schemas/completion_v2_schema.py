@@ -53,6 +53,8 @@ class PromptSchema(BaseModel):
     mentions: Optional[List[dict]] = None
     mode: Optional[str] = 'chat'
     model_id: Optional[str] = None
+    platform: Optional[str] = None  # 'excel', 'slack', 'teams', etc. None = web
+    platform_context: Optional[Dict[str, Any]] = None  # Platform-specific context (e.g. Excel selection data)
 
     class Config:
         from_attributes = True

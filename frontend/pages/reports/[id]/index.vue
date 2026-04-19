@@ -427,6 +427,14 @@
 				</span>
 			</div>
 		</div>
+		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+			<div class="text-xs flex items-center">
+				<span class="font-medium bg-green-50 text-green-700 px-3 py-2 rounded-md flex items-center gap-2">
+					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
+					<span>This session was created via Excel.</span>
+				</span>
+			</div>
+		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-4 max-w-2xl']">
@@ -633,9 +641,14 @@ import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import MCPTool from '~/components/tools/MCPTool.vue'
 import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
+import WriteToExcelTool from '~/components/tools/WriteToExcelTool.vue'
+import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
+import ReadExcelRangeTool from '~/components/tools/ReadExcelRangeTool.vue'
+import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -729,7 +742,7 @@ const route = useRoute()
 const report_id = (route.params.id as string) || ''
 
 // Excel add-in mode detection (for compact UI)
-const { isExcel } = useExcel()
+const { isExcel, excelSelection } = useExcel()
 
 // Permissions
 const canViewConsole = computed(() => useCan('view_console'))
@@ -1048,6 +1061,9 @@ if (import.meta.client) {
 	window.addEventListener('resize', checkMobile)
 }
 
+// Completion id currently wired up to forward Office.js results back to the backend.
+const currentOfficeJsCompletionId = ref<string | null>(null)
+
 // Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
 const reportArtifacts = ref<any[]>([])
@@ -1151,12 +1167,22 @@ function getToolComponent(toolName: string) {
 			return MCPTool
 		case 'write_csv':
 			return WriteCsvTool
+		case 'write_to_excel':
+			return WriteToExcelTool
+		case 'write_officejs_code':
+			return WriteOfficeJsCodeTool
+		case 'read_excel_range':
+			return ReadExcelRangeTool
+		case 'read_excel_as_csv':
+			return ReadExcelAsCsvTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':
 			return CreateInstructionTool
 		case 'edit_instruction':
 			return EditInstructionTool
+		case 'search_instructions':
+			return SearchInstructionsTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -1460,6 +1486,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Stash backend system completion id for stop-generation (sigkill)
 			if (payload && payload.system_completion_id) {
 				sysMessage.system_completion_id = payload.system_completion_id
+				currentOfficeJsCompletionId.value = payload.system_completion_id
 			}
 			break
 
@@ -1626,6 +1653,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps') && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
+						if ((payload.tool_name === 'create_instruction' || payload.tool_name === 'edit_instruction') && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+						}
+						if (payload.tool_name === 'search_instructions' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+							const q = payload.arguments.query
+							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'instructions'))
+							;(lastBlock.tool_execution.result_json as any).search_query = q
+							lastBlock.tool_execution.result_summary = `Searching instructions for ${qStr}…`
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -1645,6 +1682,20 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					} else {
 						lastBlock.tool_execution.status = 'running'
+					}
+
+					// Best-effort cancel of a running Office.js execution in the taskpane
+					// (sigkill or timeout path from the backend tool).
+					const cancelAction = payload.payload?.excel_action
+					if (cancelAction && cancelAction.type === 'cancelOfficeJs' && isExcel.value) {
+						try {
+							window.parent.postMessage({
+								type: 'cancelOfficeJs',
+								data: JSON.stringify(cancelAction)
+							}, window.location.origin)
+						} catch (e) {
+							console.warn('Failed to forward cancelOfficeJs to Excel taskpane:', e)
+						}
 					}
 
 					// Record progress stage for tool-specific UIs
@@ -1849,6 +1900,24 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						rj.answer = (rj.answer || '') + delta
 						lastBlock.status = 'in_progress'
 					}
+					// Forward Office.js code execution to the Excel taskpane.
+					const excelAction = payload.payload?.excel_action
+					if (excelAction && excelAction.type === 'runOfficeJs' && isExcel.value) {
+						try {
+							window.parent.postMessage({
+								type: 'runOfficeJs',
+								data: JSON.stringify(excelAction)
+							}, window.location.origin)
+						} catch (e) {
+							console.warn('Failed to forward runOfficeJs to Excel taskpane:', e)
+						}
+						if (lastBlock.tool_execution) {
+							lastBlock.tool_execution.arguments_json = lastBlock.tool_execution.arguments_json || {}
+							const aj: any = lastBlock.tool_execution.arguments_json
+							if (excelAction.code && !aj.code) aj.code = excelAction.code
+							if (excelAction.description && !aj.description) aj.description = excelAction.description
+						}
+					}
 				}
 			}
 			break
@@ -1932,6 +2001,18 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 								}
 							}))
 						} catch {}
+					}
+					// If write_to_excel completed, forward data to Excel taskpane via postMessage
+					if (payload.tool_name === 'write_to_excel' && payload.status === 'success' && payload.result_json?.excel_action && isExcel.value) {
+						try {
+							const action = payload.result_json.excel_action
+							window.parent.postMessage({
+								type: action.type,
+								data: JSON.stringify(action.data)
+							}, window.location.origin)
+						} catch (e) {
+							console.warn('Failed to forward write_to_excel data to Excel taskpane:', e)
+						}
 					}
 				}
 			}
@@ -2251,6 +2332,37 @@ async function refreshDashboardFast() {
 }
 
 // Ensure dashboard pane opens only when currently closed
+const handleOfficeJsResult = async (event: MessageEvent) => {
+    // Only accept messages from the hosting taskpane (same-origin parent).
+    // The Excel taskpane is served from the same BOW instance as the report,
+    // so cross-origin or same-tab-script posts must be rejected.
+    if (event.source !== window.parent) return
+    if (event.origin !== window.location.origin) return
+    const data = event.data
+    if (!data || data.type !== 'officeJsResult') return
+    let parsed: any = data.data
+    try { if (typeof parsed === 'string') parsed = JSON.parse(parsed) } catch { return }
+    if (!parsed || !parsed.id) return
+    const { id, completion_id: echoedCompletionId, ...body } = parsed
+    // Prefer the echoed completion_id (embedded in the runOfficeJs action by
+    // the backend). Falling back to the ref covers older tool calls that
+    // dispatched before the echo was added. If both are missing we silently
+    // drop — which was the silent-drop bug; warn loudly so it's debuggable.
+    const completionId = echoedCompletionId || currentOfficeJsCompletionId.value
+    if (!completionId) {
+        console.warn('[bow-officejs] dropping result — no completion_id (echoed or ref). tool_call_id=', id)
+        return
+    }
+    try {
+        await useMyFetch(`/api/completions/${completionId}/tool-results/${id}`, {
+            method: 'POST',
+            body,
+        })
+    } catch (e) {
+        console.warn('[bow-officejs] POST officeJsResult failed', { tool_call_id: id, completion_id: completionId, error: e })
+    }
+}
+
 onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
@@ -2258,6 +2370,7 @@ onMounted(() => {
     window.addEventListener('artifact:open', ((ev: CustomEvent) => {
         handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
     }) as EventListener)
+    window.addEventListener('message', handleOfficeJsResult)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -2366,6 +2479,7 @@ onUnmounted(() => {
 	if (import.meta.client) {
 		window.removeEventListener('resize', checkMobile)
 	}
+	window.removeEventListener('message', handleOfficeJsResult)
 	document.removeEventListener('mousemove', handleResize)
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
@@ -2590,7 +2704,18 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			content: text,
 			mentions: data.mentions || [],
 			mode: data.mode || 'chat',
-			model_id: data.model_id || null
+			model_id: data.model_id || null,
+			platform: isExcel.value ? 'excel' : null,
+			platform_context: isExcel.value && excelSelection.value ? {
+				address: excelSelection.value.address,
+				sheetName: excelSelection.value.sheetName,
+				selectionValues: excelSelection.value.selectionValues,
+				cellCount: excelSelection.value.cellCount,
+				totalCellCount: excelSelection.value.totalCellCount,
+				truncated: excelSelection.value.truncated,
+				rowCount: excelSelection.value.rowCount,
+				columnCount: excelSelection.value.columnCount,
+			} : null,
 		},
 		stream: true
 	}

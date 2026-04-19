@@ -33,6 +33,12 @@ class ToolMetadata(BaseModel):
         description="Modes where tool is available (None = all modes). E.g., ['training'] for training-only tools."
     )
 
+    # Platform access control
+    allowed_platforms: Optional[List[str]] = Field(
+        default=None,
+        description="Platforms where tool is available (None = all platforms). E.g., ['excel'] for Excel-only tools."
+    )
+
     # Discovery and UI
     tags: List[str] = Field(default_factory=list, description="Searchable tags")
     examples: List[Dict[str, Any]] = Field(default_factory=list, description="Usage examples")

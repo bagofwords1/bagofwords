@@ -776,6 +776,7 @@ const props = defineProps<{
     isGitSourced?: boolean
     isGitSynced?: boolean
     targetBuildId?: string  // If set, update instruction within this existing build (no new build created)
+    defaultStatus?: 'draft' | 'published' | 'archived'  // Initial status for new instructions (default: 'draft')
 }>()
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git', 'view-mode-changed'])
@@ -1165,7 +1166,7 @@ const selectMention = (item: MentionItem) => {
 const instructionForm = ref<InstructionForm>({
     text: '',
     title: '',
-    status: 'draft',
+    status: props.defaultStatus || 'draft',
     category: 'general',
     is_seen: true,
     can_user_toggle: true,
@@ -1616,7 +1617,7 @@ const resetForm = () => {
     instructionForm.value = {
         text: '',
         title: '',
-        status: 'draft',
+        status: props.defaultStatus || 'draft',
         category: 'general',
         is_seen: true,
         can_user_toggle: true,

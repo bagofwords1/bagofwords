@@ -20,6 +20,7 @@ from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
+from app.ai.tools.officejs_registry import pending_officejs_registry
 from app.project_manager import ProjectManager
 from app.models.step import Step
 from app.models.widget import Widget
@@ -45,7 +46,8 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, small_model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
+                 model=None, small_model=None, mode=None, platform=None, platform_context=None,
+                 messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
         self.db = db
         self.build_id = build_id
         self.organization = organization
@@ -53,6 +55,9 @@ class AgentV2:
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
         self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
         self.mode = mode
+        # Platform context: derive from explicit param or fall back to completion's external_platform
+        self.platform = platform or getattr(head_completion, "external_platform", None)
+        self.platform_context = platform_context
         self.training_build_id = None  # Track build ID for training mode instruction creation
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
@@ -121,9 +126,9 @@ class AgentV2:
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
 
-        # Start with all available tools for the planner to see, filtered by mode
-        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode)
-        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode))
+        # Start with all available tools for the planner to see, filtered by mode and platform
+        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode, platform=self.platform)
+        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode, platform=self.platform))
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
@@ -159,11 +164,14 @@ class AgentV2:
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
     async def _get_active_artifact(self) -> Optional[dict]:
-        """Get the most recent artifact for the current report."""
+        """Get the most recent artifact for the current report, enriched with
+        visualization-level state so the planner treats it as the starting
+        material for the next turn (not a stale label)."""
         if not self.report:
             return None
         try:
             from app.models.artifact import Artifact
+            from app.models.visualization import Visualization
             result = await self.db.execute(
                 select(Artifact)
                 .where(
@@ -174,17 +182,72 @@ class AgentV2:
                 .limit(1)
             )
             artifact = result.scalar_one_or_none()
-            if artifact:
-                return {
-                    "artifact_id": str(artifact.id),
-                    "title": artifact.title,
-                    "mode": artifact.mode,
-                    "version": artifact.version,
-                    "generation_prompt": artifact.generation_prompt,
-                }
+            if not artifact:
+                return None
+
+            viz_ids = []
+            if isinstance(artifact.content, dict):
+                raw_ids = artifact.content.get("visualization_ids") or []
+                viz_ids = [str(v) for v in raw_ids if v]
+
+            visualizations = []
+            if viz_ids:
+                viz_rows = await self.db.execute(
+                    select(Visualization).where(Visualization.id.in_(viz_ids))
+                )
+                viz_by_id = {str(v.id): v for v in viz_rows.scalars().all()}
+                for vid in viz_ids:
+                    viz = viz_by_id.get(vid)
+                    if not viz:
+                        continue
+                    step = None
+                    try:
+                        q = viz.query
+                        step = q.default_step if q and q.default_step else (q.steps[-1] if q and q.steps else None)
+                    except Exception:
+                        step = None
+
+                    columns = []
+                    row_count = None
+                    step_type = None
+                    if step is not None:
+                        step_type = step.type
+                        data_model = step.data_model if isinstance(step.data_model, dict) else None
+                        if data_model:
+                            cols = data_model.get("columns") or []
+                            columns = [c.get("name") for c in cols if isinstance(c, dict) and c.get("name")]
+                        data_payload = step.data if isinstance(step.data, dict) else None
+                        if data_payload:
+                            rows = data_payload.get("rows")
+                            if isinstance(rows, list):
+                                row_count = len(rows)
+                            if not columns:
+                                data_cols = data_payload.get("columns") or []
+                                columns = [
+                                    c.get("field") or c.get("name")
+                                    for c in data_cols
+                                    if isinstance(c, dict) and (c.get("field") or c.get("name"))
+                                ]
+
+                    visualizations.append({
+                        "viz_id": vid,
+                        "viz_title": viz.title or "",
+                        "step_type": step_type,
+                        "row_count": row_count,
+                        "columns": columns,
+                    })
+
+            return {
+                "artifact_id": str(artifact.id),
+                "title": artifact.title,
+                "mode": artifact.mode,
+                "version": artifact.version,
+                "generation_prompt": artifact.generation_prompt,
+                "visualizations": visualizations,
+            }
         except Exception:
-            pass
-        return None
+            logger.exception("_get_active_artifact failed")
+            return None
 
     async def _build_scheduled_context(self) -> Optional[dict]:
         """Build scheduled execution context if this completion is from a scheduled prompt."""
@@ -431,11 +494,11 @@ class AgentV2:
 
             # === Build a knowledge-mode tool catalog ===
             knowledge_catalog_dicts = self.registry.get_catalog_for_plan_type(
-                "action", self.organization, mode="knowledge"
+                "action", self.organization, mode="knowledge", platform=self.platform
             )
             knowledge_catalog_dicts.extend(
                 self.registry.get_catalog_for_plan_type(
-                    "research", self.organization, mode="knowledge"
+                    "research", self.organization, mode="knowledge", platform=self.platform
                 )
             )
             seen = set()
@@ -494,7 +557,7 @@ class AgentV2:
                     tool_catalog=knowledge_tool_catalog,
                     mode="knowledge",
                     trigger_conditions=trigger_block,
-                    external_platform=getattr(self.head_completion, "external_platform", None),
+                    external_platform=self.platform,
                 )
 
                 # Run the planner and capture the final decision
@@ -570,6 +633,16 @@ class AgentV2:
                     }
                     continue
 
+                # === Start tool execution tracking (persisted row + tool.started SSE) ===
+                tool_execution = await self.project_manager.start_tool_execution_from_models(
+                    self.db,
+                    agent_execution=self.current_execution,
+                    plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
+                    tool_name=tool_name,
+                    tool_action=getattr(action, "type", None),
+                    tool_input_model=tool_input,
+                )
+
                 runtime_ctx = {
                     "db": self.db,
                     "organization": self.organization,
@@ -588,17 +661,11 @@ class AgentV2:
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                     "mode": "knowledge",
+                    "platform": self.platform,
+                    "platform_context": self.platform_context,
+                    "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                    "pending_officejs_registry": pending_officejs_registry,
                 }
-
-                # === Start tool execution tracking (persisted row + tool.started SSE) ===
-                tool_execution = await self.project_manager.start_tool_execution_from_models(
-                    self.db,
-                    agent_execution=self.current_execution,
-                    plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
-                    tool_name=tool_name,
-                    tool_action=getattr(action, "type", None),
-                    tool_input_model=tool_input,
-                )
                 try:
                     seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
                     await self._emit_sse_event(SSEEvent(
@@ -1276,9 +1343,10 @@ class AgentV2:
                         resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
                         last_observation=observation,
                         past_observations=self.context_hub.observation_builder.tool_observations,
-                        external_platform=getattr(self.head_completion, "external_platform", None),
+                        external_platform=self.platform,
                         tool_catalog=self.planner.tool_catalog,
                         mode=self.mode,
+                        platform_context=self.platform_context,
                         images=all_images if all_images else None,
                         active_artifact=active_artifact,
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
@@ -1765,6 +1833,10 @@ class AgentV2:
                             "training_build_id": self.training_build_id,  # For training mode instruction creation
                             "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                             "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
+                            "platform": self.platform,
+                            "platform_context": self.platform_context,
+                            "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                            "pending_officejs_registry": pending_officejs_registry,
                         }
 
                         # Emit generic output event for tools that stream results (inspect_data, answer_question)
@@ -2368,7 +2440,7 @@ class AgentV2:
             resources_combined=resources_combined_small,
             last_observation=None,
             past_observations=self.context_hub.observation_builder.tool_observations,
-            external_platform=getattr(self.head_completion, "external_platform", None),
+            external_platform=self.platform,
             tool_catalog=self.planner.tool_catalog,
             mode=self.mode,
             active_artifact=active_artifact,

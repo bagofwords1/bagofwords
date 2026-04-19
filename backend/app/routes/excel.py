@@ -22,18 +22,12 @@ router = APIRouter(prefix="/excel", tags=["excel"])
 def _get_base_url(request: Request) -> str:
     """Return the externally-reachable base URL for this BOW instance.
 
-    Priority:
-      1. bow_config.base_url (operator-configured, authoritative)
-      2. Infer from the incoming request (fallback for dev)
+    Delegates to the shared helper so /excel, /mcp, and /.well-known/* all
+    derive the public origin the same way (X-Forwarded-* aware, so URLs
+    behind Caddy/ALB point at the public host instead of the upstream).
     """
-    configured = (settings.bow_config.base_url or "").rstrip("/")
-    if configured and configured not in ("http://0.0.0.0:3000",):
-        return configured
-    # Fallback: build from request headers (works behind reverse proxies that
-    # set X-Forwarded-{Proto,Host}).
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host", request.headers.get("host", "localhost"))
-    return f"{scheme}://{host}"
+    from app.core.base_url import derive_base_url
+    return derive_base_url(request)
 
 
 # ---------------------------------------------------------------------------
@@ -300,13 +294,104 @@ def _build_taskpane_html(base_url: str) -> str:
     setTimeout(function() {{ if (!loaded) showError("Loading is taking longer than expected."); }}, 15000);
   }}
 
+  var cancelledOfficeJsIds = Object.create(null);
+
   function handleMessageFromApp(event) {{
     if (!event || !currentAppOrigin || event.origin !== currentAppOrigin) return;
     var data = event.data; if (!data || typeof data !== "object") return;
     if (data.type === "applyToExcel") {{
       try {{ var payload = typeof data.data === "string" ? JSON.parse(data.data) : data.data;
         appendDataToExcel(payload); }} catch(e) {{}}
+    }} else if (data.type === "runOfficeJs") {{
+      try {{ var req = typeof data.data === "string" ? JSON.parse(data.data) : data.data;
+        runOfficeJsCode(req); }} catch(e) {{}}
+    }} else if (data.type === "cancelOfficeJs") {{
+      try {{ var cp = typeof data.data === "string" ? JSON.parse(data.data) : data.data;
+        if (cp && cp.id) cancelledOfficeJsIds[cp.id] = true; }} catch(e) {{}}
     }}
+  }}
+
+  function truncateOfficeJsValue(v) {{
+    try {{
+      var s = JSON.stringify(v);
+      if (s && s.length > 4000) return {{ __truncated: true, preview: s.slice(0, 4000) }};
+      return v === undefined ? null : v;
+    }} catch(e) {{ return String(v).slice(0, 4000); }}
+  }}
+
+  function runOfficeJsCode(req) {{
+    var id = req && req.id;
+    var code = req && req.code;
+    // completion_id is echoed back to the report iframe so it can POST to the
+    // correct completion endpoint without relying on a Vue ref being set.
+    var completionId = req && req.completion_id;
+    if (!id || typeof code !== "string") return;
+
+    function postResult(body) {{
+      body.id = id;
+      if (completionId) body.completion_id = completionId;
+      postToApp({{ type: "officeJsResult", data: JSON.stringify(body) }});
+    }}
+
+    // Tier-1 validation: catch SyntaxErrors via the Function constructor before
+    // touching the workbook. LLM hallucinations (unterminated strings, stray
+    // braces) surface as a normal tool observation instead of a silent failure.
+    var fn;
+    try {{
+      fn = new Function("ctx", "return (async () => {{" + code + "\\n}})();");
+    }} catch (e) {{
+      if (cancelledOfficeJsIds[id]) {{
+        console.warn("[bow-officejs] dropping syntax-error result for cancelled id", id);
+        delete cancelledOfficeJsIds[id];
+        return;
+      }}
+      postResult({{
+        success: false,
+        error: "SyntaxError: " + (e && e.message ? e.message : String(e)),
+        logs: [],
+        ranges_touched: []
+      }});
+      return;
+    }}
+
+    var logs = [];
+    var origLog = console.log;
+    console.log = function() {{
+      try {{ logs.push(Array.prototype.slice.call(arguments).map(function(a) {{
+        try {{ return typeof a === "string" ? a : JSON.stringify(a); }} catch(e) {{ return String(a); }}
+      }}).join(" ")); }} catch(e) {{}}
+      try {{ origLog.apply(console, arguments); }} catch(e) {{}}
+    }};
+
+    Excel.run(function(ctx) {{
+      return Promise.resolve(fn(ctx)).then(function(returnValue) {{
+        return ctx.sync().then(function() {{
+          if (cancelledOfficeJsIds[id]) {{
+            console.warn("[bow-officejs] dropping success result for cancelled id", id);
+            delete cancelledOfficeJsIds[id];
+            return;
+          }}
+          postResult({{
+            success: true,
+            return_value: truncateOfficeJsValue(returnValue),
+            logs: logs.slice(0, 50),
+            ranges_touched: []
+          }});
+        }});
+      }});
+    }}).catch(function(e) {{
+      if (cancelledOfficeJsIds[id]) {{
+        console.warn("[bow-officejs] dropping runtime-error result for cancelled id", id);
+        delete cancelledOfficeJsIds[id];
+        return;
+      }}
+      postResult({{
+        success: false,
+        error: (e && e.message) ? e.message : String(e),
+        logs: logs.slice(0, 50),
+        ranges_touched: []
+      }});
+    }}).then(function() {{ console.log = origLog; }});
   }}
 
   function appendDataToExcel(data) {{

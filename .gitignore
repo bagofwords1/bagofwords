@@ -44,3 +44,7 @@ backend/sandbox_state.json
 
 # Claude Code local settings overrides
 .claude/settings.local.json
+
+backend/sandbox_main.py
+configs/bow-config.dev.entra.yaml
+

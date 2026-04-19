@@ -1,0 +1,74 @@
+name: Sanity · Multi-turn Dashboard
+description: >
+  Four-turn conversation that builds up a composite dashboard. Turns 1-3
+  ask for three atomic metrics/lists; turn 4 asks to compose them into a
+  single dashboard with KPIs at the top and a payments-per-customer
+  detail below. The judge verifies the layout AND that global filters
+  are wired to every widget — the KPIs must react to filter changes,
+  not just the detail table.
+
+tags: [artifacts, data, judge, multi_turn]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: filtered_dashboard_with_kpis
+    turns:
+      - prompt:
+          content: "How many customers do we have in total?"
+      - prompt:
+          content: "What is our total revenue?"
+      - prompt:
+          content: "List all payments (invoices) with the customer name, date and amount."
+      - prompt:
+          content: >
+            Now build a single dashboard with:
+            - the two top-level KPIs (total customers, total revenue)
+              displayed at the top, and
+            - a list of payments per customer below them.
+            Add a global filter to the dashboard (e.g. date range or
+            billing country) and make sure the filter applies to EVERY
+            widget — the KPIs at the top must update when the filter
+            changes, not only the detail list.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # Across the four turns the agent should run create_data at
+        # least three times (one per metric/list in turns 1-3). Being
+        # lenient so the agent can reuse earlier data on turn 4.
+        - type: tool.calls
+          tool: create_data
+          min_calls: 3
+
+        - type: tool.calls
+          tool: create_artifact
+          min_calls: 1
+
+        - type: judge
+          prompt: >
+            The final artifact must be a dashboard that satisfies ALL
+            of the following. Answer "pass" only if ALL are clearly
+            true, and cite the relevant code or config from the
+            artifact in your reasoning:
+
+            (1) The top of the dashboard shows two KPI widgets —
+                one for total number of customers, one for total
+                revenue — arranged above the rest of the layout.
+
+            (2) Below the KPIs there is a payments-per-customer view:
+                a table or list showing payments grouped by (or
+                clearly associated with) customer, with amount and
+                date visible.
+
+            (3) The dashboard has a global filter (e.g. date range,
+                billing country, or equivalent). Critically, that
+                filter is wired to EVERY widget — including the top-
+                level KPIs — so filter changes recompute the KPI
+                values, not only the detail list. Look for shared
+                filter state / props passed to each widget in the
+                generated code.
+
+            If the KPIs are hardcoded or ignore the filter, answer
+            "fail".

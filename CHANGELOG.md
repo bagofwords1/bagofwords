@@ -1,5 +1,29 @@
 # Release Notes
 
+## Version 0.0.361 (April 20, 2026)
+- Remove nuxt from prod deployment and serve static files via FastAPI
+
+## Version 0.0.360 (April 19, 2026)
+- Fix QVD type parsing
+- Improving qvd -> duckdb reliability and performance
+
+## Version 0.0.359 (April 19, 2026)
+- Enhance Sybase client for better code/timout/error handling
+- Add instruction button in Agent panel
+- Improve Dockerfile
+
+## Version 0.0.358 (April 18, 2026)
+- SSO + OBO for data connections: OIDC login now extracts email from the id_token, syncs groups, and propagates user identity through to the warehouse
+- Entra ID native support for the On-Behalf-Of flow, including `offline_access` and hardened OAuth connection handling
+- Permission overlay revokes stale rows when a user loses upstream access; data sources returning 403 are skipped instead of failing the run
+- SIEM integration with end-to-end test coverage
+- Dashboards and Scheduled Tasks promoted to first-class items in the main navigation
+- Per-domain signup controls for opening up self-serve access
+- New Excel-specific tools for spreadsheet artifacts
+- `exportCSV()` available as a sandbox global so artifacts can produce CSV downloads
+- Improved dashboard-generation system prompt for more reliable multi-widget layouts
+- Evals harness (dogfooding): YAML suites under `tests/evals`, pytest runner, LLM matrix from `LLM_MODEL_DETAILS`, JudgeRule with execution metadata (tokens, iterations, per-tool durations), tag-based filtering, multi-turn support, SSE streaming, and per-turn completions/reasoning in failure reports
+
 ## Version 0.0.356 (April 13, 2026)
 - Share dashboards / conversations with specific users or globally
 

@@ -1,4 +1,5 @@
 import uuid
+import logging
 from typing import Optional, Any, List, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -230,17 +231,80 @@ class UserManager(BaseUserManager[User, str]):
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
-        
+
         # Get open memberships and attach user
         async with self.user_db.session as session:
+            # Materialize any domain-based auto-invites before attaching
+            await self._create_domain_invites(user.email, session)
             await self._attach_open_memberships(user, session)
-            
+
             if not settings.bow_config.features.verify_emails:
                 user.is_verified = True
-            
+
             await session.commit()
             # Auto-create organization for the first uninvited user
             await self._ensure_org_for_first_uninvited_user(session, user)
+
+    async def _has_domain_invite(self, email: str, session: AsyncSession) -> bool:
+        """Return True if some org's signup_policy would admit this email's domain."""
+        from app.models.organization_settings import OrganizationSettings
+        from app.ee.license import has_feature
+        if not has_feature("domain_signup"):
+            return False
+        if not email or "@" not in email:
+            return False
+        domain = email.split("@", 1)[-1].lower()
+        result = await session.execute(select(OrganizationSettings))
+        for s in result.scalars().all():
+            policy = (s.config or {}).get("signup_policy") or {}
+            if not policy.get("enabled"):
+                continue
+            domains = [str(d).lower() for d in (policy.get("allowed_domains") or []) if isinstance(d, str)]
+            if domain in domains:
+                return True
+        return False
+
+    async def _create_domain_invites(self, email: str, session: AsyncSession) -> None:
+        """For every org whose signup_policy admits this email's domain,
+        create an open Membership invite if one doesn't already exist."""
+        from app.models.organization_settings import OrganizationSettings
+        from app.ee.license import has_feature
+        from sqlalchemy import or_
+        if not has_feature("domain_signup"):
+            return
+        if not email or "@" not in email:
+            return
+        domain = email.split("@", 1)[-1].lower()
+        result = await session.execute(select(OrganizationSettings))
+        for s in result.scalars().all():
+            policy = (s.config or {}).get("signup_policy") or {}
+            if not policy.get("enabled"):
+                continue
+            domains = [str(d).lower() for d in (policy.get("allowed_domains") or []) if isinstance(d, str)]
+            if domain not in domains:
+                continue
+            # Skip if this email is already linked to this org (invite or attached user)
+            existing_user = (await session.execute(
+                select(User).where(User.email == email)
+            )).scalar_one_or_none()
+            conditions = [Membership.email == email]
+            if existing_user is not None:
+                conditions.append(Membership.user_id == existing_user.id)
+            dupe = (await session.execute(
+                select(Membership).where(
+                    Membership.organization_id == s.organization_id,
+                    or_(*conditions),
+                )
+            )).scalar_one_or_none()
+            if dupe:
+                continue
+            role = str(policy.get("auto_invite_role") or "member")
+            session.add(Membership(
+                email=email,
+                organization_id=s.organization_id,
+                role=role,
+            ))
+        await session.flush()
 
     async def oauth_callback(
         self: "UserManager[User, str]",
@@ -290,6 +354,8 @@ class UserManager(BaseUserManager[User, str]):
                             )
                         )
                         open_membership = (await session.execute(stmt)).scalar_one_or_none()
+                        if not open_membership and await self._has_domain_invite(account_email, session):
+                            open_membership = True
                         if not open_membership:
                             from fastapi import HTTPException
                             raise HTTPException(
@@ -325,8 +391,9 @@ class UserManager(BaseUserManager[User, str]):
                             "is_superuser": False,
                         }
                     )
-                    
-                    # Attach any open memberships
+
+                    # Materialize domain-based auto-invites, then attach memberships
+                    await self._create_domain_invites(account_email, session)
                     await self._attach_open_memberships(user, session)
                     
                     oauth_account = OAuthAccount(
@@ -455,7 +522,7 @@ class UserManager(BaseUserManager[User, str]):
         async with self.user_db.session as session:
             # Get total user count
             user_count = (await session.execute(select(User))).scalars().all().__len__()
-            
+
             # If not first user and uninvited signups disabled, check for open membership
             if user_count > 0 and not settings.bow_config.features.allow_uninvited_signups:
                 # Check if user has an open membership invitation
@@ -466,7 +533,11 @@ class UserManager(BaseUserManager[User, str]):
                     )
                 )
                 open_membership = (await session.execute(stmt)).scalar_one_or_none()
-                
+
+                # Accept a matching per-org signup-policy domain as an implicit invite
+                if not open_membership and await self._has_domain_invite(user_create.email, session):
+                    open_membership = True
+
                 if not open_membership:
                     raise HTTPException(
                         status_code=400,

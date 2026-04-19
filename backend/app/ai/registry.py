@@ -18,6 +18,7 @@ class ToolCatalogFilter:
     tags: Optional[Set[str]] = None
     max_research_steps: int = 3  # Prevent infinite research loops
     mode: Optional[str] = None  # "chat", "deep", "training", etc.
+    platform: Optional[str] = None  # "excel", "slack", "teams", etc.
 
 
 class ToolRegistry:
@@ -92,9 +93,9 @@ class ToolRegistry:
         
         return filtered_tools
 
-    def get_catalog_for_plan_type(self, plan_type: str, organization: Optional[str] = None, mode: Optional[str] = None) -> List[Dict]:
+    def get_catalog_for_plan_type(self, plan_type: str, organization: Optional[str] = None, mode: Optional[str] = None, platform: Optional[str] = None) -> List[Dict]:
         """Get tool catalog filtered by plan type with enhanced metadata."""
-        filter_obj = ToolCatalogFilter(plan_type=plan_type, organization=organization, mode=mode)
+        filter_obj = ToolCatalogFilter(plan_type=plan_type, organization=organization, mode=mode, platform=platform)
         metadata_list = self.list_tools(filter_obj)
 
         catalog = []
@@ -115,6 +116,7 @@ class ToolRegistry:
                 "is_active": getattr(metadata, "is_active", True),
                 "observation_policy": getattr(metadata, "observation_policy", None),
                 "allowed_modes": getattr(metadata, "allowed_modes", None),
+                "allowed_platforms": getattr(metadata, "allowed_platforms", None),
             })
 
         return catalog
@@ -161,6 +163,11 @@ class ToolRegistry:
         # Mode filtering - if tool has allowed_modes, current mode must be in that list
         if filter_obj.mode and metadata.allowed_modes is not None:
             if filter_obj.mode not in metadata.allowed_modes:
+                return False
+
+        # Platform filtering - if tool has allowed_platforms, current platform must match
+        if metadata.allowed_platforms is not None:
+            if not filter_obj.platform or filter_obj.platform not in metadata.allowed_platforms:
                 return False
 
         # Permission filtering
