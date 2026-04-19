@@ -610,6 +610,55 @@ class PowerBIConfig(BaseModel):
     pass
 
 
+# Power BI Report Server (on-prem)
+class PowerBIReportServerCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Windows username. May include domain prefix (e.g. DOMAIN\\user) or be a local machine user.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Windows password",
+        json_schema_extra={"ui:type": "password"}
+    )
+    domain: Optional[str] = Field(
+        None,
+        title="Domain",
+        description="Optional Windows domain (workgroup or AD). If omitted and username doesn't contain a domain, NTLM uses the local machine.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
+class PowerBIReportServerConfig(BaseModel):
+    server_url: str = Field(
+        ...,
+        title="Server URL",
+        description="Base URL of the Power BI Report Server, e.g. http://pbi.example.com or http://pbi.example.com/Reports",
+        json_schema_extra={"ui:type": "string"}
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify TLS certificate (disable only for self-signed test servers).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    ca_bundle_path: Optional[str] = Field(
+        None,
+        title="CA Bundle Path",
+        description="Optional path to a custom CA bundle for internal certificates.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    xmla_endpoint: Optional[str] = Field(
+        None,
+        title="XMLA Endpoint",
+        description="Optional XMLA endpoint URL for DAX queries against .pbix models (future use).",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Microsoft Fabric
 class MSFabricCredentials(BaseModel):
     tenant_id: str = Field(

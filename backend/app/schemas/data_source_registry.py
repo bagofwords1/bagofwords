@@ -43,6 +43,9 @@ from app.schemas.data_sources.configs import (
     # Power BI
     PowerBIConfig,
     PowerBICredentials,
+    # Power BI Report Server (on-prem)
+    PowerBIReportServerConfig,
+    PowerBIReportServerCredentials,
     # QVD Files
     QVDConfig,
     QVDCredentials,
@@ -458,6 +461,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
+        requires_license="enterprise",
+    ),
+    "powerbi_report_server": DataSourceRegistryEntry(
+        type="powerbi_report_server",
+        title="Power BI Report Server",
+        description="On-prem Power BI Report Server. Discovers Power BI reports, paginated (RDL) reports, shared datasets, KPIs, and data sources via REST API with NTLM authentication.",
+        config_schema=PowerBIReportServerConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password (NTLM)",
+                    schema=PowerBIReportServerCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.powerbi_report_server_client.PowerBIReportServerClient",
         requires_license="enterprise",
     ),
     "qvd": DataSourceRegistryEntry(
