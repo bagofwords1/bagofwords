@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.361 (April 20, 2026)
+- Remove nuxt from prod deployment and serve static files via FastAPI
+
 ## Version 0.0.360 (April 19, 2026)
 - Fix QVD type parsing
 - Improving qvd -> duckdb reliability and performance
