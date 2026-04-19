@@ -376,9 +376,17 @@ class ContextHub:
         
         # Optional sections
         if spec.include_code:
-            # CodeContextBuilder has complex interface, skip for now
-            # TODO: Implement when code context is needed
-            context.code_context = ""
+            code_config = spec.code_config or CodeContextConfig()
+            if code_config.data_model:
+                code_section = await self.code_builder.build(
+                    code_config.data_model,
+                    top_k_success=code_config.top_k_success,
+                    top_k_failure=code_config.top_k_failure,
+                    time_window_days=code_config.time_window_days,
+                )
+                context.code_context = code_section.content
+            else:
+                context.code_context = ""
             section_sizes['code'] = _section_token_length(context.code_context or '')
         
         if spec.include_resource:

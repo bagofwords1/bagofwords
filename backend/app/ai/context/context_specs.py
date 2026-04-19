@@ -158,10 +158,13 @@ class EntitiesContextConfig(BaseModel):
 
 class CodeContextConfig(BaseModel):
     """Configuration for code context building."""
-    
-    # CodeContextBuilder has complex methods, no simple build_context()
-    # Keeping minimal config for future use
-    pass
+
+    # Target data model used to rank curated success/failure snippets.
+    # When None, code context is skipped even if include_code is True.
+    data_model: Optional[Dict[str, Any]] = None
+    top_k_success: int = 2
+    top_k_failure: int = 2
+    time_window_days: Optional[int] = None
 
 class ResearchContextConfig(BaseModel):
     """Configuration for research context building."""
