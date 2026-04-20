@@ -45,6 +45,7 @@ LLM_PROVIDER_TYPE = "custom"                                # BOW_LLM_PROVIDER_T
 LLM_BASE_URL      = "http://localhost:4000"                 # BOW_LLM_BASE_URL (LiteLLM default port)
 LLM_API_KEY       = "sk-litellm-placeholder"                # BOW_LLM_API_KEY
 LLM_MODEL_ID      = "claude-sonnet-4-6"                     # BOW_LLM_MODEL_ID
+LLM_VERIFY_SSL    = False                                   # BOW_LLM_VERIFY_SSL ("0"/"false" to disable)
 
 RUNS = 10                                       # RUNS
 
@@ -53,6 +54,12 @@ RUNS = 10                                       # RUNS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE_PATH = REPO_ROOT / "backend" / "sandbox_state.json"
+
+
+def _coerce_bool(env_value: str | None, default: bool) -> bool:
+    if env_value is None or env_value == "":
+        return default
+    return env_value.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _load_state_fallback() -> dict:
@@ -84,6 +91,7 @@ def resolve_config() -> dict:
         "llm_base_url":      pick("BOW_LLM_BASE_URL",      LLM_BASE_URL, None),
         "llm_api_key":       pick("BOW_LLM_API_KEY",       LLM_API_KEY,  None),
         "llm_model_id":      pick("BOW_LLM_MODEL_ID",      LLM_MODEL_ID, sess.get("llm_model_id_str") or "claude-sonnet-4-6"),
+        "llm_verify_ssl":    _coerce_bool(os.environ.get("BOW_LLM_VERIFY_SSL"), LLM_VERIFY_SSL),
         "runs":              int(os.environ.get("RUNS") or RUNS),
     }
 
@@ -207,10 +215,11 @@ def main() -> int:
     llm_base_url = cfg["llm_base_url"]
     llm_api_key = cfg["llm_api_key"]
     llm_model_id = cfg["llm_model_id"]
+    llm_verify_ssl = cfg["llm_verify_ssl"]
     runs = cfg["runs"]
 
     print(f"backend={backend}  user={cfg['email']}  org={org_id}  ds={ds_id}")
-    print(f"llm_probe={llm_provider_type}/{llm_model_id}  base_url={llm_base_url}  runs={runs}")
+    print(f"llm_probe={llm_provider_type}/{llm_model_id}  base_url={llm_base_url}  verify_ssl={llm_verify_ssl}  runs={runs}")
 
     # 1. whoami
     def call_whoami():
@@ -238,7 +247,7 @@ def main() -> int:
     #    required and base_url is ignored.
     def _build_credentials():
         if llm_provider_type == "custom":
-            creds = {"base_url": llm_base_url}
+            creds = {"base_url": llm_base_url, "verify_ssl": llm_verify_ssl}
             if llm_api_key:
                 creds["api_key"] = llm_api_key
             return creds
