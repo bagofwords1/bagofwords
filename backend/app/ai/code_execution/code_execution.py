@@ -354,7 +354,8 @@ class StreamingCodeExecutor:
         self.context_hub = context_hub
 
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
-                     captured_timings: Optional[List[dict]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                     captured_timings: Optional[List[dict]] = None,
+                     captured_queries: Optional[List[str]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
 
         captured_timings: if provided, per-query wall-clock timings are appended to this list.
@@ -375,7 +376,7 @@ class StreamingCodeExecutor:
         validate_python_code(code)
 
         output_log = ""
-        executed_queries: List[str] = []
+        executed_queries: List[str] = captured_queries if captured_queries is not None else []
         _timings: List[dict] = captured_timings if captured_timings is not None else []
 
         # Wrap clients to capture all queries passed to execute_query
@@ -400,11 +401,16 @@ class StreamingCodeExecutor:
         return df, output_log, executed_queries
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
-                                 captured_timings: Optional[List[dict]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                                 captured_timings: Optional[List[dict]] = None,
+                                 captured_queries: Optional[List[str]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Run execute_code in a thread so it doesn't block the event loop."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            _CODE_EXEC_POOL, lambda: self.execute_code(code=code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=captured_timings)
+            _CODE_EXEC_POOL,
+            lambda: self.execute_code(
+                code=code, ds_clients=ds_clients, excel_files=excel_files,
+                captured_timings=captured_timings, captured_queries=captured_queries,
+            ),
         )
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:
@@ -732,6 +738,11 @@ class StreamingCodeExecutor:
         derived_interpreted_prompt = ctx.interpreted_prompt
         derived_schemas = ctx.schemas_excerpt
 
+        # Hoisted so the wrapper's capture survives an exception inside
+        # execute_code_async — the failure branch can surface the failing SQL.
+        query_timings: List[dict] = []
+        executed_queries: List[str] = []
+
         while retries < max_retries:
             if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                 break
@@ -773,11 +784,33 @@ class StreamingCodeExecutor:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
                 _t_exec = _time.monotonic()
-                query_timings: List[dict] = []
-                exec_df, execution_log, executed_queries = await self.execute_code_async(
-                    code=final_code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=query_timings
+                # Fresh per-attempt capture — on success we keep these; on
+                # exception the wrapper's partial writes still reach the outer
+                # scope so the failure branch can surface the failing SQL / DB error.
+                query_timings.clear()
+                executed_queries.clear()
+                exec_df, execution_log, _ = await self.execute_code_async(
+                    code=final_code, ds_clients=ds_clients, excel_files=excel_files,
+                    captured_timings=query_timings, captured_queries=executed_queries,
                 )
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
+                # Treat None/empty-columns DataFrame as a soft failure so the
+                # LLM gets a chance to fix defensive stub code that never
+                # actually calls execute_query.
+                if exec_df is None or not hasattr(exec_df, 'columns') or len(exec_df.columns) == 0:
+                    msg = (
+                        "Code executed but returned None or an empty DataFrame (0 columns). "
+                        "You MUST call ds_clients[\"<client_key>\"].execute_query(...) using the "
+                        "EXACT client_key from <connection_clients> and return the resulting DataFrame. "
+                        "Do NOT return an empty pd.DataFrame() as a defensive fallback and do NOT "
+                        "wrap the query in 'if client is None' branches — the client_key is guaranteed to exist."
+                    )
+                    code_and_error_messages.append((final_code, msg))
+                    yield {"type": "stdout", "payload": msg}
+                    retries += 1
+                    if retries < max_retries:
+                        yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
+                    continue
                 executed_successfully = True
                 break
             except CodeSecurityError as e:
@@ -824,8 +857,8 @@ class StreamingCodeExecutor:
                         "code": final_code,
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
-                        "executed_queries": [],
-                        "query_timings": [],
+                        "executed_queries": executed_queries,
+                        "query_timings": query_timings,
                         "codegen_ms": None,
                         "execution_ms": None,
                     },

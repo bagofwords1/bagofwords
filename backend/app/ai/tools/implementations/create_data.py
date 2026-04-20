@@ -638,18 +638,35 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
 
     @staticmethod
     def _summarize_errors(errors) -> dict:
+        """Summarize retry errors for the planner observation.
+
+        Keeps the DB/driver error detail that usually sits on lines 2+ of a
+        Python traceback (DuckDB "Binder Error: column X not found", pyodbc
+        "[42S22] Invalid column name", etc.) instead of truncating to the first
+        line. Traceback frames (`  File "..."`) are dropped — they're noise for
+        the planner but the underlying exception text is retained.
+        """
         last_text = (errors[-1][1] if errors else "") or ""
-        last_line = last_text.strip().splitlines()[0][:300]
+        # Keep non-empty lines, drop `File "..."` frame lines.
+        cleaned_lines = [
+            ln for ln in last_text.splitlines()
+            if ln.strip() and not ln.lstrip().startswith('File "')
+        ]
+        # Primary message: first non-frame line (usually "Execution error: ...").
+        summary_line = cleaned_lines[0][:500] if cleaned_lines else ""
+        # Full cleaned detail for the planner to reason about.
+        detail = "\n".join(cleaned_lines)[:1500]
         payload = {
             "retry_summary": {
                 "attempts": int(len(errors or [])),
                 "succeeded": False,
                 "error_count": int(len(errors or [])),
-                "last_error_message": last_line,
+                "last_error_message": summary_line or detail[:300],
             }
         }
-        if last_line:
-            payload["error"] = {"message": last_line}
+        if summary_line or detail:
+            payload["error_detail"] = detail or summary_line
+            payload["error_message"] = summary_line or detail[:300]
         return payload
 
     @property
@@ -1002,12 +1019,34 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             current_step_id = runtime_ctx.get("current_step_id")
             error_observation = {
                 "summary": "Create data failed",
-                "error": {"type": "execution_failure", "message": "execution failed (validation or execution error)"},
+                "error": {
+                    "type": "execution_failure",
+                    "message": "execution failed (validation or execution error)",
+                },
             }
+            summary = self._summarize_errors(code_errors)
+            # Merge summary fields without clobbering error.type
+            if summary.get("retry_summary"):
+                error_observation["retry_summary"] = summary["retry_summary"]
+            if summary.get("error_message"):
+                error_observation["error"]["message"] = summary["error_message"]
+            if summary.get("error_detail"):
+                error_observation["error"]["detail"] = summary["error_detail"]
+
+            # Surface the DB-level error and failing SQL — these come from the
+            # QueryCapturingClientWrapper and are much more actionable for the
+            # planner than the Python-level "Execution error: ..." string.
             try:
-                error_observation.update(self._summarize_errors(code_errors))
+                failed_timings = [t for t in (query_timings or []) if t.get("error")]
+                if failed_timings:
+                    last_failed = failed_timings[-1]
+                    error_observation["error"]["db_message"] = last_failed.get("error")
+                    if last_failed.get("sql"):
+                        error_observation["error"]["failed_sql"] = last_failed["sql"]
             except Exception:
+                # Never let observation assembly mask the primary failure.
                 pass
+
             if current_step_id:
                 error_observation["step_id"] = current_step_id
             yield ToolEndEvent(
@@ -1022,6 +1061,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                         "execution_log": output_log,
                         "errors": code_errors,
                         "executed_queries": executed_queries,
+                        "query_timings": query_timings,
                     },
                     "observation": error_observation,
                 },
