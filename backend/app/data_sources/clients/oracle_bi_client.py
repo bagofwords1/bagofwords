@@ -1,6 +1,6 @@
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 import requests
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -41,14 +41,12 @@ class OracleBIClient(DataSourceClient):
         password: Optional[str] = None,
         verify_ssl: bool = True,
         timeout_sec: int = 60,
-        catalog_root: Optional[str] = None,
     ):
         self.host = (host or "").rstrip("/")
         self.username = username
         self.password = password
         self.verify_ssl = verify_ssl
         self.timeout_sec = timeout_sec
-        self.catalog_root = catalog_root or "/shared"
 
         self._session_id: Optional[str] = None
         self._http: Optional[requests.Session] = None
@@ -58,7 +56,7 @@ class OracleBIClient(DataSourceClient):
     # ------------------------------------------------------------------
 
     def connect(self):
-        """Obtain a SOAP session ID via SAWSessionService.logon."""
+        """Obtain a SOAP session ID via nQSessionService.logon."""
         if self._http and self._session_id:
             return
 
@@ -75,7 +73,7 @@ class OracleBIClient(DataSourceClient):
             f"<v12:password>{xml_escape(self.password)}</v12:password>"
             f"</v12:logon>"
         )
-        resp_xml = self._soap_call("nQSessionService", body, use_session=False)
+        resp_xml = self._soap_call("nQSessionService", body)
         sid_el = resp_xml.find(".//sawsoap:sessionID", _NS)
         if sid_el is None or not (sid_el.text or "").strip():
             raise RuntimeError("Oracle BI logon did not return a sessionID")
@@ -86,7 +84,7 @@ class OracleBIClient(DataSourceClient):
             return
         try:
             body = f"<v12:logoff><v12:sessionID>{xml_escape(self._session_id)}</v12:sessionID></v12:logoff>"
-            self._soap_call("nQSessionService", body, use_session=False)
+            self._soap_call("nQSessionService", body)
         except Exception:
             pass
         finally:
@@ -102,7 +100,7 @@ class OracleBIClient(DataSourceClient):
             names = self._list_subject_area_names()
         except Exception as e:
             return {
-                "success": True,
+                "success": False,
                 "connectivity": True,
                 "message": f"Authenticated but failed to list subject areas: {e}",
             }
@@ -316,14 +314,18 @@ class OracleBIClient(DataSourceClient):
             err_text = (rs_root.text or "").strip() or text
             raise RuntimeError(f"Oracle BI query error: {err_text}")
 
-        # Determine column ordering from the inline schema when present.
+        # Determine column ordering and XSD types from the inline schema.
         column_order: List[str] = []
         column_captions: Dict[str, str] = {}
+        column_types: Dict[str, str] = {}
         for el in rs_root.iter(f"{{{XSD_NS}}}element"):
             name = el.get("name")
             if not name or name == "Row":
                 continue
             column_order.append(name)
+            xsd_type = el.get("type") or ""
+            if xsd_type:
+                column_types[name] = xsd_type.split(":", 1)[-1].lower()
             # Oracle exposes the user-facing caption via saw-sql:columnHeading
             for attr, val in el.attrib.items():
                 if attr.endswith("columnHeading"):
@@ -346,6 +348,19 @@ class OracleBIClient(DataSourceClient):
             ordered = [c for c in column_order if c in df.columns]
             extra = [c for c in df.columns if c not in ordered]
             df = df[ordered + extra]
+
+        for col, xsd_type in column_types.items():
+            if col not in df.columns:
+                continue
+            if xsd_type in {"double", "float", "decimal"}:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            elif xsd_type in {"int", "integer", "long", "short", "byte",
+                              "unsignedint", "unsignedlong", "unsignedshort"}:
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+            elif xsd_type in {"datetime", "date"}:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+            elif xsd_type == "boolean":
+                df[col] = df[col].map(lambda v: None if v is None else str(v).strip().lower() in {"true", "1"})
 
         if column_captions:
             df = df.rename(columns=column_captions)
@@ -445,7 +460,7 @@ df = client.execute_query('''
     # SOAP transport
     # ------------------------------------------------------------------
 
-    def _soap_call(self, service: str, body_xml: str, use_session: bool = True) -> ET.Element:
+    def _soap_call(self, service: str, body_xml: str) -> ET.Element:
         """
         POST a SOAP request to /analytics-ws/saw.dll?SoapImpl=<service> and
         return the parsed response root element. Raises on HTTP errors and

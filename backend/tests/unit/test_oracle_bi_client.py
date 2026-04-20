@@ -1,6 +1,6 @@
 """Unit tests for OracleBIClient — all SOAP transport is mocked."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -294,7 +294,7 @@ class TestExecuteQuery:
         assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["Column0", "Column1"]
         assert df.iloc[0]["Column0"] == "Widgets"
-        assert df.iloc[1]["Column1"] == "200.25"
+        assert df.iloc[1]["Column1"] == 200.25
         assert len(df) == 2
 
     def test_inline_error_becomes_runtime_error(self):

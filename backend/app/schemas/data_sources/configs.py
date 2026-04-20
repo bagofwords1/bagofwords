@@ -784,12 +784,6 @@ class OracleBIConfig(BaseModel):
         description="Base URL of the Oracle BI instance (e.g., https://analytics.example.com or the OAC instance URL).",
         json_schema_extra={"ui:type": "string"},
     )
-    catalog_root: Optional[str] = Field(
-        "/shared",
-        title="Catalog Root",
-        description="Presentation catalog root to browse. Defaults to /shared.",
-        json_schema_extra={"ui:type": "string"},
-    )
     verify_ssl: bool = Field(
         True,
         title="Verify SSL",
