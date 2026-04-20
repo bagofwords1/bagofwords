@@ -370,6 +370,18 @@ class TableFormatter:
             if cmd:
                 snippet = cmd.replace("\n", " ")[:400]
                 lines.append(f"-- command_text: {snippet}")
+            model_tables = pbi_meta.get("model_tables") or []
+            if model_tables:
+                lines.append(
+                    f"-- model_tables: {', '.join(str(t) for t in model_tables[:15])}"
+                )
+            measures = pbi_meta.get("measures") or []
+            for m in measures[:10]:
+                name = m.get("name") or ""
+                if not name:
+                    continue
+                expr = (m.get("expression") or "").replace("\n", " ")[:200]
+                lines.append(f"-- measure: {name} = {expr}" if expr else f"-- measure: {name}")
             note = pbi_meta.get("query_note")
             if note:
                 lines.append(f"-- note: {note}")

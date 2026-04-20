@@ -5,10 +5,15 @@ from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceForm
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
+import hashlib
+import json
 import logging
+import os
 import re
+import tempfile
 import xml.etree.ElementTree as ET
 
 import pandas as pd
@@ -20,6 +25,39 @@ logger = logging.getLogger(__name__)
 
 
 _RDL_NS_RE = re.compile(r"^\{[^}]+\}")
+
+# Cache for PBIX-extracted schemas, keyed by (report_id, modified_date).
+_PBIX_SCHEMA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbirs_schema_cache"
+
+# Max pbix size we'll attempt to parse (bytes). Larger files are skipped — they
+# use more memory/time than is worthwhile for metadata-only discovery.
+_PBIX_MAX_BYTES = 200 * 1024 * 1024  # 200MB
+
+# Auto-generated internal Power BI date tables — filtered out of schema output.
+_AUTO_DATE_TABLE_RE = re.compile(r"^(LocalDateTable|DateTableTemplate)_[0-9a-fA-F\-]+$")
+
+
+def _pbix_cache_path(report_id: str, modified_date: Optional[str]) -> Path:
+    key = f"{report_id}|{modified_date or ''}"
+    h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    return _PBIX_SCHEMA_CACHE_DIR / f"{h}.json"
+
+
+def _dax_to_dtype(dax_type: Optional[str]) -> str:
+    if not dax_type:
+        return "unknown"
+    t = str(dax_type).lower()
+    if "int" in t:
+        return "int"
+    if "float" in t or "double" in t or "decimal" in t or "number" in t:
+        return "float"
+    if "bool" in t:
+        return "bool"
+    if "date" in t or "time" in t:
+        return "datetime"
+    if "string" in t or "text" in t or "object" in t:
+        return "string"
+    return t
 
 
 def _strip_ns(tag: str) -> str:
@@ -111,6 +149,7 @@ class PowerBIReportServerClient(DataSourceClient):
         domain: Optional[str] = None,
         verify_ssl: bool = True,
         ca_bundle_path: Optional[str] = None,
+        extract_pbix_schemas: bool = True,
     ):
         if not server_url:
             raise ValueError("server_url is required")
@@ -125,6 +164,7 @@ class PowerBIReportServerClient(DataSourceClient):
         self.domain = domain
         self.verify_ssl = verify_ssl
         self.ca_bundle_path = ca_bundle_path
+        self.extract_pbix_schemas = extract_pbix_schemas
 
         self._session: Optional[requests.Session] = None
 
@@ -282,6 +322,132 @@ class PowerBIReportServerClient(DataSourceClient):
         if r.status_code >= 300:
             raise RuntimeError(f"Download content for {item_id} failed: HTTP {r.status_code}")
         return r.content
+
+    # ------------------------------------------------------------------
+    # PBIX schema extraction via pbixray
+    # ------------------------------------------------------------------
+
+    def extract_pbix_schema(
+        self,
+        report_id: str,
+        modified_date: Optional[str] = None,
+        *,
+        report_name: Optional[str] = None,
+        use_cache: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        """Download a PBIX and parse its Vertipaq model schema with pbixray.
+
+        Returns a dict with `tables`, `relationships`, `measures`, `source`, or
+        None on failure. Result is cached on disk keyed by (report_id, modified_date)
+        so a subsequent schema refresh is a cheap JSON read.
+        """
+        cache_file = _pbix_cache_path(report_id, modified_date)
+        if use_cache and cache_file.exists():
+            try:
+                with cache_file.open("r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.debug(f"pbix cache read failed for {report_id}: {e}")
+
+        try:
+            from pbixray import PBIXRay  # type: ignore
+        except Exception as e:
+            logger.warning(f"pbixray unavailable, skipping pbix schema extraction: {e}")
+            return None
+
+        try:
+            content = self.download_catalog_item_content(report_id)
+        except Exception as e:
+            logger.info(f"pbix download failed for {report_id} ({report_name}): {e}")
+            return None
+
+        if len(content) > _PBIX_MAX_BYTES:
+            logger.info(
+                f"pbix {report_id} ({report_name}) is {len(content)} bytes — exceeds "
+                f"{_PBIX_MAX_BYTES}; skipping schema extraction"
+            )
+            return None
+
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(suffix=".pbix")
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+
+            model = PBIXRay(tmp_path)
+            schema_df = model.schema
+            rels_df = model.relationships
+            measures_df = model.dax_measures
+
+            # Group schema rows into tables, skipping auto-generated date tables.
+            tables_out: Dict[str, Dict[str, Any]] = {}
+            if schema_df is not None and not schema_df.empty:
+                for _, row in schema_df.iterrows():
+                    tname = str(row.get("TableName") or "")
+                    if not tname or _AUTO_DATE_TABLE_RE.match(tname):
+                        continue
+                    t = tables_out.setdefault(tname, {"name": tname, "columns": [], "measures": []})
+                    t["columns"].append({
+                        "name": str(row.get("ColumnName") or ""),
+                        "dtype": _dax_to_dtype(row.get("PandasDataType")),
+                    })
+
+            # Attach measures to their tables.
+            if measures_df is not None and not measures_df.empty:
+                for _, row in measures_df.iterrows():
+                    tname = str(row.get("TableName") or "")
+                    if not tname or _AUTO_DATE_TABLE_RE.match(tname):
+                        continue
+                    entry = tables_out.setdefault(tname, {"name": tname, "columns": [], "measures": []})
+                    entry["measures"].append({
+                        "name": str(row.get("Name") or ""),
+                        "expression": str(row.get("Expression") or ""),
+                        "display_folder": str(row.get("DisplayFolder") or ""),
+                        "description": str(row.get("Description") or ""),
+                    })
+
+            relationships_out: List[Dict[str, Any]] = []
+            if rels_df is not None and not rels_df.empty:
+                for _, row in rels_df.iterrows():
+                    from_t = str(row.get("FromTableName") or "")
+                    to_t = str(row.get("ToTableName") or "")
+                    if _AUTO_DATE_TABLE_RE.match(from_t) or _AUTO_DATE_TABLE_RE.match(to_t):
+                        continue
+                    relationships_out.append({
+                        "from_table": from_t,
+                        "from_column": str(row.get("FromColumnName") or ""),
+                        "to_table": to_t,
+                        "to_column": str(row.get("ToColumnName") or ""),
+                        "is_active": bool(row.get("IsActive", True)),
+                        "cardinality": str(row.get("Cardinality") or ""),
+                    })
+
+            result = {
+                "source": "pbixray",
+                "report_id": report_id,
+                "report_name": report_name,
+                "modified_date": modified_date,
+                "tables": list(tables_out.values()),
+                "relationships": relationships_out,
+            }
+
+            try:
+                _PBIX_SCHEMA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                with cache_file.open("w", encoding="utf-8") as f:
+                    json.dump(result, f)
+            except Exception as e:
+                logger.debug(f"pbix cache write failed for {report_id}: {e}")
+
+            return result
+        except Exception as e:
+            logger.info(f"pbix schema extraction failed for {report_id} ({report_name}): {e}")
+            return None
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     # ------------------------------------------------------------------
     # RDL parsing — extract CommandText, fields, parameters from report XML
@@ -530,6 +696,27 @@ class PowerBIReportServerClient(DataSourceClient):
                     except Exception as e:
                         logger.debug(f"pbi {r['Id']} Roles failed: {e}")
 
+            # Parallel pbix schema extraction — best-effort, each failure is
+            # contained so the umbrella discovery row still renders.
+            pbix_schemas: Dict[str, Optional[Dict[str, Any]]] = {r["Id"]: None for r in pbi_reports}
+            if self.extract_pbix_schemas:
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    ext_futs = {
+                        pool.submit(
+                            self.extract_pbix_schema,
+                            r["Id"],
+                            r.get("ModifiedDate"),
+                            report_name=r.get("Name") or r["Id"],
+                        ): r
+                        for r in pbi_reports
+                    }
+                    for fut in as_completed(ext_futs):
+                        r = ext_futs[fut]
+                        try:
+                            pbix_schemas[r["Id"]] = fut.result()
+                        except Exception as e:
+                            logger.debug(f"pbix schema extract failed for {r['Id']}: {e}")
+
             for r in pbi_reports:
                 rid = r["Id"]
                 name = r.get("Name") or rid
@@ -547,6 +734,11 @@ class PowerBIReportServerClient(DataSourceClient):
                     })
 
                 upstream_hint = _summarize_upstream(connection_summary)
+
+                schema_info = pbix_schemas.get(rid)
+                schema_tables = (schema_info or {}).get("tables") or []
+                schema_rels = (schema_info or {}).get("relationships") or []
+                schema_table_names = [t["name"] for t in schema_tables]
 
                 metadata_json = {
                     "powerbi_report_server": {
@@ -567,6 +759,9 @@ class PowerBIReportServerClient(DataSourceClient):
                         "roles": [{"name": rl.get("Name"), "model_permissions": rl.get("ModelPermissions")} for rl in info["roles"]],
                         "queryable": False,
                         "upstream_source": upstream_hint,
+                        "model_tables": schema_table_names,
+                        "model_relationships": schema_rels,
+                        "schema_source": (schema_info or {}).get("source"),
                         "query_note": (
                             "This is a discovery entry — the PBIX embedded model is NOT queryable through PBIRS. "
                             f"To query its data, connect the upstream source directly: {upstream_hint or 'see data_sources[] for connection details'}."
@@ -584,6 +779,57 @@ class PowerBIReportServerClient(DataSourceClient):
                     is_active=True,
                     metadata_json=metadata_json,
                 ))
+
+                # Emit one Table per internal pbix model table when extraction succeeded.
+                # Relationships within the model become fks on the "from" side.
+                if schema_tables:
+                    rels_by_from: Dict[str, List[Dict[str, Any]]] = {}
+                    for rel in schema_rels:
+                        rels_by_from.setdefault(rel["from_table"], []).append(rel)
+
+                    for st in schema_tables:
+                        tname = st["name"]
+                        columns = [
+                            TableColumn(name=c["name"], dtype=c.get("dtype") or "unknown")
+                            for c in st.get("columns", [])
+                        ]
+                        col_by_name = {c.name: c for c in columns}
+
+                        fks: List[ForeignKey] = []
+                        for rel in rels_by_from.get(tname, []):
+                            fc = col_by_name.get(rel["from_column"])
+                            if fc is None:
+                                continue
+                            fks.append(ForeignKey(
+                                column=fc,
+                                references_name=f"pbix:{name}/{rel['to_table']}",
+                                references_column=TableColumn(name=rel["to_column"], dtype="unknown"),
+                            ))
+
+                        tables.append(Table(
+                            name=f"pbix:{name}/{tname}",
+                            description=f"Internal table in Power BI report '{name}'. Not queryable via PBIRS.",
+                            columns=columns,
+                            pks=[],
+                            fks=fks,
+                            is_active=True,
+                            metadata_json={
+                                "powerbi_report_server": {
+                                    "report_type": "PowerBIReportTable",
+                                    "report_id": rid,
+                                    "report_name": name,
+                                    "model_table": tname,
+                                    "measures": st.get("measures", []),
+                                    "queryable": False,
+                                    "upstream_source": upstream_hint,
+                                    "schema_source": (schema_info or {}).get("source"),
+                                    "query_note": (
+                                        "Internal PBIX model table — not queryable through PBIRS. "
+                                        "Use the upstream source for live data."
+                                    ),
+                                }
+                            },
+                        ))
 
         # ---- Paginated RDL reports: download content + parse ----
         if rdl_reports:
@@ -858,7 +1104,7 @@ class PowerBIReportServerClient(DataSourceClient):
                 report_id = pbi.get("report_id")
             elif rt == "Dataset":
                 dataset_id = pbi.get("dataset_id")
-            elif rt == "PowerBIReport":
+            elif rt in ("PowerBIReport", "PowerBIReportTable"):
                 upstream = pbi.get("upstream_source") or ""
                 srcs = pbi.get("data_sources") or []
                 hint = f" Upstream: {upstream}." if upstream else ""
@@ -1031,6 +1277,12 @@ Tables returned by `get_schemas()` are prefixed by kind:
     - `data_sources[]` — each entry has `kind` (SQL/File/OData/etc.), `connection_string`, `auth_type`.
     - `upstream_source` — short human-readable summary of where the data actually lives.
     - `parameters[]`, `roles[]`, `path`, `modified_by`, etc.
+    - `model_tables[]` / `model_relationships[]` — internal semantic-model structure (when extractable).
+
+- `pbix:<ReportName>/<ModelTable>` — an internal table inside a PBIX semantic model.
+  **Still not queryable**, but exposes real `columns[]` and DAX `measures[]` in metadata so the
+  LLM can reason about structure. When the user asks for actual data from these columns, route
+  them to the upstream source from the parent `pbix:<ReportName>` entry.
 
 - `rdl:<ReportName>/<DataSetName>` — a paginated (RDL) report dataset. **Queryable.**
   - Backend SQL is in `metadata_json.powerbi_report_server.command_text`.

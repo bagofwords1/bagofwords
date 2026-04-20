@@ -18,7 +18,9 @@ import pytest
 
 from app.data_sources.clients.powerbi_report_server_client import (
     PowerBIReportServerClient,
+    _AUTO_DATE_TABLE_RE,
     _clr_to_dtype,
+    _dax_to_dtype,
     _strip_ns,
     _summarize_upstream,
 )
@@ -120,6 +122,20 @@ class TestHelpers:
         out = _summarize_upstream([{"kind": "SQL", "connection_string": "Server=dw01;Database=Sales"}])
         assert out == "SQL (Server=dw01;Database=Sales)"
 
+    def test_dax_to_dtype(self):
+        assert _dax_to_dtype("Int64") == "int"
+        assert _dax_to_dtype("Float64") == "float"
+        assert _dax_to_dtype("String") == "string"
+        assert _dax_to_dtype("DateTime") == "datetime"
+        assert _dax_to_dtype("Boolean") == "bool"
+        assert _dax_to_dtype(None) == "unknown"
+
+    def test_auto_date_table_regex(self):
+        assert _AUTO_DATE_TABLE_RE.match("LocalDateTable_12345678-aaaa-bbbb-cccc-123456789012")
+        assert _AUTO_DATE_TABLE_RE.match("DateTableTemplate_deadbeef-0000-1111-2222-333333333333")
+        assert not _AUTO_DATE_TABLE_RE.match("Orders")
+        assert not _AUTO_DATE_TABLE_RE.match("DateTable")
+
     def test_summarize_upstream_dedups(self):
         srcs = [
             {"kind": "SQL", "connection_string": "Server=dw01"},
@@ -217,7 +233,7 @@ class TestGetSchemasMocked:
         return session
 
     def test_pbix_only(self):
-        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        c = PowerBIReportServerClient("http://pbi", "u", "p", extract_pbix_schemas=False)
         pbi_reports = [{
             "Id": "r1",
             "Name": "Sales Dashboard",
@@ -287,6 +303,113 @@ class TestGetSchemasMocked:
         assert meta["queryable"] is True
         assert "SUM(Amount)" in meta["command_text"]
         assert len(meta["report_parameters"]) == 3
+
+    def test_pbix_schema_uplift(self):
+        """When pbix schema extraction returns data, emit one Table per internal model table
+        with real columns + measures, plus the umbrella discovery row."""
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        pbi_reports = [{
+            "Id": "r1",
+            "Name": "Sales Dashboard",
+            "Path": "/Sales Dashboard",
+            "ModifiedDate": "2024-01-01T00:00:00Z",
+        }]
+        responses = {
+            "/PowerBIReports": _mock_response({"value": pbi_reports}),
+            "/Reports": _mock_response({"value": []}),
+            "/Datasets": _mock_response({"value": []}),
+            "/Kpis": _mock_response({"value": []}),
+            "/DataSources": _mock_response({"value": []}),
+            "/PowerBIReports(r1)/DataSources": _mock_response({"value": []}),
+            "/PowerBIReports(r1)/DataModelParameters": _mock_response({"value": []}),
+            "/PowerBIReports(r1)/DataModelRoles": _mock_response({"value": []}),
+        }
+        c._session = self._fake_session(responses)
+
+        fake_schema = {
+            "source": "pbixray",
+            "report_id": "r1",
+            "report_name": "Sales Dashboard",
+            "tables": [
+                {
+                    "name": "Orders",
+                    "columns": [
+                        {"name": "OrderID", "dtype": "int"},
+                        {"name": "CustomerID", "dtype": "int"},
+                        {"name": "Amount", "dtype": "float"},
+                    ],
+                    "measures": [
+                        {"name": "Total Sales", "expression": "SUM(Orders[Amount])",
+                         "display_folder": "", "description": ""}
+                    ],
+                },
+                {
+                    "name": "Customers",
+                    "columns": [
+                        {"name": "CustomerID", "dtype": "int"},
+                        {"name": "Name", "dtype": "string"},
+                    ],
+                    "measures": [],
+                },
+            ],
+            "relationships": [
+                {"from_table": "Orders", "from_column": "CustomerID",
+                 "to_table": "Customers", "to_column": "CustomerID",
+                 "is_active": True, "cardinality": "many_to_one"},
+            ],
+        }
+        c.extract_pbix_schema = MagicMock(return_value=fake_schema)
+
+        tables = c.get_schemas()
+        names = sorted(t.name for t in tables)
+        assert names == [
+            "pbix:Sales Dashboard",
+            "pbix:Sales Dashboard/Customers",
+            "pbix:Sales Dashboard/Orders",
+        ]
+
+        umbrella = next(t for t in tables if t.name == "pbix:Sales Dashboard")
+        umb_meta = umbrella.metadata_json["powerbi_report_server"]
+        assert umb_meta["schema_source"] == "pbixray"
+        assert set(umb_meta["model_tables"]) == {"Orders", "Customers"}
+        assert len(umb_meta["model_relationships"]) == 1
+
+        orders = next(t for t in tables if t.name.endswith("/Orders"))
+        assert {col.name for col in orders.columns} == {"OrderID", "CustomerID", "Amount"}
+        assert len(orders.fks) == 1
+        assert orders.fks[0].references_name == "pbix:Sales Dashboard/Customers"
+        assert orders.fks[0].column.name == "CustomerID"
+        orders_meta = orders.metadata_json["powerbi_report_server"]
+        assert orders_meta["report_type"] == "PowerBIReportTable"
+        assert orders_meta["model_table"] == "Orders"
+        assert orders_meta["measures"][0]["name"] == "Total Sales"
+        assert orders_meta["queryable"] is False
+
+        customers = next(t for t in tables if t.name.endswith("/Customers"))
+        assert {col.name for col in customers.columns} == {"CustomerID", "Name"}
+        assert customers.fks == []
+
+    def test_pbix_schema_extraction_failure_falls_back(self):
+        """When extraction returns None (download failed, parse failed, etc.),
+        only the umbrella discovery row is emitted."""
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        pbi_reports = [{"Id": "r1", "Name": "Broken", "Path": "/Broken"}]
+        responses = {
+            "/PowerBIReports": _mock_response({"value": pbi_reports}),
+            "/Reports": _mock_response({"value": []}),
+            "/Datasets": _mock_response({"value": []}),
+            "/Kpis": _mock_response({"value": []}),
+            "/DataSources": _mock_response({"value": []}),
+            "/PowerBIReports(r1)/DataSources": _mock_response({"value": []}),
+            "/PowerBIReports(r1)/DataModelParameters": _mock_response({"value": []}),
+            "/PowerBIReports(r1)/DataModelRoles": _mock_response({"value": []}),
+        }
+        c._session = self._fake_session(responses)
+        c.extract_pbix_schema = MagicMock(return_value=None)
+
+        tables = c.get_schemas()
+        assert len(tables) == 1
+        assert tables[0].name == "pbix:Broken"
 
     def test_kpi(self):
         c = PowerBIReportServerClient("http://pbi", "u", "p")

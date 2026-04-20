@@ -126,6 +126,7 @@ PyJWT==2.10.1
 PyMySQL==1.1.1
 pyOpenSSL==24.3.0
 pyparsing==3.2.0
+pbixray==0.5.2
 pypdf==6.6.0
 pymongo==4.10.1
 pytest==8.1.1
