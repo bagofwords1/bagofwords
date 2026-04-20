@@ -37,6 +37,43 @@ from app.schemas.view_schema import ViewSchema
 _DB_COMMIT_TIMEOUT_S = 35.0
 
 
+def _to_json_safe(value):
+    """Coerce arbitrary data to a JSON-serializable form.
+
+    Guards Step.data (a JSON column) against file handles, DataFrames,
+    numpy scalars, datetimes, bytes, etc. that would otherwise raise
+    during SQLAlchemy flush — including "I/O operation on closed file"
+    from lazy objects touched by json.dumps.
+    """
+    import json
+    try:
+        return json.loads(json.dumps(value, default=_json_default))
+    except Exception:
+        try:
+            return json.loads(json.dumps(value, default=str))
+        except Exception:
+            return {"error": "data not JSON-serializable", "repr": str(value)[:2000]}
+
+
+def _json_default(o):
+    import datetime as _dt
+    if isinstance(o, (_dt.datetime, _dt.date, _dt.time)):
+        return o.isoformat()
+    if isinstance(o, (bytes, bytearray)):
+        try:
+            return o.decode("utf-8", errors="replace")
+        except Exception:
+            return str(o)
+    for attr in ("to_dict", "tolist", "item"):
+        fn = getattr(o, attr, None)
+        if callable(fn):
+            try:
+                return fn()
+            except Exception:
+                pass
+    return str(o)
+
+
 class DBCommitTimeoutError(Exception):
     """Raised when a db.commit() or db.refresh() exceeds the allowed timeout."""
     def __init__(self, label: str = ""):
@@ -410,9 +447,24 @@ class ProjectManager:
         return step
     
     async def update_step_with_data(self, db, step, data):
-        step.data = data
-        db.add(step)
-        await db.commit()
+        safe_data = _to_json_safe(data)
+        try:
+            step.data = safe_data
+            db.add(step)
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            logging.getLogger(__name__).exception(
+                "update_step_with_data failed for step %s; persisting error payload",
+                getattr(step, "id", None),
+            )
+            step.data = {"error": f"failed to persist data: {type(exc).__name__}: {exc}"}
+            db.add(step)
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
         await db.refresh(step)
         return step
     
