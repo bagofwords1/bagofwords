@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.362 (April 20, 2026)
+- PBI on-prem server improvements
+
 ## Version 0.0.361 (April 20, 2026)
 - Remove nuxt from prod deployment and serve static files via FastAPI
 - feat: add Power BI reporting server (on-prem)
