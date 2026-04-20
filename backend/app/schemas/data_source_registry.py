@@ -62,6 +62,9 @@ from app.schemas.data_sources.configs import (
     # Sisense
     SisenseConfig,
     SisenseCredentials,
+    # Oracle BI (OBIEE / OAS / OAC)
+    OracleBIConfig,
+    OracleBICredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -584,6 +587,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.sisense_client.SisenseClient",
+        requires_license="enterprise",
+    ),
+    "oracle_bi": DataSourceRegistryEntry(
+        type="oracle_bi",
+        title="Oracle BI",
+        description="Query Oracle BI subject areas via Logical SQL. Works with OBIEE 11g/12c, Oracle Analytics Server, and Oracle Analytics Cloud.",
+        config_schema=OracleBIConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=OracleBICredentials,
+                    scopes=["system", "user"],
+                )
+            },
+        ),
+        client_path="app.data_sources.clients.oracle_bi_client.OracleBIClient",
         requires_license="enterprise",
     ),
     "mcp": DataSourceRegistryEntry(

@@ -804,6 +804,45 @@ class TimbrA2AConfig(BaseModel):
     )
 
 
+# Oracle BI (OBIEE / Oracle Analytics Server / Oracle Analytics Cloud)
+class OracleBICredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Oracle BI / OAC username (email for OAC, domain user for OBIEE/OAS).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for the Oracle BI / OAC user.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class OracleBIConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host URL",
+        description="Base URL of the Oracle BI instance (e.g., https://analytics.example.com or the OAC instance URL).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify TLS certificate when calling the SOAP endpoint.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    timeout_sec: int = Field(
+        60,
+        ge=1,
+        le=600,
+        title="Timeout (sec)",
+        description="HTTP timeout for SOAP calls.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Sisense
 class SisenseCredentials(BaseModel):
     username: str = Field(
