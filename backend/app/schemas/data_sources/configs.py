@@ -651,12 +651,6 @@ class PowerBIReportServerConfig(BaseModel):
         description="Optional path to a custom CA bundle for internal certificates.",
         json_schema_extra={"ui:type": "string"}
     )
-    xmla_endpoint: Optional[str] = Field(
-        None,
-        title="XMLA Endpoint",
-        description="Optional XMLA endpoint URL for DAX queries against .pbix models (future use).",
-        json_schema_extra={"ui:type": "string"}
-    )
 
 
 # Microsoft Fabric

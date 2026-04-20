@@ -111,7 +111,6 @@ class PowerBIReportServerClient(DataSourceClient):
         domain: Optional[str] = None,
         verify_ssl: bool = True,
         ca_bundle_path: Optional[str] = None,
-        xmla_endpoint: Optional[str] = None,
     ):
         if not server_url:
             raise ValueError("server_url is required")
@@ -126,7 +125,6 @@ class PowerBIReportServerClient(DataSourceClient):
         self.domain = domain
         self.verify_ssl = verify_ssl
         self.ca_bundle_path = ca_bundle_path
-        self.xmla_endpoint = xmla_endpoint
 
         self._session: Optional[requests.Session] = None
 
