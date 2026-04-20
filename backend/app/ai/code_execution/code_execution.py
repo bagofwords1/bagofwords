@@ -128,11 +128,13 @@ class CodeSecurityVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant):
-        # Check string literals for dangerous SQL operations
+        # Check string literals for dangerous SQL operations. Uses the
+        # structural regex so prose like "create a chart" or "update the
+        # description" isn't flagged — we only match keywords that appear in
+        # real SQL context (CREATE TABLE, DELETE FROM, UPDATE x SET, ...).
         if isinstance(node.value, str) and len(node.value) > 5:
-            match = _FORBIDDEN_SQL_REGEX.search(node.value)
+            match = _FORBIDDEN_SQL_IN_STRING_REGEX.search(node.value)
             if match:
-                # Extract a snippet for context (first 50 chars)
                 snippet = node.value[:50].replace('\n', ' ')
                 self.errors.append(
                     f"Forbidden SQL operation '{match.group()}' in string: \"{snippet}...\""
@@ -140,10 +142,11 @@ class CodeSecurityVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_JoinedStr(self, node: ast.JoinedStr):
-        # Check f-string parts for dangerous SQL
+        # Check f-string parts for dangerous SQL using the same structural
+        # regex — prose inside f-strings shouldn't trip the validator either.
         for part in node.values:
             if isinstance(part, ast.Constant) and isinstance(part.value, str):
-                match = _FORBIDDEN_SQL_REGEX.search(part.value)
+                match = _FORBIDDEN_SQL_IN_STRING_REGEX.search(part.value)
                 if match:
                     snippet = part.value[:50].replace('\n', ' ')
                     self.errors.append(
@@ -204,6 +207,34 @@ FORBIDDEN_SQL_PATTERNS = [
 _FORBIDDEN_SQL_REGEX = re.compile(
     '|'.join(FORBIDDEN_SQL_PATTERNS),
     re.IGNORECASE
+)
+
+# Structural SQL-write patterns — used when scanning Python string literals so
+# prose like "the user wants to create a chart" or "delete outdated rows from
+# the description" doesn't trigger the bare-verb match above. Each pattern
+# requires the keyword to sit next to a syntactic partner that real SQL always
+# has (TABLE/VIEW/INTO/FROM/SET/...), which prose basically never does.
+_FORBIDDEN_SQL_IN_STRING_PATTERNS = [
+    r'\bCREATE\s+(OR\s+REPLACE\s+)?(TEMP(ORARY)?\s+)?(TABLE|VIEW|INDEX|DATABASE|SCHEMA|FUNCTION|PROCEDURE|TRIGGER|SEQUENCE|ROLE|USER|MATERIALIZED)\b',
+    r'\bDROP\s+(TABLE|VIEW|INDEX|DATABASE|SCHEMA|FUNCTION|PROCEDURE|TRIGGER|SEQUENCE|COLUMN|CONSTRAINT|ROLE|USER)\b',
+    r'\bALTER\s+(TABLE|VIEW|INDEX|DATABASE|SCHEMA|COLUMN|SEQUENCE|ROLE|USER)\b',
+    r'\bTRUNCATE\s+(TABLE\s+)?\w+',
+    r'\bINSERT\s+INTO\b',
+    r'\bUPDATE\s+[\w.`"\[\]]+(\s+AS\s+\w+|\s+\w+)?\s+SET\b',
+    r'\bDELETE\s+FROM\b',
+    r'\bMERGE\s+INTO\b',
+    r'\bREPLACE\s+INTO\b',
+    r'\bGRANT\s+[\w,\s*]+\s+ON\b',
+    r'\bREVOKE\s+[\w,\s*]+\s+(ON|FROM)\b',
+    r'\bEXEC(UTE)?\s+(\w+\.)*\w+',
+    r'\bCALL\s+\w+\s*\(',
+    r'\bLOAD\s+DATA\b',
+    r'\bINTO\s+OUTFILE\b',
+    r'\bINTO\s+DUMPFILE\b',
+]
+_FORBIDDEN_SQL_IN_STRING_REGEX = re.compile(
+    '|'.join(_FORBIDDEN_SQL_IN_STRING_PATTERNS),
+    re.IGNORECASE,
 )
 
 

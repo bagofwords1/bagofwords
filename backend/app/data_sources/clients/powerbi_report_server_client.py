@@ -593,6 +593,43 @@ class PowerBIReportServerClient(DataSourceClient):
                 except OSError:
                     pass
 
+    def warm_pbix_caches(self) -> Dict[str, Any]:
+        """Pre-materialize Parquet caches for every pbix report on this server so
+        the first execute_query doesn't block on a cold pbixray parse. Safe to run
+        on a schedule: each report is keyed by (report_id, modified_date), so an
+        already-warm cache is a no-op (manifest hit returns immediately).
+        """
+        if not self.enable_pbix_query:
+            return {"skipped": True, "reason": "enable_pbix_query=False"}
+
+        self.connect()
+        try:
+            reports = self.list_powerbi_reports()
+        except Exception as e:
+            logger.warning(f"pbirs.warm.list_failed: {e}")
+            return {"reports": 0, "warmed": 0, "failed": 0, "error": str(e)}
+
+        warmed = 0
+        failed = 0
+        for r in reports:
+            rid = r.get("Id")
+            if not rid:
+                continue
+            try:
+                self.ensure_pbix_parquets(
+                    rid,
+                    r.get("ModifiedDate"),
+                    report_name=r.get("Name") or rid,
+                )
+                warmed += 1
+            except Exception as e:
+                logger.warning(
+                    "pbirs.warm.report_failed",
+                    extra={"report_id": rid, "report_name": r.get("Name"), "pbirs_error": str(e)},
+                )
+                failed += 1
+        return {"reports": len(reports), "warmed": warmed, "failed": failed}
+
     def _execute_pbix_query(
         self,
         report_id: str,
@@ -1554,3 +1591,70 @@ For PBIX, `query` is required (DuckDB SQL against the internal table names).
 
 # Compatibility aliases for dynamic resolver
 PowerbiReportServerClient = PowerBIReportServerClient
+
+
+async def warm_all_pbirs_caches() -> None:
+    """Scheduled maintenance: walk every active PBIRS Connection and warm its
+    pbix Parquet caches so a first create_data/inspect_data on a large .pbix
+    doesn't stall the UI on pbixray parse. Designed for APScheduler interval.
+    """
+    import asyncio
+    import time as _time
+
+    from sqlalchemy import select
+
+    from app.dependencies import async_session_maker
+    from app.models.connection import Connection
+
+    t0 = _time.perf_counter()
+    async with async_session_maker() as db:
+        rows = (
+            await db.execute(
+                select(Connection).where(
+                    Connection.type == "powerbi_report_server",
+                    Connection.is_active.is_(True),
+                    Connection.deleted_at.is_(None),
+                )
+            )
+        ).scalars().all()
+
+    if not rows:
+        logger.info("pbirs.warmup.sweep", extra={"pbirs_connections": 0})
+        return
+
+    logger.info("pbirs.warmup.sweep.start", extra={"pbirs_connections": len(rows)})
+    warmed = 0
+    failed = 0
+    for conn in rows:
+        try:
+            client = conn.get_client()
+        except Exception as exc:
+            logger.warning(
+                "pbirs.warmup.client_init_failed",
+                extra={"connection_id": str(conn.id), "pbirs_error": str(exc)},
+            )
+            failed += 1
+            continue
+        if not isinstance(client, PowerBIReportServerClient):
+            continue
+        try:
+            # warm_pbix_caches is sync (requests/pbixray); offload to a thread so
+            # the scheduler loop isn't blocked by a slow PBIRS server.
+            await asyncio.to_thread(client.warm_pbix_caches)
+            warmed += 1
+        except Exception as exc:
+            logger.warning(
+                "pbirs.warmup.connection_failed",
+                extra={"connection_id": str(conn.id), "pbirs_error": str(exc)},
+            )
+            failed += 1
+
+    logger.info(
+        "pbirs.warmup.sweep.done",
+        extra={
+            "pbirs_connections": len(rows),
+            "pbirs_warmed": warmed,
+            "pbirs_failed": failed,
+            "pbirs_elapsed_s": round(_time.perf_counter() - t0, 2),
+        },
+    )
