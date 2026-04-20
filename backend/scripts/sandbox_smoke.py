@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """Sandbox smoke test.
 
-Reads session state from ``backend/sandbox_state.json`` and exercises three
-routes, repeating each call ``RUNS`` times to collect per-request latency:
+Exercises three routes, repeating each call ``RUNS`` times to collect per-request
+latency:
 
 1. ``GET /api/users/whoami``
 2. ``GET /api/data_sources/{ds_id}/test_connection``
 3. ``POST /api/llm/test_connection`` for the configured provider id (credentials
    must be re-supplied — the GET provider route never returns them).
 
-Usage:
-    python backend/scripts/sandbox_smoke.py
-    ANTHROPIC_API_KEY=sk-ant-... python backend/scripts/sandbox_smoke.py
-    RUNS=25 python backend/scripts/sandbox_smoke.py
-
-Exits non-zero if any check fails.
+Edit the CONFIG block below to point at a different session, or leave values as
+``None`` to fall back to ``backend/sandbox_state.json``. Any field can also be
+overridden via environment variable (see each line).
 """
 
 from __future__ import annotations
@@ -30,15 +27,68 @@ import urllib.request
 from pathlib import Path
 
 
+# ============================================================================
+# CONFIG — edit these values, or leave as-is to read from sandbox_state.json.
+# ============================================================================
+
+BACKEND_URL = "http://localhost:8000"          # BOW_BACKEND_URL
+USER_EMAIL  = "sandbox@bow.dev"                # BOW_USER_EMAIL (informational)
+AUTH_TOKEN  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NjBkZjJlMy02ZDdiLTQxNjUtOTYzZi0wYTM4NTQyYTVhY2UiLCJhdWQiOlsiZmFzdGFwaS11c2VyczphdXRoIl0sImV4cCI6MTc3NzI5MTAxOH0.Eu5ZFOoe1zQo7IHpqCj7eQ0hm-tBnN1crqRvrQY2VM8"  # BOW_AUTH_TOKEN
+ORG_ID      = "a629ae64-7e39-42e8-bb71-51f3138b7923"   # BOW_ORG_ID
+DS_ID       = "bce065f7-f50e-410f-a7b5-68a2d83cb028"   # BOW_DS_ID
+
+LLM_PROVIDER_ID   = "d5d5a068-2a18-47c3-acd3-b08ea4cabc8e"   # BOW_LLM_PROVIDER_ID
+LLM_PROVIDER_TYPE = "anthropic"                              # BOW_LLM_PROVIDER_TYPE
+LLM_MODEL_ID      = "claude-sonnet-4-6"                      # BOW_LLM_MODEL_ID
+LLM_API_KEY       = None  # required for live LLM probe. ANTHROPIC_API_KEY / BOW_LLM_API_KEY env also honored.
+
+RUNS = 10                                       # RUNS
+
+# ============================================================================
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE_PATH = REPO_ROOT / "backend" / "sandbox_state.json"
-RUNS = int(os.environ.get("RUNS", "10"))
 
 
-def load_state() -> dict:
+def _load_state_fallback() -> dict:
+    """sandbox_state.json is only read for fields left blank in CONFIG."""
     if not STATE_PATH.exists():
-        sys.exit(f"sandbox_state.json not found at {STATE_PATH}")
-    return json.loads(STATE_PATH.read_text())
+        return {}
+    try:
+        return json.loads(STATE_PATH.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def resolve_config() -> dict:
+    """Merge CONFIG + env overrides + sandbox_state.json fallback."""
+    state = _load_state_fallback()
+    sess = state.get("session", {}) or {}
+    endpoints = state.get("endpoints", {}) or {}
+
+    def pick(env_key: str, inline, state_val):
+        return os.environ.get(env_key) or inline or state_val
+
+    cfg = {
+        "backend":           pick("BOW_BACKEND_URL",      BACKEND_URL, endpoints.get("backend")),
+        "email":             pick("BOW_USER_EMAIL",       USER_EMAIL,  (state.get("credentials") or {}).get("email")),
+        "token":             pick("BOW_AUTH_TOKEN",       AUTH_TOKEN,  sess.get("token")),
+        "org_id":            pick("BOW_ORG_ID",           ORG_ID,      sess.get("org_id")),
+        "ds_id":             pick("BOW_DS_ID",            DS_ID,       sess.get("ds_id")),
+        "llm_provider_id":   pick("BOW_LLM_PROVIDER_ID",  LLM_PROVIDER_ID,   sess.get("llm_provider_id")),
+        "llm_provider_type": pick("BOW_LLM_PROVIDER_TYPE", LLM_PROVIDER_TYPE, sess.get("llm_provider_type") or "anthropic"),
+        "llm_model_id":      pick("BOW_LLM_MODEL_ID",     LLM_MODEL_ID, sess.get("llm_model_id_str") or "claude-sonnet-4-6"),
+        "api_key":           os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("BOW_LLM_API_KEY") or LLM_API_KEY,
+        "runs":              int(os.environ.get("RUNS") or RUNS),
+    }
+
+    missing = [k for k in ("backend", "token", "org_id", "ds_id") if not cfg[k]]
+    if missing:
+        sys.exit(f"missing required config: {missing}. Edit CONFIG at top of {__file__} or populate sandbox_state.json.")
+
+    cfg["backend"] = cfg["backend"].rstrip("/")
+    return cfg
 
 
 def request(
@@ -113,10 +163,10 @@ def run_probe(name: str, n: int, call) -> dict:
     }
 
 
-def print_report(probes: list[dict]) -> None:
+def print_report(probes: list[dict], runs: int) -> None:
     print()
     print("=" * 78)
-    print(f"Sandbox smoke report  (runs per probe: {RUNS})")
+    print(f"Sandbox smoke report  (runs per probe: {runs})")
     print("=" * 78)
 
     for p in probes:
@@ -144,14 +194,19 @@ def print_report(probes: list[dict]) -> None:
 
 
 def main() -> int:
-    state = load_state()
-    backend = state["endpoints"]["backend"].rstrip("/")
-    token = state["session"]["token"]
-    org_id = state["session"]["org_id"]
-    ds_id = state["session"]["ds_id"]
-    llm_provider_id = state["session"].get("llm_provider_id")
-    llm_provider_type = state["session"].get("llm_provider_type", "anthropic")
-    llm_model_id = state["session"].get("llm_model_id_str", "claude-sonnet-4-6")
+    cfg = resolve_config()
+    backend = cfg["backend"]
+    token = cfg["token"]
+    org_id = cfg["org_id"]
+    ds_id = cfg["ds_id"]
+    llm_provider_id = cfg["llm_provider_id"]
+    llm_provider_type = cfg["llm_provider_type"]
+    llm_model_id = cfg["llm_model_id"]
+    api_key = cfg["api_key"]
+    runs = cfg["runs"]
+
+    print(f"backend={backend}  user={cfg['email']}  org={org_id}  ds={ds_id}")
+    print(f"llm_provider={llm_provider_id} ({llm_provider_type}/{llm_model_id})  runs={runs}")
 
     # 1. whoami
     def call_whoami():
@@ -176,7 +231,6 @@ def main() -> int:
     # 3. llm test_connection — re-supplies credentials because the provider
     #    GET route never returns them. The provider_id is logged so a failure
     #    is traceable back to a specific configured provider.
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("BOW_LLM_API_KEY")
     llm_payload = None
     if llm_provider_id and api_key:
         llm_payload = {
@@ -188,9 +242,9 @@ def main() -> int:
 
     def call_llm():
         if not llm_provider_id:
-            return False, 0, "no llm_provider_id in sandbox_state.json", 0.0
+            return False, 0, "LLM_PROVIDER_ID not configured", 0.0
         if llm_payload is None:
-            return False, 0, "ANTHROPIC_API_KEY not set — skipping live probe", 0.0
+            return False, 0, "api key not set — skipping live probe", 0.0
         status, body, ms = request(
             "POST",
             f"{backend}/api/llm/test_connection",
@@ -203,12 +257,12 @@ def main() -> int:
         return ok, status, f"message={msg!r}", ms
 
     probes = [
-        run_probe("whoami", RUNS, call_whoami),
-        run_probe(f"data_source test_connection ({ds_id})", RUNS, call_ds),
-        run_probe(f"llm test_connection ({llm_provider_id})", RUNS, call_llm),
+        run_probe("whoami", runs, call_whoami),
+        run_probe(f"data_source test_connection ({ds_id})", runs, call_ds),
+        run_probe(f"llm test_connection ({llm_provider_id})", runs, call_llm),
     ]
 
-    print_report(probes)
+    print_report(probes, runs)
     return 0 if all(p["passed"] == p["total"] for p in probes) else 1
 
 
