@@ -37,10 +37,14 @@ AUTH_TOKEN  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NjBkZjJlMy02ZDdi
 ORG_ID      = "a629ae64-7e39-42e8-bb71-51f3138b7923"   # BOW_ORG_ID
 DS_ID       = "bce065f7-f50e-410f-a7b5-68a2d83cb028"   # BOW_DS_ID
 
-LLM_PROVIDER_ID   = "d5d5a068-2a18-47c3-acd3-b08ea4cabc8e"   # BOW_LLM_PROVIDER_ID
-LLM_PROVIDER_TYPE = "anthropic"                              # BOW_LLM_PROVIDER_TYPE
-LLM_MODEL_ID      = "claude-sonnet-4-6"                      # BOW_LLM_MODEL_ID
-LLM_API_KEY       = None  # required for live LLM probe. ANTHROPIC_API_KEY / BOW_LLM_API_KEY env also honored.
+# LLM probe: uses POST /api/llm/test_connection against an **unsaved** provider
+# (the payload itself defines the provider — nothing is persisted). Default is
+# the "custom" / OpenAI-compatible provider type, which works with a LiteLLM
+# proxy and only requires a base_url.
+LLM_PROVIDER_TYPE = "custom"                                # BOW_LLM_PROVIDER_TYPE
+LLM_BASE_URL      = "http://localhost:4000"                 # BOW_LLM_BASE_URL (LiteLLM default port)
+LLM_API_KEY       = "sk-litellm-placeholder"                # BOW_LLM_API_KEY
+LLM_MODEL_ID      = "claude-sonnet-4-6"                     # BOW_LLM_MODEL_ID
 
 RUNS = 10                                       # RUNS
 
@@ -71,15 +75,15 @@ def resolve_config() -> dict:
         return os.environ.get(env_key) or inline or state_val
 
     cfg = {
-        "backend":           pick("BOW_BACKEND_URL",      BACKEND_URL, endpoints.get("backend")),
-        "email":             pick("BOW_USER_EMAIL",       USER_EMAIL,  (state.get("credentials") or {}).get("email")),
-        "token":             pick("BOW_AUTH_TOKEN",       AUTH_TOKEN,  sess.get("token")),
-        "org_id":            pick("BOW_ORG_ID",           ORG_ID,      sess.get("org_id")),
-        "ds_id":             pick("BOW_DS_ID",            DS_ID,       sess.get("ds_id")),
-        "llm_provider_id":   pick("BOW_LLM_PROVIDER_ID",  LLM_PROVIDER_ID,   sess.get("llm_provider_id")),
-        "llm_provider_type": pick("BOW_LLM_PROVIDER_TYPE", LLM_PROVIDER_TYPE, sess.get("llm_provider_type") or "anthropic"),
-        "llm_model_id":      pick("BOW_LLM_MODEL_ID",     LLM_MODEL_ID, sess.get("llm_model_id_str") or "claude-sonnet-4-6"),
-        "api_key":           os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("BOW_LLM_API_KEY") or LLM_API_KEY,
+        "backend":           pick("BOW_BACKEND_URL",       BACKEND_URL, endpoints.get("backend")),
+        "email":             pick("BOW_USER_EMAIL",        USER_EMAIL,  (state.get("credentials") or {}).get("email")),
+        "token":             pick("BOW_AUTH_TOKEN",        AUTH_TOKEN,  sess.get("token")),
+        "org_id":            pick("BOW_ORG_ID",            ORG_ID,      sess.get("org_id")),
+        "ds_id":             pick("BOW_DS_ID",             DS_ID,       sess.get("ds_id")),
+        "llm_provider_type": pick("BOW_LLM_PROVIDER_TYPE", LLM_PROVIDER_TYPE, "custom"),
+        "llm_base_url":      pick("BOW_LLM_BASE_URL",      LLM_BASE_URL, None),
+        "llm_api_key":       pick("BOW_LLM_API_KEY",       LLM_API_KEY,  None),
+        "llm_model_id":      pick("BOW_LLM_MODEL_ID",      LLM_MODEL_ID, sess.get("llm_model_id_str") or "claude-sonnet-4-6"),
         "runs":              int(os.environ.get("RUNS") or RUNS),
     }
 
@@ -199,14 +203,14 @@ def main() -> int:
     token = cfg["token"]
     org_id = cfg["org_id"]
     ds_id = cfg["ds_id"]
-    llm_provider_id = cfg["llm_provider_id"]
     llm_provider_type = cfg["llm_provider_type"]
+    llm_base_url = cfg["llm_base_url"]
+    llm_api_key = cfg["llm_api_key"]
     llm_model_id = cfg["llm_model_id"]
-    api_key = cfg["api_key"]
     runs = cfg["runs"]
 
     print(f"backend={backend}  user={cfg['email']}  org={org_id}  ds={ds_id}")
-    print(f"llm_provider={llm_provider_id} ({llm_provider_type}/{llm_model_id})  runs={runs}")
+    print(f"llm_probe={llm_provider_type}/{llm_model_id}  base_url={llm_base_url}  runs={runs}")
 
     # 1. whoami
     def call_whoami():
@@ -228,23 +232,39 @@ def main() -> int:
         msg = body.get("message") or body.get("error") or body.get("detail")
         return ok, status, f"message={msg!r}", ms
 
-    # 3. llm test_connection — re-supplies credentials because the provider
-    #    GET route never returns them. The provider_id is logged so a failure
-    #    is traceable back to a specific configured provider.
+    # 3. llm test_connection — exercises an *unsaved* provider so no params
+    #    need to be pre-persisted. For provider_type="custom", the body must
+    #    carry a base_url (we point at LiteLLM). For other types, api_key is
+    #    required and base_url is ignored.
+    def _build_credentials():
+        if llm_provider_type == "custom":
+            creds = {"base_url": llm_base_url}
+            if llm_api_key:
+                creds["api_key"] = llm_api_key
+            return creds
+        return {"api_key": llm_api_key}
+
     llm_payload = None
-    if llm_provider_id and api_key:
+    if llm_provider_type == "custom" and llm_base_url:
         llm_payload = {
-            "name": f"probe-{llm_provider_id}",
+            "name": "probe-custom-litellm",
+            "provider_type": "custom",
+            "credentials": _build_credentials(),
+            "models": [{"model_id": llm_model_id, "name": llm_model_id, "is_default": True, "is_enabled": True}],
+        }
+    elif llm_provider_type != "custom" and llm_api_key:
+        llm_payload = {
+            "name": f"probe-{llm_provider_type}",
             "provider_type": llm_provider_type,
-            "credentials": {"api_key": api_key},
+            "credentials": _build_credentials(),
             "models": [{"model_id": llm_model_id, "name": llm_model_id, "is_default": True, "is_enabled": True}],
         }
 
     def call_llm():
-        if not llm_provider_id:
-            return False, 0, "LLM_PROVIDER_ID not configured", 0.0
         if llm_payload is None:
-            return False, 0, "api key not set — skipping live probe", 0.0
+            if llm_provider_type == "custom":
+                return False, 0, "LLM_BASE_URL not configured", 0.0
+            return False, 0, "LLM_API_KEY not configured", 0.0
         status, body, ms = request(
             "POST",
             f"{backend}/api/llm/test_connection",
@@ -259,7 +279,7 @@ def main() -> int:
     probes = [
         run_probe("whoami", runs, call_whoami),
         run_probe(f"data_source test_connection ({ds_id})", runs, call_ds),
-        run_probe(f"llm test_connection ({llm_provider_id})", runs, call_llm),
+        run_probe(f"llm test_connection ({llm_provider_type} -> {llm_model_id})", runs, call_llm),
     ]
 
     print_report(probes, runs)
