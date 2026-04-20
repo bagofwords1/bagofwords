@@ -29,18 +29,47 @@ _RDL_NS_RE = re.compile(r"^\{[^}]+\}")
 # Cache for PBIX-extracted schemas, keyed by (report_id, modified_date).
 _PBIX_SCHEMA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbirs_schema_cache"
 
+# Cache for PBIX-extracted Parquet data (one file per model table), keyed by
+# (report_id, modified_date). Populated lazily on first query; re-used across
+# queries and invalidated on report edit via the modified_date key.
+_PBIX_DATA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbix_data_cache"
+
 # Max pbix size we'll attempt to parse (bytes). Larger files are skipped — they
 # use more memory/time than is worthwhile for metadata-only discovery.
 _PBIX_MAX_BYTES = 200 * 1024 * 1024  # 200MB
 
+# Per-table row cap when materializing pbix data to Parquet. Tables exceeding
+# this are skipped — parsing very large Vertipaq tables blows memory on the
+# decode path. 5M is comfortably above typical semantic-model fact tables.
+_PBIX_MAX_ROWS_PER_TABLE = 5_000_000
+
 # Auto-generated internal Power BI date tables — filtered out of schema output.
 _AUTO_DATE_TABLE_RE = re.compile(r"^(LocalDateTable|DateTableTemplate)_[0-9a-fA-F\-]+$")
+
+# DuckDB view names need to be simple identifiers. Vertipaq table names can
+# contain spaces, symbols, or be reserved keywords — sanitize to a safe form.
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_]+")
+
+
+def _safe_view_name(name: str) -> str:
+    cleaned = _SAFE_NAME_RE.sub("_", name).strip("_")
+    if not cleaned:
+        cleaned = "tbl"
+    if cleaned[0].isdigit():
+        cleaned = f"t_{cleaned}"
+    return cleaned
 
 
 def _pbix_cache_path(report_id: str, modified_date: Optional[str]) -> Path:
     key = f"{report_id}|{modified_date or ''}"
     h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
     return _PBIX_SCHEMA_CACHE_DIR / f"{h}.json"
+
+
+def _pbix_data_cache_dir(report_id: str, modified_date: Optional[str]) -> Path:
+    key = f"{report_id}|{modified_date or ''}"
+    h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    return _PBIX_DATA_CACHE_DIR / h
 
 
 def _dax_to_dtype(dax_type: Optional[str]) -> str:
@@ -150,6 +179,7 @@ class PowerBIReportServerClient(DataSourceClient):
         verify_ssl: bool = True,
         ca_bundle_path: Optional[str] = None,
         extract_pbix_schemas: bool = True,
+        enable_pbix_query: bool = True,
     ):
         if not server_url:
             raise ValueError("server_url is required")
@@ -165,6 +195,7 @@ class PowerBIReportServerClient(DataSourceClient):
         self.verify_ssl = verify_ssl
         self.ca_bundle_path = ca_bundle_path
         self.extract_pbix_schemas = extract_pbix_schemas
+        self.enable_pbix_query = enable_pbix_query
 
         self._session: Optional[requests.Session] = None
 
@@ -448,6 +479,173 @@ class PowerBIReportServerClient(DataSourceClient):
                     os.unlink(tmp_path)
                 except OSError:
                     pass
+
+    def ensure_pbix_parquets(
+        self,
+        report_id: str,
+        modified_date: Optional[str] = None,
+        *,
+        report_name: Optional[str] = None,
+    ) -> Dict[str, Path]:
+        """Materialize every queryable pbix model table to Parquet and return a
+        {table_name: parquet_path} map. Cached on disk keyed by (report_id,
+        modified_date) so edits invalidate cleanly. Auto-date tables and tables
+        exceeding _PBIX_MAX_ROWS_PER_TABLE are skipped.
+
+        Raises RuntimeError on download/parse failure so callers can surface a
+        clear error back to the LLM.
+        """
+        cache_dir = _pbix_data_cache_dir(report_id, modified_date)
+        manifest_path = cache_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                with manifest_path.open("r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                return {t: cache_dir / rel for t, rel in manifest.items() if (cache_dir / rel).exists()}
+            except Exception as e:
+                logger.debug(f"pbix parquet manifest read failed for {report_id}: {e}")
+
+        try:
+            from pbixray import PBIXRay  # type: ignore
+        except Exception as e:
+            raise RuntimeError(
+                "pbixray is required to query Power BI (.pbix) data but is not installed. "
+                "Install it or set enable_pbix_query=False."
+            ) from e
+
+        content = self.download_catalog_item_content(report_id)
+        if len(content) > _PBIX_MAX_BYTES:
+            raise RuntimeError(
+                f"PBIX report '{report_name or report_id}' is {len(content)} bytes "
+                f"(> {_PBIX_MAX_BYTES} limit); refusing to materialize."
+            )
+
+        tmp_path: Optional[str] = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(suffix=".pbix")
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+
+            model = PBIXRay(tmp_path)
+            schema_df = model.schema
+            if schema_df is None or schema_df.empty:
+                raise RuntimeError(f"PBIX '{report_name or report_id}' has no tables in its semantic model.")
+
+            # Unique non-date table names from the schema.
+            candidate_tables: List[str] = []
+            seen = set()
+            for _, row in schema_df.iterrows():
+                tname = str(row.get("TableName") or "")
+                if not tname or tname in seen or _AUTO_DATE_TABLE_RE.match(tname):
+                    continue
+                seen.add(tname)
+                candidate_tables.append(tname)
+
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            manifest: Dict[str, str] = {}
+            used_filenames: set[str] = set()
+
+            for tname in candidate_tables:
+                try:
+                    df = model.get_table(tname)
+                except Exception as e:
+                    logger.warning(f"pbix {report_id} table '{tname}' extract failed: {e}")
+                    continue
+                if df is None:
+                    continue
+                if len(df) > _PBIX_MAX_ROWS_PER_TABLE:
+                    logger.warning(
+                        f"pbix {report_id} table '{tname}' has {len(df)} rows "
+                        f"(> {_PBIX_MAX_ROWS_PER_TABLE}); skipping materialization."
+                    )
+                    continue
+
+                base = _safe_view_name(tname).lower()
+                fname = f"{base}.parquet"
+                i = 1
+                while fname in used_filenames:
+                    i += 1
+                    fname = f"{base}_{i}.parquet"
+                used_filenames.add(fname)
+
+                fpath = cache_dir / fname
+                try:
+                    df.to_parquet(fpath, index=False)
+                except Exception as e:
+                    logger.warning(f"pbix {report_id} table '{tname}' parquet write failed: {e}")
+                    continue
+                manifest[tname] = fname
+
+            if not manifest:
+                raise RuntimeError(
+                    f"PBIX '{report_name or report_id}' produced no materializable tables "
+                    "(all skipped or failed)."
+                )
+
+            with manifest_path.open("w", encoding="utf-8") as f:
+                json.dump(manifest, f)
+
+            return {t: cache_dir / rel for t, rel in manifest.items()}
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+    def _execute_pbix_query(
+        self,
+        report_id: str,
+        modified_date: Optional[str],
+        *,
+        report_name: Optional[str],
+        query: Optional[str],
+        max_rows: Optional[int] = None,
+    ) -> pd.DataFrame:
+        """Run a DuckDB query against the pbix model's Parquet cache. All internal
+        tables from the same pbix are registered as views so the LLM can JOIN freely
+        using the bare table names it sees in the schema prompt.
+        """
+        if not query:
+            raise ValueError(
+                "execute_query on a pbix table requires a SQL `query`. "
+                "Use DuckDB syntax with the internal table names exposed in the schema."
+            )
+
+        import duckdb  # type: ignore
+
+        paths = self.ensure_pbix_parquets(report_id, modified_date, report_name=report_name)
+        if not paths:
+            raise RuntimeError(
+                f"No queryable tables available for PBIX '{report_name or report_id}'."
+            )
+
+        con = duckdb.connect(database=":memory:")
+        try:
+            # Register each model table under a safe identifier. Collisions after
+            # sanitization are resolved by suffixing.
+            used: set[str] = set()
+            registered: Dict[str, str] = {}
+            for tname, ppath in paths.items():
+                view = _safe_view_name(tname)
+                base = view
+                i = 1
+                while view in used:
+                    i += 1
+                    view = f"{base}_{i}"
+                used.add(view)
+                registered[tname] = view
+                sql_path = str(ppath).replace("'", "''")
+                con.execute(
+                    f'CREATE VIEW "{view}" AS SELECT * FROM read_parquet(\'{sql_path}\')'
+                )
+
+            df = con.execute(query).df()
+            if max_rows is not None and max_rows > 0 and len(df) > max_rows:
+                df = df.head(max_rows)
+            return df
+        finally:
+            con.close()
 
     # ------------------------------------------------------------------
     # RDL parsing — extract CommandText, fields, parameters from report XML
@@ -818,14 +1016,18 @@ class PowerBIReportServerClient(DataSourceClient):
                                     "report_type": "PowerBIReportTable",
                                     "report_id": rid,
                                     "report_name": name,
+                                    "modified_date": r.get("ModifiedDate"),
                                     "model_table": tname,
                                     "measures": st.get("measures", []),
-                                    "queryable": False,
+                                    "queryable": bool(self.enable_pbix_query),
                                     "upstream_source": upstream_hint,
                                     "schema_source": (schema_info or {}).get("source"),
                                     "query_note": (
-                                        "Internal PBIX model table — not queryable through PBIRS. "
-                                        "Use the upstream source for live data."
+                                        "Queryable via DuckDB over the cached semantic model. "
+                                        "All tables from the same pbix share a session so you can JOIN them. "
+                                        "Note: data reflects the last PBIX refresh, not live upstream."
+                                        if self.enable_pbix_query
+                                        else "Internal PBIX model table — queryability disabled. Use upstream source for data."
                                     ),
                                 }
                             },
@@ -1090,11 +1292,11 @@ class PowerBIReportServerClient(DataSourceClient):
           - If report_id → Reports/Export/{format} (RDL paginated report).
           - If dataset_id → Datasets({id})/Model.GetData action (shared dataset).
           - If table_name starts with "rdl:" or "dataset:" or "pbix:" → resolve IDs from table metadata.
-          - Power BI (.pbix) reports raise NotImplementedError.
+          - PBIX tables (when enable_pbix_query=True) run the supplied `query` via DuckDB
+            against a cached Parquet snapshot of the semantic model.
 
-        `query` is accepted for API symmetry but not used for RDL/Dataset executions
-        (queries are stored in the RDL/RSD content). For shared datasets you can
-        pass parameters via the `parameters` kwarg.
+        `query` is required for PBIX but ignored for RDL/Dataset (those queries live in
+        the report/dataset definition). Pass RDL/Dataset params via `parameters`.
         """
         if table_name and not (report_id or dataset_id):
             t = self.get_schema(table_name)
@@ -1105,6 +1307,18 @@ class PowerBIReportServerClient(DataSourceClient):
             elif rt == "Dataset":
                 dataset_id = pbi.get("dataset_id")
             elif rt in ("PowerBIReport", "PowerBIReportTable"):
+                if self.enable_pbix_query and query:
+                    rid = pbi.get("report_id")
+                    if not rid:
+                        raise ValueError(f"PBIX table '{table_name}' is missing report_id in metadata.")
+                    return self._execute_pbix_query(
+                        rid,
+                        pbi.get("modified_date"),
+                        report_name=pbi.get("report_name") or table_name,
+                        query=query,
+                        max_rows=max_rows,
+                    )
+
                 upstream = pbi.get("upstream_source") or ""
                 srcs = pbi.get("data_sources") or []
                 hint = f" Upstream: {upstream}." if upstream else ""
@@ -1116,11 +1330,16 @@ class PowerBIReportServerClient(DataSourceClient):
                         f"connection_string={first.get('connection_string')!r}. "
                         "Add that source as a separate data source in the app to query its data."
                     )
-                raise NotImplementedError(
-                    "Power BI Report Server is a discovery/exploration data source. "
-                    "Power BI (.pbix) reports expose metadata (reports, parameters, owners, "
-                    "data sources, lineage) but their embedded tabular model is NOT queryable "
-                    f"through PBIRS on this server.{hint}{detail}"
+                if not self.enable_pbix_query:
+                    raise NotImplementedError(
+                        "Power BI (.pbix) query support is disabled on this connector. "
+                        f"Set enable_pbix_query=True to materialize the semantic model.{hint}{detail}"
+                    )
+                # enable_pbix_query=True but no query string — ask for SQL.
+                raise ValueError(
+                    f"PBIX table '{table_name}' is queryable via DuckDB over its cached "
+                    "semantic model, but execute_query requires a SQL `query` argument. "
+                    "Use DuckDB syntax against the internal table names shown in the schema."
                 )
             elif rt == "Kpi":
                 raise ValueError(f"KPI '{table_name}' is a computed metric, not a queryable table. Inspect its metadata_json for the current value.")
@@ -1238,51 +1457,66 @@ class PowerBIReportServerClient(DataSourceClient):
 
     @property
     def description(self) -> str:
+        pbix_note = (
+            "PBIX semantic models are queryable via DuckDB over a cached Parquet snapshot of "
+            "the embedded Vertipaq tables — the data reflects the last PBIX refresh, not live "
+            "upstream. For up-to-the-minute data, connect the upstream source directly."
+            if self.enable_pbix_query
+            else "PBIX models are NOT queryable through this connector."
+        )
         return (
-            "Power BI Report Server (on-prem): METADATA-ONLY discovery/exploration catalog. "
-            "This is NOT a queryable data source — you cannot run SQL, DAX, or any data query "
-            "against a PBIX report through this connector. Use it only to browse what exists "
-            "(reports, datasets, KPIs, owners, parameters, lineage) and to identify the "
-            "upstream database/file that actually holds the data. To answer data questions, "
-            "connect the upstream source as its own data source and query that."
+            "Power BI Report Server (on-prem). Discovers reports, paginated reports, shared "
+            "datasets, and KPIs via the PBIRS REST API. "
+            f"{pbix_note}"
         ) + self.system_prompt()
 
     def system_prompt(self) -> str:
-        return """
-## Power BI Report Server (on-prem) Guide
-
-**IMPORTANT — this is NOT a queryable data source.** It is a **metadata-only catalog** of what
-exists on a Power BI Report Server: reports, their owners, parameters, and (critically) the
-upstream data sources that feed them. You cannot run SQL or DAX against PBIX reports through
-this connector. Any actual data question must be answered by connecting the real upstream
-database/file as its own data source in the app and querying that.
-
-Use this connector to answer:
-- "What reports exist on our PBIRS?"
-- "Who owns the Sales dashboard? When was it last modified?"
-- "What data source does the HR report use?" — then direct the user to connect that source.
-- "Is there a report covering revenue by region?"
-
-Do NOT use this connector to answer:
-- "What were sales last quarter?" — that requires querying the upstream database directly.
-- "Show me the top 10 products" — same.
-- Any question whose answer is a row of data from a PBIX model.
-
-### Table naming convention
-
-Tables returned by `get_schemas()` are prefixed by kind:
-
-- `pbix:<ReportName>` — a Power BI (.pbix) interactive report. **Metadata only, not queryable.**
+        pbix_section = (
+            """
+- `pbix:<ReportName>` — a Power BI (.pbix) interactive report (umbrella entry).
   `metadata_json.powerbi_report_server` contains:
-    - `data_sources[]` — each entry has `kind` (SQL/File/OData/etc.), `connection_string`, `auth_type`.
-    - `upstream_source` — short human-readable summary of where the data actually lives.
-    - `parameters[]`, `roles[]`, `path`, `modified_by`, etc.
-    - `model_tables[]` / `model_relationships[]` — internal semantic-model structure (when extractable).
+    - `data_sources[]` — each entry has `kind`, `connection_string`, `auth_type`.
+    - `upstream_source` — where the data originally came from.
+    - `model_tables[]` / `model_relationships[]` — internal model structure.
 
 - `pbix:<ReportName>/<ModelTable>` — an internal table inside a PBIX semantic model.
-  **Still not queryable**, but exposes real `columns[]` and DAX `measures[]` in metadata so the
-  LLM can reason about structure. When the user asks for actual data from these columns, route
-  them to the upstream source from the parent `pbix:<ReportName>` entry.
+  **Queryable via DuckDB over a cached Parquet snapshot of the Vertipaq data.**
+  All tables from the same PBIX register in a single DuckDB session, so you can
+  JOIN them using bare internal table names. The data reflects the last PBIX refresh,
+  NOT live upstream. For live data, prefer the upstream source.
+
+  Example:
+    execute_query(
+        table_name="pbix:Sales Dashboard/Orders",
+        query="SELECT c.Name, SUM(o.Amount) FROM Orders o JOIN Customers c "
+              "ON o.CustomerID = c.CustomerID GROUP BY c.Name",
+    )
+
+  DAX measures in `metadata_json.powerbi_report_server.measures` are NOT executable —
+  they are DAX expressions, not data. Rewrite them as SQL over the exported columns
+  if the user needs measure-like aggregates.
+"""
+            if self.enable_pbix_query
+            else """
+- `pbix:<ReportName>` — a Power BI (.pbix) interactive report. **Metadata only, not queryable.**
+- `pbix:<ReportName>/<ModelTable>` — internal table; metadata only. Direct users to the
+  upstream source from `pbix:<ReportName>.metadata_json.powerbi_report_server.data_sources`.
+"""
+        )
+        pbix_flavor = (
+            "queryable via a cached Parquet snapshot"
+            if self.enable_pbix_query
+            else "NOT queryable"
+        )
+        header = (
+            "\n## Power BI Report Server (on-prem) Guide\n\n"
+            "A discovery catalog for Power BI Report Server assets (reports, paginated reports,\n"
+            "shared datasets, KPIs). Paginated and shared datasets are queryable via REST export.\n"
+            f"PBIX semantic models are {pbix_flavor} through this connector.\n\n"
+            "### Table naming convention\n\n"
+            "Tables returned by `get_schemas()` are prefixed by kind:\n"
+        )
+        footer = """
 
 - `rdl:<ReportName>/<DataSetName>` — a paginated (RDL) report dataset. **Queryable.**
   - Backend SQL is in `metadata_json.powerbi_report_server.command_text`.
@@ -1292,35 +1526,30 @@ Tables returned by `get_schemas()` are prefixed by kind:
 
 - `kpi:<KpiName>` — a KPI tile. Metadata only (current value, goal, status).
 
-### How to help the user when they ask to query a PBIX report
+### How to help the user when they ask for PBIX data
 
-1. **Do not try to execute it** — `execute_query` on a `pbix:*` table will raise
-   `NotImplementedError`. There is no DAX/XMLA path on this server.
-2. **Read `metadata_json.powerbi_report_server.data_sources`** — this tells you the real
-   upstream (SQL server, Excel file path, OData endpoint, etc.).
-3. **Tell the user where the data lives and offer the next step:** connect the upstream
-   source as its own data source in the app and write queries against it. Example:
-   > "The 'AdventureWorks Sales' report is a Power BI report backed by an Excel file at
-   > `c:\\...\\adventureworks sales.xlsx`. To query this data, add that file as an
-   > Excel/SharePoint data source — I can't query the pbix model directly from PBIRS."
-4. **If they want report-level output** (a rendered PDF/Excel of the visuals), note that
-   this server's PBIRS build does not expose a pbix export action either — only RDL
-   paginated reports can be rendered.
+PBIX queryability via this connector is a **cached Vertipaq snapshot**, not live upstream.
+When that's acceptable, query `pbix:<Report>/<Table>` with DuckDB SQL (see example above).
+When the user needs current data, point them at `metadata_json.powerbi_report_server.data_sources`
+on the `pbix:<Report>` umbrella row and tell them to connect that source directly.
 
-### When RDL or shared datasets are available
+DAX measures in `metadata_json.powerbi_report_server.measures` are expressions, not values —
+they can't be executed as-is. If the user asks for a measure value, rewrite the DAX as
+equivalent SQL over the exported columns.
 
-Prefer those — they have real, queryable SQL behind them:
+### Paginated reports and shared datasets
 
-```python
-df = client.execute_query(table_name="rdl:Sales Report/MainDataset",
-                          parameters={"StartDate": "2024-01-01"})
-df = client.execute_query(table_name="dataset:Daily Orders",
-                          parameters={"Region": "EU"})
-```
+Those have real, queryable SQL behind them and execute via REST export:
 
-The `query` argument is accepted for API symmetry but is ignored — the query lives in the
-report/dataset definition on the server.
+    df = client.execute_query(table_name="rdl:Sales Report/MainDataset",
+                              parameters={"StartDate": "2024-01-01"})
+    df = client.execute_query(table_name="dataset:Daily Orders",
+                              parameters={"Region": "EU"})
+
+For RDL/Dataset, the `query` argument is ignored — the query lives in the report definition.
+For PBIX, `query` is required (DuckDB SQL against the internal table names).
 """
+        return header + pbix_section + footer
 
 
 # Compatibility aliases for dynamic resolver

@@ -469,7 +469,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "powerbi_report_server": DataSourceRegistryEntry(
         type="powerbi_report_server",
         title="Power BI Report Server",
-        description="On-prem Power BI Report Server — METADATA-ONLY discovery/exploration catalog. Not a queryable data source. Lists reports, datasets, KPIs, owners, parameters and upstream data-source lineage via NTLM-authenticated REST. To query actual data, connect the upstream database/file referenced in each report's metadata as its own data source.",
+        description="On-prem Power BI Report Server. Discovers reports, paginated reports, shared datasets, KPIs, and upstream data-source lineage via NTLM-authenticated REST. PBIX semantic models are queryable via DuckDB over a cached Parquet snapshot (data reflects the last PBIX refresh, not live upstream — connect the upstream source directly for live data).",
         config_schema=PowerBIReportServerConfig,
         credentials_auth=AuthOptions(
             default="userpass",

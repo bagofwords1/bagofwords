@@ -383,7 +383,8 @@ class TestGetSchemasMocked:
         assert orders_meta["report_type"] == "PowerBIReportTable"
         assert orders_meta["model_table"] == "Orders"
         assert orders_meta["measures"][0]["name"] == "Total Sales"
-        assert orders_meta["queryable"] is False
+        # queryable flips True under the default enable_pbix_query=True
+        assert orders_meta["queryable"] is True
 
         customers = next(t for t in tables if t.name.endswith("/Customers"))
         assert {col.name for col in customers.columns} == {"CustomerID", "Name"}
@@ -442,12 +443,12 @@ class TestGetSchemasMocked:
 
 
 class TestExecuteQueryRouting:
-    def _client_with_schemas(self, tables):
-        c = PowerBIReportServerClient("http://pbi", "u", "p")
+    def _client_with_schemas(self, tables, **kwargs):
+        c = PowerBIReportServerClient("http://pbi", "u", "p", **kwargs)
         c.get_schemas = MagicMock(return_value=tables)
         return c
 
-    def test_pbix_raises_not_implemented(self):
+    def test_pbix_raises_not_implemented_when_disabled(self):
         from app.ai.prompt_formatters import Table as PFTable
         tables = [PFTable(
             name="pbix:Sales", description="", columns=[], pks=[], fks=[], is_active=True,
@@ -460,12 +461,86 @@ class TestExecuteQueryRouting:
                 }],
             }},
         )]
-        c = self._client_with_schemas(tables)
+        c = self._client_with_schemas(tables, enable_pbix_query=False)
         with pytest.raises(NotImplementedError) as ei:
             c.execute_query(table_name="pbix:Sales")
         msg = str(ei.value)
-        assert "discovery" in msg.lower()
+        assert "disabled" in msg.lower()
         assert "Server=dw01" in msg
+
+    def test_pbix_requires_query_when_enabled(self):
+        from app.ai.prompt_formatters import Table as PFTable
+        tables = [PFTable(
+            name="pbix:Sales/Orders", description="", columns=[], pks=[], fks=[], is_active=True,
+            metadata_json={"powerbi_report_server": {
+                "report_type": "PowerBIReportTable",
+                "report_id": "r1",
+                "report_name": "Sales",
+                "modified_date": "2024-01-01T00:00:00Z",
+                "model_table": "Orders",
+            }},
+        )]
+        c = self._client_with_schemas(tables)
+        with pytest.raises(ValueError) as ei:
+            c.execute_query(table_name="pbix:Sales/Orders")
+        assert "query" in str(ei.value).lower()
+
+    def test_pbix_query_routes_to_duckdb(self, tmp_path, monkeypatch):
+        """execute_query on pbix:<Report>/<Table> with a query runs DuckDB over the
+        Parquet cache, with all same-report tables registered as views."""
+        import pandas as pd
+        from app.ai.prompt_formatters import Table as PFTable
+
+        # Build two small parquet files to stand in for pbix model tables.
+        orders = pd.DataFrame({"OrderID": [1, 2, 3], "CustomerID": [10, 10, 20], "Amount": [5.0, 7.5, 2.0]})
+        customers = pd.DataFrame({"CustomerID": [10, 20], "Name": ["Alice", "Bob"]})
+        orders_path = tmp_path / "orders.parquet"
+        customers_path = tmp_path / "customers.parquet"
+        orders.to_parquet(orders_path)
+        customers.to_parquet(customers_path)
+
+        tables = [PFTable(
+            name="pbix:Sales/Orders", description="", columns=[], pks=[], fks=[], is_active=True,
+            metadata_json={"powerbi_report_server": {
+                "report_type": "PowerBIReportTable",
+                "report_id": "r1",
+                "report_name": "Sales",
+                "modified_date": "2024-01-01T00:00:00Z",
+                "model_table": "Orders",
+            }},
+        )]
+        c = self._client_with_schemas(tables)
+
+        # Short-circuit the parquet materializer — we pre-built the files.
+        c.ensure_pbix_parquets = MagicMock(return_value={
+            "Orders": orders_path,
+            "Customers": customers_path,
+        })
+
+        df = c.execute_query(
+            table_name="pbix:Sales/Orders",
+            query=(
+                "SELECT c.Name, SUM(o.Amount) AS total "
+                "FROM Orders o JOIN Customers c ON o.CustomerID = c.CustomerID "
+                "GROUP BY c.Name ORDER BY c.Name"
+            ),
+        )
+        assert list(df["Name"]) == ["Alice", "Bob"]
+        assert list(df["total"]) == [12.5, 2.0]
+
+    def test_pbix_query_missing_report_id(self):
+        from app.ai.prompt_formatters import Table as PFTable
+        tables = [PFTable(
+            name="pbix:Broken", description="", columns=[], pks=[], fks=[], is_active=True,
+            metadata_json={"powerbi_report_server": {
+                "report_type": "PowerBIReport",
+                # report_id missing
+                "modified_date": "2024-01-01",
+            }},
+        )]
+        c = self._client_with_schemas(tables)
+        with pytest.raises(ValueError, match="report_id"):
+            c.execute_query(table_name="pbix:Broken", query="SELECT 1")
 
     def test_kpi_raises_value_error(self):
         from app.ai.prompt_formatters import Table as PFTable
@@ -483,28 +558,68 @@ class TestExecuteQueryRouting:
             c.execute_query()
 
 
-class TestDiscoveryFraming:
-    """The client must be clear that it's NOT a queryable data source."""
+class TestEnsurePbixParquets:
+    """Direct tests for the Parquet materialization + caching path."""
 
-    def test_description_flags_metadata_only(self):
+    def test_cache_hit_skips_download(self, tmp_path, monkeypatch):
+        """When manifest.json already exists, no pbix download is attempted."""
+        import app.data_sources.clients.powerbi_report_server_client as mod
+
+        monkeypatch.setattr(mod, "_PBIX_DATA_CACHE_DIR", tmp_path)
+        cache_dir = mod._pbix_data_cache_dir("rX", "2024-01-01T00:00:00Z")
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "orders.parquet").write_bytes(b"not really a parquet")
+        (cache_dir / "manifest.json").write_text(json.dumps({"Orders": "orders.parquet"}))
+
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        # download_catalog_item_content should NOT be called — raise if it is.
+        c.download_catalog_item_content = MagicMock(
+            side_effect=AssertionError("download should not run on cache hit")
+        )
+
+        paths = c.ensure_pbix_parquets("rX", "2024-01-01T00:00:00Z", report_name="X")
+        assert set(paths.keys()) == {"Orders"}
+        assert paths["Orders"].name == "orders.parquet"
+
+    def test_size_cap_rejects_oversized_pbix(self, tmp_path, monkeypatch):
+        import app.data_sources.clients.powerbi_report_server_client as mod
+
+        monkeypatch.setattr(mod, "_PBIX_DATA_CACHE_DIR", tmp_path)
+        monkeypatch.setattr(mod, "_PBIX_MAX_BYTES", 10)
+
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        c.download_catalog_item_content = MagicMock(return_value=b"x" * 100)
+
+        with pytest.raises(RuntimeError, match="refusing to materialize"):
+            c.ensure_pbix_parquets("rBig", "mdate", report_name="Huge")
+
+
+class TestDiscoveryFraming:
+    """Framing must accurately describe pbix queryability and warn about snapshot staleness."""
+
+    def test_description_default_flags_cached_snapshot(self):
         c = PowerBIReportServerClient("http://pbi", "u", "p")
         desc = c.description.lower()
-        assert "metadata" in desc
-        assert "not" in desc and ("queryable" in desc or "query" in desc)
+        assert "parquet" in desc or "snapshot" in desc
         assert "upstream" in desc
 
-    def test_system_prompt_warns_llm(self):
+    def test_description_when_query_disabled_flags_metadata_only(self):
+        c = PowerBIReportServerClient("http://pbi", "u", "p", enable_pbix_query=False)
+        desc = c.description.lower()
+        assert "not queryable" in desc
+
+    def test_system_prompt_explains_pbix_query(self):
         c = PowerBIReportServerClient("http://pbi", "u", "p")
         sp = c.system_prompt()
-        assert "NOT a queryable data source" in sp
+        assert "DuckDB" in sp
+        assert "snapshot" in sp.lower() or "cached" in sp.lower()
         assert "upstream" in sp.lower()
 
-    def test_registry_description_flags_metadata_only(self):
+    def test_registry_description_explains_connector(self):
         from app.schemas.data_source_registry import REGISTRY
         entry = REGISTRY["powerbi_report_server"]
         d = entry.description.lower()
-        assert "metadata" in d
-        assert "not a queryable" in d
+        assert "power bi report server" in d
         assert "upstream" in d
 
 
