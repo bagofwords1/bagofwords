@@ -212,11 +212,12 @@ class ServiceFormatter:
         table_strs = []
         table_title = f"table: {table.name}"
         table_strs.append(table_title)
+        if getattr(table, "description", None):
+            table_strs.append(f"description: {table.description}")
         # Optional compact metadata block
-        if table.metadata_json:
+        if table.metadata_json and isinstance(table.metadata_json, dict):
             try:
-                # Prefer a concise single-line summary with key Tableau identifiers
-                tmeta = table.metadata_json.get("tableau", {}) if isinstance(table.metadata_json, dict) else {}
+                tmeta = table.metadata_json.get("tableau", {})
                 kv = []
                 for k in ["datasourceLuid", "projectName", "name"]:
                     v = tmeta.get(k)
@@ -225,11 +226,39 @@ class ServiceFormatter:
                 if kv:
                     table_strs.append(f"meta: {'; '.join(kv)}")
             except Exception:
-                # Best-effort only; never fail formatting due to metadata
+                pass
+            try:
+                pbi = table.metadata_json.get("powerbi_report_server", {})
+                if pbi:
+                    kv = []
+                    for k in ["report_type", "path", "modified_by", "modified_date", "queryable"]:
+                        v = pbi.get(k)
+                        if v is not None and v != "":
+                            kv.append(f"{k}={v}")
+                    if kv:
+                        table_strs.append(f"meta: {'; '.join(kv)}")
+                    upstream = pbi.get("upstream_source")
+                    if upstream:
+                        table_strs.append(f"upstream: {upstream}")
+                    for ds in pbi.get("data_sources") or []:
+                        kind = ds.get("kind") or ds.get("type") or "Unknown"
+                        cs = ds.get("connection_string") or ""
+                        table_strs.append(f"data_source: kind={kind} connection={cs}")
+                    for p in pbi.get("parameters") or []:
+                        pname = p.get("name")
+                        if pname:
+                            table_strs.append(f"parameter: {pname}")
+                    cmd = pbi.get("command_text")
+                    if cmd:
+                        table_strs.append(f"command_text: {cmd[:500]}")
+                    note = pbi.get("query_note")
+                    if note:
+                        table_strs.append(f"note: {note}")
+            except Exception:
                 pass
         for col in table.columns or []:
             table_strs.append(f"column: {col.name} type: {col.dtype or 'any'}")
-        
+
         return "\n".join(table_strs)
 
 
@@ -247,6 +276,9 @@ class TableFormatter:
             isinstance(table.metadata_json, dict)
             and table.metadata_json.get("type") == "semantic_view"
         )
+        pbi_meta = None
+        if isinstance(table.metadata_json, dict):
+            pbi_meta = table.metadata_json.get("powerbi_report_server")
         table_fmt = []
         table_name = table.name
         for col in table.columns or []:
@@ -313,6 +345,36 @@ class TableFormatter:
                 create_tbl = f"-- Snowflake Semantic View\nCREATE SEMANTIC VIEW {table_name}"
             else:
                 create_tbl = f"CREATE TABLE {table_name}"
+
+        if pbi_meta:
+            lines = [f"-- Power BI Report Server entry: {table_name}"]
+            if table.description:
+                lines.append(f"-- {table.description}")
+            for k in ("report_type", "path", "modified_by", "modified_date", "queryable"):
+                v = pbi_meta.get(k)
+                if v is not None and v != "":
+                    lines.append(f"-- {k}: {v}")
+            upstream = pbi_meta.get("upstream_source")
+            if upstream:
+                lines.append(f"-- upstream_source: {upstream}")
+            for ds in pbi_meta.get("data_sources") or []:
+                kind = ds.get("kind") or ds.get("type") or "Unknown"
+                cs = ds.get("connection_string") or ""
+                lines.append(f"-- data_source: kind={kind} connection={cs}")
+            params = pbi_meta.get("parameters") or []
+            if params:
+                names = ", ".join(p.get("name") or "" for p in params if p.get("name"))
+                if names:
+                    lines.append(f"-- parameters: {names}")
+            cmd = pbi_meta.get("command_text")
+            if cmd:
+                snippet = cmd.replace("\n", " ")[:400]
+                lines.append(f"-- command_text: {snippet}")
+            note = pbi_meta.get("query_note")
+            if note:
+                lines.append(f"-- note: {note}")
+            create_tbl = "\n".join(lines) + "\n" + create_tbl
+
         return create_tbl
 
     def format_tables(self, tables: list[Table]) -> str:
