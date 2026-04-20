@@ -204,7 +204,7 @@ class InspectDataMCPTool(MCPTool):
         sigkill_event = asyncio.Event()
 
         async for e in streamer.generate_and_execute_stream_v2(
-            request=CodeGenRequest(context=codegen_context, retries=0),
+            request=CodeGenRequest(context=codegen_context, retries=1),
             ds_clients=rich_ctx.ds_clients,
             excel_files=[],
             code_generator_fn=_inspection_generator_fn,
