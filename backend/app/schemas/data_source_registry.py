@@ -466,7 +466,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "powerbi_report_server": DataSourceRegistryEntry(
         type="powerbi_report_server",
         title="Power BI Report Server",
-        description="On-prem Power BI Report Server. Discovers Power BI reports, paginated (RDL) reports, shared datasets, KPIs, and data sources via REST API with NTLM authentication.",
+        description="On-prem Power BI Report Server — METADATA-ONLY discovery/exploration catalog. Not a queryable data source. Lists reports, datasets, KPIs, owners, parameters and upstream data-source lineage via NTLM-authenticated REST. To query actual data, connect the upstream database/file referenced in each report's metadata as its own data source.",
         config_schema=PowerBIReportServerConfig,
         credentials_auth=AuthOptions(
             default="userpass",

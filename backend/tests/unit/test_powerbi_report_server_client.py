@@ -20,6 +20,7 @@ from app.data_sources.clients.powerbi_report_server_client import (
     PowerBIReportServerClient,
     _clr_to_dtype,
     _strip_ns,
+    _summarize_upstream,
 )
 
 
@@ -107,6 +108,26 @@ class TestHelpers:
         assert _clr_to_dtype("System.DateTime") == "datetime"
         assert _clr_to_dtype(None) == "unknown"
         assert _clr_to_dtype("") == "unknown"
+
+    def test_summarize_upstream_empty(self):
+        assert _summarize_upstream([]) == ""
+
+    def test_summarize_upstream_file(self):
+        out = _summarize_upstream([{"kind": "File", "connection_string": "c:\\data\\sales.xlsx"}])
+        assert out == "File: c:\\data\\sales.xlsx"
+
+    def test_summarize_upstream_sql(self):
+        out = _summarize_upstream([{"kind": "SQL", "connection_string": "Server=dw01;Database=Sales"}])
+        assert out == "SQL (Server=dw01;Database=Sales)"
+
+    def test_summarize_upstream_dedups(self):
+        srcs = [
+            {"kind": "SQL", "connection_string": "Server=dw01"},
+            {"kind": "SQL", "connection_string": "Server=dw01"},
+            {"kind": "File", "connection_string": "c:\\x.xlsx"},
+        ]
+        out = _summarize_upstream(srcs)
+        assert out == "SQL (Server=dw01); File: c:\\x.xlsx"
 
 
 # ---------- RDL parser ---------- #
@@ -233,6 +254,10 @@ class TestGetSchemasMocked:
         assert len(meta["data_sources"]) == 1
         assert meta["data_sources"][0]["type"] == "Import"
         assert meta["data_sources"][0]["kind"] == "SQL"
+        assert meta["upstream_source"] == "SQL (Server=sqlsrv)"
+        assert "discovery" in meta["query_note"].lower()
+        assert "Server=sqlsrv" in meta["query_note"]
+        assert "discovery only" in (t.description or "").lower()
 
     def test_rdl_report_with_datasets(self):
         c = PowerBIReportServerClient("http://pbi", "u", "p")
@@ -303,11 +328,21 @@ class TestExecuteQueryRouting:
         from app.ai.prompt_formatters import Table as PFTable
         tables = [PFTable(
             name="pbix:Sales", description="", columns=[], pks=[], fks=[], is_active=True,
-            metadata_json={"powerbi_report_server": {"report_type": "PowerBIReport", "report_id": "r1"}},
+            metadata_json={"powerbi_report_server": {
+                "report_type": "PowerBIReport",
+                "report_id": "r1",
+                "upstream_source": "SQL (Server=dw01;Database=Sales)",
+                "data_sources": [{
+                    "kind": "SQL", "connection_string": "Server=dw01;Database=Sales", "auth_type": "Windows"
+                }],
+            }},
         )]
         c = self._client_with_schemas(tables)
-        with pytest.raises(NotImplementedError, match="XMLA"):
+        with pytest.raises(NotImplementedError) as ei:
             c.execute_query(table_name="pbix:Sales")
+        msg = str(ei.value)
+        assert "discovery" in msg.lower()
+        assert "Server=dw01" in msg
 
     def test_kpi_raises_value_error(self):
         from app.ai.prompt_formatters import Table as PFTable
@@ -323,6 +358,31 @@ class TestExecuteQueryRouting:
         c = PowerBIReportServerClient("http://pbi", "u", "p")
         with pytest.raises(ValueError, match="requires one of"):
             c.execute_query()
+
+
+class TestDiscoveryFraming:
+    """The client must be clear that it's NOT a queryable data source."""
+
+    def test_description_flags_metadata_only(self):
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        desc = c.description.lower()
+        assert "metadata" in desc
+        assert "not" in desc and ("queryable" in desc or "query" in desc)
+        assert "upstream" in desc
+
+    def test_system_prompt_warns_llm(self):
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        sp = c.system_prompt()
+        assert "NOT a queryable data source" in sp
+        assert "upstream" in sp.lower()
+
+    def test_registry_description_flags_metadata_only(self):
+        from app.schemas.data_source_registry import REGISTRY
+        entry = REGISTRY["powerbi_report_server"]
+        d = entry.description.lower()
+        assert "metadata" in d
+        assert "not a queryable" in d
+        assert "upstream" in d
 
 
 # ---------- test_connection error paths ---------- #

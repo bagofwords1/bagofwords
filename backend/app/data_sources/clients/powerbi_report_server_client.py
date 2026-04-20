@@ -26,6 +26,32 @@ def _strip_ns(tag: str) -> str:
     return _RDL_NS_RE.sub("", tag or "")
 
 
+def _summarize_upstream(connection_summary: List[Dict[str, Any]]) -> str:
+    """Produce a short human-readable hint of where a PBIX's data actually lives.
+
+    Examples:
+      "SQL (Server=dw01;Database=Sales)"
+      "File: c:\\users\\alice\\sales.xlsx"
+      "Web API + SQL (Server=...)"
+    """
+    if not connection_summary:
+        return ""
+    parts: List[str] = []
+    for src in connection_summary:
+        kind = src.get("kind") or src.get("type") or "Unknown"
+        cs = (src.get("connection_string") or "").strip()
+        if not cs:
+            parts.append(kind)
+        elif kind.lower() == "file":
+            parts.append(f"File: {cs}")
+        else:
+            parts.append(f"{kind} ({cs})")
+    # de-dup while preserving order
+    seen = set()
+    uniq = [p for p in parts if not (p in seen or seen.add(p))]
+    return "; ".join(uniq)
+
+
 def _clr_to_dtype(clr: Optional[str]) -> str:
     if not clr:
         return "unknown"
@@ -148,6 +174,23 @@ class PowerBIReportServerClient(DataSourceClient):
         else:
             session.verify = bool(self.verify_ssl)
         self._session = session
+        self._prime_ntlm()
+
+    def _prime_ntlm(self):
+        """Complete the NTLM handshake once serially before any concurrent calls.
+
+        requests-ntlm's challenge/response state can race when multiple worker
+        threads fire on a cold session, producing spurious HTTP 400s on the
+        first parallel burst. A single warm-up GET settles the auth state.
+        """
+        try:
+            self._session.get(
+                f"{self._api_base()}/System",
+                headers={"Accept": "application/json"},
+                timeout=30,
+            )
+        except Exception:
+            pass
 
     def _get(self, path: str, *, accept: str = "application/json", stream: bool = False, timeout: int = 60) -> requests.Response:
         self.connect()
@@ -505,6 +548,8 @@ class PowerBIReportServerClient(DataSourceClient):
                         "model_connection_name": dmd.get("ModelConnectionName"),
                     })
 
+                upstream_hint = _summarize_upstream(connection_summary)
+
                 metadata_json = {
                     "powerbi_report_server": {
                         "report_type": "PowerBIReport",
@@ -523,13 +568,18 @@ class PowerBIReportServerClient(DataSourceClient):
                         ],
                         "roles": [{"name": rl.get("Name"), "model_permissions": rl.get("ModelPermissions")} for rl in info["roles"]],
                         "queryable": False,
-                        "query_note": "Power BI .pbix embedded model is not queryable via REST. Requires XMLA endpoint (not configured in v1).",
+                        "upstream_source": upstream_hint,
+                        "query_note": (
+                            "This is a discovery entry — the PBIX embedded model is NOT queryable through PBIRS. "
+                            f"To query its data, connect the upstream source directly: {upstream_hint or 'see data_sources[] for connection details'}."
+                        ),
                     }
                 }
 
+                desc = f"Power BI report (discovery only). Upstream: {upstream_hint}" if upstream_hint else "Power BI report (discovery only)."
                 tables.append(Table(
                     name=f"pbix:{name}",
-                    description=f"Power BI report on PBIRS. {len(connection_summary)} data source(s).",
+                    description=desc,
                     columns=[],
                     pks=[],
                     fks=[],
@@ -811,11 +861,22 @@ class PowerBIReportServerClient(DataSourceClient):
             elif rt == "Dataset":
                 dataset_id = pbi.get("dataset_id")
             elif rt == "PowerBIReport":
+                upstream = pbi.get("upstream_source") or ""
+                srcs = pbi.get("data_sources") or []
+                hint = f" Upstream: {upstream}." if upstream else ""
+                detail = ""
+                if srcs:
+                    first = srcs[0]
+                    detail = (
+                        f" First data source: kind={first.get('kind')}, "
+                        f"connection_string={first.get('connection_string')!r}. "
+                        "Add that source as a separate data source in the app to query its data."
+                    )
                 raise NotImplementedError(
-                    "Power BI (.pbix) reports cannot be queried via the PBIRS REST API. "
-                    "The embedded semantic model requires an XMLA endpoint (SSAS) which is not "
-                    "supported in this v1 integration. Options: (1) upload the logic as a paginated (RDL) report, "
-                    "(2) query the underlying data source directly, or (3) enable and configure the XMLA endpoint."
+                    "Power BI Report Server is a discovery/exploration data source. "
+                    "Power BI (.pbix) reports expose metadata (reports, parameters, owners, "
+                    "data sources, lineage) but their embedded tabular model is NOT queryable "
+                    f"through PBIRS on this server.{hint}{detail}"
                 )
             elif rt == "Kpi":
                 raise ValueError(f"KPI '{table_name}' is a computed metric, not a queryable table. Inspect its metadata_json for the current value.")
@@ -933,51 +994,82 @@ class PowerBIReportServerClient(DataSourceClient):
 
     @property
     def description(self) -> str:
-        return "Power BI Report Server (on-prem): discover Power BI reports, paginated reports, shared datasets, KPIs; execute paginated reports and datasets." + self.system_prompt()
+        return (
+            "Power BI Report Server (on-prem): METADATA-ONLY discovery/exploration catalog. "
+            "This is NOT a queryable data source — you cannot run SQL, DAX, or any data query "
+            "against a PBIX report through this connector. Use it only to browse what exists "
+            "(reports, datasets, KPIs, owners, parameters, lineage) and to identify the "
+            "upstream database/file that actually holds the data. To answer data questions, "
+            "connect the upstream source as its own data source and query that."
+        ) + self.system_prompt()
 
     def system_prompt(self) -> str:
         return """
 ## Power BI Report Server (on-prem) Guide
 
-This connector exposes the contents of an on-prem Power BI Report Server via its REST API.
+**IMPORTANT — this is NOT a queryable data source.** It is a **metadata-only catalog** of what
+exists on a Power BI Report Server: reports, their owners, parameters, and (critically) the
+upstream data sources that feed them. You cannot run SQL or DAX against PBIX reports through
+this connector. Any actual data question must be answered by connecting the real upstream
+database/file as its own data source in the app and querying that.
+
+Use this connector to answer:
+- "What reports exist on our PBIRS?"
+- "Who owns the Sales dashboard? When was it last modified?"
+- "What data source does the HR report use?" — then direct the user to connect that source.
+- "Is there a report covering revenue by region?"
+
+Do NOT use this connector to answer:
+- "What were sales last quarter?" — that requires querying the upstream database directly.
+- "Show me the top 10 products" — same.
+- Any question whose answer is a row of data from a PBIX model.
 
 ### Table naming convention
 
-Tables returned by `get_schemas()` are prefixed by kind so the LLM can route correctly:
+Tables returned by `get_schemas()` are prefixed by kind:
 
-- `pbix:<ReportName>` — a Power BI (.pbix) interactive report.
-  - **Not queryable** via this connector. The embedded Analysis Services model needs XMLA.
-  - Use `metadata_json.powerbi_report_server.data_sources` to understand its backing sources (Excel, SQL, etc.).
+- `pbix:<ReportName>` — a Power BI (.pbix) interactive report. **Metadata only, not queryable.**
+  `metadata_json.powerbi_report_server` contains:
+    - `data_sources[]` — each entry has `kind` (SQL/File/OData/etc.), `connection_string`, `auth_type`.
+    - `upstream_source` — short human-readable summary of where the data actually lives.
+    - `parameters[]`, `roles[]`, `path`, `modified_by`, etc.
 
-- `rdl:<ReportName>/<DataSetName>` — a dataset defined inside a paginated (RDL) report.
-  - The real SQL query is in `metadata_json.powerbi_report_server.command_text`.
-  - Query it with `execute_query(table_name="rdl:...", parameters={...})`. Returns a DataFrame from CSV export.
-  - A single RDL export renders the whole report; don't expect to run arbitrary SQL against it.
+- `rdl:<ReportName>/<DataSetName>` — a paginated (RDL) report dataset. **Queryable.**
+  - Backend SQL is in `metadata_json.powerbi_report_server.command_text`.
+  - Run: `execute_query(table_name="rdl:...", parameters={...})` → DataFrame (CSV export).
 
-- `dataset:<SharedDatasetName>` — a shared dataset (.rsd) with an embedded query.
-  - Query with `execute_query(table_name="dataset:...", parameters={...})`.
-  - Parameters and the underlying query are in `metadata_json.powerbi_report_server`.
+- `dataset:<SharedDatasetName>` — a shared dataset. **Queryable** via `Model.GetData`.
 
-- `kpi:<KpiName>` — a KPI tile. Value/goal/status are in metadata. Not queryable.
+- `kpi:<KpiName>` — a KPI tile. Metadata only (current value, goal, status).
 
-### Choosing what to query
+### How to help the user when they ask to query a PBIX report
 
-- If the user asks about a Power BI (.pbix) report, you can cite its data sources but must
-  explain that direct querying requires either uploading an RDL equivalent or the XMLA endpoint.
-- If a shared dataset or RDL exists with the data they want, prefer those.
+1. **Do not try to execute it** — `execute_query` on a `pbix:*` table will raise
+   `NotImplementedError`. There is no DAX/XMLA path on this server.
+2. **Read `metadata_json.powerbi_report_server.data_sources`** — this tells you the real
+   upstream (SQL server, Excel file path, OData endpoint, etc.).
+3. **Tell the user where the data lives and offer the next step:** connect the upstream
+   source as its own data source in the app and write queries against it. Example:
+   > "The 'AdventureWorks Sales' report is a Power BI report backed by an Excel file at
+   > `c:\\...\\adventureworks sales.xlsx`. To query this data, add that file as an
+   > Excel/SharePoint data source — I can't query the pbix model directly from PBIRS."
+4. **If they want report-level output** (a rendered PDF/Excel of the visuals), note that
+   this server's PBIRS build does not expose a pbix export action either — only RDL
+   paginated reports can be rendered.
 
-### Executing queries
+### When RDL or shared datasets are available
+
+Prefer those — they have real, queryable SQL behind them:
 
 ```python
-# RDL report (or a specific dataset inside it):
-df = client.execute_query(table_name="rdl:Sales Report/MainDataset")
-
-# Shared dataset with parameters:
-df = client.execute_query(table_name="dataset:Daily Orders", parameters={"Region": "EU"})
+df = client.execute_query(table_name="rdl:Sales Report/MainDataset",
+                          parameters={"StartDate": "2024-01-01"})
+df = client.execute_query(table_name="dataset:Daily Orders",
+                          parameters={"Region": "EU"})
 ```
 
-The `query` argument is kept for API symmetry with other connectors but is ignored here — the
-query text lives in the report/dataset definition on the server.
+The `query` argument is accepted for API symmetry but is ignored — the query lives in the
+report/dataset definition on the server.
 """
 
 
