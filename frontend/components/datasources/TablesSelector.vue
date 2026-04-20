@@ -304,9 +304,9 @@
                   </span>
                 </button>
               </div>
-              <div v-if="expandedTables[table.name] && table.columns" class="mt-2 ml-7">
+              <div v-if="expandedTables[table.name]" class="mt-2 ml-7">
                 <!-- Columns -->
-                <div class="border border-gray-100 rounded">
+                <div v-if="table.columns?.length" class="border border-gray-100 rounded">
                   <div class="grid grid-cols-2 text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">
                     <div>Name</div>
                     <div>Type</div>
@@ -343,6 +343,77 @@
                   </div>
                   <div v-if="table.metadata_json.powerbi.reports?.length">
                     <span class="text-gray-400">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
+                  </div>
+                </div>
+
+                <!-- Power BI Report Server Metadata -->
+                <div v-if="table.metadata_json?.powerbi_report_server" class="mt-2 space-y-2">
+                  <div class="border border-gray-100 rounded">
+                    <div class="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">Report details</div>
+                    <div class="text-xs text-gray-600 px-2 py-1 space-y-0.5">
+                      <div v-if="table.metadata_json.powerbi_report_server.report_type">
+                        <span class="text-gray-400">Type:</span> {{ table.metadata_json.powerbi_report_server.report_type }}
+                      </div>
+                      <div v-if="table.metadata_json.powerbi_report_server.path">
+                        <span class="text-gray-400">Path:</span> {{ table.metadata_json.powerbi_report_server.path }}
+                      </div>
+                      <div v-if="table.metadata_json.powerbi_report_server.modified_by">
+                        <span class="text-gray-400">Modified by:</span> {{ table.metadata_json.powerbi_report_server.modified_by }}
+                      </div>
+                      <div v-if="table.metadata_json.powerbi_report_server.modified_date">
+                        <span class="text-gray-400">Modified:</span> {{ table.metadata_json.powerbi_report_server.modified_date }}
+                      </div>
+                      <div>
+                        <span class="text-gray-400">Queryable:</span>
+                        <span :class="table.metadata_json.powerbi_report_server.queryable ? 'text-green-600' : 'text-gray-500'">
+                          {{ table.metadata_json.powerbi_report_server.queryable ? 'yes' : 'no (metadata only)' }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="table.metadata_json.powerbi_report_server.upstream_source" class="border border-blue-100 bg-blue-50 rounded">
+                    <div class="text-xs font-medium text-blue-700 px-2 py-1 rounded-t">Upstream source</div>
+                    <div class="text-xs text-blue-900 px-2 py-1 break-all">
+                      {{ table.metadata_json.powerbi_report_server.upstream_source }}
+                    </div>
+                  </div>
+
+                  <div v-if="table.metadata_json.powerbi_report_server.data_sources?.length" class="border border-gray-100 rounded">
+                    <div class="grid grid-cols-[80px_1fr_80px] text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t gap-2">
+                      <div>Kind</div>
+                      <div>Connection</div>
+                      <div>Auth</div>
+                    </div>
+                    <div class="divide-y divide-gray-100">
+                      <div
+                        v-for="(ds, idx) in table.metadata_json.powerbi_report_server.data_sources"
+                        :key="idx"
+                        class="grid grid-cols-[80px_1fr_80px] text-xs px-2 py-1 gap-2"
+                      >
+                        <div class="text-gray-700">{{ ds.kind || ds.type || '—' }}</div>
+                        <div class="text-gray-600 break-all">{{ ds.connection_string || '—' }}</div>
+                        <div class="text-gray-500">{{ ds.auth_type || '—' }}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="table.metadata_json.powerbi_report_server.parameters?.length" class="text-xs text-gray-600">
+                    <span class="text-gray-400">Parameters:</span>
+                    <span
+                      v-for="(p, idx) in table.metadata_json.powerbi_report_server.parameters"
+                      :key="idx"
+                      class="ml-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
+                    >{{ p.name }}</span>
+                  </div>
+
+                  <div v-if="table.metadata_json.powerbi_report_server.command_text" class="border border-gray-100 rounded">
+                    <div class="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">Command text</div>
+                    <pre class="text-xs text-gray-700 px-2 py-1 whitespace-pre-wrap break-all">{{ table.metadata_json.powerbi_report_server.command_text }}</pre>
+                  </div>
+
+                  <div v-if="table.metadata_json.powerbi_report_server.query_note" class="border border-yellow-200 bg-yellow-50 rounded text-xs text-yellow-800 px-2 py-1">
+                    {{ table.metadata_json.powerbi_report_server.query_note }}
                   </div>
                 </div>
               </div>
@@ -432,6 +503,30 @@ type Table = {
       workspaceName?: string;
       tableName?: string;
       reports?: { id: string; name: string; webUrl?: string }[];
+    };
+    powerbi_report_server?: {
+      report_type?: string;
+      report_id?: string;
+      report_name?: string;
+      path?: string;
+      parent_folder_id?: string;
+      size?: number;
+      created_by?: string;
+      modified_by?: string;
+      modified_date?: string;
+      queryable?: boolean;
+      upstream_source?: string;
+      query_note?: string;
+      command_text?: string;
+      data_sources?: {
+        type?: string;
+        kind?: string;
+        auth_type?: string;
+        connection_string?: string;
+        model_connection_name?: string;
+      }[];
+      parameters?: { name?: string; value_type?: string | null; is_required?: boolean | null; current_value?: string | null }[];
+      roles?: { name?: string; model_permissions?: string[] }[];
     };
   };
   connection_id?: string;
