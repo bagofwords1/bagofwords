@@ -1,0 +1,22 @@
+[package]
+name = "qvd2parquet"
+version = "0.1.0"
+edition = "2021"
+description = "Streaming QVD → Parquet converter (bounded RAM)"
+license = "MIT"
+
+[[bin]]
+name = "qvd2parquet"
+path = "src/main.rs"
+
+[dependencies]
+qvd = { version = "0.7", features = ["parquet_support"] }
+arrow = { version = "58", default-features = false }
+parquet = { version = "58", default-features = false, features = ["arrow", "snap"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[workspace]

@@ -43,6 +43,9 @@ from app.schemas.data_sources.configs import (
     # Power BI
     PowerBIConfig,
     PowerBICredentials,
+    # Power BI Report Server (on-prem)
+    PowerBIReportServerConfig,
+    PowerBIReportServerCredentials,
     # QVD Files
     QVDConfig,
     QVDCredentials,
@@ -59,6 +62,9 @@ from app.schemas.data_sources.configs import (
     # Sisense
     SisenseConfig,
     SisenseCredentials,
+    # Oracle BI (OBIEE / OAS / OAC)
+    OracleBIConfig,
+    OracleBICredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -460,6 +466,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
         requires_license="enterprise",
     ),
+    "powerbi_report_server": DataSourceRegistryEntry(
+        type="powerbi_report_server",
+        title="Power BI Report Server",
+        description="On-prem Power BI Report Server — METADATA-ONLY discovery/exploration catalog. Not a queryable data source. Lists reports, datasets, KPIs, owners, parameters and upstream data-source lineage via NTLM-authenticated REST. To query actual data, connect the upstream database/file referenced in each report's metadata as its own data source.",
+        config_schema=PowerBIReportServerConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password (NTLM)",
+                    schema=PowerBIReportServerCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.powerbi_report_server_client.PowerBIReportServerClient",
+        requires_license="enterprise",
+    ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",
         title="Qlik Data",
@@ -563,6 +587,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.sisense_client.SisenseClient",
+        requires_license="enterprise",
+    ),
+    "oracle_bi": DataSourceRegistryEntry(
+        type="oracle_bi",
+        title="Oracle BI",
+        description="Query Oracle BI subject areas via Logical SQL. Works with OBIEE 11g/12c, Oracle Analytics Server, and Oracle Analytics Cloud.",
+        config_schema=OracleBIConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=OracleBICredentials,
+                    scopes=["system", "user"],
+                )
+            },
+        ),
+        client_path="app.data_sources.clients.oracle_bi_client.OracleBIClient",
         requires_license="enterprise",
     ),
     "mcp": DataSourceRegistryEntry(

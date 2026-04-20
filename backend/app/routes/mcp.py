@@ -36,12 +36,8 @@ MCP_PROTOCOL_VERSION = "2025-11-25"
 
 def _resource_metadata_url(request: Request) -> str:
     """Build the well-known URL for the WWW-Authenticate header."""
-    configured = settings.bow_config.base_url
-    if configured and configured != "http://0.0.0.0:3000":
-        base = configured.rstrip("/")
-    else:
-        base = f"{request.url.scheme}://{request.url.netloc}"
-    return f"{base}/.well-known/oauth-protected-resource"
+    from app.core.base_url import derive_base_url
+    return f"{derive_base_url(request)}/.well-known/oauth-protected-resource"
 
 
 async def mcp_auth(
@@ -184,11 +180,17 @@ def _load_html_bundle(name: str) -> str:
     if name in _html_bundle_cache:
         return _html_bundle_cache[name]
 
-    # Try multiple paths: built output first, then source
-    candidates = [
+    # Try multiple paths: production SPA dist (where `nuxt generate` output
+    # lands in the Docker image), legacy .output/public (for local dev where
+    # `yarn generate` was run directly), then source frontend/public.
+    candidates: list[str] = []
+    dist_dir = os.environ.get("FRONTEND_DIST_DIR")
+    if dist_dir:
+        candidates.append(os.path.join(dist_dir, f"{name}.html"))
+    candidates.extend([
         os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", ".output", "public", f"{name}.html"),
         os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "public", f"{name}.html"),
-    ]
+    ])
 
     content: str | None = None
     html_dir: str | None = None

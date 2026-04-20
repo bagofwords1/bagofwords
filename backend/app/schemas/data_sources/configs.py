@@ -610,6 +610,49 @@ class PowerBIConfig(BaseModel):
     pass
 
 
+# Power BI Report Server (on-prem)
+class PowerBIReportServerCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Windows username. May include domain prefix (e.g. DOMAIN\\user) or be a local machine user.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Windows password",
+        json_schema_extra={"ui:type": "password"}
+    )
+    domain: Optional[str] = Field(
+        None,
+        title="Domain",
+        description="Optional Windows domain (workgroup or AD). If omitted and username doesn't contain a domain, NTLM uses the local machine.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
+class PowerBIReportServerConfig(BaseModel):
+    server_url: str = Field(
+        ...,
+        title="Server URL",
+        description="Base URL of the Power BI Report Server, e.g. http://pbi.example.com or http://pbi.example.com/Reports",
+        json_schema_extra={"ui:type": "string"}
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify TLS certificate (disable only for self-signed test servers).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    ca_bundle_path: Optional[str] = Field(
+        None,
+        title="CA Bundle Path",
+        description="Optional path to a custom CA bundle for internal certificates.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Microsoft Fabric
 class MSFabricCredentials(BaseModel):
     tenant_id: str = Field(
@@ -757,6 +800,45 @@ class TimbrA2AConfig(BaseModel):
         3,
         title="Retries",
         description="Number of retries on query failure",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
+# Oracle BI (OBIEE / Oracle Analytics Server / Oracle Analytics Cloud)
+class OracleBICredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="Oracle BI / OAC username (email for OAC, domain user for OBIEE/OAS).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        description="Password for the Oracle BI / OAC user.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class OracleBIConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host URL",
+        description="Base URL of the Oracle BI instance (e.g., https://analytics.example.com or the OAC instance URL).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify TLS certificate when calling the SOAP endpoint.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    timeout_sec: int = Field(
+        60,
+        ge=1,
+        le=600,
+        title="Timeout (sec)",
+        description="HTTP timeout for SOAP calls.",
         json_schema_extra={"ui:type": "number"},
     )
 
