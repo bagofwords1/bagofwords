@@ -165,6 +165,78 @@
     "subtitle": "Explore y gestione sus informes",
     "newReport": "Nuevo informe",
     "searchPlaceholder": "Buscar informes…",
+    "archive": "Archivar",
+    "archiveSelected": "Archivar seleccionados",
+    "archiveConfirm": "¿Seguro que quiere archivar este informe?",
+    "archiveConfirmBulk": "¿Archivar {count} informes seleccionados?",
+    "dashboardLabel": "Panel",
+    "conversationLabel": "Conversación",
+    "dashboardPrivate": "Panel (privado)",
+    "dashboardWithVisibility": "Panel: {visibility}",
+    "filters": {
+      "allStatus": "Todos los estados",
+      "private": "Privados",
+      "shared": "Compartidos",
+      "allSchedules": "Todos los horarios",
+      "scheduled": "Programados",
+      "notScheduled": "No programados",
+      "allModes": "Todos los modos",
+      "chat": "Chat",
+      "deep": "Análisis profundo",
+      "training": "Entrenamiento",
+      "allSources": "Todas las fuentes",
+      "allDashboards": "Todos los paneles",
+      "withDashboard": "Con panel",
+      "noDashboard": "Sin panel",
+      "status": "Estado",
+      "schedule": "Horario",
+      "type": "Tipo",
+      "dataSource": "Fuente de datos",
+      "artifacts": "Artefactos"
+    },
+    "visibility": {
+      "public": "Cualquiera con el enlace",
+      "internal": "Organización",
+      "shared": "Personas específicas",
+      "private": "Privado"
+    },
+    "table": {
+      "title": "Título",
+      "dataSources": "Fuentes de datos",
+      "created": "Creado",
+      "user": "Usuario",
+      "actions": "Acciones"
+    },
+    "metric": {
+      "query": "consulta",
+      "queries": "consultas",
+      "artifact": "artefacto",
+      "artifacts": "artefactos",
+      "scheduled": "programadas",
+      "instruction": "instrucción",
+      "instructions": "instrucciones"
+    },
+    "tooltips": {
+      "hasPage": "Tiene artefacto de página",
+      "hasSlides": "Tiene artefacto de diapositivas",
+      "chat": "Chat",
+      "createdViaMcp": "Creado vía MCP",
+      "createdViaExcel": "Creado vía Excel",
+      "runningOnSchedule": "Ejecutándose en un horario"
+    },
+    "pagination": {
+      "showing": "Mostrando {from} a {to} de {total} informes"
+    },
+    "toasts": {
+      "failedFetch": "No se pudieron obtener los informes",
+      "archived": "Informe archivado",
+      "archivedDesc": "Informe archivado correctamente",
+      "archivedBulk": "Informes archivados",
+      "archivedBulkDesc": "Se archivaron {count} informes",
+      "archiveFailed": "No se pudo archivar el informe",
+      "archiveBulkFailed": "No se pudieron archivar los informes seleccionados",
+      "createFailed": "No se pudo crear el informe"
+    },
     "myReports": "Mis informes",
     "sharedWithMe": "Compartidos conmigo",
     "actions": "Acciones",

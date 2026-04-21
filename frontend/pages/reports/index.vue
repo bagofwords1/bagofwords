@@ -4,9 +4,9 @@
             <div>
                 <h1 class="text-lg font-semibold">
                     <GoBackChevron v-if="isExcel" />
-                    Reports
+                    {{ $t('reports.title') }}
                 </h1>
-                <p class="mt-2 text-gray-500">Browse and manage your reports</p>
+                <p class="mt-2 text-gray-500">{{ $t('reports.subtitle') }}</p>
             </div>
 
             <div class="mt-6">
@@ -17,7 +17,7 @@
                             <input
                                 v-model="searchTerm"
                                 type="text"
-                                placeholder="Search reports..."
+                                :placeholder="$t('reports.searchPlaceholder')"
                                 class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                             <UIcon
@@ -36,7 +36,7 @@
                             class="w-full md:w-auto"
                             @click="createNewReport"
                         >
-                            New report
+                            {{ $t('reports.newReport') }}
                         </UButton>
                     </div>
                 </div>
@@ -51,7 +51,7 @@
                                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
                             @click="setActiveFilter('my')"
                         >
-                            <span>My reports</span>
+                            <span>{{ $t('reports.myReports') }}</span>
                         </button>
                         <button
                             class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
@@ -60,7 +60,7 @@
                                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
                             @click="setActiveFilter('shared')"
                         >
-                            <span>Shared with me</span>
+                            <span>{{ $t('reports.sharedWithMe') }}</span>
                         </button>
                     </nav>
                 </div>
@@ -140,7 +140,7 @@
                                 class="border border-gray-200 text-gray-700"
                                 trailing-icon="i-heroicons-chevron-down-20-solid"
                             >
-                                Actions
+                                {{ $t('reports.actions') }}
                             </UButton>
                         </UDropdown>
                     </div>
@@ -160,19 +160,19 @@
                                         />
                                     </th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Title
+                                        {{ $t('reports.table.title') }}
                                     </th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Data Sources
+                                        {{ $t('reports.table.dataSources') }}
                                     </th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Created
+                                        {{ $t('reports.table.created') }}
                                     </th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        User
+                                        {{ $t('reports.table.user') }}
                                     </th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Actions
+                                        {{ $t('reports.table.actions') }}
                                     </th>
                                 </tr>
                             </thead>
@@ -182,7 +182,7 @@
                                     <td colspan="6" class="px-6 py-12 text-center">
                                         <div class="flex items-center justify-center text-gray-500">
                                             <Spinner class="w-4 h-4 me-2" />
-                                            <span class="text-sm">Loading...</span>
+                                            <span class="text-sm">{{ $t('common.loading') }}</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -201,13 +201,13 @@
                                             />
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
-                                            <UTooltip v-if="report.artifact_modes?.includes('page')" text="Has Page artifact">
+                                            <UTooltip v-if="report.artifact_modes?.includes('page')" :text="$t('reports.tooltips.hasPage')">
                                                 <Icon name="heroicons:chart-bar-square" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
-                                            <UTooltip v-if="report.artifact_modes?.includes('slides')" text="Has Slides artifact">
+                                            <UTooltip v-if="report.artifact_modes?.includes('slides')" :text="$t('reports.tooltips.hasSlides')">
                                                 <Icon name="heroicons:presentation-chart-bar" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
-                                            <UTooltip v-else-if="report.artifact_modes.length == 0" text="Chat">
+                                            <UTooltip v-else-if="report.artifact_modes.length == 0" :text="$t('reports.tooltips.chat')">
                                                 <Icon name="heroicons:chat-bubble-left-right" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
                                             <NuxtLink
@@ -217,32 +217,32 @@
                                                 {{ report.title }}
                                             </NuxtLink>
                                             <span class="inline-flex items-center gap-1 ms-2 -mt-0.5">
-                                                <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? `Dashboard: ${visibilityLabel(report.artifact_visibility)}` : 'Dashboard (private)'">
+                                                <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? $t('reports.dashboardWithVisibility', { visibility: visibilityLabel(report.artifact_visibility) }) : $t('reports.dashboardPrivate')">
                                                     <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
-                                                        Dashboard
+                                                        {{ $t('reports.dashboardLabel') }}
                                                         <Icon v-if="report.artifact_visibility !== 'none'" :name="visibilityIcon(report.artifact_visibility)" class="w-3 h-3" />
                                                     </span>
                                                 </UTooltip>
                                                 <UTooltip v-if="report.conversation_visibility !== 'none'" :text="visibilityLabel(report.conversation_visibility)">
                                                     <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
-                                                        Conversation
+                                                        {{ $t('reports.conversationLabel') }}
                                                         <Icon :name="visibilityIcon(report.conversation_visibility)" class="w-3 h-3" />
                                                     </span>
                                                 </UTooltip>
                                             </span>
                                             <div v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count" class="text-[11px] text-gray-400 mt-0.5">
-                                                <span v-if="report.query_count">{{ report.query_count }} {{ report.query_count === 1 ? 'query' : 'queries' }}</span>
+                                                <span v-if="report.query_count">{{ report.query_count }} {{ report.query_count === 1 ? $t('reports.metric.query') : $t('reports.metric.queries') }}</span>
                                                 <span v-if="report.query_count && (report.artifact_count || report.scheduled_prompt_count || report.instruction_count)"> | </span>
-                                                <span v-if="report.artifact_count">{{ report.artifact_count }} {{ report.artifact_count === 1 ? 'artifact' : 'artifacts' }}</span>
+                                                <span v-if="report.artifact_count">{{ report.artifact_count }} {{ report.artifact_count === 1 ? $t('reports.metric.artifact') : $t('reports.metric.artifacts') }}</span>
                                                 <span v-if="report.artifact_count && (report.scheduled_prompt_count || report.instruction_count)"> | </span>
                                                 <span v-if="report.scheduled_prompt_count">
                                                     <Icon name="heroicons:clock" class="w-3 h-3 inline -mt-px" />
-                                                    {{ report.scheduled_prompt_count }} scheduled
+                                                    {{ report.scheduled_prompt_count }} {{ $t('reports.metric.scheduled') }}
                                                 </span>
                                                 <span v-if="report.scheduled_prompt_count && report.instruction_count"> | </span>
                                                 <span v-if="report.instruction_count">
                                                     <Icon name="heroicons-academic-cap" class="w-3 h-3 inline -mt-px" />
-                                                    {{ report.instruction_count }} {{ report.instruction_count === 1 ? 'instruction' : 'instructions' }}
+                                                    {{ report.instruction_count }} {{ report.instruction_count === 1 ? $t('reports.metric.instruction') : $t('reports.metric.instructions') }}
                                                 </span>
                                             </div>
                                             <div
@@ -261,7 +261,7 @@
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'mcp'"
                                                 class="ms-2 h-3 inline me-2"
                                             >
-                                                <UTooltip text="Created via MCP">
+                                                <UTooltip :text="$t('reports.tooltips.createdViaMcp')">
                                                     <img src="/icons/mcp.png" class="h-3 inline" />
                                                 </UTooltip>
                                             </div>
@@ -269,7 +269,7 @@
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'excel'"
                                                 class="ms-2 h-3 inline me-2"
                                             >
-                                                <UTooltip text="Created via Excel">
+                                                <UTooltip :text="$t('reports.tooltips.createdViaExcel')">
                                                     <img src="/data_sources_icons/excel.png" class="h-3 inline" />
                                                 </UTooltip>
                                             </div>
@@ -277,7 +277,7 @@
                                                 v-if="report.cron_schedule && !report.has_scheduled_prompts"
                                                 class="ms-2 h-3 inline me-2"
                                             >
-                                                <UTooltip text="Running on a schedule">
+                                                <UTooltip :text="$t('reports.tooltips.runningOnSchedule')">
                                                     <Icon name="heroicons:clock" />
                                                 </UTooltip>
                                             </div>
@@ -310,7 +310,7 @@
                                                     name="heroicons:archive-box"
                                                     class="inline-block w-4 h-4 me-1"
                                                 />
-                                                Archive
+                                                {{ $t('reports.archive') }}
                                             </button>
                                         </td>
                                     </tr>
@@ -325,10 +325,10 @@
                                                     class="mx-auto h-12 w-12 text-gray-400"
                                                 />
                                                 <h3 class="mt-2 text-sm font-medium text-gray-900">
-                                                    No reports found
+                                                    {{ $t('reports.empty') }}
                                                 </h3>
                                                 <p class="mt-1 text-sm text-gray-500">
-                                                    Try adjusting your filters or search term.
+                                                    {{ $t('reports.emptyHint') }}
                                                 </p>
                                             </div>
                                         </td>
@@ -344,13 +344,11 @@
                         class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between"
                     >
                         <div class="text-xs text-gray-500">
-                            Showing
-                            {{ ((currentPage - 1) * pagination.limit) + 1 }}
-                            to
-                            {{ Math.min(currentPage * pagination.limit, pagination.total) }}
-                            of
-                            {{ pagination.total }}
-                            reports
+                            {{ $t('reports.pagination.showing', {
+                                from: ((currentPage - 1) * pagination.limit) + 1,
+                                to: Math.min(currentPage * pagination.limit, pagination.total),
+                                total: pagination.total
+                            }) }}
                         </div>
                         <div class="flex items-center gap-2">
                             <button
@@ -402,6 +400,7 @@
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import Spinner from '@/components/Spinner.vue'
 
+const { t } = useI18n()
 const { data: currentUser } = useAuth()
 const toast = useToast()
 const router = useRouter()
@@ -441,40 +440,40 @@ const visibilityIcon = (v: string) => {
 
 const visibilityLabel = (v: string) => {
     switch (v) {
-        case 'public': return 'Anyone with link'
-        case 'internal': return 'Organization'
-        case 'shared': return 'Specific people'
-        default: return 'Private'
+        case 'public': return t('reports.visibility.public')
+        case 'internal': return t('reports.visibility.internal')
+        case 'shared': return t('reports.visibility.shared')
+        default: return t('reports.visibility.private')
     }
 }
 
-const statusFilterOptions = [
-    { value: 'all', label: 'All Status' },
-    { value: 'draft', label: 'Private' },
-    { value: 'published', label: 'Shared' },
-]
+const statusFilterOptions = computed(() => [
+    { value: 'all', label: t('reports.filters.allStatus') },
+    { value: 'draft', label: t('reports.filters.private') },
+    { value: 'published', label: t('reports.filters.shared') },
+])
 
-const scheduleFilterOptions = [
-    { value: null, label: 'All Schedules' },
-    { value: true, label: 'Scheduled' },
-    { value: false, label: 'Not Scheduled' },
-]
+const scheduleFilterOptions = computed(() => [
+    { value: null, label: t('reports.filters.allSchedules') },
+    { value: true, label: t('reports.filters.scheduled') },
+    { value: false, label: t('reports.filters.notScheduled') },
+])
 
-const typeFilterOptions = [
-    { value: 'all', label: 'All Modes' },
-    { value: 'chat', label: 'Chat' },
-    { value: 'deep', label: 'Deep Analytics' },
-    { value: 'training', label: 'Training' },
-]
+const typeFilterOptions = computed(() => [
+    { value: 'all', label: t('reports.filters.allModes') },
+    { value: 'chat', label: t('reports.filters.chat') },
+    { value: 'deep', label: t('reports.filters.deep') },
+    { value: 'training', label: t('reports.filters.training') },
+])
 
-const artifactFilterOptions = [
-    { value: 'all', label: 'All Dashboards' },
-    { value: 'yes', label: 'With Dashboard' },
-    { value: 'no', label: 'No Dashboard' },
-]
+const artifactFilterOptions = computed(() => [
+    { value: 'all', label: t('reports.filters.allDashboards') },
+    { value: 'yes', label: t('reports.filters.withDashboard') },
+    { value: 'no', label: t('reports.filters.noDashboard') },
+])
 
 const dataSourceFilterOptions = computed(() => {
-    const options: { value: string; label: string }[] = [{ value: 'all', label: 'All Sources' }]
+    const options: { value: string; label: string }[] = [{ value: 'all', label: t('reports.filters.allSources') }]
     for (const ds of dataSources.value) {
         options.push({ value: ds.id, label: ds.name })
     }
@@ -482,28 +481,28 @@ const dataSourceFilterOptions = computed(() => {
 })
 
 const selectedStatusLabel = computed(() => {
-    const option = statusFilterOptions.find(o => o.value === statusFilter.value)
-    return option?.label || 'Status'
+    const option = statusFilterOptions.value.find(o => o.value === statusFilter.value)
+    return option?.label || t('reports.filters.status')
 })
 
 const selectedScheduleLabel = computed(() => {
-    const option = scheduleFilterOptions.find(o => o.value === scheduledFilter.value)
-    return option?.label || 'Schedule'
+    const option = scheduleFilterOptions.value.find(o => o.value === scheduledFilter.value)
+    return option?.label || t('reports.filters.schedule')
 })
 
 const selectedTypeLabel = computed(() => {
-    const option = typeFilterOptions.find(o => o.value === typeFilter.value)
-    return option?.label || 'Type'
+    const option = typeFilterOptions.value.find(o => o.value === typeFilter.value)
+    return option?.label || t('reports.filters.type')
 })
 
 const selectedDataSourceLabel = computed(() => {
     const option = dataSourceFilterOptions.value.find(o => o.value === dataSourceFilter.value)
-    return option?.label || 'Data Source'
+    return option?.label || t('reports.filters.dataSource')
 })
 
 const selectedArtifactLabel = computed(() => {
-    const option = artifactFilterOptions.find(o => o.value === artifactFilter.value)
-    return option?.label || 'Artifacts'
+    const option = artifactFilterOptions.value.find(o => o.value === artifactFilter.value)
+    return option?.label || t('reports.filters.artifacts')
 })
 
 const visiblePages = computed(() => {
@@ -633,8 +632,8 @@ const fetchReports = async (page: number = 1, filter: 'my' | 'shared' | 'publish
     } catch (error) {
         console.error('Error fetching reports:', error)
         toast.add({
-            title: 'Error',
-            description: 'Failed to fetch reports',
+            title: t('common.error'),
+            description: t('reports.toasts.failedFetch'),
             color: 'red',
         })
     } finally {
@@ -661,7 +660,7 @@ const toggleAllVisible = () => {
 }
 
 async function confirmDelete(reportId: string) {
-    if (confirm('Are you sure you want to archive this report?')) {
+    if (confirm(t('reports.archiveConfirm'))) {
         await deleteReport(reportId)
         await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
     }
@@ -669,7 +668,7 @@ async function confirmDelete(reportId: string) {
 
 async function archiveSelected() {
     if (selectedIds.value.size === 0) return
-    const ok = window.confirm(`Archive ${selectedIds.value.size} selected report(s)?`)
+    const ok = window.confirm(t('reports.archiveConfirmBulk', { count: selectedIds.value.size }))
     if (!ok) return
     try {
         const response: any = await useMyFetch('/reports/bulk/archive', {
@@ -681,8 +680,8 @@ async function archiveSelected() {
         }
         const archived = (response?.data?.value as any)?.archived ?? selectedIds.value.size
         toast.add({
-            title: 'Reports archived',
-            description: `Archived ${archived} report(s)`,
+            title: t('reports.toasts.archivedBulk'),
+            description: t('reports.toasts.archivedBulkDesc', { count: archived }),
             color: 'green',
         })
         await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
@@ -692,9 +691,9 @@ async function archiveSelected() {
             error?.data?.detail ||
             error?.data?.message ||
             error?.message ||
-            'Failed to archive selected reports'
+            t('reports.toasts.archiveBulkFailed')
         toast.add({
-            title: 'Failed to archive selected reports',
+            title: t('reports.toasts.archiveBulkFailed'),
             description: String(message),
             color: 'red',
         })
@@ -709,8 +708,8 @@ async function deleteReport(reportId: string) {
 
         if (response.status.value === 'success') {
             toast.add({
-                title: 'Report archived',
-                description: 'Report archived successfully',
+                title: t('reports.toasts.archived'),
+                description: t('reports.toasts.archivedDesc'),
                 color: 'green',
             })
         } else {
@@ -722,9 +721,9 @@ async function deleteReport(reportId: string) {
             error?.data?.detail ||
             error?.data?.message ||
             error?.message ||
-            'Failed to archive report'
+            t('reports.toasts.archiveFailed')
         toast.add({
-            title: 'Failed to archive report',
+            title: t('reports.toasts.archiveFailed'),
             description: String(message),
             color: 'red',
         })
@@ -735,7 +734,7 @@ const actionsDropdownItems = computed(() => {
     return [
         [
             {
-                label: 'Archive selected',
+                label: t('reports.archiveSelected'),
                 icon: 'i-heroicons-archive-box',
                 disabled: selectedIds.value.size === 0,
                 click: () => archiveSelected(),
@@ -778,9 +777,9 @@ const createNewReport = async () => {
             e?.data?.detail ||
             e?.data?.message ||
             e?.message ||
-            'Failed to create report'
+            t('reports.toasts.createFailed')
         toast.add({
-            title: 'Failed to create report',
+            title: t('reports.toasts.createFailed'),
             description: String(message),
             color: 'red',
         })

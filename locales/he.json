@@ -165,6 +165,78 @@
     "subtitle": "עיון וניהול הדוחות שלכם",
     "newReport": "דוח חדש",
     "searchPlaceholder": "חיפוש דוחות…",
+    "archive": "העברה לארכיון",
+    "archiveSelected": "העברת המסומנים לארכיון",
+    "archiveConfirm": "האם אתם בטוחים שברצונכם להעביר דוח זה לארכיון?",
+    "archiveConfirmBulk": "להעביר לארכיון {count} דוחות שנבחרו?",
+    "dashboardLabel": "לוח מחוונים",
+    "conversationLabel": "שיחה",
+    "dashboardPrivate": "לוח מחוונים (פרטי)",
+    "dashboardWithVisibility": "לוח מחוונים: {visibility}",
+    "filters": {
+      "allStatus": "כל הסטטוסים",
+      "private": "פרטיים",
+      "shared": "משותפים",
+      "allSchedules": "כל התזמונים",
+      "scheduled": "מתוזמנים",
+      "notScheduled": "לא מתוזמנים",
+      "allModes": "כל המצבים",
+      "chat": "צ׳אט",
+      "deep": "ניתוח מעמיק",
+      "training": "אימון",
+      "allSources": "כל המקורות",
+      "allDashboards": "כל לוחות המחוונים",
+      "withDashboard": "עם לוח מחוונים",
+      "noDashboard": "ללא לוח מחוונים",
+      "status": "סטטוס",
+      "schedule": "תזמון",
+      "type": "סוג",
+      "dataSource": "מקור נתונים",
+      "artifacts": "תוצרים"
+    },
+    "visibility": {
+      "public": "כל מי שיש לו את הקישור",
+      "internal": "הארגון",
+      "shared": "אנשים ספציפיים",
+      "private": "פרטי"
+    },
+    "table": {
+      "title": "כותרת",
+      "dataSources": "מקורות נתונים",
+      "created": "נוצר",
+      "user": "משתמש",
+      "actions": "פעולות"
+    },
+    "metric": {
+      "query": "שאילתה",
+      "queries": "שאילתות",
+      "artifact": "תוצר",
+      "artifacts": "תוצרים",
+      "scheduled": "מתוזמנות",
+      "instruction": "הנחיה",
+      "instructions": "הנחיות"
+    },
+    "tooltips": {
+      "hasPage": "מכיל תוצר עמוד",
+      "hasSlides": "מכיל תוצר מצגת",
+      "chat": "צ׳אט",
+      "createdViaMcp": "נוצר דרך MCP",
+      "createdViaExcel": "נוצר דרך Excel",
+      "runningOnSchedule": "פועל לפי תזמון"
+    },
+    "pagination": {
+      "showing": "מציג {from} עד {to} מתוך {total} דוחות"
+    },
+    "toasts": {
+      "failedFetch": "נכשלה שליפת הדוחות",
+      "archived": "הדוח הועבר לארכיון",
+      "archivedDesc": "הדוח הועבר לארכיון בהצלחה",
+      "archivedBulk": "דוחות הועברו לארכיון",
+      "archivedBulkDesc": "{count} דוחות הועברו לארכיון",
+      "archiveFailed": "ההעברה לארכיון נכשלה",
+      "archiveBulkFailed": "ההעברה לארכיון של הדוחות שנבחרו נכשלה",
+      "createFailed": "יצירת הדוח נכשלה"
+    },
     "myReports": "הדוחות שלי",
     "sharedWithMe": "משותפים איתי",
     "actions": "פעולות",
