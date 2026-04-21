@@ -5,7 +5,7 @@
         <div v-if="loading" key="loading" class="flex items-center justify-center h-40">
           <div class="flex items-center text-gray-500 text-sm">
             <Spinner class="w-4 h-4 me-2" />
-            Loading...
+            {{ $t('onboarding.loading') }}
           </div>
         </div>
         <div v-else key="content">
@@ -14,10 +14,10 @@
               <div>
                 <div class="mb-5">
                     <p class="text-sm text-gray-600 mb-5">
-                      Getting started is quick: just connect your model and your data source, and you’ll be ready to ask your first question.
+                      {{ $t('onboarding.intro1') }}
                     </p>
                   <p class="text-sm text-gray-600">
-                    👉 Let’s set things up!
+                    {{ $t('onboarding.intro2') }}
                   </p>
                 </div>
               </div>
@@ -26,7 +26,7 @@
 
           </OnboardingView>
           <div class="text-center">
-            <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm inline text-sm mt-4 rounded-md px-3 py-1.5">Skip onboarding</button>
+            <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm inline text-sm mt-4 rounded-md px-3 py-1.5">{{ $t('onboarding.skip') }}</button>
           </div>
         </div>
       </Transition>

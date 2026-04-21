@@ -5,12 +5,12 @@
       <aside v-if="!props.hideSidebar" class="p-8 md:p-10 border-b md:border-b-0 md:border-e border-gray-100 md:col-span-1">
         <div>
             <img src="/assets/logo-128.png" alt="Logo" class="w-10 h-10 mb-5" />
-          <h1 class="text-lg font-semibold text-gray-900">Welcome to Bag of words! 🎉</h1>
-          <p class="text-sm text-gray-500 mt-1">Chat with your data, run deep analysis and create dashboards in seconds</p>
+          <h1 class="text-lg font-semibold text-gray-900">{{ $t('onboarding.welcome') }}</h1>
+          <p class="text-sm text-gray-500 mt-1">{{ $t('onboarding.welcomeSubtitle') }}</p>
         </div>
 
         <div class="mt-8">
-          <div v-if="loading" class="text-gray-500 text-sm">Loading...</div>
+          <div v-if="loading" class="text-gray-500 text-sm">{{ $t('onboarding.loading') }}</div>
           <div v-else class="space-y-5">
             <div
               v-if="currentStepKey !== 'onboarding'"
@@ -41,7 +41,7 @@
       <main class="p-8 md:p-10" :class="props.hideSidebar ? 'md:col-span-3' : 'md:col-span-2'">
         <div :class="props.hideSidebar ? '' : ''">
         <Transition name="fade" mode="out-in">
-          <div v-if="loading" key="loading" class="flex items-center justify-center h-full text-gray-500">Loading...</div>
+          <div v-if="loading" key="loading" class="flex items-center justify-center h-full text-gray-500">{{ $t('onboarding.loading') }}</div>
 
           
 
@@ -64,7 +64,7 @@
 
                 <div class="mt-6 flex items-center gap-3">
                   <button @click="goToCurrentStep" class="bg-gray-900 hidden hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">{{ getCurrentStepButtonText() }}</button>
-                  <button v-if="!props.hideNextButton" @click="goToNextStep" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">Next</button>
+                  <button v-if="!props.hideNextButton" @click="goToNextStep" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">{{ $t('onboarding.next') }}</button>
                 </div>
               </div>
             </div>
@@ -87,6 +87,7 @@ const props = defineProps<{
 const router = useRouter()
 const route = useRoute()
 const { onboarding, fetchOnboarding, updateOnboarding } = useOnboarding()
+const { t } = useI18n()
 
 const loading = ref(true)
 
@@ -99,14 +100,13 @@ onMounted(async () => {
 })
 
 // Complete step metadata, used for titles/descriptions irrespective of sidebar order
-const stepMeta = new Map([
-  ['onboarding', { title: 'Welcome to Bag of words! 🎉', description: 'Chat with your data, run deep analysis and create dashboards in seconds' }],
-  ['llm_configured', { title: 'Configure LLM', description: 'Connect to any LLM provider, and bring your own API key' }],
-  ['data_source_created', { title: 'Connect data', description: 'Select one of the available connectors and set up your data source' }],
-  // Shown on the right panel while selecting tables
-  ['schema_selected', { title: 'Select tables', description: 'Choose 5-20 related tables. Start focused—you can always add more later.' }],
-  ['instructions_added', { title: 'Add instructions', description: 'Help the AI understand your terminology, business rules, and preferences' }],
-])
+const stepMeta = computed(() => new Map([
+  ['onboarding', { title: t('onboarding.steps.onboardingTitle'), description: t('onboarding.steps.onboardingDescription') }],
+  ['llm_configured', { title: t('onboarding.steps.llmTitle'), description: t('onboarding.steps.llmDescription') }],
+  ['data_source_created', { title: t('onboarding.steps.dataTitle'), description: t('onboarding.steps.dataDescription') }],
+  ['schema_selected', { title: t('onboarding.steps.schemaTitle'), description: t('onboarding.steps.schemaDescription') }],
+  ['instructions_added', { title: t('onboarding.steps.instructionsTitle'), description: t('onboarding.steps.instructionsDescription') }],
+]))
 
 const stepsList = computed(() => {
   if (!onboarding.value) return []
@@ -122,8 +122,8 @@ const stepsList = computed(() => {
 
     return {
       key,
-      title: stepMeta.get(key)?.title || (key as string),
-      description: stepMeta.get(key)?.description || '',
+      title: stepMeta.value.get(key)?.title || (key as string),
+      description: stepMeta.value.get(key)?.description || '',
       status: statusValue
     }
   })
@@ -253,12 +253,12 @@ function getStepIndicatorClass(status: string, isCurrent: boolean) {
 
 function getCurrentStepTitle() {
   const key = (currentStepKey.value || '') as string
-  return stepMeta.get(key)?.title || 'Get Started'
+  return stepMeta.value.get(key)?.title || t('onboarding.fallbackTitle')
 }
 
 function getCurrentStepDescription() {
   const key = (currentStepKey.value || '') as string
-  return stepMeta.get(key)?.description || 'Complete the next step in your setup'
+  return stepMeta.value.get(key)?.description || t('onboarding.fallbackDescription')
 }
 
 function getCurrentStepIcon() {
@@ -273,15 +273,15 @@ function getCurrentStepIcon() {
 }
 
 function getCurrentStepButtonText() {
-  if (onboarding.value?.completed) return 'Completed'
-  if (onboarding.value?.dismissed) return 'Resume Setup'
+  if (onboarding.value?.completed) return t('onboarding.completed')
+  if (onboarding.value?.dismissed) return t('onboarding.resumeSetup')
   switch (currentStepKey.value) {
-    case 'onboarding': return 'Welcome'
-    case 'llm_configured': return 'Configure Models'
-    case 'data_source_created': return 'Connect Data'
-    case 'schema_selected': return 'Connect Data'
-    case 'instructions_added': return 'Context'
-    default: return 'Continue'
+    case 'onboarding': return t('onboarding.steps.onboardingButton')
+    case 'llm_configured': return t('onboarding.steps.llmButton')
+    case 'data_source_created': return t('onboarding.steps.dataButton')
+    case 'schema_selected': return t('onboarding.steps.schemaButton')
+    case 'instructions_added': return t('onboarding.steps.instructionsButton')
+    default: return t('onboarding.steps.continue')
   }
 }
 
