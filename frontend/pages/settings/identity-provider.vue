@@ -89,7 +89,7 @@
                 {{ formatRelativeTime(token.created_at) }}
               </span>
               <button
-                class="text-[11px] text-red-500 hover:text-red-700 ml-2"
+                class="text-[11px] text-red-500 hover:text-red-700 ms-2"
                 @click="confirmRevoke(token)"
               >
                 Revoke
@@ -159,13 +159,13 @@
                     {{ ldapTestResult?.connected ? 'Connected' : (ldapTestResult ? 'Connection failed' : 'Not tested') }}
                   </span>
                 </div>
-                <p v-if="ldapTestResult?.connected" class="text-[11px] text-gray-400 mt-0.5 ml-4">
+                <p v-if="ldapTestResult?.connected" class="text-[11px] text-gray-400 mt-0.5 ms-4">
                   {{ ldapTestResult.server }}
                   <template v-if="ldapTestResult.vendor"> · {{ ldapTestResult.vendor }}</template>
                   <template v-if="ldapTestResult.user_count !== null"> · {{ ldapTestResult.user_count }} users</template>
                   <template v-if="ldapTestResult.group_count !== null"> · {{ ldapTestResult.group_count }} groups</template>
                 </p>
-                <p v-if="ldapTestResult && !ldapTestResult.connected" class="text-[11px] text-red-400 mt-0.5 ml-4">
+                <p v-if="ldapTestResult && !ldapTestResult.connected" class="text-[11px] text-red-400 mt-0.5 ms-4">
                   {{ ldapTestResult.error }}
                 </p>
               </div>
@@ -256,7 +256,7 @@
                   <span class="w-24 text-[11px]" :class="group.exists_in_app ? 'text-gray-400' : 'text-blue-500'">
                     {{ group.exists_in_app ? 'Exists' : 'New' }}
                   </span>
-                  <span v-if="group.members_to_add" class="text-[11px] text-green-600 mr-2">+{{ group.members_to_add }}</span>
+                  <span v-if="group.members_to_add" class="text-[11px] text-green-600 me-2">+{{ group.members_to_add }}</span>
                   <span v-if="group.members_to_remove" class="text-[11px] text-red-500">-{{ group.members_to_remove }}</span>
                 </div>
               </div>

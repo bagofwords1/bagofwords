@@ -1,6 +1,6 @@
 <template>
-    <div class="flex justify-center pl-2 md:pl-4 text-sm h-full">
-        <div class="w-full max-w-7xl px-4 pl-0 py-2 h-full">
+    <div class="flex justify-center ps-2 md:ps-4 text-sm h-full">
+        <div class="w-full max-w-7xl px-4 ps-0 py-2 h-full">
             <!-- Full page loading spinner -->
             <div v-if="loading" class="flex flex-col items-center justify-center py-20">
                 <Spinner class="h-4 w-4 text-gray-400" />
@@ -26,11 +26,11 @@
                                     v-model="searchQuery"
                                     type="text"
                                     placeholder="Search data agents..."
-                                    class="w-full pl-10 pr-4 text-xs py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    class="w-full ps-10 pe-4 text-xs py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                 />
                                 <UIcon
                                     name="i-heroicons-magnifying-glass"
-                                    class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                                    class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
                                 />
                             </div>
                         </div>
@@ -131,7 +131,7 @@
                             color="blue"
                             size="xs"
                         >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                            <UIcon name="heroicons-plus" class="w-3 h-3 me-1" />
                             Add Connection
                         </UButton>
                     </div>

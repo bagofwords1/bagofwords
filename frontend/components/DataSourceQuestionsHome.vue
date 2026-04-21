@@ -5,7 +5,7 @@
             :key="item.key + '-' + idx"
             @click="emitContent(item.value)"
             :class="['group relative overflow-hidden rounded-2xl bg-white px-4 py-2 text-xs text-gray-800 font-medium transition-all duration-300 ease-out hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 border border-gray-200', (fadingIndex === idx) ? 'swap-out' : 'swap-in']">
-            <span class="ease absolute right-0 -mt-12 h-32 w-8 translate-x-12 rotate-12 transform bg-white opacity-10 transition-all duration-700 group-hover:-translate-x-40"></span>
+            <span class="ease absolute end-0 -mt-12 h-32 w-8 translate-x-12 rotate-12 transform bg-white opacity-10 transition-all duration-700 group-hover:-translate-x-40"></span>
             <span class="relative">{{ item.label }}</span>
         </button>
     </div>

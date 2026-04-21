@@ -1,13 +1,13 @@
 <template>
   <UModal v-model="open" :ui="{ width: 'sm:max-w-lg' }">
     <div class="p-5 relative">
-      <button @click="emit('update:modelValue', false)" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
+      <button @click="emit('update:modelValue', false)" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
         <Icon name="heroicons:x-mark" class="w-5 h-5" />
       </button>
 
       <div class="mb-4">
         <h1 class="text-base font-semibold flex items-center">
-            <DataSourceIcon :type="connectionType" class="h-4 mr-2" />
+            <DataSourceIcon :type="connectionType" class="h-4 me-2" />
             Connect {{ ds?.name }}</h1>
         <p class="mt-1 text-xs text-gray-500">Provide your credentials to enable access for you.</p>
       </div>

@@ -2,7 +2,7 @@
   <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm" :class="props.hideSidebar ? 'md:w-2/3 mx-auto' : ''">
     <div class="grid grid-cols-1 md:grid-cols-3">
       <!-- Left: Progress -->
-      <aside v-if="!props.hideSidebar" class="p-8 md:p-10 border-b md:border-b-0 md:border-r border-gray-100 md:col-span-1">
+      <aside v-if="!props.hideSidebar" class="p-8 md:p-10 border-b md:border-b-0 md:border-e border-gray-100 md:col-span-1">
         <div>
             <img src="/assets/logo-128.png" alt="Logo" class="w-10 h-10 mb-5" />
           <h1 class="text-lg font-semibold text-gray-900">Welcome to Bag of words! 🎉</h1>

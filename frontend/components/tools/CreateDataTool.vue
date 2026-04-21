@@ -2,44 +2,44 @@
   <div class="mb-2">
     <!-- Main Header: Creating Data (always collapsible) -->
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCreateData">
-      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
+      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
       <span v-if="status === 'running'" class="tool-shimmer">Creating Data</span>
       <span v-else-if="status === 'success'" class="text-gray-700">Created Data</span>
       <span v-else-if="status === 'stopped'" class="text-gray-700 italic">Creating Data</span>
       <span v-else-if="status === 'error'" class="text-gray-700">Create Data</span>
       <span v-else class="text-gray-700">Create Data</span>
-      <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
     <!-- Stopped/Error message below header -->
-    <div v-if="status === 'stopped'" class="mt-1 ml-4 text-xs text-gray-400 italic">Generation stopped</div>
-    <div v-else-if="status === 'error' && lastErrorMessage" class="mt-1 ml-4 text-xs text-gray-500">
+    <div v-if="status === 'stopped'" class="mt-1 ms-4 text-xs text-gray-400 italic">Generation stopped</div>
+    <div v-else-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-xs text-gray-500">
       {{ lastErrorMessage }}
     </div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!createDataCollapsed" class="mt-2 ml-4 space-y-2">
+      <div v-if="!createDataCollapsed" class="mt-2 ms-4 space-y-2">
 
         <!-- Failed attempts (persisted in result_json.errors, survive refresh) -->
         <div v-for="(attempt, idx) in failedAttempts" :key="'attempt-' + idx">
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click.stop="toggleAttemptCode(idx)">
-            <Icon name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-amber-500" />
+            <Icon name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
             <span class="text-gray-500">Attempt {{ idx + 1 }}</span>
-            <Icon :name="attemptCodeExpanded[idx] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ml-2" />
+            <Icon :name="attemptCodeExpanded[idx] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-2" />
           </div>
           <Transition name="fade">
-            <div v-if="attemptCodeExpanded[idx]" class="mt-1 ml-4">
+            <div v-if="attemptCodeExpanded[idx]" class="mt-1 ms-4">
               <div v-if="attempt.code" class="bg-gray-50 rounded px-3 py-2 font-mono text-[10px] max-h-28 overflow-y-auto mb-1">
                 <pre class="text-gray-600 whitespace-pre-wrap m-0">{{ attempt.code }}</pre>
               </div>
             </div>
           </Transition>
-          <div class="mt-0.5 ml-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1">
+          <div class="mt-0.5 ms-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1">
             {{ attempt.error }}
           </div>
         </div>
@@ -47,29 +47,29 @@
         <!-- Current/final code generation section -->
         <div>
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click.stop="toggleCode">
-            <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-            <Icon v-else name="heroicons-minus" class="w-3 h-3 mr-1.5 text-gray-300" />
+            <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Icon v-else-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+            <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300" />
             <span v-if="isCodeGenerating && status !== 'stopped'" class="tool-shimmer">Generating Code</span>
             <span v-else class="text-gray-700">Generated Code</span>
-            <span v-if="failedAttempts.length > 0 && !isCodeGenerating" class="ml-1.5 text-gray-400">· attempt {{ failedAttempts.length + 1 }}</span>
-            <span v-if="isCodeGenerating && currentAttempt > 1" class="ml-1.5 text-gray-400">· attempt {{ currentAttempt }}</span>
-            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ml-2" />
+            <span v-if="failedAttempts.length > 0 && !isCodeGenerating" class="ms-1.5 text-gray-400">· attempt {{ failedAttempts.length + 1 }}</span>
+            <span v-if="isCodeGenerating && currentAttempt > 1" class="ms-1.5 text-gray-400">· attempt {{ currentAttempt }}</span>
+            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2" />
           </div>
           <Transition name="fade">
-            <div v-if="!codeCollapsed && codeContent" class="mt-1 ml-4">
+            <div v-if="!codeCollapsed && codeContent" class="mt-1 ms-4">
               <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto relative">
                 <button
-                  class="absolute top-2 right-2 px-2 py-1 text-xs rounded border border-gray-300 bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-800"
+                  class="absolute top-2 end-2 px-2 py-1 text-xs rounded border border-gray-300 bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-800"
                   :disabled="!canOpenEditor"
                   v-if="canOpenEditor && !readonly"
                   @click.stop="openEditor"
                 >
                   Edit code
                 </button>
-                <pre class="text-gray-800 whitespace-pre-wrap pr-20">{{ codeContent }}</pre>
+                <pre class="text-gray-800 whitespace-pre-wrap pe-20">{{ codeContent }}</pre>
               </div>
             </div>
           </Transition>
@@ -78,42 +78,42 @@
         <!-- Executing Code section -->
         <div v-if="showExecutingSection">
           <div class="flex items-center text-xs text-gray-500">
-            <Spinner v-if="isExecuting && status !== 'stopped'" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="executionFailed && !isRetrying" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-amber-500" />
-            <Icon v-else-if="executionDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-            <Icon v-else name="heroicons-minus" class="w-3 h-3 mr-1.5 text-gray-300" />
+            <Spinner v-if="isExecuting && status !== 'stopped'" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Icon v-else-if="executionFailed && !isRetrying" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
+            <Icon v-else-if="executionDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+            <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300" />
             <span v-if="isExecuting && status !== 'stopped'" class="tool-shimmer">Executing</span>
             <span v-else-if="executionFailed" class="text-gray-700">Execution failed</span>
             <span v-else class="text-gray-700">Execution succeeded</span>
-            <span v-if="executionDone && executionRowCount != null" class="ml-1.5 text-gray-400">· {{ executionRowCount }} rows</span>
-            <span v-if="executionDone && formatExecutionDuration" class="ml-1.5 text-gray-400">· {{ formatExecutionDuration }}</span>
+            <span v-if="executionDone && executionRowCount != null" class="ms-1.5 text-gray-400">· {{ executionRowCount }} rows</span>
+            <span v-if="executionDone && formatExecutionDuration" class="ms-1.5 text-gray-400">· {{ formatExecutionDuration }}</span>
           </div>
           <!-- Execution error from stdout (live only, before it gets captured in result_json.errors) -->
-          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ml-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1 max-h-16 overflow-y-auto">
+          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ms-4 text-[11px] text-amber-600 bg-amber-50/50 rounded px-2 py-1 max-h-16 overflow-y-auto">
             <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
           </div>
         </div>
 
         <!-- Retry indicator (live only) -->
         <div v-if="isRetrying" class="flex items-center text-xs text-gray-500">
-          <Spinner class="w-3 h-3 mr-1.5 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 text-gray-400" />
           <span class="tool-shimmer">Retrying · attempt {{ currentAttempt }}</span>
         </div>
 
         <!-- Visualizing section -->
         <div v-if="showVisualizingSection">
           <div class="flex items-center text-xs text-gray-500">
-            <Spinner v-if="isVisualizing && status !== 'stopped'" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
-            <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+            <Spinner v-if="isVisualizing && status !== 'stopped'" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
+            <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <span v-if="isVisualizing && status !== 'stopped'" class="tool-shimmer">Visualizing</span>
             <span v-else-if="vizError" class="text-gray-700">Visualizing</span>
             <span v-else class="text-gray-700">{{ chartTypeLabel }}</span>
-            <span v-if="vizSummary && !vizError" class="ml-1.5 text-gray-400">· {{ vizSummary }}</span>
+            <span v-if="vizSummary && !vizError" class="ms-1.5 text-gray-400">· {{ vizSummary }}</span>
           </div>
-          <div v-if="vizError" class="mt-1 ml-4 text-xs text-gray-500">{{ vizError }}</div>
+          <div v-if="vizError" class="mt-1 ms-4 text-xs text-gray-500">{{ vizError }}</div>
         </div>
       </div>
     </Transition>

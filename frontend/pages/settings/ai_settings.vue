@@ -28,10 +28,10 @@
                             <div class="font-medium flex items-center">
                                 {{ feature.name }}
                                 <UTooltip v-if="feature.is_lab" text="Beta feature">
-                                    <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
+                                    <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
                                 <UTooltip v-if="feature.state === 'locked'" text="This setting is locked and cannot be changed.">
-                                    <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -67,10 +67,10 @@
                     <div v-if="configFeatures.allow_llm_see_data" class="flex flex-col md:w-2/3 mt-8 p-4 border-2 border-amber-300 bg-amber-50 rounded-lg">
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
-                                <Icon name="heroicons:shield-exclamation" class="mr-2 w-5 h-5 text-amber-600" />
+                                <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
                                 {{ configFeatures.allow_llm_see_data.name }}
                                 <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" text="This setting is locked and cannot be changed.">
-                                    <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -81,7 +81,7 @@
                         </div>
                         <p class="text-sm text-amber-700 mt-2.5">{{ configFeatures.allow_llm_see_data.description }}</p>
                         <p class="text-xs text-amber-600 mt-1 font-medium">
-                            <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 mr-1" />
+                            <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 me-1" />
                             Changing this setting affects data privacy. A confirmation will be required.
                         </p>
                     </div>
@@ -99,10 +99,10 @@
                             <div class="font-medium flex items-center">
                                 {{ feature.name }}
                                 <UTooltip v-if="feature.is_lab" text="Beta feature">
-                                    <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
+                                    <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
                                 <UTooltip v-if="feature.state === 'locked'" text="This setting is locked and cannot be changed.">
-                                    <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -164,7 +164,7 @@
                         <p class="text-sm text-gray-600">
                             Disabling this setting will have the following impact:
                         </p>
-                        <ul class="text-sm text-gray-600 space-y-2 ml-1">
+                        <ul class="text-sm text-gray-600 space-y-2 ms-1">
                             <li class="flex items-start gap-2">
                                 <Icon name="heroicons:x-circle" class="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
                                 <span><strong>Inspect Data</strong> tool will be disabled</span>

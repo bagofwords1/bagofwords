@@ -63,7 +63,7 @@
             <div class="flex flex-col items-center text-center">
               <div class="p-1 relative">
                 <DataSourceIcon class="h-6" :type="ds.type" />
-                <div v-if="isLocked(ds)" class="absolute -top-1 -right-1">
+                <div v-if="isLocked(ds)" class="absolute -top-1 -end-1">
                   <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
                   </svg>
@@ -93,7 +93,7 @@
           </button>
           <DataSourceIcon :type="selectedDataSource?.type" class="h-5" />
           <h3 class="text-lg font-semibold">{{ selectedDataSource?.title }}</h3>
-          <button @click="isOpen = false" class="ml-auto text-gray-400 hover:text-gray-600">
+          <button @click="isOpen = false" class="ms-auto text-gray-400 hover:text-gray-600">
             <UIcon name="heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>

@@ -20,7 +20,7 @@
           <div class="field mt-3">
             <button type='submit' :disabled="isSubmitting" class="px-3 py-2.5 mb-4 text-sm font-medium text-white rounded-lg text-center w-full flex items-center justify-center disabled:bg-gray-400 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
               <template v-if="isSubmitting">
-                <Spinner class="h-5 w-5 mr-2" />
+                <Spinner class="h-5 w-5 me-2" />
                 Signing up...
               </template>
               <template v-else>Sign up</template>
@@ -40,11 +40,11 @@
           <div class="mt-3" v-if="googleSignIn">
             <button @click="signInWithGoogle" :disabled="loadingProvider !== null" class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
               <template v-if="loadingProvider === 'google'">
-                <Spinner class="h-5 w-5 mr-2" />
+                <Spinner class="h-5 w-5 me-2" />
                 Redirecting...
               </template>
               <template v-else>
-                <img src="/llm_providers_icons/google-icon.png" alt="Google logo" class="h-5 w-5 mr-2" />
+                <img src="/llm_providers_icons/google-icon.png" alt="Google logo" class="h-5 w-5 me-2" />
                 Sign up with Google
               </template>
             </button>
@@ -59,7 +59,7 @@
               class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <template v-if="loadingProvider === p.name">
-                <Spinner class="h-5 w-5 mr-2" />
+                <Spinner class="h-5 w-5 me-2" />
                 Redirecting...
               </template>
               <template v-else>

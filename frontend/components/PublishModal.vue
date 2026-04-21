@@ -16,7 +16,7 @@
     <UModal v-model="publishModalOpen">
         <div class="p-4 relative">
             <button @click="publishModalOpen = false"
-                class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
+                class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Publish Dashboard</h1>
@@ -24,7 +24,7 @@
             <hr class="my-4" />
             <div class="flex flex-row items-center text-sm">
                 Allow public access to this dashboard
-                <UToggle color="sky" :model-value="isPublished" class="ml-2" @update:model-value="publishReport" />
+                <UToggle color="sky" :model-value="isPublished" class="ms-2" @update:model-value="publishReport" />
             </div>
             <div class="flex flex-col mt-4 text-sm" v-if="isPublished">
                 <div class="my-2 font-semibold">URL</div>
@@ -32,10 +32,10 @@
                     <input :value="reportUrl" type="text" class="py-2 px-2 border border-gray-200 rounded-md w-[95%]"
                         disabled />
                     <button @click="copyReportUrl"
-                        class="ml-2 bg-gray-50 border border-gray-200 rounded-md px-3 text-xs hover:bg-gray-100 relative">
+                        class="ms-2 bg-gray-50 border border-gray-200 rounded-md px-3 text-xs hover:bg-gray-100 relative">
                         Copy
                         <span v-if="showTooltip"
-                            class="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black text-white text-xs rounded py-1 px-2">
+                            class="absolute top-full start-1/2 transform -translate-x-1/2 mt-1 bg-black text-white text-xs rounded py-1 px-2">
                             Copied!
                         </span>
                     </button>

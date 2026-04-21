@@ -25,7 +25,7 @@
 
       <!-- Loading -->
       <div v-if="isLoading" class="text-xs text-gray-500 inline-flex items-center">
-        <Spinner class="mr-1" /> Loading...
+        <Spinner class="me-1" /> Loading...
       </div>
 
       <!-- Empty -->
@@ -88,7 +88,7 @@
           :disabled="isLoadingMore"
           class="text-xs px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
         >
-          <template v-if="isLoadingMore"><Spinner class="w-3 h-3 inline mr-1" /> Loading...</template>
+          <template v-if="isLoadingMore"><Spinner class="w-3 h-3 inline me-1" /> Loading...</template>
           <template v-else>Load more</template>
         </button>
       </div>

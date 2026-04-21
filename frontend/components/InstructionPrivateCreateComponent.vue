@@ -46,7 +46,7 @@
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Category:</span>
                         <div class="inline-flex items-center text-gray-700">
-                            <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 mr-1" />
+                            <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 me-1" />
                             {{ formatCategory(sharedForm.category) }}
                         </div>
                     </div>
@@ -55,7 +55,7 @@
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Loading:</span>
                         <div class="inline-flex items-center text-gray-700">
-                            <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 mr-1" />
+                            <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 me-1" />
                             {{ getLoadModeLabel(sharedForm.load_mode) }}
                         </div>
                     </div>
@@ -270,7 +270,7 @@ Examples:
                     >
                         <template #label>
                             <div class="inline-flex items-center text-xs text-gray-700">
-                                <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 mr-1" />
+                                <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 me-1" />
                                 {{ formatCategory(sharedForm.category) }}
                             </div>
                         </template>
@@ -295,7 +295,7 @@ Examples:
                     >
                         <template #label>
                             <div class="inline-flex items-center text-xs text-gray-700">
-                                <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 mr-1" />
+                                <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 me-1" />
                                 {{ getLoadModeLabel(sharedForm.load_mode) }}
                             </div>
                         </template>
@@ -305,7 +305,7 @@ Examples:
                                     <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
                                     <span class="text-xs font-medium">{{ option.label }}</span>
                                 </div>
-                                <span class="text-[10px] text-gray-500 ml-4">{{ option.description }}</span>
+                                <span class="text-[10px] text-gray-500 ms-4">{{ option.description }}</span>
                             </div>
                         </template>
                     </USelectMenu>
@@ -372,15 +372,15 @@ Examples:
                             <span v-else class="text-xs text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
                         </template>
                         <template #option="{ option }">
-                            <div class="flex items-center justify-between w-full py-0.5 pr-1">
+                            <div class="flex items-center justify-between w-full py-0.5 pe-1">
                                 <div class="flex items-center">
-                                    <div v-if="option.id === 'all'" class="flex -space-x-1 mr-1.5">
+                                    <div v-if="option.id === 'all'" class="flex -space-x-1 me-1.5">
                                         <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 border border-white rounded" />
                                     </div>
-                                    <DataSourceIcon v-else :type="option.type" class="h-3 mr-1.5" />
+                                    <DataSourceIcon v-else :type="option.type" class="h-3 me-1.5" />
                                     <span class="text-xs">{{ option.name }}</span>
                                 </div>
-                                <UCheckbox :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(String(option.id))" @update:model-value="handleDataSourceToggle(String(option.id))" @click.stop class="flex-shrink-0 ml-1" />
+                                <UCheckbox :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(String(option.id))" @update:model-value="handleDataSourceToggle(String(option.id))" @click.stop class="flex-shrink-0 ms-1" />
                             </div>
                         </template>
                     </USelectMenu>
@@ -409,7 +409,7 @@ Examples:
                                     <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 text-gray-500 flex-shrink-0" />
                                     <span class="text-xs font-medium text-gray-900 truncate">{{ option.name }}</span>
                                 </div>
-                                <div class="flex items-center gap-1.5 ml-6">
+                                <div class="flex items-center gap-1.5 ms-6">
                                     <DataSourceIcon :type="option.data_source_type" class="h-2.5 flex-shrink-0" />
                                     <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
                                 </div>
@@ -432,11 +432,11 @@ Examples:
                         @click="confirmDelete"
                         :loading="isDeleting"
                     >
-                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 mr-1" />
+                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 me-1" />
                         Delete
                     </UButton>
                     
-                    <div class="flex gap-2" :class="{ 'ml-auto': !isEditing }">
+                    <div class="flex gap-2" :class="{ 'ms-auto': !isEditing }">
                         <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
                             Cancel
                         </UButton>

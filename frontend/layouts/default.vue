@@ -1,17 +1,17 @@
 <template>
     <!-- Fixed global onboarding banner shown above everything -->
-    <div v-if="showGlobalOnboardingBanner" class="fixed top-0 left-0 right-0 z-[1000]">
+    <div v-if="showGlobalOnboardingBanner" class="fixed top-0 start-0 end-0 z-[1000]">
       <div
         @click="router.push(showGlobalOnboardingBannerLink)"
         class="text-center cursor-pointer text-white text-sm bg-blue-500/95 hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
       >
-        <UIcon name="i-heroicons-rocket-launch" class="h-5 mr-2" />
+        <UIcon name="i-heroicons-rocket-launch" class="h-5 me-2" />
         <span>{{ showGlobalOnboardingBannerText }}</span>
       </div>
     </div>
   <aside id="separator-sidebar"
     :class="[
-      'fixed left-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full sm:translate-x-0 border-r border-gray-200/80',
+      'fixed start-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full sm:translate-x-0 border-e border-gray-200/80',
       isCollapsed ? 'w-14' : 'w-48',
       showGlobalOnboardingBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
     ]"
@@ -20,7 +20,7 @@
             'flex items-center gap-3 rounded-lg transition-all duration-200 bg-gray-50',
             isCollapsed 
               ? 'px-2 py-2 w-full text-center justify-center -mb-4 text-gray-700 hover:text-blue-500' 
-              : 'px-1 py-1 mt-3 ml-auto -mb-5 text-gray-400 hover:text-gray-600'
+              : 'px-1 py-1 mt-3 ms-auto -mb-5 text-gray-400 hover:text-gray-600'
           ]">
             <UTooltip v-if="isCollapsed" text="Expand sidebar" :popper="{ placement: 'right' }">
               <span class="flex items-center justify-center w-4 h-4 text-sm">
@@ -173,7 +173,7 @@
 
   </aside>
 
-  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ml-14' : 'sm:ml-48', showGlobalOnboardingBanner ? 'pt-10' : 'pt-0']">
+  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-48', showGlobalOnboardingBanner ? 'pt-10' : 'pt-0']">
     <UNotifications />
 
     <slot />

@@ -2,13 +2,13 @@
 
     <header class="sticky top-0 bg-white z-10 flex flex-col border-gray-200">
         <!-- Top row: back, title, share, dashboard toggle -->
-        <div class="flex flex-row pt-1 h-[40px] pb-1 pr-2 items-center">
+        <div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
             <GoBackChevron />
-            <h1 class="text-sm md:text-left text-center w-[500px]">
+            <h1 class="text-sm md:text-start text-center w-[500px]">
                 <span class="font-semibold text-sm">
                     <input
                         type="text"
-                        class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-left w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]"
+                        class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-start w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]"
                         v-if="report"
                         v-model="localTitle"
                         :disabled="isSaving"
@@ -19,7 +19,7 @@
                     <span v-else></span>
                 </span>
             </h1>
-            <div class="ml-auto flex items-center gap-2">
+            <div class="ms-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" title="Share Conversation" />
                 <UTooltip :text="isSplitScreen ? 'Close Sidebar' : 'Open Sidebar'">
                     <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 items-center gap-1.5">
@@ -46,7 +46,7 @@
             <button
                 v-if="mobileView !== 'chat'"
                 @click="$emit('update:mobileView', 'chat')"
-                class="ml-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                class="ms-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:x-mark" class="w-4 h-4" />
             </button>

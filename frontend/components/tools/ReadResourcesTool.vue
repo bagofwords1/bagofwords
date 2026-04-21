@@ -4,11 +4,11 @@
     <Transition name="fade" appear>
     <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
         Searching {{ queryLabel }}…
       </span>
       <span v-else class="text-gray-700 flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
         <span class="align-middle">Searched {{ queryLabel }}</span>
       </span>
     </div>
@@ -16,7 +16,7 @@
     <!-- Preview of top results (click to toggle details) -->
     <Transition name="fade" appear>
     <div v-if="topResults && topResults.length" class="text-xs text-gray-600">
-      <ul class="ml-1 space-y-1 leading-snug">
+      <ul class="ms-1 space-y-1 leading-snug">
         <li v-for="(item, idx) in topResults.slice(0, 10)" :key="idx">
           <!-- Header row -->
           <div
@@ -24,19 +24,19 @@
             @click="toggleItem(idx)"
             :aria-expanded="isExpanded(idx)"
           >
-            <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 mr-1" />
-            <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-3 mr-2" />
+            <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1" />
+            <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-3 me-2" />
             <div class="font-medium text-gray-700 truncate">
               {{ item.name || item.path || 'resource' }}
             </div>
           </div>
           <!-- Detail row -->
           <Transition name="fade">
-            <div v-if="isExpanded(idx)" class="pl-6 pr-1 pb-1">
+            <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
               <!-- DBT (verbose) -->
               <template v-if="isDbt(item)">
                 <div class="text-gray-600 mb-1 flex items-center flex-wrap">
-                  <span class="inline-block text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded mr-2">
+                  <span class="inline-block text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded me-2">
                     {{ simplifyDbtType(item.resource_type) }}
                   </span>
                   <span v-if="item.database || item.schema" class="text-gray-400">
@@ -49,11 +49,11 @@
                     {{ dbtMetricSummary(item) }}
                   </div>
                   <div class="text-gray-500" v-if="dbtMetricDimensions(item).length">
-                    <span class="text-gray-400 mr-1">Dimensions:</span>
+                    <span class="text-gray-400 me-1">Dimensions:</span>
                     {{ dbtMetricDimensions(item).slice(0,4).join(', ') }}<span v-if="dbtMetricDimensions(item).length > 4">, …</span>
                   </div>
                   <div class="text-gray-500" v-if="dbtMetricGrains(item).length">
-                    <span class="text-gray-400 mr-1">Time grains:</span>
+                    <span class="text-gray-400 me-1">Time grains:</span>
                     {{ dbtMetricGrains(item).join(', ') }}
                   </div>
                   <!-- Fallback when extractor details are not present in output -->

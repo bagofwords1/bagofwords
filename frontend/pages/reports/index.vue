@@ -1,6 +1,6 @@
 <template>
-    <div class="flex justify-center pl-2 md:pl-4 text-sm">
-        <div class="w-full max-w-7xl px-4 pl-0 py-2">
+    <div class="flex justify-center ps-2 md:ps-4 text-sm">
+        <div class="w-full max-w-7xl px-4 ps-0 py-2">
             <div>
                 <h1 class="text-lg font-semibold">
                     <GoBackChevron v-if="isExcel" />
@@ -18,11 +18,11 @@
                                 v-model="searchTerm"
                                 type="text"
                                 placeholder="Search reports..."
-                                class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                             <UIcon
                                 name="i-heroicons-magnifying-glass"
-                                class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                                class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
                             />
                         </div>
                     </div>
@@ -131,7 +131,7 @@
                     </div>
 
                     <!-- Bulk actions dropdown (My reports only) -->
-                    <div v-if="activeFilter === 'my'" class="ml-auto">
+                    <div v-if="activeFilter === 'my'" class="ms-auto">
                         <UDropdown :items="actionsDropdownItems" :popper="{ placement: 'bottom-end' }">
                             <UButton
                                 color="white"
@@ -159,19 +159,19 @@
                                             @change="toggleAllVisible"
                                         />
                                     </th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Title
                                     </th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Data Sources
                                     </th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Created
                                     </th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         User
                                     </th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Actions
                                     </th>
                                 </tr>
@@ -181,7 +181,7 @@
                                 <tr v-if="isLoading">
                                     <td colspan="6" class="px-6 py-12 text-center">
                                         <div class="flex items-center justify-center text-gray-500">
-                                            <Spinner class="w-4 h-4 mr-2" />
+                                            <Spinner class="w-4 h-4 me-2" />
                                             <span class="text-sm">Loading...</span>
                                         </div>
                                     </td>
@@ -202,13 +202,13 @@
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <UTooltip v-if="report.artifact_modes?.includes('page')" text="Has Page artifact">
-                                                <Icon name="heroicons:chart-bar-square" class="h-4 w-4 text-gray-400 inline mr-1.5" />
+                                                <Icon name="heroicons:chart-bar-square" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
                                             <UTooltip v-if="report.artifact_modes?.includes('slides')" text="Has Slides artifact">
-                                                <Icon name="heroicons:presentation-chart-bar" class="h-4 w-4 text-gray-400 inline mr-1.5" />
+                                                <Icon name="heroicons:presentation-chart-bar" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
                                             <UTooltip v-else-if="report.artifact_modes.length == 0" text="Chat">
-                                                <Icon name="heroicons:chat-bubble-left-right" class="h-4 w-4 text-gray-400 inline mr-1.5" />
+                                                <Icon name="heroicons:chat-bubble-left-right" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
                                             <NuxtLink
                                                 :to="`/reports/${report.id}`"
@@ -216,7 +216,7 @@
                                             >
                                                 {{ report.title }}
                                             </NuxtLink>
-                                            <span class="inline-flex items-center gap-1 ml-2 -mt-0.5">
+                                            <span class="inline-flex items-center gap-1 ms-2 -mt-0.5">
                                                 <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? `Dashboard: ${visibilityLabel(report.artifact_visibility)}` : 'Dashboard (private)'">
                                                     <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
                                                         Dashboard
@@ -247,19 +247,19 @@
                                             </div>
                                             <div
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'slack'"
-                                                class="ml-2 h-3 inline mr-2"
+                                                class="ms-2 h-3 inline me-2"
                                             >
-                                                <img src="/icons/slack.png" class="h-3 inline mr-2" />
+                                                <img src="/icons/slack.png" class="h-3 inline me-2" />
                                             </div>
                                             <div
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'teams'"
-                                                class="ml-2 h-3 inline mr-2"
+                                                class="ms-2 h-3 inline me-2"
                                             >
-                                                <img src="/icons/teams.png" class="h-3 inline mr-2" />
+                                                <img src="/icons/teams.png" class="h-3 inline me-2" />
                                             </div>
                                             <div
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'mcp'"
-                                                class="ml-2 h-3 inline mr-2"
+                                                class="ms-2 h-3 inline me-2"
                                             >
                                                 <UTooltip text="Created via MCP">
                                                     <img src="/icons/mcp.png" class="h-3 inline" />
@@ -267,7 +267,7 @@
                                             </div>
                                             <div
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'excel'"
-                                                class="ml-2 h-3 inline mr-2"
+                                                class="ms-2 h-3 inline me-2"
                                             >
                                                 <UTooltip text="Created via Excel">
                                                     <img src="/data_sources_icons/excel.png" class="h-3 inline" />
@@ -275,7 +275,7 @@
                                             </div>
                                             <div
                                                 v-if="report.cron_schedule && !report.has_scheduled_prompts"
-                                                class="ml-2 h-3 inline mr-2"
+                                                class="ms-2 h-3 inline me-2"
                                             >
                                                 <UTooltip text="Running on a schedule">
                                                     <Icon name="heroicons:clock" />
@@ -290,7 +290,7 @@
                                             >
                                                 <DataSourceIcon
                                                     :type="data_source.type"
-                                                    class="h-3 inline mr-2"
+                                                    class="h-3 inline me-2"
                                                 />
                                             </UTooltip>
                                         </td>
@@ -308,7 +308,7 @@
                                             >
                                                 <Icon
                                                     name="heroicons:archive-box"
-                                                    class="inline-block w-4 h-4 mr-1"
+                                                    class="inline-block w-4 h-4 me-1"
                                                 />
                                                 Archive
                                             </button>

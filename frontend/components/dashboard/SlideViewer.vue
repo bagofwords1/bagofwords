@@ -4,7 +4,7 @@
     <div class="flex-1 flex items-center justify-center p-4 relative min-h-0">
       <!-- Loading state -->
       <div v-if="loading" class="flex items-center justify-center text-slate-400">
-        <Icon name="heroicons:arrow-path" class="w-6 h-6 animate-spin mr-2" />
+        <Icon name="heroicons:arrow-path" class="w-6 h-6 animate-spin me-2" />
         <span>Loading slides...</span>
       </div>
 
@@ -35,7 +35,7 @@
         v-if="previewUrls.length > 1"
         @click="prevSlide"
         :disabled="currentSlide === 0"
-        class="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+        class="absolute start-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
       >
         <Icon name="heroicons:chevron-left" class="w-6 h-6" />
       </button>
@@ -43,7 +43,7 @@
         v-if="previewUrls.length > 1"
         @click="nextSlide"
         :disabled="currentSlide >= slideCount - 1"
-        class="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+        class="absolute end-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
       >
         <Icon name="heroicons:chevron-right" class="w-6 h-6" />
       </button>

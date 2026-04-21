@@ -14,7 +14,7 @@
         <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-300" />
       </UTooltip>
       <template v-else>
-        <span v-if="showText" class="flex-1 text-left min-w-0">
+        <span v-if="showText" class="flex-1 text-start min-w-0">
           <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">CONTEXT</span>
           <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
             <Spinner v-if="loading" class="w-3 h-3 text-gray-300 animate-spin flex-shrink-0" />
@@ -50,7 +50,7 @@
           </span>
         </UTooltip>
         <template v-else>
-          <span v-if="showText" class="flex-1 text-left min-w-0">
+          <span v-if="showText" class="flex-1 text-start min-w-0">
             <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">CONTEXT</span>
             <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
               <Spinner v-if="loading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
@@ -80,12 +80,12 @@
                   @mouseenter="hoveredDomainId = null"
                   @mouseleave="onDomainHoverLeave()"
                   :class="[
-                    'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left transition-colors',
+                    'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start transition-colors',
                     isAllDomains ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
                   ]"
                 >
                   <span class="text-xs font-medium">All Agents</span>
-                  <UIcon v-if="isAllDomains" name="heroicons-check" class="w-3 h-3 ml-auto text-indigo-600" />
+                  <UIcon v-if="isAllDomains" name="heroicons-check" class="w-3 h-3 ms-auto text-indigo-600" />
                 </button>
 
                 <!-- Divider -->
@@ -100,7 +100,7 @@
                     @mouseenter="onDomainHover(d.id, $event)"
                     @mouseleave="onDomainHoverLeave()"
                     :class="[
-                      'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left transition-colors',
+                      'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start transition-colors',
                       isDomainSelected(d.id) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
                     ]"
                   >
@@ -115,7 +115,7 @@
                 <!-- Manage link -->
                 <a 
                   href="/data"
-                  class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                  class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                 >
                   <UIcon name="heroicons-cog-6-tooth" class="w-3 h-3 flex-shrink-0" />
                   <span class="text-[11px]">Manage</span>

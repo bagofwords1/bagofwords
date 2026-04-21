@@ -53,10 +53,10 @@
             <!-- Keep existing data model table -->
             <transition-group tag="table" name="fade" class="border-collapse w-full">
                 <tr v-for="column in props.step?.data_model?.columns" :key="column.generated_column_name">
-                    <th class="border-t border-b border-r border-gray-200 px-2 py-1">
+                    <th class="border-t border-b border-e border-gray-200 px-2 py-1">
                         {{ column.generated_column_name }}
                     </th>
-                    <td class="border-t border-b border-l border-gray-200 px-2 py-1">
+                    <td class="border-t border-b border-s border-gray-200 px-2 py-1">
                         {{ column.description }}
                         <UTooltip :text="column.source">
                             <Icon name="heroicons:information-circle" class="text-gray-500" />

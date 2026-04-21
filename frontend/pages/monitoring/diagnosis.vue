@@ -35,7 +35,7 @@
                 <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                     Instruction Coverage
                     <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions cover responses (20-100 scale, average for period)' : 'LLM Judge agent is turned off'">
-                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                     </UTooltip>
                 </div>
             </div>
@@ -71,7 +71,7 @@
                                 selectedFilter.value === filter.value
                                     ? 'bg-blue-100 text-blue-600'
                                     : 'bg-gray-100 text-gray-600',
-                                'ml-2 py-0.5 px-2 rounded-full text-xs font-medium'
+                                'ms-2 py-0.5 px-2 rounded-full text-xs font-medium'
                             ]"
                         >
                             {{ filter.count }}
@@ -95,14 +95,14 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[320px] w-[320px]">Prompt</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tools</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Report</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[320px] w-[320px]">Prompt</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Tools</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Report</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-xs">
@@ -111,7 +111,7 @@
                                 <div class="text-xs text-gray-900">
                                     <div class="relative group max-w-[320px] w-[320px]">
                                         <p class="truncate">{{ truncate(item.prompt || '', 40) }}</p>
-                                        <div class="pointer-events-none absolute left-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                        <div class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
                                             {{ item.prompt || '—' }}
                                         </div>
                                     </div>
@@ -123,7 +123,7 @@
                                           :class="item.agent_execution_status === 'error' ? 'bg-red-100 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'">
                                         {{ item.agent_execution_status === 'error' ? 'error' : 'success' }}
                                     </span>
-                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute left-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
                                         {{ item.error_json.message }}
                                     </div>
                                 </div>

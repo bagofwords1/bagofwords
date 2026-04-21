@@ -92,7 +92,7 @@
                 ]"
               >
                 Tables
-                <span v-if="tablesCount > 0" class="ml-1 text-[10px] text-gray-400">({{ tablesCount }})</span>
+                <span v-if="tablesCount > 0" class="ms-1 text-[10px] text-gray-400">({{ tablesCount }})</span>
               </button>
               <button
                 @click="flyoutTab = 'instructions'"
@@ -104,7 +104,7 @@
                 ]"
               >
                 Instructions
-                <span v-if="instructionsCount > 0" class="ml-1 text-[10px] text-gray-400">({{ instructionsCount }})</span>
+                <span v-if="instructionsCount > 0" class="ms-1 text-[10px] text-gray-400">({{ instructionsCount }})</span>
               </button>
               <button
                 @click="flyoutTab = 'queries'"
@@ -116,7 +116,7 @@
                 ]"
               >
                 Queries
-                <span v-if="queriesCount > 0" class="ml-1 text-[10px] text-gray-400">({{ queriesCount }})</span>
+                <span v-if="queriesCount > 0" class="ms-1 text-[10px] text-gray-400">({{ queriesCount }})</span>
               </button>
             </nav>
           </div>
@@ -132,7 +132,7 @@
                 <!-- Description rendered as Markdown -->
                 <div
                   v-if="agentDetails?.description"
-                  class="agent-flyout-markdown text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pr-1"
+                  class="agent-flyout-markdown text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pe-1"
                 >
                   <MDC :value="agentDetails.description" class="markdown-content" />
                 </div>
@@ -147,7 +147,7 @@
                       @click.stop.prevent="startReportWithQuestion(starter, Number(idx))"
                       :disabled="creatingReport"
                       :class="[
-                        'w-full text-left text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-2',
+                        'w-full text-start text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-2',
                         creatingReport && creatingQuestionIdx === idx
                           ? 'bg-indigo-100 border border-indigo-300 text-indigo-700'
                           : 'bg-gray-50 border border-gray-100 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 cursor-pointer',
@@ -197,7 +197,7 @@
                           v-for="t in tablesResources"
                           :key="t.id || t.name"
                           @click="selectTable(t)"
-                          class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                          class="w-full px-3 py-2 text-start text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
                         >
                           <DataSourceIcon v-if="hasMultipleConnections" :type="t.connection_type" class="h-3.5 flex-shrink-0" />
                           <span class="truncate flex-1 text-gray-800 font-medium">{{ t.name }}</span>
@@ -228,7 +228,7 @@
                           class="px-1.5 py-0.5 bg-white rounded border text-[11px] text-gray-700"
                         >
                           {{ typeof col === 'string' ? col : (col as any).name }}
-                          <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ml-1">({{ (col as any).dtype }})</span>
+                          <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
                         </span>
                         <span v-if="!(selectedTable.columns || []).length" class="text-[12px] text-gray-400">No columns.</span>
                       </div>
@@ -258,7 +258,7 @@
                         v-for="inst in instructionsResources"
                         :key="inst.id"
                         :href="`/instructions?search=${encodeURIComponent(inst.title || '')}`"
-                        class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-1.5">
@@ -301,7 +301,7 @@
                         v-for="entity in queriesResources"
                         :key="entity.id"
                         :href="`/queries/${entity.id}`"
-                        class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-1.5">

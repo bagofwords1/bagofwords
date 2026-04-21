@@ -18,21 +18,21 @@
         <div class="flex flex-col p-4 flex-grow">
             <h1 class="text-3xl mt-10 font-bold">Hi, {{ currentUser.name }} 👋</h1>
             <p class="text-sm mt-2 text-gray-500">Select or create a report to continue</p>
-            <div @click="createNewReport" class="flex cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
+            <div @click="createNewReport" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
                 <div class="flex">
-                    <div class="w-5/6 pr-4">
+                    <div class="w-5/6 pe-4">
                         <p class="text-sm text-gray-600 italic">
                             Create a new report to analyze your data
                         </p>
                     </div>
-                    <div class="w-1/6 text-right">
+                    <div class="w-1/6 text-end">
                         <button class="">
                             <UIcon name="i-heroicons-arrow-right" />
                         </button>
                     </div>
                 </div>
             </div>
-            <div class="flex flex-col w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200">
+            <div class="flex flex-col w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200">
                 <div class="text-xs font-semibold text-blue-500 mb-2">
                     REPORTS
                 </div>
@@ -45,17 +45,17 @@
             </div>
 
 
-            <div @click="router.push('/data')" class="flex cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
+            <div @click="router.push('/data')" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
                 <div class="flex">
-                    <div class="w-4/5 pr-4">
+                    <div class="w-4/5 pe-4">
                         <p class="text-sm text-black">
-                            <DataSourceIcon type="netsuite" class="h-5 inline mr-2" />
-                            <DataSourceIcon type="salesforce" class="h-5 inline mr-2" />
+                            <DataSourceIcon type="netsuite" class="h-5 inline me-2" />
+                            <DataSourceIcon type="salesforce" class="h-5 inline me-2" />
                             Manage integrations
                         </p>
                         <!-- Existing reports list can go here -->
                     </div>
-                    <div class="w-1/5 text-right">
+                    <div class="w-1/5 text-end">
                         <button class="">
                             <UIcon name="i-heroicons-arrow-right" />
                         </button>

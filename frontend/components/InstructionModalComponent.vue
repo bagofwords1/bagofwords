@@ -74,13 +74,13 @@
                         <div class="overflow-hidden">
                             <div 
                                 v-if="isAnalyzing" 
-                                class="h-full border-l border-gray-200 bg-gradient-to-b from-gray-50 to-white flex flex-col"
+                                class="h-full border-s border-gray-200 bg-gradient-to-b from-gray-50 to-white flex flex-col"
                             >
                                 <!-- Panel header -->
                                 <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
                                     <h3 class="text-sm font-semibold text-gray-800">Analysis</h3>
                                     <UButton size="xs" variant="ghost" color="blue" @click="refreshAnalysis">
-                                        <Icon name="heroicons:arrow-path" class="w-3.5 h-3.5 mr-1" />
+                                        <Icon name="heroicons:arrow-path" class="w-3.5 h-3.5 me-1" />
                                         Refresh
                                     </UButton>
                                 </div>
@@ -96,7 +96,7 @@
                                     </div>
                                     <div v-show="showRelated" class="border-t border-gray-100 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
                                         <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500">
-                                            <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                            <Spinner class="w-4 h-4 me-2" /> <span class="text-xs">Loading...</span>
                                         </div>
                                         <div v-else-if="relatedInstructions.length === 0" class="text-xs text-gray-500 py-2">No related instructions</div>
                                         <ul v-else class="divide-y divide-gray-100">
@@ -160,7 +160,7 @@
                                     <div v-show="showImpact" class="border-t border-gray-100 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
                                         <p class="text-xs text-gray-500 mb-2">Sample impacted prompts</p>
                                         <div v-if="isLoadingImpact" class="py-6 flex items-center justify-center text-gray-500">
-                                            <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                            <Spinner class="w-4 h-4 me-2" /> <span class="text-xs">Loading...</span>
                                         </div>
                                         <div v-else-if="impactedPrompts.length === 0" class="text-xs text-gray-500 py-2">No relevant prompts</div>
                                         <ul v-else class="divide-y divide-gray-100">

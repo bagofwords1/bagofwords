@@ -7,16 +7,16 @@
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center gap-1">
-          <Icon name="heroicons-server-stack" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ runningLabel }}</span>
         </span>
         <span v-else class="text-gray-600 flex items-center gap-1">
-          <Icon name="heroicons-server-stack" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ doneLabel }}</span>
-          <span v-if="duration" class="text-gray-400 ml-1">{{ duration }}</span>
+          <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400"
           />
         </span>
       </div>
@@ -33,7 +33,7 @@
           >
             <Icon
               :name="showPreview ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-              class="w-2.5 h-2.5 mr-1 text-gray-400"
+              class="w-2.5 h-2.5 me-1 text-gray-400"
             />
             <span>Output</span>
           </div>

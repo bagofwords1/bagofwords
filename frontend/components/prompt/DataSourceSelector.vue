@@ -24,7 +24,7 @@
                                     class="h-4 ring-1 ring-white rounded flex-shrink-0"
                                 />
                             </div>
-                            <span v-if="internalSelectedDataSources.length > 3" class="ml-1 text-[10px] text-gray-400">
+                            <span v-if="internalSelectedDataSources.length > 3" class="ms-1 text-[10px] text-gray-400">
                                 +{{ internalSelectedDataSources.length - 3 }}
                             </span>
                         </template>
@@ -55,7 +55,7 @@
                         >
                             <div class="flex items-center">
                                 <DataSourceIcon :type="ds.type" class="h-4" />
-                                <span class="ml-2 text-[13px]">{{ ds.name }}</span>
+                                <span class="ms-2 text-[13px]">{{ ds.name }}</span>
                             </div>
                             <Icon v-if="isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                         </div>

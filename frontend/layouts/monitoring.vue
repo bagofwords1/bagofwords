@@ -1,7 +1,7 @@
 <template>
     <NuxtLayout name="default">
-        <div class="flex justify-center pl-2 md:pl-4 text-sm">
-            <div class="w-full max-w-7xl px-4 pl-0 py-2">
+        <div class="flex justify-center ps-2 md:ps-4 text-sm">
+            <div class="w-full max-w-7xl px-4 ps-0 py-2">
                 <div>
                     <h1 class="text-lg font-semibold">
                         Monitoring
@@ -21,7 +21,7 @@
                                     'whitespace-nowrap border-b-2 py-2 px-2 text-sm font-medium flex items-center space-x-2'
                                 ]"
                             >
-                                <Icon :name="tab.icon" class="w-4 mr-1" />
+                                <Icon :name="tab.icon" class="w-4 me-1" />
                                 <span>{{ tab.label }}</span>
                             </NuxtLink>
                         </nav>

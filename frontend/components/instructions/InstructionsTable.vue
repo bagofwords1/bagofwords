@@ -32,7 +32,7 @@
                                         class="rounded border-gray-300 text-gray-800 focus:ring-gray-500"
                                     />
                                 </th>
-                                <th :class="[compact ? 'px-2 py-1.5 text-[10px]' : 'px-3 py-2 text-xs', 'text-left font-medium text-gray-500 uppercase tracking-wider']">
+                                <th :class="[compact ? 'px-2 py-1.5 text-[10px]' : 'px-3 py-2 text-xs', 'text-start font-medium text-gray-500 uppercase tracking-wider']">
                                     Instruction
                                 </th>
                                 <th v-if="showSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-10' : 'px-3 py-2 text-xs w-12', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
@@ -41,13 +41,13 @@
                                 <th v-if="showCategory" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
                                     Category
                                 </th>
-                                <th v-if="showDataSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-24' : 'px-3 py-2 text-xs w-28', 'text-left font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showDataSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-24' : 'px-3 py-2 text-xs w-28', 'text-start font-medium text-gray-500 uppercase tracking-wider']">
                                     Agents
                                 </th>
                                 <th v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
                                     Load
                                 </th>
-                                <th v-if="showLabels" :class="[compact ? 'px-2 py-1.5 text-[10px] w-28' : 'px-3 py-2 text-xs w-32', 'text-left font-medium text-gray-500 uppercase tracking-wider']">
+                                <th v-if="showLabels" :class="[compact ? 'px-2 py-1.5 text-[10px] w-28' : 'px-3 py-2 text-xs w-32', 'text-start font-medium text-gray-500 uppercase tracking-wider']">
                                     Labels
                                 </th>
                                 <th v-if="showStatus" :class="[compact ? 'px-2 py-1.5 text-[10px] w-16' : 'px-3 py-2 text-xs w-20', 'text-center font-medium text-gray-500 uppercase tracking-wider']">

@@ -47,7 +47,7 @@
                             color="blue"
                             @click="downloadManifest"
                         >
-                            <UIcon name="heroicons-arrow-down-tray" class="w-3.5 h-3.5 mr-1" />
+                            <UIcon name="heroicons-arrow-down-tray" class="w-3.5 h-3.5 me-1" />
                             Download manifest.xml
                         </UButton>
                         <button

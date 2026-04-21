@@ -8,11 +8,11 @@
                         v-model="searchQuery"
                         type="text"
                         placeholder="Search roles..."
-                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
                     />
                 </div>
             </div>
@@ -34,7 +34,7 @@
         <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
             <div v-if="isLoading" class="px-6 py-12 text-center">
                 <div class="flex items-center justify-center text-gray-500">
-                    <Spinner class="w-4 h-4 mr-2" />
+                    <Spinner class="w-4 h-4 me-2" />
                     <span class="text-sm">Loading...</span>
                 </div>
             </div>

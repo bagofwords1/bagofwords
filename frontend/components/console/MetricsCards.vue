@@ -34,7 +34,7 @@
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                 Accuracy
                 <UTooltip :text="isJudgeEnabled ? 'Overall accuracy as judged by the LLM' : 'LLM Judge agent is turned off'">
-                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
             <div v-if="isJudgeEnabled && metricsComparison?.changes.accuracy" class="text-xs mt-2">
@@ -52,7 +52,7 @@
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                 Instruction Coverage
                 <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions cover responses (20-100 scale)' : 'LLM Judge agent is turned off'">
-                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
             <div v-if="isJudgeEnabled && metricsComparison?.changes.instructions_effectiveness" class="text-xs mt-2">
@@ -70,7 +70,7 @@
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                 Context Coverage
                 <UTooltip :text="isJudgeEnabled ? 'AI judge score for context coverage and relevance (0-100)' : 'LLM Judge agent is turned off'">
-                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
             <div v-if="metricsComparison?.changes.context_effectiveness" class="text-xs mt-2">
@@ -88,7 +88,7 @@
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                 Response Quality
                 <UTooltip :text="isJudgeEnabled ? 'AI judge score for overall response quality (0-100)' : 'LLM Judge agent is turned off'">
-                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
             <div v-if="metricsComparison?.changes.response_quality" class="text-xs mt-2">

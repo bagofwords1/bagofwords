@@ -221,7 +221,7 @@
                 <UTooltip text="Regular charges may occur">
                   <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="isTestingConnection || !canTestConnection" @click="testConnection" title="Regular charges may occur">
                     <template v-if="isTestingConnection">
-                      <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
+                      <Spinner class="w-4 h-4 me-2 inline-block align-[-0.125em]" />
                       Testing...
                     </template>
                     <template v-else>
@@ -233,7 +233,7 @@
                 <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
                   <UButton type="button" class="!bg-blue-500 !text-white text-xs py-1.5 px-3" :disabled="isSaving || !providerForm.provider_type || !connectionTestPassed" @click="handleSave">
                     <template v-if="isSaving">
-                      <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
+                      <Spinner class="w-4 h-4 me-2 inline-block align-[-0.125em]" />
                       Saving...
                     </template>
                     <template v-else>

@@ -67,14 +67,14 @@
         <div
           v-if="filterMenuOpen"
           ref="filterMenuRef"
-          class="absolute right-8 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg w-48"
+          class="absolute end-8 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg w-48"
         >
           <!-- Status filter section -->
           <div class="py-1 border-b border-gray-100">
             <div class="px-2 py-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider">Status</div>
             <button
               type="button"
-              class="w-full text-left px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
               @click="setSelectedFilter('selected')"
             >
               <span>Selected</span>
@@ -82,7 +82,7 @@
             </button>
             <button
               type="button"
-              class="w-full text-left px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
               @click="setSelectedFilter('unselected')"
             >
               <span>Unselected</span>
@@ -111,13 +111,13 @@
                   v-for="item in group"
                   :key="item.value"
                   class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer"
-                  :class="connName !== '_default' ? 'pl-4' : ''"
+                  :class="connName !== '_default' ? 'ps-4' : ''"
                 >
                   <input
                     type="checkbox"
                     :checked="selectedSchemas.includes(item.value)"
                     @change="toggleSchemaFilter(item.value)"
-                    class="mr-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    class="me-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
                   <span class="truncate">{{ item.label }}</span>
                 </label>
@@ -148,10 +148,10 @@
                   type="checkbox"
                   :checked="selectedConnections.includes(conn.id)"
                   @change="toggleConnectionFilter(conn.id)"
-                  class="mr-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  class="me-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <span class="truncate">{{ conn.name }}</span>
-                <span class="ml-1 text-[9px] text-gray-400">({{ conn.type }})</span>
+                <span class="ms-1 text-[9px] text-gray-400">({{ conn.type }})</span>
               </label>
             </div>
           </div>
@@ -172,12 +172,12 @@
         <div
           v-if="sortMenuOpen"
           ref="sortMenuRef"
-          class="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg w-32"
+          class="absolute end-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded shadow-lg w-32"
         >
           <div class="py-1">
             <button
               type="button"
-              class="w-full text-left px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
               @click="setSort('name')"
             >
               <span>Name</span>
@@ -185,7 +185,7 @@
             </button>
             <button
               type="button"
-              class="w-full text-left px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
               @click="setSort('is_active')"
             >
               <span>Selected</span>
@@ -194,7 +194,7 @@
             <button
               v-if="props.showStats"
               type="button"
-              class="w-full text-left px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
+              class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 flex items-center justify-between"
               @click="setSort('usage')"
             >
               <span>Usage</span>
@@ -245,7 +245,7 @@
 
     <!-- Loading state -->
     <div v-if="loading" class="text-sm text-gray-500 py-10 flex items-center justify-center">
-      <Spinner class="w-4 h-4 mr-2" />
+      <Spinner class="w-4 h-4 me-2" />
       Loading schema...
     </div>
 
@@ -262,20 +262,20 @@
                   color="blue"
                   :model-value="isTableActive(tableKey(table))"
                   @update:model-value="(val: boolean) => onTableToggle(tableKey(table), val)"
-                  class="mr-3"
+                  class="me-3"
                 />
-                <button type="button" class="flex items-center justify-between text-left flex-1" @click="toggleTableExpand(table)">
+                <button type="button" class="flex items-center justify-between text-start flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
-                    <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1 text-gray-500" />
+                    <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500" />
                     <template v-if="availableConnections.length > 1">
-                      <DataSourceIcon :type="table.connection_type" class="h-3.5 mr-1 flex-shrink-0" />
-                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 mr-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
+                      <DataSourceIcon :type="table.connection_type" class="h-3.5 me-1 flex-shrink-0" />
+                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
                     </template>
                     <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
-                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
-                    <span v-if="isTableDirty(tableKey(table))" class="ml-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
+                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
                   </div>
-                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ml-2 text-[11px] text-gray-500 whitespace-nowrap flex items-center gap-2">
+                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-[11px] text-gray-500 whitespace-nowrap flex items-center gap-2">
                     <span>usage {{ table.usage_count }}</span>
                     <UTooltip text="Successful executed queries">
                       <span class="inline-flex items-center gap-1">
@@ -304,7 +304,7 @@
                   </span>
                 </button>
               </div>
-              <div v-if="expandedTables[table.name]" class="mt-2 ml-7">
+              <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
                 <!-- Columns -->
                 <div v-if="table.columns?.length" class="border border-gray-100 rounded">
                   <div class="grid grid-cols-2 text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">
@@ -403,7 +403,7 @@
                     <span
                       v-for="(p, idx) in table.metadata_json.powerbi_report_server.parameters"
                       :key="idx"
-                      class="ml-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
+                      class="ms-1 inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-700"
                     >{{ p.name }}</span>
                   </div>
 

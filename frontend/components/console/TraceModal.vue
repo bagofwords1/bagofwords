@@ -29,26 +29,26 @@
                         v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)"
                         class="flex items-center gap-2"
                     >
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mr-1">AI Scoring</div>
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500 me-1">AI Scoring</div>
                         <div
                             v-if="traceData.agent_execution.instructions_effectiveness !== null"
                             class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-blue-50 text-blue-700 border-blue-200"
                         >
-                            <span class="mr-1">Instructions</span>
+                            <span class="me-1">Instructions</span>
                             <span class="font-semibold">{{ traceData.agent_execution.instructions_effectiveness }}/5</span>
                         </div>
                         <div
                             v-if="traceData.agent_execution.context_effectiveness !== null"
                             class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-purple-50 text-purple-700 border-purple-200"
                         >
-                            <span class="mr-1">Context</span>
+                            <span class="me-1">Context</span>
                             <span class="font-semibold">{{ traceData.agent_execution.context_effectiveness }}/5</span>
                         </div>
                         <div
                             v-if="traceData.agent_execution.response_score !== null"
                             class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-green-50 text-green-700 border-green-200"
                         >
-                            <span class="mr-1">Response</span>
+                            <span class="me-1">Response</span>
                             <span class="font-semibold">{{ traceData.agent_execution.response_score }}/5</span>
                         </div>
                     </div>
@@ -68,10 +68,10 @@
                 <!-- Main Content -->
                 <div v-else class="grid grid-cols-5 gap-6 flex-1 min-h-0">
                     <!-- Left Pane: Minimal Block List (2/5 width) -->
-                    <div class="col-span-2 border-r border-gray-200 pr-4 flex flex-col min-h-0">
+                    <div class="col-span-2 border-e border-gray-200 pe-4 flex flex-col min-h-0">
                         <div class="text-xs text-gray-600 mb-2">Execution Blocks</div>
-                        <div class="flex-1 min-h-0 overflow-y-auto pr-2">
-                            <div v-for="(item, index) in visibleLeftItems" :key="item.id" :class="[item.kind === 'section' ? 'mb-0' : 'mb-2', item.phase === 'knowledge_harness' ? 'ml-4 pl-3 border-l border-gray-200' : '']">
+                        <div class="flex-1 min-h-0 overflow-y-auto pe-2">
+                            <div v-for="(item, index) in visibleLeftItems" :key="item.id" :class="[item.kind === 'section' ? 'mb-0' : 'mb-2', item.phase === 'knowledge_harness' ? 'ms-4 ps-3 border-s border-gray-200' : '']">
                                 <div v-if="item.kind === 'section'"
                                     class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 hover:text-gray-700 select-none"
                                     @click="toggleHarnessCollapsed()">
@@ -86,7 +86,7 @@
                                     <div class="flex items-center justify-between">
                                         <div class="font-medium text-gray-900 truncate flex items-center gap-1">
                                             <span class="truncate">{{ item.title }}</span>
-                                            <span v-if="item.data_sources?.length" class="flex items-center gap-0.5 flex-shrink-0 ml-1">
+                                            <span v-if="item.data_sources?.length" class="flex items-center gap-0.5 flex-shrink-0 ms-1">
                                                 <UTooltip v-for="ds in item.data_sources" :key="ds.id" :text="ds.name || ds.type || 'Data source'">
                                                     <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
                                                 </UTooltip>
@@ -123,7 +123,7 @@
                                         </template>
                                         <!-- total -->
                                         <span class="flex items-center text-gray-400">
-                                            <UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-0.5" />
+                                            <UIcon name="i-heroicons-bolt" class="w-3 h-3 me-0.5" />
                                             {{ formatDuration(getItemDurationMs(item) || 0) }}
                                         </span>
                                     </div>
@@ -145,13 +145,13 @@
                             </div>
                         </div>
 
-                        <div v-else class="flex-1 min-h-0 overflow-y-auto pr-2">
+                        <div v-else class="flex-1 min-h-0 overflow-y-auto pe-2">
                             <!-- Item Header -->
                             <div class="mb-4 flex-shrink-0">
                                 <div class="flex items-center mb-2">
-                                    <UIcon :name="getSelectedItemIcon()" class="w-4 h-4 mr-2 text-gray-600" />
+                                    <UIcon :name="getSelectedItemIcon()" class="w-4 h-4 me-2 text-gray-600" />
                                     <h4 class="text-sm font-medium text-gray-900">{{ getSelectedItemTitle() }}</h4>
-                                    <span v-if="selectedItemDataSources.length" class="flex items-center gap-1.5 ml-2">
+                                    <span v-if="selectedItemDataSources.length" class="flex items-center gap-1.5 ms-2">
                                         <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-[11px] text-gray-600">
                                             <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
                                             <span>{{ ds.name || ds.type }}</span>
@@ -272,7 +272,7 @@
                                                          @click="emit('openInstruction', ins.id)">
                                                         <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
                                                         <span class="font-medium">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
-                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 ml-auto">{{ ins.category }}</span>
+                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 ms-auto">{{ ins.category }}</span>
                                                     </div>
                                                 </div>
                                             </Transition>
@@ -299,21 +299,21 @@
                                                     <table class="w-full text-[11px]">
                                                         <thead class="bg-gray-50 text-gray-500">
                                                             <tr>
-                                                                <th class="px-2 py-1 text-left font-medium">#</th>
-                                                                <th class="px-2 py-1 text-right font-medium">Time</th>
-                                                                <th class="px-2 py-1 text-right font-medium">Rows</th>
-                                                                <th class="px-2 py-1 text-left font-medium">SQL</th>
+                                                                <th class="px-2 py-1 text-start font-medium">#</th>
+                                                                <th class="px-2 py-1 text-end font-medium">Time</th>
+                                                                <th class="px-2 py-1 text-end font-medium">Rows</th>
+                                                                <th class="px-2 py-1 text-start font-medium">SQL</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
                                                             <tr v-for="q in selectedItemSubTimings.queries" :key="q.index"
                                                                 :class="q.error ? 'bg-red-50' : 'even:bg-gray-50'">
                                                                 <td class="px-2 py-1 text-gray-500">{{ q.index + 1 }}</td>
-                                                                <td class="px-2 py-1 text-right font-mono"
+                                                                <td class="px-2 py-1 text-end font-mono"
                                                                     :class="q.query_ms > 3000 ? 'text-red-600 font-semibold' : q.query_ms > 1000 ? 'text-orange-600' : 'text-gray-700'">
                                                                     {{ formatDuration(q.query_ms) }}
                                                                 </td>
-                                                                <td class="px-2 py-1 text-right text-gray-500">{{ q.rows ?? '—' }}</td>
+                                                                <td class="px-2 py-1 text-end text-gray-500">{{ q.rows ?? '—' }}</td>
                                                                 <td class="px-2 py-1 text-gray-700 truncate max-w-[200px]" :title="q.sql ?? ''">
                                                                     <span v-if="q.error" class="text-red-600">{{ q.error }}</span>
                                                                     <span v-else>{{ q.sql }}</span>
@@ -331,8 +331,8 @@
                                             <div class="space-y-1">
                                                 <div v-for="s in filteredStages" :key="s.stage"
                                                      class="flex items-center gap-2 text-[11px]">
-                                                    <span class="w-36 text-gray-600 truncate text-right" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
-                                                    <span class="w-16 text-right font-mono"
+                                                    <span class="w-36 text-gray-600 truncate text-end" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
+                                                    <span class="w-16 text-end font-mono"
                                                           :class="s.ms > 5000 ? 'text-red-600 font-semibold' : s.ms > 1000 ? 'text-orange-600' : 'text-gray-700'">
                                                         {{ formatDuration(s.ms) }}
                                                     </span>

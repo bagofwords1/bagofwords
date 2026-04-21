@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col text-xs text-gray-700">
     <!-- Scrollable content -->
-    <div class="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1">
+    <div class="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pe-1">
     <!-- Type selector -->
     <div>
       <div class="font-medium text-gray-800 mb-1">Type</div>
@@ -392,7 +392,7 @@
             <span class="text-gray-600 font-medium">Enable Sparkline</span>
           </label>
           
-          <div v-if="local.sparklineEnabled" class="space-y-2 pl-4">
+          <div v-if="local.sparklineEnabled" class="space-y-2 ps-4">
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <div class="text-gray-600 mb-1 text-[11px]">Type</div>
@@ -438,7 +438,7 @@
     <!-- Styling -->
     <div>
       <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.style = !expanded.style">
-        <Icon :name="expanded.style ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        <Icon :name="expanded.style ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
         Style
       </div>
       <Transition name="fade">
@@ -458,13 +458,13 @@
               </label>
               
               <!-- X-Axis Labels section - auto-expanded when X-axis is visible -->
-              <div v-if="local.xAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ml-6 mt-2">
+              <div v-if="local.xAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
                 <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.xAxisLabels = !expanded.xAxisLabels">
-                  <Icon :name="expanded.xAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                  <Icon :name="expanded.xAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
                   X-Axis Labels
                 </div>
                 <Transition name="fade">
-                  <div v-if="expanded.xAxisLabels" class="grid grid-cols-2 gap-2 pl-4">
+                  <div v-if="expanded.xAxisLabels" class="grid grid-cols-2 gap-2 ps-4">
                     <div>
                       <div class="text-gray-600 mb-1 text-[10px]">Label rotation</div>
                       <select v-model.number="local.xAxisRotate" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
@@ -495,13 +495,13 @@
               </label>
               
               <!-- Y-Axis section - placeholder for future controls -->
-              <div v-if="local.yAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ml-6 mt-2">
+              <div v-if="local.yAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
                 <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.yAxisLabels = !expanded.yAxisLabels">
-                  <Icon :name="expanded.yAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                  <Icon :name="expanded.yAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
                   Y-Axis Labels
                 </div>
                 <Transition name="fade">
-                  <div v-if="expanded.yAxisLabels" class="text-[10px] text-gray-500 pl-4">
+                  <div v-if="expanded.yAxisLabels" class="text-[10px] text-gray-500 ps-4">
                     Y-axis controls will be available here in future updates.
                   </div>
                 </Transition>
@@ -520,7 +520,7 @@
 
     <!-- Sticky Actions -->
     <div class="flex-shrink-0 pt-3 mt-3 border-t bg-white flex items-center justify-end space-x-2">
-      <div v-if="error" class="text-red-600 text-[11px] mr-auto">{{ error }}</div>
+      <div v-if="error" class="text-red-600 text-[11px] me-auto">{{ error }}</div>
       <button class="px-2 py-1 text-[11px] border rounded text-gray-700 hover:bg-gray-50" @click="reset">Reset</button>
       <button class="px-2 py-1 text-[11px] border rounded text-gray-700 hover:bg-gray-50" @click="apply">Apply</button>
       <button class="px-3 py-1.5 text-[11px] rounded bg-gray-800 text-white hover:bg-gray-700 disabled:opacity-50" :disabled="saving" @click="save">

@@ -6,23 +6,23 @@
         class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
         @click="toggleDetails"
       >
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1 text-gray-400" />
+        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-document-text" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-document-text" class="w-3 h-3 me-1 text-gray-400" />
           Writing CSV…
         </span>
         <span v-else class="flex items-center" :class="hasError ? 'text-red-600' : 'text-gray-700'">
-          <Icon v-if="hasError" name="heroicons-exclamation-triangle" class="w-3 h-3 mr-1 text-red-500" />
-          <Icon v-else name="heroicons-check" class="w-3 h-3 mr-1 text-green-500" />
+          <Icon v-if="hasError" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
+          <Icon v-else name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
           <span class="align-middle">{{ statusLabel }}</span>
         </span>
-        <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
+        <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
       </div>
     </Transition>
 
     <!-- Collapsible details -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed" class="ml-4 text-xs text-gray-600 space-y-2">
+      <div v-if="!detailsCollapsed" class="ms-4 text-xs text-gray-600 space-y-2">
         <!-- Error -->
         <div v-if="errorMessage" class="text-red-500">{{ errorMessage }}</div>
 
@@ -32,12 +32,12 @@
             class="flex items-center text-gray-500 cursor-pointer hover:text-gray-700"
             @click.stop="codeCollapsed = !codeCollapsed"
           >
-            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1" />
-            <Icon name="heroicons-code-bracket" class="w-3 h-3 mr-1" />
+            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
+            <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
             <span>Code</span>
           </div>
           <Transition name="fade">
-            <div v-if="!codeCollapsed" class="mt-1 ml-4">
+            <div v-if="!codeCollapsed" class="mt-1 ms-4">
               <pre class="bg-gray-50 rounded px-3 py-2 text-[11px] text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ generatedCode }}</pre>
             </div>
           </Transition>

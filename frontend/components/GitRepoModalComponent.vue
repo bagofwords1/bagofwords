@@ -223,7 +223,7 @@
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
                                         <span class="truncate">{{ indexingPhase || 'Indexing...' }}</span>
-                                        <span class="ml-2 flex-shrink-0">{{ indexingProgress }}%</span>
+                                        <span class="ms-2 flex-shrink-0">{{ indexingProgress }}%</span>
                                     </div>
                                     <UProgress :value="indexingProgress" size="xs" color="blue" />
                                 </div>

@@ -2,7 +2,7 @@
     <div class="h-screen w-full bg-white flex flex-col overflow-hidden">
         <!-- Loading state -->
         <div v-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500">
-            <Spinner class="w-5 h-5 mr-2" />
+            <Spinner class="w-5 h-5 me-2" />
             <span class="text-sm">Loading conversation…</span>
         </div>
 
@@ -69,7 +69,7 @@
                 <!-- Loading more indicator -->
                 <div v-if="isLoadingMore" class="flex justify-center py-3 mb-4">
                     <Spinner class="w-4 h-4 text-gray-400" />
-                    <span class="text-xs text-gray-400 ml-2">Loading older messages…</span>
+                    <span class="text-xs text-gray-400 ms-2">Loading older messages…</span>
                 </div>
                 
                 <!-- Load more button (shown when there's more to load) -->
@@ -97,7 +97,7 @@
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">
                                     <div class="flex-1 flex justify-end">
-                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left">
+                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <MDC :value="m.prompt.content" class="markdown-content" />
                                             </div>
@@ -114,11 +114,11 @@
 
                             <!-- System message (left-aligned) -->
                             <template v-else>
-                                <div class="w-[28px] mr-2 flex-shrink-0">
+                                <div class="w-[28px] me-2 flex-shrink-0">
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full ml-4 max-w-2xl">
+                                <div class="w-full ms-4 max-w-2xl">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in m.completion_blocks" :key="block.id">
@@ -126,10 +126,10 @@
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
                                                     <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
-                                                    <span v-if="hasCompletedContent(block) || block.tool_execution" class="ml-1">
+                                                    <span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
                                                         {{ getThoughtProcessLabel(block) }}
                                                     </span>
-                                                    <span v-else class="ml-1">
+                                                    <span v-else class="ms-1">
                                                         <div class="dots" />
                                                     </span>
                                                 </div>
@@ -165,7 +165,7 @@
                                                         <span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
                                                             {{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
                                                         </span>
-                                                        <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
+                                                        <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
                                                             <div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
                                                             <div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
                                                         </div>
@@ -187,11 +187,11 @@
 
                                     <!-- Status messages -->
                                     <div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
-                                        <Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
+                                        <Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
                                         Generation stopped
                                     </div>
                                     <div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
-                                        <Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
+                                        <Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
                                         <span class="italic">An error occurred</span>
                                     </div>
                                 </div>

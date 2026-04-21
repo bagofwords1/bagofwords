@@ -17,7 +17,7 @@
                         size="xs"
                         @click="openLinkModal"
                     >
-                        <UIcon name="heroicons-plus" class="w-4 h-4 mr-1" />
+                        <UIcon name="heroicons-plus" class="w-4 h-4 me-1" />
                         Link Another Connection
                     </UButton>
                 </div>
@@ -82,18 +82,18 @@
                         </div>
 
                         <!-- Test result (inline) -->
-                        <div v-if="testResults[conn.id]" class="mt-2 ml-11 text-xs">
+                        <div v-if="testResults[conn.id]" class="mt-2 ms-11 text-xs">
                             <span :class="testResults[conn.id]?.success ? 'text-green-600' : 'text-red-600'">
                                 {{ testResults[conn.id]?.success ? 'Connection successful' : (testResults[conn.id]?.message || 'Connection failed') }}
                             </span>
                         </div>
 
                         <!-- User Connection (only for user_required auth, non-admin) -->
-                        <div class="mt-4 ml-11" v-if="conn.auth_policy === 'user_required' && !isAdmin">
+                        <div class="mt-4 ms-11" v-if="conn.auth_policy === 'user_required' && !isAdmin">
                             <div class="text-sm text-gray-800 flex items-center space-x-3">
                                 <template v-if="conn.user_status?.has_user_credentials">
                                     <span class="inline-flex items-center text-green-700 text-xs">
-                                        <UIcon name="heroicons-check-circle" class="w-3 h-3 mr-1" />
+                                        <UIcon name="heroicons-check-circle" class="w-3 h-3 me-1" />
                                         Connected as {{ connectedUserDisplay }}
                                     </span>
                                     <UButton size="xs" color="gray" variant="ghost" :loading="testingUserConnectionId === conn.id" @click="testUserConnection(conn.id)">
@@ -103,7 +103,7 @@
                                 </template>
                                 <template v-else>
                                     <span class="inline-flex items-center text-gray-500 text-xs">
-                                        <UIcon name="heroicons-exclamation-circle" class="w-3 h-3 mr-1" />
+                                        <UIcon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
                                         User credentials required
                                     </span>
                                     <UButton size="xs" color="blue" variant="soft" @click="openAddCredentials(conn.id)">Connect</UButton>
@@ -165,7 +165,7 @@
                             v-model="selectedConnectionId"
                             class="sr-only"
                         />
-                        <DataSourceIcon :type="conn.type" class="h-6 mr-3" />
+                        <DataSourceIcon :type="conn.type" class="h-6 me-3" />
                         <div class="flex-1 min-w-0">
                             <div class="font-medium text-gray-900 truncate">{{ conn.name }}</div>
                             <div class="text-xs text-gray-500">{{ conn.type }}</div>

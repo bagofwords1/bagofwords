@@ -6,7 +6,7 @@
         class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 text-xs flex items-center"
         @click="openInstructions"
       >
-        <Icon name="heroicons-cube" class="w-4 h-4 mr-1" />
+        <Icon name="heroicons-cube" class="w-4 h-4 me-1" />
         Instructions
       </button>
     </div>
@@ -43,7 +43,7 @@
             <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
               <button class="text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 text-xs flex items-center border border-gray-200 h-8">
                 <Icon name="heroicons-cpu-chip" class="w-4 h-4" />
-                <span class="ml-1 truncate max-w-[260px] text-left">{{ selectedModelLabel }}</span>
+                <span class="ms-1 truncate max-w-[260px] text-start">{{ selectedModelLabel }}</span>
               </button>
             </UTooltip>
             <template #panel="{ close }">
@@ -54,14 +54,14 @@
                   class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center"
                   @click="() => { selectModel(m); close(); }"
                 >
-                  <div class="mr-2">
+                  <div class="me-2">
                     <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                   </div>
-                  <div class="flex flex-col flex-1 text-left min-w-0">
+                  <div class="flex flex-col flex-1 text-start min-w-0">
                     <span class="font-medium truncate">{{ m.name || m.model_id }}</span>
                     <span class="text-gray-500 text-[10px] truncate">{{ m.provider?.name || m.provider_name || '' }}</span>
                   </div>
-                  <Icon v-if="selectedModelId === (m.id || m.model_id)" name="heroicons-check" class="w-4 h-4 text-blue-500 ml-2 flex-shrink-0" />
+                  <Icon v-if="selectedModelId === (m.id || m.model_id)" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                 </div>
               </div>
             </template>

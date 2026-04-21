@@ -4,7 +4,7 @@
     <div class="widget-header" @click="toggleCollapsed">
       <div class="flex items-center justify-between w-full">
         <div class="flex items-center">
-          <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 mr-1.5 text-gray-500" />
+          <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
             v-if="queryId && canEditCode && !readonly"
@@ -12,7 +12,7 @@
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             title="Edit query code"
           >
-            <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 mr-1" />
+            <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 me-1" />
             Edit
           </button>
         </div>
@@ -172,7 +172,7 @@
                       class="text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
                       title="Edit code"
                     >
-                      <Icon name="heroicons-pencil-square" class="w-3 h-3 mr-1" />
+                      <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1" />
                       Edit
                     </button>
                   </div>
@@ -207,11 +207,11 @@
                 <!-- Execution details -->
                 <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
                   <span v-if="executionDuration">
-                    <Icon name="heroicons-clock" class="w-3 h-3 inline-block mr-1" />
+                    <Icon name="heroicons-clock" class="w-3 h-3 inline-block me-1" />
                     {{ executionDuration }}
                   </span>
                   <span v-if="rowCount">
-                    <Icon name="heroicons-table-cells" class="w-3 h-3 inline-block mr-1" />
+                    <Icon name="heroicons-table-cells" class="w-3 h-3 inline-block me-1" />
                     {{ rowCount }} rows
                   </span>
                 </div>
@@ -222,14 +222,14 @@
                     class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
                     @click="attemptsExpanded = !attemptsExpanded"
                   >
-                    <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1.5" />
+                    <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1.5" />
                     <span>Attempts ({{ attempts.length }})</span>
                   </div>
                   <Transition name="fade">
-                    <div v-if="attemptsExpanded" class="mt-2 ml-4">
+                    <div v-if="attemptsExpanded" class="mt-2 ms-4">
                       <ul class="text-xs text-gray-600 space-y-1.5">
                         <li v-for="(att, idx) in attempts" :key="idx" class="flex items-start">
-                          <span class="text-gray-400 mr-2 flex-shrink-0">{{ idx + 1 }}.</span>
+                          <span class="text-gray-400 me-2 flex-shrink-0">{{ idx + 1 }}.</span>
                           <span class="text-red-500">{{ att }}</span>
                         </li>
                       </ul>
@@ -250,14 +250,14 @@
               @click.stop="addToSpreadsheet"
               title="Add data to Excel spreadsheet"
             >
-              <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 mr-1" />
+              <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 me-1" />
               Add to Spreadsheet
             </button>
             <span
               v-else-if="canAddToDashboard && isAlreadyInDashboard"
               class="text-xs px-2 py-0.5 rounded flex items-center text-green-600"
             >
-              <Icon name="heroicons:check-circle-solid" class="w-3.5 h-3.5 mr-1" />
+              <Icon name="heroicons:check-circle-solid" class="w-3.5 h-3.5 me-1" />
               Added to Dashboard
             </span>
             <button
@@ -266,8 +266,8 @@
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-blue-500 hover:text-blue-600 disabled:opacity-40"
               @click.stop="addToDashboard"
             >
-              <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5 mr-1" />
-              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 mr-1 animate-spin" />
+              <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5 me-1" />
+              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 me-1 animate-spin" />
               Add to Dashboard
             </button>
           </div>
@@ -277,11 +277,11 @@
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50"
               @click.stop="openEntityModal = true"
             >
-              <Icon name="heroicons-bookmark" class="w-3.5 h-3.5 text-blue-500 mr-1" />
+              <Icon name="heroicons-bookmark" class="w-3.5 h-3.5 text-blue-500 me-1" />
               Save Query
             </button>
             <span v-else class="text-xs flex items-center">
-              <Icon name="heroicons-check-badge" class="w-3.5 h-3.5 mr-1 text-green-500" />
+              <Icon name="heroicons-check-badge" class="w-3.5 h-3.5 me-1 text-green-500" />
               Saved Query
             </span>
           </div>

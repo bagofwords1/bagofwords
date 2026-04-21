@@ -4,7 +4,7 @@
       <Transition name="fade" mode="out-in">
         <div v-if="loading" key="loading" class="flex items-center justify-center h-40">
           <div class="flex items-center text-gray-500 text-sm">
-            <Spinner class="w-4 h-4 mr-2" />
+            <Spinner class="w-4 h-4 me-2" />
             Loading...
           </div>
         </div>

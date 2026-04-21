@@ -28,7 +28,7 @@
       <!-- Edit button - top right -->
       <div
         v-if="isOwner"
-        class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+        class="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity"
         @click.prevent="navigateTo(`/reports/${report.id}`)"
       >
         <div class="p-1.5 bg-white/90 rounded-full hover:bg-white shadow-sm">
@@ -37,7 +37,7 @@
       </div>
 
       <!-- Mode badge - bottom left -->
-      <div class="absolute bottom-2 left-2">
+      <div class="absolute bottom-2 start-2">
         <span
           :class="[
             'px-2 py-0.5 text-xs font-medium rounded-full',
@@ -51,7 +51,7 @@
     </div>
 
     <!-- Content -->
-    <div class="p-3 text-left">
+    <div class="p-3 text-start">
       <h3 class="font-medium text-gray-900 truncate text-sm">
         {{ report.title || 'Untitled' }}
       </h3>

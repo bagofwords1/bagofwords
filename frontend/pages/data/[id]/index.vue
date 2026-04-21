@@ -9,7 +9,7 @@
                     <div class="text-xs uppercase tracking-wide text-gray-400">Description</div>
                     <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">Edit</button>
                 </div>
-                <div class="mt-3 markdown-wrapper text-sm leading-relaxed text-left text-gray-600" v-if="computedDescription">
+                <div class="mt-3 markdown-wrapper text-sm leading-relaxed text-start text-gray-600" v-if="computedDescription">
                     <MDC :value="computedDescription" class="markdown-content" />
                 </div>
                 <div class="mt-8">
@@ -33,7 +33,7 @@
                 <div class="text-sm font-medium text-gray-900">Edit conversation starters</div>
                 <div class="text-xs text-gray-600 mt-1">Titles are shown as chips. Prompts are inserted when clicked.</div>
 
-                <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pr-1">
+                <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
                     <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 p-2">
                         <div class="flex items-center justify-between mb-1">
                             <span class="text-[10px] uppercase tracking-wide text-gray-400">Starter {{ idx + 1 }}</span>

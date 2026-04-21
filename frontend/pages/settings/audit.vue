@@ -31,10 +31,10 @@
             v-model="searchQuery"
             type="text"
             placeholder="Search..."
-            class="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:border-gray-400 bg-white"
+            class="w-full ps-7 pe-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:border-gray-400 bg-white"
             @input="debouncedSearch"
           />
-          <svg class="absolute left-2 top-1.5 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <svg class="absolute start-2 top-1.5 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
@@ -55,7 +55,7 @@
           </button>
           <div
             v-if="showActionDropdown"
-            class="absolute top-full left-0 mt-1 w-44 bg-white border border-gray-200 rounded shadow-sm z-10"
+            class="absolute top-full start-0 mt-1 w-44 bg-white border border-gray-200 rounded shadow-sm z-10"
           >
             <div class="py-1">
               <label
@@ -130,7 +130,7 @@
             </span>
 
             <!-- IP -->
-            <span class="w-28 flex-shrink-0 text-gray-400 font-mono text-[11px] text-right">
+            <span class="w-28 flex-shrink-0 text-gray-400 font-mono text-[11px] text-end">
               {{ log.ip_address || '' }}
             </span>
           </div>

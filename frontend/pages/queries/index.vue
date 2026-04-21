@@ -27,7 +27,7 @@
             ]"
           >
             {{ isAdmin ? 'Draft / Suggested' : 'My Drafts' }}
-            <span v-if="suggestedCount > 0" class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700">{{ suggestedCount }}</span>
+            <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700">{{ suggestedCount }}</span>
           </button>
         </div>
         
@@ -38,7 +38,7 @@
       </div>
 
       <div v-if="loading" class="text-xs text-gray-500 inline-flex items-center">
-        <Spinner class="mr-1" /> Loading...
+        <Spinner class="me-1" /> Loading...
       </div>
       <div v-else-if="filteredItems.length === 0" class="flex flex-col items-center justify-center py-16 px-4">
         <div class="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">

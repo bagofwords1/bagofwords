@@ -37,11 +37,11 @@
                     </UTooltip>
                   </div>
                   
-                  <div class="text-[12px] text-gray-800 leading-relaxed pr-24 whitespace-normal break-words max-w-full">
+                  <div class="text-[12px] text-gray-800 leading-relaxed pe-24 whitespace-normal break-words max-w-full">
                     {{ truncateText(instruction.text, 100) }}
                   </div>
                   
-                  <div class="absolute top-2 right-2 flex items-center gap-2">
+                  <div class="absolute top-2 end-2 flex items-center gap-2">
                     <template v-if="instructionAction[instruction.id]">
                       <span 
                         class="px-2 py-0.5 text-[11px] rounded-full border"

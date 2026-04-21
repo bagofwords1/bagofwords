@@ -2,7 +2,7 @@
 
 	<!-- Loading until report and completions are fetched -->
 	<div v-if="(!reportLoaded || !completionsLoaded) && messages.length === 0 && !reportNotFound" class="h-screen w-full flex items-center justify-center text-gray-500">
-		<Spinner class="w-5 h-5 mr-2" />
+		<Spinner class="w-5 h-5 me-2" />
 		<span class="text-sm">Loading report…</span>
 	</div>
 
@@ -78,7 +78,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
-			<div class="pl-4 pr-2 pb-[3px] max-w-2xl w-full mx-auto">
+			<div class="ps-4 pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
 				<!-- Forked queries panel (shown for forked reports) -->
 				<ForkedQueriesPanel
@@ -97,7 +97,7 @@
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
 					<!-- Top loader for older pages -->
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
-						<Spinner class="w-4 h-4 inline mr-2" /> Loading older messages…
+						<Spinner class="w-4 h-4 inline me-2" /> Loading older messages…
 					</li>
 					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 mb-2 text-sm">
 						<!-- Fork summary card (special rendering) -->
@@ -120,13 +120,13 @@
 								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-400">{{ getScheduledStats(m) }}</span>
-								<Icon :name="isScheduledExpanded(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 ml-auto flex-shrink-0" />
+								<Icon :name="isScheduledExpanded(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 ms-auto flex-shrink-0" />
 							</button>
 							<!-- User bubble shown inside the collapsible area -->
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left" dir="auto">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
 												<MDC :value="m.prompt.content" class="markdown-content" />
 											</div>
@@ -157,7 +157,7 @@
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<!-- User message bubble -->
 									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left " dir="auto">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start " dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
 												<MDC :value="m.prompt.content" class="markdown-content" />
 											</div>
@@ -185,11 +185,11 @@
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
 								<!-- AI avatar (hidden on mobile) -->
-								<div class="w-[28px] mr-2 flex-shrink-0 hidden md:block">
+								<div class="w-[28px] me-2 flex-shrink-0 hidden md:block">
 									<div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
 									</div>
 								</div>
-								<div class="w-full ml-4 max-w-2xl">
+								<div class="w-full ms-4 max-w-2xl">
 									<!-- System message -->
 									<div>
 										<!-- Render each completion block - unified structure -->
@@ -198,10 +198,10 @@
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
 													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
-													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ml-1">
+													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
 														{{ getThoughtProcessLabel(block) }}
 													</span>
-													<span v-else class="ml-1">
+													<span v-else class="ms-1">
 														<div class="dots" />
 													</span>
 												</div>
@@ -261,7 +261,7 @@
 														<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
 															{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
 														</span>
-														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
+														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
 															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
 															<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
 															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
@@ -359,13 +359,13 @@
 										/>
 									</div>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
-										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
+										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
 									</div>
 									<div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
-										<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
+										<Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
 										<span v-if="getMessageError(m)" class="pre-wrap">
-											<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
+											<Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
 											{{ getMessageError(m) }}</span>
 										<span v-else class="italic">An error occurred</span>
 									</div>
@@ -390,7 +390,7 @@
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
 		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
-				<Spinner class="w-3 h-3 mr-2 text-gray-400" />
+				<Spinner class="w-3 h-3 me-2 text-gray-400" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>

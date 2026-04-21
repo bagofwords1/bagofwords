@@ -43,7 +43,7 @@
                                     </span>
                                 </div>
                                 <div v-else class="flex items-center text-xs text-gray-500">
-                                    <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 mr-1" />
+                                    <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 me-1" />
                                     <span>Global</span>
                                 </div>
                             </div>
@@ -64,7 +64,7 @@
                             <span :class="getStatusClass(instruction)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full">
                                 {{ getDisplayStatus(instruction) }}
                             </span>
-                            <span v-if="getSubStatus(instruction)" class="text-xs text-gray-500 mt-1 text-right">
+                            <span v-if="getSubStatus(instruction)" class="text-xs text-gray-500 mt-1 text-end">
                                 {{ getSubStatus(instruction) }}
                             </span>
                         </div>

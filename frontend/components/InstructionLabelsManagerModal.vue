@@ -37,9 +37,9 @@
                             v-model="searchQuery"
                             type="text"
                             placeholder="Search all labels"
-                            class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                         />
-                        <UIcon name="i-heroicons-magnifying-glass" class="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                        <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2.5 h-4 w-4 text-gray-400" />
                     </div>
                 </div>
 

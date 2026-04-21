@@ -7,41 +7,41 @@
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-gray-400" />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400" />
           <span v-if="instructionText" class="truncate max-w-[300px]">Creating: {{ truncatedText }}</span>
           <span v-else>Creating instruction...</span>
-          <span v-if="category" class="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
+          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
           <Icon
             v-if="instructionText"
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400 shrink-0"
+            class="w-3 h-3 ms-1 text-gray-400 shrink-0"
           />
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-green-500" />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-green-500" />
           <span class="truncate max-w-[300px]">{{ truncatedText }}</span>
-          <span v-if="category" class="ml-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
-          <span v-if="lineCount > 0" class="ml-1.5 text-[10px] text-green-600 shrink-0">+{{ lineCount }}</span>
+          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
+          <span v-if="lineCount > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ lineCount }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400 shrink-0"
+            class="w-3 h-3 ms-1 text-gray-400 shrink-0"
           />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 mr-1.5 text-orange-500" />
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
           <span>Instruction rejected</span>
-          <span v-if="rejectedReason" class="ml-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400"
           />
         </span>
         <span v-else class="text-gray-600 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 mr-1.5 text-red-500" />
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
           <span>Failed to create instruction</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400"
           />
         </span>
       </div>
@@ -100,7 +100,7 @@
           <div v-if="isSuccess && instructionId" class="flex justify-start gap-2 pt-2 border-t border-gray-200">
             <!-- Show status for published instructions -->
             <div v-if="currentGlobalStatus === 'approved'" class="flex items-center">
-              <Icon name="heroicons:check-circle" class="w-3 h-3 text-gray-500 mr-1" />
+              <Icon name="heroicons:check-circle" class="w-3 h-3 text-gray-500 me-1" />
               <span class="text-[10px] font-medium text-gray-500">Published</span>
             </div>
 
@@ -114,12 +114,12 @@
               >
                 <Spinner
                   v-if="isPublishing"
-                  class="w-3 h-3 text-green-600 mr-1"
+                  class="w-3 h-3 text-green-600 me-1"
                 />
                 <Icon
                   v-else
                   name="heroicons:check"
-                  class="w-3 h-3 text-green-600 mr-1"
+                  class="w-3 h-3 text-green-600 me-1"
                 />
                 <span>{{ isPublishing ? 'Publishing...' : 'Publish' }}</span>
               </button>
@@ -127,7 +127,7 @@
                 @click.stop="handleEdit"
                 class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
               >
-                <Icon name="heroicons:pencil" class="w-3 h-3 text-blue-600 mr-1" />
+                <Icon name="heroicons:pencil" class="w-3 h-3 text-blue-600 me-1" />
                 <span>Edit</span>
               </button>
               <button
@@ -137,12 +137,12 @@
               >
                 <Spinner
                   v-if="isDeleting"
-                  class="w-3 h-3 text-red-600 mr-1"
+                  class="w-3 h-3 text-red-600 me-1"
                 />
                 <Icon
                   v-else
                   name="heroicons:trash"
-                  class="w-3 h-3 text-red-600 mr-1"
+                  class="w-3 h-3 text-red-600 me-1"
                 />
                 <span>{{ isDeleting ? 'Deleting...' : 'Delete' }}</span>
               </button>

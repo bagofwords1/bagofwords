@@ -119,9 +119,9 @@
                             @focus="showMemberDropdown = true"
                             @blur="onBlur" />
                         <div v-if="showMemberDropdown && filteredMembers.length > 0"
-                            class="absolute left-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded shadow-lg z-50 max-h-32 overflow-y-auto">
+                            class="absolute start-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded shadow-lg z-50 max-h-32 overflow-y-auto">
                             <button v-for="member in filteredMembers" :key="member.id"
-                                class="w-full text-left px-2 py-1.5 text-xs hover:bg-gray-50 flex flex-col"
+                                class="w-full text-start px-2 py-1.5 text-xs hover:bg-gray-50 flex flex-col"
                                 @mousedown.prevent="addMember(member)">
                                 <span class="text-gray-900">{{ member.name || member.email }}</span>
                                 <span v-if="member.name" class="text-[10px] text-gray-400">{{ member.email }}</span>

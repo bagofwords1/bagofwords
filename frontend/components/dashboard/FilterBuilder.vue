@@ -107,7 +107,7 @@
                         >
                           {{ option.label }}
                         </div>
-                        <div v-else class="text-xs pl-1">
+                        <div v-else class="text-xs ps-1">
                           {{ option.label }}
                         </div>
                       </template>

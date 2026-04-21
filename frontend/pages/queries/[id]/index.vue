@@ -46,7 +46,7 @@
               />
             </div>
           </div>
-          <div class="flex-shrink-0 ml-auto flex items-center gap-2">
+          <div class="flex-shrink-0 ms-auto flex items-center gap-2">
             <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100" @click="deleteEntity" :disabled="deleting">
               <span v-if="deleting">Deleting…</span>
               <span v-else>Delete</span>
@@ -64,17 +64,17 @@
           <div v-if="detail?.last_refreshed_at" class="text-[11px] text-gray-400">Refreshed {{ timeAgo(detail?.last_refreshed_at as any) }}</div>
           
           <!-- Workflow actions -->
-          <button v-if="canSuggest" class="ml-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" @click="suggestEntity" :disabled="suggesting">
+          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" @click="suggestEntity" :disabled="suggesting">
             <span v-if="suggesting">Suggesting…</span>
             <span v-else>Suggest for Approval</span>
           </button>
           
-          <button v-if="canWithdraw" class="ml-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" @click="withdrawSuggestion" :disabled="withdrawing">
+          <button v-if="canWithdraw" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" @click="withdrawSuggestion" :disabled="withdrawing">
             <span v-if="withdrawing">Withdrawing…</span>
             <span v-else>Withdraw Suggestion</span>
           </button>
           
-          <button v-if="canApprove" class="ml-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 text-green-700 hover:bg-green-100" @click="approveSuggestion" :disabled="approving">
+          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 text-green-700 hover:bg-green-100" @click="approveSuggestion" :disabled="approving">
             <span v-if="approving">Approving…</span>
             <span v-else>Approve</span>
           </button>
@@ -85,7 +85,7 @@
           </button>
           
           
-          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" :class="{ 'ml-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
+          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" :class="{ 'ms-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
             <span v-if="refreshing">Refreshing…</span>
             <span v-else>Refresh Data</span>
           </button>
@@ -117,7 +117,7 @@
                 ]"
               >
                 <span>Data</span>
-                <span v-if="rowCount" class="ml-1.5 text-[11px] text-gray-400">({{ rowCount }})</span>
+                <span v-if="rowCount" class="ms-1.5 text-[11px] text-gray-400">({{ rowCount }})</span>
               </button>
               <button 
                 @click="activeTab = 'code'"

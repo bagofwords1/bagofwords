@@ -7,7 +7,7 @@
             ]">
             <div class="relative">
                 <Icon :name="buttonIcon" :class="compact ? 'w-4 h-4' : 'w-3.5 h-3.5'" />
-                <span v-if="isShared" class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                <span v-if="isShared" class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 bg-green-500 rounded-full"></span>
             </div>
             <span v-if="!compact" class="text-xs whitespace-nowrap">{{ buttonLabel }}</span>
         </button>
@@ -88,9 +88,9 @@
                                 @focus="showDropdown = true"
                                 @blur="onBlur" />
                             <div v-if="showDropdown && filteredMembers.length > 0"
-                                class="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                class="absolute start-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
                                 <button v-for="member in filteredMembers" :key="member.id"
-                                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2.5"
+                                    class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2.5"
                                     @mousedown.prevent="addMember(member)">
                                     <div class="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 flex-shrink-0">
                                         {{ (member.name || member.email).charAt(0).toUpperCase() }}

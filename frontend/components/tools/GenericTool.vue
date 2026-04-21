@@ -1,11 +1,11 @@
 <template>
   <div class="mb-2">
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
 
       <!-- Status icon -->
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
+      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
       
       <!-- Tool title with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer">{{ toolTitle }}
@@ -13,12 +13,12 @@
       <span v-else class="text-gray-700">{{ toolTitle }}</span>
       
       <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ml-2 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="showDuration" class="ms-2 text-gray-400">{{ formatDuration }}</span>
     </div>
     
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed" class="mt-2 ml-4 space-y-3">
+      <div v-if="!isCollapsed" class="mt-2 ms-4 space-y-3">
         <!-- Input arguments - Full Display -->
         <div v-if="hasInput">
           <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Input</div>

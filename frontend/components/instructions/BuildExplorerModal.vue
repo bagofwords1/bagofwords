@@ -20,7 +20,7 @@
             <!-- Two-pane layout -->
             <div class="flex h-[600px]">
                 <!-- Left Pane: Builds List -->
-                <div class="w-56 border-r border-gray-200 flex flex-col bg-gray-50/50">
+                <div class="w-56 border-e border-gray-200 flex flex-col bg-gray-50/50">
                     <div class="px-2 py-2 border-b border-gray-200 bg-white relative" ref="dsFilterRef">
                         <button
                             @click="dsFilterDropdownOpen = !dsFilterDropdownOpen"
@@ -32,7 +32,7 @@
                                 class="h-4 flex-shrink-0"
                             />
                             <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                            <span class="truncate flex-1 text-left font-medium text-gray-900">
+                            <span class="truncate flex-1 text-start font-medium text-gray-900">
                                 {{ selectedDsFilter ? (selectedDsFilter as any).name : 'All data sources' }}
                             </span>
                             <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 flex-shrink-0" />
@@ -47,11 +47,11 @@
                         >
                             <div
                                 v-if="dsFilterDropdownOpen"
-                                class="absolute z-20 mt-1 left-2 right-2 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden max-h-64 overflow-y-auto"
+                                class="absolute z-20 mt-1 start-2 end-2 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden max-h-64 overflow-y-auto"
                             >
                                 <button
                                     @click="dsFilterId = null; dsFilterDropdownOpen = false"
-                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-left"
+                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-start"
                                 >
                                     <Icon name="heroicons:funnel" class="w-4 h-4 text-gray-400 flex-shrink-0" />
                                     <span class="truncate flex-1 font-medium">All data sources</span>
@@ -61,7 +61,7 @@
                                     v-for="d in agentDomains"
                                     :key="d.id"
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
-                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-left border-t border-gray-100"
+                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-start border-t border-gray-100"
                                 >
                                     <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" class="h-4 flex-shrink-0" />
                                     <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
@@ -88,8 +88,8 @@
                             v-for="build in builds"
                             :key="build.id"
                             @click="selectBuild(build)"
-                            class="w-full px-3 py-2 text-left border-b border-gray-100 hover:bg-white transition-colors"
-                            :class="{ 'bg-white border-l-2 border-l-blue-500': selectedBuild?.id === build.id }"
+                            class="w-full px-3 py-2 text-start border-b border-gray-100 hover:bg-white transition-colors"
+                            :class="{ 'bg-white border-s-2 border-s-blue-500': selectedBuild?.id === build.id }"
                         >
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-1.5 min-w-0">
@@ -396,25 +396,25 @@
                                     <!-- Inline expansion: full text / before-after -->
                                     <div
                                         v-if="isDiffItemExpanded(item.instruction_id)"
-                                        class="mt-2 ml-10 text-[11px]"
+                                        class="mt-2 ms-10 text-[11px]"
                                     >
                                         <template v-if="item.change_type === 'modified'">
                                             <div class="space-y-1.5">
                                                 <div>
                                                     <div class="text-[9px] font-medium uppercase tracking-wide text-red-600 mb-0.5">Before</div>
-                                                    <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-l-2 border-l-red-300 pl-2 py-1 text-gray-700 font-sans">{{ item.previous_text || '(empty)' }}</pre>
+                                                    <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-s-2 border-s-red-300 ps-2 py-1 text-gray-700 font-sans">{{ item.previous_text || '(empty)' }}</pre>
                                                 </div>
                                                 <div>
                                                     <div class="text-[9px] font-medium uppercase tracking-wide text-green-600 mb-0.5">After</div>
-                                                    <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-l-2 border-l-green-300 pl-2 py-1 text-gray-700 font-sans">{{ item.text || '(empty)' }}</pre>
+                                                    <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-s-2 border-s-green-300 ps-2 py-1 text-gray-700 font-sans">{{ item.text || '(empty)' }}</pre>
                                                 </div>
                                             </div>
                                         </template>
                                         <template v-else-if="item.change_type === 'added'">
-                                            <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-l-2 border-l-green-300 pl-2 py-1 text-gray-700 font-sans">{{ item.text }}</pre>
+                                            <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-s-2 border-s-green-300 ps-2 py-1 text-gray-700 font-sans">{{ item.text }}</pre>
                                         </template>
                                         <template v-else>
-                                            <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-l-2 border-l-red-300 pl-2 py-1 text-gray-700 font-sans">{{ item.previous_text || item.text }}</pre>
+                                            <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-s-2 border-s-red-300 ps-2 py-1 text-gray-700 font-sans">{{ item.previous_text || item.text }}</pre>
                                         </template>
                                     </div>
                                 </div>
@@ -679,7 +679,7 @@
                     This instruction is part of a build pending approval. Changes here will update the pending build — they won't go live until the build is published.
                     <button
                         @click="closeEditInstruction"
-                        class="ml-1 font-medium text-amber-900 underline hover:text-amber-950"
+                        class="ms-1 font-medium text-amber-900 underline hover:text-amber-950"
                     >
                         View build #{{ selectedBuild.build_number }}
                     </button>

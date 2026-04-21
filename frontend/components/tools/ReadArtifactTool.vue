@@ -2,11 +2,11 @@
   <div class="mb-2">
     <!-- Main Header -->
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'success'" name="heroicons-document-text" class="w-3 h-3 mr-1.5 text-blue-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'success'" name="heroicons-document-text" class="w-3 h-3 me-1.5 text-blue-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">Reading artifact...</span>
       <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
@@ -18,7 +18,7 @@
       <span
         v-if="artifactMode && status === 'success'"
         :class="[
-          'ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
+          'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
           artifactMode === 'slides'
             ? 'bg-purple-100 text-purple-700'
             : 'bg-blue-100 text-blue-700'
@@ -28,19 +28,19 @@
       </span>
 
       <!-- Version Badge -->
-      <span v-if="artifactVersion && status === 'success'" class="ml-1 text-[10px] text-gray-400">
+      <span v-if="artifactVersion && status === 'success'" class="ms-1 text-[10px] text-gray-400">
         v{{ artifactVersion }}
       </span>
     </div>
 
     <!-- Error message -->
-    <div v-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
+    <div v-if="status === 'error' && errorMessage" class="mt-1 ms-4 text-xs text-gray-500">
       {{ errorMessage }}
     </div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && status === 'success'" class="mt-2 ml-4 space-y-2">
+      <div v-if="!isCollapsed && status === 'success'" class="mt-2 ms-4 space-y-2">
         <!-- Artifact Info Card -->
         <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 max-w-xs">
           <div
@@ -80,10 +80,10 @@
             class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
             @click.stop="toggleCode"
           >
-            <Icon :name="isCodeExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1 text-gray-400" />
-            <Icon name="heroicons-code-bracket" class="w-3 h-3 mr-1 text-gray-400" />
+            <Icon :name="isCodeExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400" />
+            <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1 text-gray-400" />
             <span>{{ isCodeExpanded ? 'Hide code' : 'Show code' }}</span>
-            <span class="ml-1 text-gray-400">({{ codeLines }} lines)</span>
+            <span class="ms-1 text-gray-400">({{ codeLines }} lines)</span>
           </div>
 
           <!-- Code Preview -->

@@ -4,13 +4,13 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           Searching instructions for {{ queryLabel }}…
         </span>
         <span v-else class="text-gray-700 flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">Searched instructions for {{ queryLabel }}</span>
-          <span v-if="total > 0" class="ml-1.5 text-[10px] text-gray-400">· {{ total }} match{{ total === 1 ? '' : 'es' }}</span>
+          <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total }} match{{ total === 1 ? '' : 'es' }}</span>
         </span>
       </div>
     </Transition>
@@ -18,7 +18,7 @@
     <!-- Results list -->
     <Transition name="fade" appear>
       <div v-if="instructions.length" class="text-xs text-gray-600">
-        <ul class="ml-1 space-y-1 leading-snug">
+        <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(item, idx) in instructions" :key="item.id || idx">
             <!-- Header row -->
             <div
@@ -26,20 +26,20 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 mr-1" />
-              <Icon name="heroicons-cube" class="w-3 h-3 mr-1 text-indigo-400 flex-shrink-0" />
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1" />
+              <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
               <div class="font-medium text-gray-700 truncate">
                 {{ displayTitle(item) }}
               </div>
-              <span v-if="item.category" class="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{{ item.category }}</span>
-              <span v-if="item.load_mode" class="ml-1 text-[9px] px-1 py-0.5 rounded flex-shrink-0"
+              <span v-if="item.category" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{{ item.category }}</span>
+              <span v-if="item.load_mode" class="ms-1 text-[9px] px-1 py-0.5 rounded flex-shrink-0"
                 :class="item.load_mode === 'always' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'">
                 {{ item.load_mode }}
               </span>
             </div>
             <!-- Detail row -->
             <Transition name="fade">
-              <div v-if="isExpanded(idx)" class="pl-6 pr-1 pb-2">
+              <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-2">
                 <div class="instruction-content text-[12px] text-gray-700 leading-relaxed mb-1 cursor-pointer hover:text-gray-900"
                      @click="emit('openInstruction', item.id)">
                   <MDC :value="item.text || ''" class="markdown-content" />
@@ -59,7 +59,7 @@
     </Transition>
 
     <!-- Empty state (after search completes with no results) -->
-    <div v-if="status !== 'running' && !instructions.length" class="text-xs text-gray-400 ml-1">
+    <div v-if="status !== 'running' && !instructions.length" class="text-xs text-gray-400 ms-1">
       No matching instructions found.
     </div>
   </div>

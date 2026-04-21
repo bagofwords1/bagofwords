@@ -22,7 +22,7 @@
           class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors bg-white/80"
         >
           <DataSourceIcon v-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" class="h-5 flex-shrink-0" />
-          <span class="truncate flex-1 text-left font-medium text-gray-900">
+          <span class="truncate flex-1 text-start font-medium text-gray-900">
             {{ selectedAgent?.name || 'Select agent' }}
           </span>
           <Icon name="heroicons:chevron-down" class="w-4 h-4 text-gray-400 flex-shrink-0 transition-transform" :class="{ 'rotate-180': dropdownOpen }" />
@@ -44,7 +44,7 @@
               :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'"
             >
               <DataSourceIcon :type="agent.type || agent.connections?.[0]?.type" class="h-4 flex-shrink-0" />
-              <span class="truncate flex-1 text-left font-medium">{{ agent.name }}</span>
+              <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
               <Icon v-if="selectedAgentId === agent.id" name="heroicons:check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             </button>
           </div>
@@ -68,7 +68,7 @@
           ]"
         >
           {{ tab.label }}
-          <span v-if="tab.count > 0" class="ml-1 text-[10px] text-gray-400">({{ tab.count }})</span>
+          <span v-if="tab.count > 0" class="ms-1 text-[10px] text-gray-400">({{ tab.count }})</span>
         </button>
       </nav>
     </div>
@@ -132,12 +132,12 @@
               <!-- Filters -->
               <div class="flex flex-col gap-2 mb-3">
                 <div class="relative">
-                  <Icon name="heroicons:magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                  <Icon name="heroicons:magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
                   <input
                     v-model="instructionSearch"
                     type="text"
                     placeholder="Search..."
-                    class="w-full pl-7 pr-2 py-1.5 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300"
+                    class="w-full ps-7 pe-2 py-1.5 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300"
                   />
                 </div>
                 <div class="flex items-center gap-2">
@@ -151,12 +151,12 @@
                       <span v-else class="truncate max-w-[100px]">{{ instructionStatusFilter.map(s => helpers.formatStatus(s)).join(', ') }}</span>
                       <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': statusDropdownOpen }" />
                     </button>
-                    <div v-if="statusDropdownOpen" class="absolute z-20 mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[120px]">
+                    <div v-if="statusDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[120px]">
                       <button
                         v-for="s in instructionStatuses"
                         :key="s"
                         @click.stop="toggleStatusFilter(s)"
-                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-left"
+                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
                       >
                         <span
                           class="w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0"
@@ -169,7 +169,7 @@
                       <button
                         v-if="instructionStatusFilter.length > 0"
                         @click.stop="instructionStatusFilter = []"
-                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-left font-medium"
+                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-start font-medium"
                       >
                         Clear all
                       </button>
@@ -185,12 +185,12 @@
                       <span v-else class="truncate max-w-[100px]">{{ instructionCategoryFilter.map(c => helpers.formatCategory(c)).join(', ') }}</span>
                       <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': categoryDropdownOpen }" />
                     </button>
-                    <div v-if="categoryDropdownOpen" class="absolute z-20 mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[140px]">
+                    <div v-if="categoryDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[140px]">
                       <button
                         v-for="cat in instructionCategories"
                         :key="cat"
                         @click.stop="toggleCategoryFilter(cat)"
-                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-left"
+                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
                       >
                         <span
                           class="w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0"
@@ -203,7 +203,7 @@
                       <button
                         v-if="instructionCategoryFilter.length > 0"
                         @click.stop="instructionCategoryFilter = []"
-                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-left font-medium"
+                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-start font-medium"
                       >
                         Clear all
                       </button>
@@ -214,7 +214,7 @@
                     size="xs"
                     color="blue"
                     icon="i-heroicons-plus"
-                    class="ml-auto"
+                    class="ms-auto"
                     @click="creatingInstruction = true"
                   >
                     {{ canCreateInstructions ? 'Create' : 'Suggest' }}
@@ -230,7 +230,7 @@
                   v-for="inst in filteredInstructions"
                   :key="inst.id"
                   @click="selectedInstruction = inst"
-                  class="w-full px-3 py-2.5 text-left text-xs flex items-start gap-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                  class="w-full px-3 py-2.5 text-start text-xs flex items-start gap-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
                 >
                   <div class="flex-1 min-w-0">
                     <!-- Title or text preview -->
@@ -319,7 +319,7 @@
               v-for="entity in queries"
               :key="entity.id"
               :href="`/queries/${entity.id}`"
-              class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
@@ -351,7 +351,7 @@
               v-for="tc in evals"
               :key="tc.id"
               :href="`/evals`"
-              class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">

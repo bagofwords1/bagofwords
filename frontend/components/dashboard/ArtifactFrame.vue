@@ -29,7 +29,7 @@
               <div class="flex flex-col gap-0.5 w-full">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-medium text-gray-900 truncate">{{ option.artifact.title || 'Untitled' }}</span>
-                  <span class="text-[10px] text-gray-400 ml-2">v{{ option.artifact.version }}</span>
+                  <span class="text-[10px] text-gray-400 ms-2">v{{ option.artifact.version }}</span>
                 </div>
                 <div class="flex items-center justify-between text-[10px] text-gray-400">
                   <span>{{ formatRelativeTime(option.artifact.created_at) }}</span>
@@ -192,7 +192,7 @@
       <!-- Polish Mode Button -->
       <div
         v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError"
-        class="absolute bottom-4 left-4 z-20"
+        class="absolute bottom-4 start-4 z-20"
       >
         <button
           @click="togglePolishMode"
@@ -217,7 +217,7 @@
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
           <span class="text-xs font-medium text-gray-700">Polish this element</span>
-          <button @click="cancelPolishPrompt" class="ml-auto text-gray-400 hover:text-gray-600">
+          <button @click="cancelPolishPrompt" class="ms-auto text-gray-400 hover:text-gray-600">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>

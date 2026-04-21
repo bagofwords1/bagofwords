@@ -1,7 +1,7 @@
 <template>
 
   <div class="min-h-screen py-10 px-4 md:w-1/2 mx-auto text-sm">
-      <div class="w-full px-4 pl-0 py-4">
+      <div class="w-full px-4 ps-0 py-4">
       <div>
         <h1 class="text-lg font-semibold text-center">Create Data Agent</h1>
         <p class="mt-4 text-gray-500 text-center">Set data source, select tables, and define additional context</p>
@@ -23,7 +23,7 @@
             </div>
           </div>
           <div v-if="instructionsExpanded" class="">
-            <div class="text-left mb-4">
+            <div class="text-start mb-4">
               <p class="text-sm mt-4 text-gray-500">Custom instructions are great for business-specific context, glossary and useful code guidelines/snippets.</p>
             </div>
             <div class="space-y-3">
@@ -33,10 +33,10 @@
               </div>
               <div v-else>
                 <div v-for="instruction in suggestedInstructions" :key="instruction.id" class="hover:bg-gray-50 bg-white mt-2 border border-gray-200 rounded-md p-3 relative">
-                  <div class="text-[12px] text-gray-800 leading-relaxed pr-24 break-words">
+                  <div class="text-[12px] text-gray-800 leading-relaxed pe-24 break-words">
                     {{ instruction.text }}
                   </div>
-                  <div class="absolute top-2 right-2 flex items-center gap-2">
+                  <div class="absolute top-2 end-2 flex items-center gap-2">
                     <template v-if="instructionAction[instruction.id]">
                       <span class="px-2 py-0.5 text-[11px] rounded-full border" :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'">
                         {{ instructionAction[instruction.id] === 'approved' ? 'Approved' : 'Removed' }}
@@ -72,7 +72,7 @@
 
           </div>
           <div v-if="enrichmentExpanded" class="">
-            <div class="text-left mb-4 mt-5">
+            <div class="text-start mb-4 mt-5">
               <p class="text-sm text-gray-500 leading-relaxed">
 
                 Connect additional context from Tableau, dbt, LookML, code, and markdown files to your data sources. It will be used by AI agents to throught out data analysis. 

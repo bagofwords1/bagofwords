@@ -4,7 +4,7 @@
       ref="inputRef"
       contenteditable="true"
       :class="[
-        'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-left',
+        'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-start',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
       ]"
       :style="{ minHeight: minHeight, maxHeight: maxHeight, overflowY: 'auto' }"
@@ -18,11 +18,11 @@
     <div 
       v-if="showDropdown" 
       ref="dropdownRef"
-      class="absolute z-50 w-80 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-md text-left"
+      class="absolute z-50 w-80 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-md text-start"
       :style="dropdownStyle"
     >
       <!-- Loading state -->
-      <div v-if="isLoadingMentions" class="p-2 text-left text-xs text-gray-500 flex items-center gap-2">
+      <div v-if="isLoadingMentions" class="p-2 text-start text-xs text-gray-500 flex items-center gap-2">
         <Spinner class="w-3 h-3" />
         <span>Loading…</span>
       </div>
@@ -116,7 +116,7 @@
               class="px-1.5 py-0.5 bg-white rounded border text-[11px] text-gray-700"
             >
               {{ typeof col === 'string' ? col : (col as any).name }}
-              <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ml-1">({{ (col as any).dtype }})</span>
+              <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
             </span>
             <span v-if="!(expandedItem?.columns || []).length" class="text-[12px] text-gray-400">No columns.</span>
           </div>
@@ -131,7 +131,7 @@
               <table class="min-w-full text-[11px]">
                 <thead class="bg-gray-50 sticky top-0 border-b">
                   <tr>
-                    <th v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-left font-medium text-gray-700">{{ col }}</th>
+                    <th v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-start font-medium text-gray-700">{{ col }}</th>
                   </tr>
                 </thead>
                 <tbody>

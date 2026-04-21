@@ -71,7 +71,7 @@
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Category:</span>
                         <div class="inline-flex items-center text-gray-700">
-                            <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 mr-1" />
+                            <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 me-1" />
                             {{ formatCategory(instructionForm.category) }}
                         </div>
                     </div>
@@ -80,7 +80,7 @@
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Loading:</span>
                         <div class="inline-flex items-center text-gray-700">
-                            <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 mr-1" />
+                            <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 me-1" />
                             {{ getLoadModeLabel(instructionForm.load_mode) }}
                         </div>
                     </div>
@@ -157,11 +157,11 @@
                         @click="confirmDelete"
                         :loading="isDeleting"
                     >
-                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 mr-1" />
+                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 me-1" />
                         Delete
                     </UButton>
 
-                    <div class="flex gap-2 ml-auto">
+                    <div class="flex gap-2 ms-auto">
                         <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
                             Close
                         </UButton>
@@ -171,7 +171,7 @@
                             color="blue"
                             @click="isViewMode = false"
                         >
-                            <Icon name="heroicons:pencil" class="w-3.5 h-3.5 mr-1" />
+                            <Icon name="heroicons:pencil" class="w-3.5 h-3.5 me-1" />
                             {{ isSuggestMode ? 'Suggest edit' : 'Edit' }}
                         </UButton>
                     </div>
@@ -299,7 +299,7 @@ Tip: Type @ to reference other instructions"
                                 :key="item.id"
                                 type="button"
                                 :data-mention-idx="index"
-                                class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
+                                class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
                                 :class="{ 'bg-blue-50': index === mentionState.selectedIndex }"
                                 @mousedown.prevent="selectMention(item)"
                             >
@@ -413,7 +413,7 @@ Tip: Type @ to reference other instructions"
                     >
                         <template #label>
                             <div class="inline-flex items-center text-xs text-gray-700">
-                                <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 mr-1" />
+                                <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 me-1" />
                                 {{ formatCategory(instructionForm.category) }}
                             </div>
                         </template>
@@ -437,7 +437,7 @@ Tip: Type @ to reference other instructions"
                     >
                         <template #label>
                             <div class="inline-flex items-center text-xs text-gray-700">
-                                <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 mr-1" />
+                                <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 me-1" />
                                 {{ getLoadModeLabel(instructionForm.load_mode) }}
                             </div>
                         </template>
@@ -447,7 +447,7 @@ Tip: Type @ to reference other instructions"
                                     <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
                                     <span class="text-xs font-medium">{{ option.label }}</span>
                                 </div>
-                                <span class="text-[10px] text-gray-500 ml-4">{{ option.description }}</span>
+                                <span class="text-[10px] text-gray-500 ms-4">{{ option.description }}</span>
                             </div>
                         </template>
                     </USelectMenu>
@@ -489,7 +489,7 @@ Tip: Type @ to reference other instructions"
                                 @mousedown.prevent
                                 @click.stop="openAddLabelModal"
                             >
-                                <Icon name="heroicons:plus" class="w-2.5 h-2.5 mr-1" />
+                                <Icon name="heroicons:plus" class="w-2.5 h-2.5 me-1" />
                                 <span class="text-[11px] font-medium">Add label</span>
                             </div>
                             <div v-else class="flex items-center w-full py-0.5 gap-1">
@@ -553,10 +553,10 @@ Tip: Type @ to reference other instructions"
                         </template>
                         <template #option="{ option }">
                             <div class="flex items-center w-full py-0.5">
-                                <div v-if="option.id === 'all'" class="flex -space-x-1 mr-1.5">
+                                <div v-if="option.id === 'all'" class="flex -space-x-1 me-1.5">
                                     <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 border border-white rounded" />
                                 </div>
-                                <DataSourceIcon v-else :type="option.type" class="h-3 mr-1.5" />
+                                <DataSourceIcon v-else :type="option.type" class="h-3 me-1.5" />
                                 <span class="text-xs">{{ option.name }}</span>
                             </div>
                         </template>
@@ -617,11 +617,11 @@ Tip: Type @ to reference other instructions"
                         @click="confirmDelete"
                         :loading="isDeleting"
                     >
-                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 mr-1" />
+                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 me-1" />
                         Delete
                     </UButton>
 
-                    <div class="flex gap-2" :class="{ 'ml-auto': !(isEditing && canDeleteInstructions) }">
+                    <div class="flex gap-2" :class="{ 'ms-auto': !(isEditing && canDeleteInstructions) }">
                         <UButton v-if="isEditing" color="gray" variant="ghost" size="xs" @click="cancelEdit">
                             Cancel
                         </UButton>

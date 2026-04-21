@@ -2,11 +2,11 @@
   <div class="mb-2">
     <!-- Main Header -->
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
@@ -18,7 +18,7 @@
       <span
         v-if="artifactMode"
         :class="[
-          'ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
+          'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
           artifactMode === 'slides'
             ? 'bg-purple-100 text-purple-700'
             : 'bg-blue-100 text-blue-700'
@@ -27,18 +27,18 @@
         {{ artifactMode === 'slides' ? 'Slides' : 'Dashboard' }}
       </span>
 
-      <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
     <!-- Expanded content -->
     <template v-if="!isCollapsed">
       <!-- Plan prompt -->
-      <div v-if="artifactPrompt" class="mt-0.5 ml-[18px] text-xs text-gray-400 max-w-lg">
+      <div v-if="artifactPrompt" class="mt-0.5 ms-[18px] text-xs text-gray-400 max-w-lg">
         <span>Plan: </span>
         <span :class="{ 'line-clamp-1': !promptExpanded }">{{ artifactPrompt }}</span>
         <button
           v-if="artifactPrompt.length > 80"
-          class="ml-1 text-blue-400 hover:text-blue-600 text-[11px]"
+          class="ms-1 text-blue-400 hover:text-blue-600 text-[11px]"
           @click="promptExpanded = !promptExpanded"
         >
           {{ promptExpanded ? 'less' : 'more' }}
@@ -46,7 +46,7 @@
       </div>
 
       <!-- Resolved viz badges -->
-      <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ml-[18px] flex flex-wrap gap-1">
+      <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ms-[18px] flex flex-wrap gap-1">
         <span
           v-for="viz in resolvedVisualizations"
           :key="viz.id"
@@ -57,13 +57,13 @@
       </div>
 
       <!-- Stopped/Error message -->
-      <div v-if="status === 'stopped'" class="mt-1 ml-[18px] text-xs text-gray-400 italic">Generation stopped</div>
-      <div v-else-if="status === 'error' && errorMessage" class="mt-1 ml-[18px] text-xs text-gray-500">
+      <div v-if="status === 'stopped'" class="mt-1 ms-[18px] text-xs text-gray-400 italic">Generation stopped</div>
+      <div v-else-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500">
         {{ errorMessage }}
       </div>
 
       <!-- Progress stages -->
-      <div v-if="status === 'running'" class="mt-1 ml-[18px]">
+      <div v-if="status === 'running'" class="mt-1 ms-[18px]">
         <!-- Slides mode -->
         <div v-if="artifactMode === 'slides' && slideProgress.length > 0" class="space-y-1">
           <div class="text-xs text-gray-400 mb-1">Slides:</div>
@@ -88,7 +88,7 @@
         <div v-else class="text-xs text-gray-400">
           <div v-if="progressStage === 'generating' || progressStage === 'generating_code'">
             <span>Generating code...</span>
-            <span v-if="progressChars" class="ml-1 text-gray-300">({{ progressChars }} chars)</span>
+            <span v-if="progressChars" class="ms-1 text-gray-300">({{ progressChars }} chars)</span>
           </div>
           <div v-else-if="progressStage === 'validating'" class="flex items-center gap-1.5">
             <span>Validating</span>
@@ -100,7 +100,7 @@
               <span>Fixing errors</span>
               <span class="text-gray-300">(attempt {{ validationAttempt }}/{{ validationMaxAttempts }})</span>
             </div>
-            <div v-if="fixingErrors.length > 0" class="ml-4 text-[10px] text-gray-400 space-y-0.5">
+            <div v-if="fixingErrors.length > 0" class="ms-4 text-[10px] text-gray-400 space-y-0.5">
               <div v-for="(err, idx) in fixingErrors.slice(0, 2)" :key="idx" class="truncate max-w-xs">{{ err }}</div>
             </div>
           </div>
@@ -110,7 +110,7 @@
       </div>
 
       <!-- Confirmation card -->
-      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ml-[18px] rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
         <div class="text-xs font-medium text-gray-700">Confirm artifact creation</div>
         <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
           <span
@@ -135,7 +135,7 @@
       <!-- Preview Card -->
       <div
         v-if="(status === 'success' && createdArtifact) || status === 'running'"
-        class="mt-1.5 ml-[18px] cursor-pointer group"
+        class="mt-1.5 ms-[18px] cursor-pointer group"
         @click="openArtifact"
       >
       <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all max-w-xs">

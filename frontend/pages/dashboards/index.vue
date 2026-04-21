@@ -1,6 +1,6 @@
 <template>
-    <div class="flex justify-center pl-2 md:pl-4 text-sm">
-        <div class="w-full max-w-7xl px-4 pl-0 py-2">
+    <div class="flex justify-center ps-2 md:ps-4 text-sm">
+        <div class="w-full max-w-7xl px-4 ps-0 py-2">
             <div>
                 <h1 class="text-lg font-semibold">
                     <GoBackChevron v-if="isExcel" />
@@ -18,11 +18,11 @@
                                 v-model="searchTerm"
                                 type="text"
                                 placeholder="Search dashboards..."
-                                class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                             <UIcon
                                 name="i-heroicons-magnifying-glass"
-                                class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                                class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
                             />
                         </div>
                     </div>

@@ -19,7 +19,7 @@
                     <!-- Query dropdown on hover — pad-bridge eliminates the gap -->
                     <div
                         v-if="showQueryDropdown"
-                        class="absolute left-0 bottom-full w-72 z-20"
+                        class="absolute start-0 bottom-full w-72 z-20"
                     >
                         <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
                             <div
@@ -51,7 +51,7 @@
                     </button>
                     <div
                         v-if="showScheduledDropdown"
-                        class="absolute left-0 bottom-full w-80 z-20"
+                        class="absolute start-0 bottom-full w-80 z-20"
                     >
                         <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
                             <div
@@ -90,7 +90,7 @@
                     </button>
                     <div
                         v-if="showTrainingDropdown"
-                        class="absolute left-0 bottom-full w-80 z-20"
+                        class="absolute start-0 bottom-full w-80 z-20"
                     >
                         <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
                             <div
@@ -107,7 +107,7 @@
                                     />
                                     <span class="text-xs text-gray-700 truncate">{{ inst.title }}</span>
                                 </div>
-                                <div class="flex items-center gap-2 mt-0.5 ml-[18px]">
+                                <div class="flex items-center gap-2 mt-0.5 ms-[18px]">
                                     <span v-if="inst.category" class="text-[10px] text-gray-400">{{ inst.category }}</span>
                                     <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
                                 </div>
@@ -135,7 +135,7 @@
             >
                 <span class="text-green-500">●</span>
                 <span class="truncate max-w-[160px]">{{ excelSelectionLabel }}</span>
-                <span class="text-gray-300 hover:text-gray-500 ml-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
+                <span class="text-gray-300 hover:text-gray-500 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
 
@@ -169,7 +169,7 @@
                         : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
                     @click="openInstructions"
                 >
-                    <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 mr-1.5' : 'w-4 h-4 mr-1.5'" />
+                    <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 me-1.5' : 'w-4 h-4 me-1.5'" />
                     Instructions
                 </button>
                 <div
@@ -231,7 +231,7 @@
                     <!-- Remove button -->
                     <button
                         @click="removeInlineFile(file)"
-                        class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gray-700 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-900"
+                        class="absolute -top-1.5 -end-1.5 w-5 h-5 rounded-full bg-gray-700 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-900"
                         :disabled="file.status === 'processing'"
                     >
                         <Icon name="heroicons-x-mark" class="w-3 h-3" />
@@ -250,7 +250,7 @@
                     <span class="truncate max-w-[150px]">{{ file.filename }}</span>
                     <button
                         @click="removeInlineFile(file)"
-                        class="ml-0.5 p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="ms-0.5 p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
                         :disabled="file.status === 'processing'"
                     >
                         <Icon name="heroicons-x-mark" class="w-3 h-3" />
@@ -274,28 +274,28 @@
                                 :class="mode === 'training' ? 'text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'"
                             >
                                 <Icon :name="modeIcon" class="w-4 h-4" />
-                                <span v-if="!isCompactPrompt" class="ml-1">{{ modeLabel }}</span>
+                                <span v-if="!isCompactPrompt" class="ms-1">{{ modeLabel }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
                             <div class="p-2 text-xs">
                                 <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between w-[180px]" @click="() => { selectMode('chat'); close(); }">
                                     <div class="flex items-center">
-                                        <Icon name="heroicons-chat-bubble-left-right" class="w-4 h-4 mr-2" />
+                                        <Icon name="heroicons-chat-bubble-left-right" class="w-4 h-4 me-2" />
                                         Chat
                                     </div>
                                     <Icon v-if="mode === 'chat'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
                                 <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('deep'); close(); }">
                                     <div class="flex items-center">
-                                        <Icon name="heroicons-light-bulb" class="w-4 h-4 mr-2" />
+                                        <Icon name="heroicons-light-bulb" class="w-4 h-4 me-2" />
                                         Deep Analytics
                                     </div>
                                     <Icon v-if="mode === 'deep'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
                                 <div v-if="canUseTrainingMode" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('training'); close(); }">
                                     <div class="flex items-center">
-                                        <Icon name="heroicons-academic-cap" class="w-4 h-4 mr-2" />
+                                        <Icon name="heroicons-academic-cap" class="w-4 h-4 me-2" />
                                         Training
                                     </div>
                                     <Icon v-if="mode === 'training'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
@@ -308,7 +308,7 @@
                 <div class="flex items-center space-x-0.5">
                     <div v-if="props.showContextIndicator" class="flex items-center">
                         <UTooltip :text="contextEstimateTooltip || (isLoadingContextEstimate ? 'Estimating...' : 'Estimate unavailable')" :popper="{ placement: 'top', strategy: 'fixed' }">
-                            <button class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors mr-0.5"
+                            <button class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
                                 :disabled="isLoadingContextEstimate">
                                 <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-gray-400" />
                                 <UIcon
@@ -338,20 +338,20 @@
                         <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
                             <button class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
                                 <Icon name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
-                                <span v-if="!isCompactPrompt" class="ml-1 truncate">{{ selectedModelLabel }}</span>
+                                <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
                             <div class="p-2 text-xs max-h-64 overflow-y-auto w-[200px]">
                                 <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
-                                    <div class="mr-2">
+                                    <div class="me-2">
                                         <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                                     </div>
-                                    <div class="flex flex-col flex-1 text-left min-w-0">
+                                    <div class="flex flex-col flex-1 text-start min-w-0">
                                         <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
                                         <span class="text-gray-500 text-[10px] truncate">{{ m.provider?.name }}</span>
                                     </div>
-                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ml-2 flex-shrink-0" />
+                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                                 </div>
                             </div>
                         </template>
@@ -360,7 +360,7 @@
                     <!-- Send / Stop -->
                     <button
                         v-if="latestInProgressCompletion"
-                        class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
+                        class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
                         :disabled="isStopping"
                         @click="$emit('stopGeneration')"
                     >
@@ -368,7 +368,7 @@
                     </button>
                     <UTooltip v-else-if="!props.hideSubmitButton" :text="submitTooltip" :popper="{ strategy: 'fixed', placement: 'top' }" :disabled="canSubmit">
                         <button
-                            class="text-white w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
+                            class="text-white w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
                             :class="canSubmit ? (mode === 'training' ? 'bg-sky-500 hover:cursor-pointer hover:bg-sky-600' : 'bg-gray-700 hover:cursor-pointer hover:bg-black') : 'bg-gray-300 cursor-not-allowed'"
                             :disabled="!canSubmit"
                             @click="submit"

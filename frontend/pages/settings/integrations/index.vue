@@ -14,7 +14,7 @@
       @click="showSlackModal = true"
     >
       <div class="flex items-center">
-        <img src="/icons/slack.png" alt="Slack" class="w-8 h-8 mr-4" />
+        <img src="/icons/slack.png" alt="Slack" class="w-8 h-8 me-4" />
         <div>
           <div class="font-medium">Slack</div>
           <div class="text-sm text-gray-500">
@@ -27,7 +27,7 @@
           </div>
           <div v-if="slackConfig && slackIntegrated" class="text-xs text-gray-400 mt-1">
             <span>Workspace: {{ slackConfig.team_name }}</span>
-            <span class="ml-2">ID: {{ slackConfig.team_id }}</span>
+            <span class="ms-2">ID: {{ slackConfig.team_id }}</span>
           </div>
         </div>
       </div>
@@ -45,7 +45,7 @@
       @click="showTeamsModal = true"
     >
       <div class="flex items-center">
-        <img src="/icons/teams.png" alt="Teams" class="w-8 h-8 mr-4" />
+        <img src="/icons/teams.png" alt="Teams" class="w-8 h-8 me-4" />
         <div>
           <div class="font-medium">Microsoft Teams</div>
           <div class="text-sm text-gray-500">
@@ -75,7 +75,7 @@
       @click="showWhatsAppModal = true"
     >
       <div class="flex items-center">
-        <img src="/icons/whatsapp.png" alt="WhatsApp" class="w-8 h-8 mr-4" />
+        <img src="/icons/whatsapp.png" alt="WhatsApp" class="w-8 h-8 me-4" />
         <div>
           <div class="font-medium">WhatsApp</div>
           <div class="text-sm text-gray-500">
@@ -88,7 +88,7 @@
           </div>
           <div v-if="whatsappConfig && whatsappIntegrated" class="text-xs text-gray-400 mt-1">
             <span>{{ whatsappConfig.verified_name || 'Business' }}</span>
-            <span class="ml-2">{{ whatsappConfig.display_phone_number }}</span>
+            <span class="ms-2">{{ whatsappConfig.display_phone_number }}</span>
           </div>
         </div>
       </div>
@@ -107,7 +107,7 @@
       @click="showExcelModal = true"
     >
       <div class="flex items-center">
-        <img src="/data_sources_icons/excel.png" alt="Excel" class="w-8 h-8 mr-4" />
+        <img src="/data_sources_icons/excel.png" alt="Excel" class="w-8 h-8 me-4" />
         <div>
           <div class="font-medium">Excel Add-in</div>
           <div class="text-sm text-gray-500">
@@ -128,7 +128,7 @@
       class="flex items-center justify-between p-4 border rounded-lg"
     >
       <div class="flex items-center">
-        <McpIcon class="w-8 h-8 mr-4 text-gray-700" />
+        <McpIcon class="w-8 h-8 me-4 text-gray-700" />
         <div>
           <div class="font-medium">BOW MCP Server</div>
           <div class="text-sm text-gray-500">

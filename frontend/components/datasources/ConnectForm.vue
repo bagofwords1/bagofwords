@@ -17,7 +17,7 @@
           <div v-for="field in configFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
             <div class="mb-1">
               <label :for="field.field_name" class="text-xs text-gray-700">{{ field.title || field.field_name }}</label>
-              <span v-if="field.description" class="text-xs text-gray-400 ml-3">{{ field.description }}</span>
+              <span v-if="field.description" class="text-xs text-gray-400 ms-3">{{ field.description }}</span>
             </div>
             <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
             <input v-else-if="field.type === 'integer' || field.type === 'number' || uiType(field) === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />

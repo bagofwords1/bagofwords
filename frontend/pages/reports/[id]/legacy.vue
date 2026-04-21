@@ -12,11 +12,11 @@
                 transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }">
 
-    <header class="sticky top-0 bg-white z-10 flex flex-row pt-1 h-[40px] border-gray-200 pb-1 pr-2" >
+    <header class="sticky top-0 bg-white z-10 flex flex-row pt-1 h-[40px] border-gray-200 pb-1 pe-2" >
         <GoBackChevron />
-        <h1 class="text-sm md:text-left text-center mt-1 w-[500px]">
+        <h1 class="text-sm md:text-start text-center mt-1 w-[500px]">
             <span class="font-semibold text-sm">
-                <input type="text" class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-left w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]" v-if="report"
+                <input type="text" class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-start w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]" v-if="report"
                     :class="{ 'animate-fade-in': shouldAnimateTitle }"
                     v-model="report.title" @keyup.enter="saveReportTitle" ref="reportTitleInput" />
             </span>
@@ -24,7 +24,7 @@
         <div class="gap-1 hidden md:flex justify-end flex-1">
             <button @click="toggleSplitScreen" class="p-1.5 rounded text-xl hover:bg-gray-100 flex items-center">
                 <span class="inline-flex items-center">
-                    <Icon name="heroicons:chart-pie" class="inline-block mr-2" /> 
+                    <Icon name="heroicons:chart-pie" class="inline-block me-2" /> 
                 </span>
                 <span class="text-sm"
                 :class="isSplitScreen ? 'hidden' : 'inline'"
@@ -34,8 +34,8 @@
                 <Icon name="heroicons:ellipsis-horizontal" />
             </button>
             <UTooltip text="Rerun">
-                <button @click="rerunReport" class="hidden px-3 py-1 rounded bg-gray-50 border border-gray-200 text-xs hover:bg-gray-100 mr-4">
-                    <Icon name="heroicons:arrow-path-rounded-square" class="mr-2" />
+                <button @click="rerunReport" class="hidden px-3 py-1 rounded bg-gray-50 border border-gray-200 text-xs hover:bg-gray-100 me-4">
+                    <Icon name="heroicons:arrow-path-rounded-square" class="me-2" />
                 </button>
             </UTooltip>
 
@@ -43,7 +43,7 @@
     </header>
             <div class="flex flex-col h-full relative">
                 <div class="flex-1 overflow-y-auto mt-4 pb-14 h-[calc(100vh-200px)]" ref="agentLogContainer">
-                    <div class="pl-4 pr-2 pb-[3px]">
+                    <div class="ps-4 pe-2 pb-[3px]">
                         <div v-if="!isPageLoading && completions.length == 0" class="mx-auto w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
                             <h1 class="text-4xl mb-4">🪴</h1>
                             <h1 class="text-lg font-semibold">Ask a question to get started.</h1>
@@ -53,7 +53,7 @@
                                     <button
                                     class="text-gray-500 hover:bg-gray-50 border border-gray-200 text-xs rounded-md p-1.5"
                                     @click="handleExampleClick(data_source.conversation_starters?.[0])">  
-                                        <DataSourceIcon :type="data_source.type" class="h-3 inline mr-2" />
+                                        <DataSourceIcon :type="data_source.type" class="h-3 inline me-2" />
                                         {{ data_source.conversation_starters?.[0].split('\n')[0]  }}
                                     </button>
                                 </li>
@@ -86,7 +86,7 @@
                 </div>
 
                 <div ref="scrollAnchor"></div>
-                <div class="absolute bottom-28 font-bold text-center left-0 right-0" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 mx-auto'">
+                <div class="absolute bottom-28 font-bold text-center start-0 end-0" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 mx-auto'">
                     We've upgraded our AI agent!<br />
                     <span class=" text-md font-normal text-gray-500">This report is in read-only mode.</span><br />
                     <span class="font-normal text-blue-500">Please <button class="text-blue-500" @click="createNewReport">start a new report</button></span>

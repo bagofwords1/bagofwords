@@ -1,10 +1,10 @@
 <template>
-  <div class="flex justify-center pl-2 md:pl-4 text-sm">
-    <div class="w-full max-w-7xl px-4 pl-0 py-2">
+  <div class="flex justify-center ps-2 md:ps-4 text-sm">
+    <div class="w-full max-w-7xl px-4 ps-0 py-2">
       <div class="mt-6">
 
         <!-- Run header -->
-         <NuxtLink :to="'/evals'" class="text-blue-600 text-sm hover:underline ml-2 mt-2" >
+         <NuxtLink :to="'/evals'" class="text-blue-600 text-sm hover:underline ms-2 mt-2" >
           <Icon name="heroicons-arrow-left" class="w-4 h-4" />
           Back to Evals
         </NuxtLink>
@@ -29,7 +29,7 @@
                 </template>
               </div>
             </div>
-            <div class="ml-auto flex items-center gap-2">
+            <div class="ms-auto flex items-center gap-2">
               <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(derivedRunStatus)">
                 <Spinner v-if="derivedRunStatus === 'in_progress'" class="w-3 h-3" />
                 {{ prettyStatus(derivedRunStatus) }}
@@ -49,7 +49,7 @@
         <div class="space-y-4">
           <div v-for="row in caseRows" :key="row.result.id" class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
             <!-- Collapsed header -->
-            <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50" @click="toggleRow(row.result.id)">
+            <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-start hover:bg-gray-50" @click="toggleRow(row.result.id)">
               <div class="flex items-center gap-1 min-w-0">
                 <!-- Pass/Fail icon -->
                 <template v-if="row.result.status === 'in_progress'">
@@ -95,7 +95,7 @@
                             v-if="row.result.report_id"
                             :to="`/reports/${row.result.report_id}`"
                             target="_blank"
-                            class="ml-2 text-blue-600 hover:underline text-[10px]"
+                            class="ms-2 text-blue-600 hover:underline text-[10px]"
                           >
                             Open report
                           </NuxtLink>
@@ -134,7 +134,7 @@
                         <template v-for="dsId in (row.case.data_source_ids_json || [])" :key="dsId">
                           <div class="inline-flex items-center px-2 py-1 rounded border text-[11px]" v-if="dataSourceById[dsId]" :title="dataSourceById[dsId].name">
                             <DataSourceIcon :type="dataSourceById[dsId].type" class="h-3.5" />
-                            <span class="ml-1 truncate max-w-[120px]">{{ dataSourceById[dsId].name }}</span>
+                            <span class="ms-1 truncate max-w-[120px]">{{ dataSourceById[dsId].name }}</span>
                           </div>
                         </template>
                         <span v-if="!(row.case.data_source_ids_json || []).length" class="text-xs text-gray-500">—</span>
@@ -146,7 +146,7 @@
                       <div class="flex flex-wrap gap-2">
                         <div v-for="fid in (row.case.prompt_json?.files || [])" :key="fid" class="inline-flex items-center px-2 py-1 rounded border text-[11px]">
                           <Icon name="heroicons-document" class="w-3.5 h-3.5 text-gray-500" />
-                          <span class="ml-1 truncate max-w-[200px]">{{ fileNameById[fid] || fid }}</span>
+                          <span class="ms-1 truncate max-w-[200px]">{{ fileNameById[fid] || fid }}</span>
                         </div>
                       </div>
                     </div>

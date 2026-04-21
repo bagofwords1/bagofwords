@@ -31,7 +31,7 @@
           <strong>{{ clientName }}</strong> wants to access your Bag of Words account.
         </p>
 
-        <div class="px-6 py-5 border border-gray-200 rounded-xl shadow-sm bg-white text-left">
+        <div class="px-6 py-5 border border-gray-200 rounded-xl shadow-sm bg-white text-start">
           <!-- Scope info -->
           <div class="mb-5">
             <div class="text-xs uppercase tracking-wide text-gray-400 mb-2">Permissions requested</div>
@@ -55,7 +55,7 @@
               class="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
             >
               <template v-if="approving">
-                <Spinner class="h-4 w-4 mr-2" />
+                <Spinner class="h-4 w-4 me-2" />
                 Authorizing...
               </template>
               <template v-else>Approve</template>

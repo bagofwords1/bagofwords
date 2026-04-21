@@ -97,7 +97,7 @@
             :disabled="testing || !form.server_url"
             class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
           >
-            <Spinner v-if="testing" class="w-3 h-3 inline mr-1" />
+            <Spinner v-if="testing" class="w-3 h-3 inline me-1" />
             Test Connection
           </button>
 

@@ -5,7 +5,7 @@
             <p class="text-sm text-gray-500 mt-1 flex items-center">
                 <span>Accuracy and efficiency trends</span>
                 <UTooltip v-if="!isJudgeEnabled" text="LLM Judge agent is turned off">
-                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-2 text-gray-400 cursor-help" />
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ms-2 text-gray-400 cursor-help" />
                 </UTooltip>
             </p>
         </div>

@@ -1,6 +1,6 @@
 <template>
-    <div class="flex justify-center pl-2 md:pl-4 text-sm">
-        <div class="w-full max-w-7xl px-4 pl-0 py-2">
+    <div class="flex justify-center ps-2 md:ps-4 text-sm">
+        <div class="w-full max-w-7xl px-4 ps-0 py-2">
             <div class="mt-6">
                 <!-- Top metrics -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -51,7 +51,7 @@
                     <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
                         <div class="px-6 py-4 border-b border-gray-200">
                             <div class="flex flex-col md:flex-row md:items-center gap-3">
-                                <div class="text-sm font-medium text-gray-700 mr-auto">Tests</div>
+                                <div class="text-sm font-medium text-gray-700 me-auto">Tests</div>
                                 <div class="flex items-center gap-2 w-full md:w-auto">
                                     <!-- Suite filter -->
                                     <USelectMenu
@@ -91,10 +91,10 @@
                                         <th class="px-4 py-3 w-10 text-center">
                                             <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
                                         </th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rules</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suite</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Options</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Rules</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Suite</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Options</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200 text-xs">
@@ -155,7 +155,7 @@
                     <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
                         <div class="px-6 py-4 border-b border-gray-200">
                             <div class="flex flex-col md:flex-row md:items-center gap-3">
-                                <div class="text-sm font-medium text-gray-700 mr-auto">Recent Test Runs</div>
+                                <div class="text-sm font-medium text-gray-700 me-auto">Recent Test Runs</div>
                                 <div class="flex items-center gap-2 w-full md:w-auto">
                                     <USelectMenu
                                       v-model="runSuiteFilter"
@@ -195,13 +195,13 @@
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trigger</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Build</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Trigger</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Build</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200 text-xs">
