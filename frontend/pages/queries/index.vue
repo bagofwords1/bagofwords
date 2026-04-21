@@ -2,58 +2,58 @@
   <div class="py-6">
     <div class="max-w-3xl mx-auto px-4">
       <div class="mb-5">
-        <h1 class="text-lg font-semibold text-gray-900">Queries</h1>
-        
+        <h1 class="text-lg font-semibold text-gray-900">{{ $t('queries.title') }}</h1>
+
         <!-- Filter tabs -->
         <div class="mt-3 flex items-center gap-2 border-b border-gray-200">
-          <button 
+          <button
             @click="filterType = 'published'"
             :class="[
               'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
-              filterType === 'published' 
-                ? 'border-blue-500 text-blue-600' 
+              filterType === 'published'
+                ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             ]"
           >
-            Published
+            {{ $t('queries.published') }}
           </button>
-          <button 
+          <button
             @click="filterType = 'suggested'"
             :class="[
               'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
-              filterType === 'suggested' 
-                ? 'border-amber-500 text-amber-600' 
+              filterType === 'suggested'
+                ? 'border-amber-500 text-amber-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             ]"
           >
-            {{ isAdmin ? 'Draft / Suggested' : 'My Drafts' }}
+            {{ isAdmin ? $t('queries.draftSuggested') : $t('queries.myDrafts') }}
             <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700">{{ suggestedCount }}</span>
           </button>
         </div>
-        
+
         <div class="mt-3 flex items-center gap-2">
-          <input v-model="q" type="text" placeholder="Search entities…" class="w-full text-sm border rounded px-3 py-2" @keyup.enter="reload()" />
-          <button class="text-xs px-3 py-2 rounded border border-gray-200 hover:bg-gray-50" @click="reload()">Search</button>
+          <input v-model="q" type="text" :placeholder="$t('queries.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2" @keyup.enter="reload()" />
+          <button class="text-xs px-3 py-2 rounded border border-gray-200 hover:bg-gray-50" @click="reload()">{{ $t('queries.search') }}</button>
         </div>
       </div>
 
       <div v-if="loading" class="text-xs text-gray-500 inline-flex items-center">
-        <Spinner class="me-1" /> Loading...
+        <Spinner class="me-1" /> {{ $t('queries.loading') }}
       </div>
       <div v-else-if="filteredItems.length === 0" class="flex flex-col items-center justify-center py-16 px-4">
         <div class="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
-          <Icon 
-            :name="filterType === 'suggested' ? 'heroicons:light-bulb' : 'heroicons:cube'" 
-            class="w-8 h-8 text-gray-400" 
+          <Icon
+            :name="filterType === 'suggested' ? 'heroicons:light-bulb' : 'heroicons:cube'"
+            class="w-8 h-8 text-gray-400"
           />
         </div>
         <h3 class="text-sm font-medium text-gray-900 mb-1">
-          {{ filterType === 'suggested' ? 'No drafts or suggestions yet' : 'No published entities' }}
+          {{ filterType === 'suggested' ? $t('queries.noDrafts') : $t('queries.noPublished') }}
         </h3>
         <p class="text-xs text-gray-500 text-center max-w-sm">
-          {{ filterType === 'suggested' 
-            ? 'Draft and suggested entities will appear here as you create them.' 
-            : 'Published entities from your connected data sources will appear here.' 
+          {{ filterType === 'suggested'
+            ? $t('queries.draftsDescription')
+            : $t('queries.publishedDescription')
           }}
         </p>
       </div>
@@ -82,27 +82,27 @@
                 />
                 
                 <!-- Entity workflow status badge -->
-                <span 
+                <span
                   v-if="getEntityType(item) === 'archived'"
                   class="text-[10px] px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50"
-                >ARCHIVED</span>
-                <span 
+                >{{ $t('queries.archivedBadge') }}</span>
+                <span
                   v-else-if="getEntityType(item) === 'draft'"
                   class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
-                >DRAFT</span>
-                <span 
+                >{{ $t('queries.draftBadge') }}</span>
+                <span
                   v-else-if="getEntityType(item) === 'private'"
                   class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
-                >DRAFT</span>
-                <span 
+                >{{ $t('queries.draftBadge') }}</span>
+                <span
                   v-else-if="getEntityType(item) === 'suggested'"
                   class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50"
-                >SUGGESTED</span>
+                >{{ $t('queries.suggestedBadge') }}</span>
                 
                 <span class="text-[11px] text-gray-400">{{ timeAgo(item.updated_at) }}</span>
               </div>
               <div class="text-sm font-medium text-gray-900 mb-1">{{ item.title || item.slug }}</div>
-              <div class="text-[12px] text-gray-500 line-clamp-2">{{ item.description || 'No description' }}</div>
+              <div class="text-[12px] text-gray-500 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
 
               <!-- Metadata icons -->
               <div class="flex items-center gap-3 mt-3">
@@ -121,13 +121,13 @@
                 
                 <!-- Data stats -->
                 <div v-if="hasStats(item)" class="flex items-center gap-3 text-[11px] text-gray-500">
-                  <div v-if="item.data?.info?.total_rows !== undefined" class="flex items-center gap-1" title="Rows">
+                  <div v-if="item.data?.info?.total_rows !== undefined" class="flex items-center gap-1" :title="$t('queries.rowsTitle')">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                     </svg>
                     <span>{{ getRowCount(item) }}</span>
                   </div>
-                  <div v-if="item.data?.info?.total_columns !== undefined" class="flex items-center gap-1" title="Columns">
+                  <div v-if="item.data?.info?.total_columns !== undefined" class="flex items-center gap-1" :title="$t('queries.columnsTitle')">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 4v16M15 4v16"></path>
                     </svg>
@@ -142,7 +142,7 @@
 
       <!-- Results summary -->
       <div v-if="!loading && filteredItems.length > 0" class="mt-6 text-center text-[11px] text-gray-500">
-        Showing {{ filteredItems.length }} {{ filterType === 'suggested' ? 'draft/suggested' : 'published' }} {{ filteredItems.length === 1 ? 'entity' : 'entities' }}
+        {{ summaryLabel }}
       </div>
     </div>
   </div>
@@ -178,6 +178,7 @@ type EntityList = {
 }
 
 const router = useRouter()
+const { t } = useI18n()
 const { data: authData } = useAuth()
 const { selectedDomains } = useDomain()
 const items = ref<EntityList[]>([])
@@ -232,6 +233,14 @@ const filteredItems = computed(() => {
   }
 
   return filtered
+})
+
+const summaryLabel = computed(() => {
+  const count = filteredItems.value.length
+  if (filterType.value === 'suggested') {
+    return t(count === 1 ? 'queries.showingDraftsOne' : 'queries.showingDraftsMany', { count })
+  }
+  return t(count === 1 ? 'queries.showingPublishedOne' : 'queries.showingPublishedMany', { count })
 })
 
 watch(filterType, () => {
@@ -297,11 +306,11 @@ function timeAgo(iso: string | Date | null | undefined) {
   const d = typeof iso === 'string' ? new Date(iso) : iso
   const diff = Math.max(0, Date.now() - (d?.getTime?.() || 0))
   const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 60) return t('queries.timeMinutesAgo', { n: mins })
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
+  if (hrs < 24) return t('queries.timeHoursAgo', { n: hrs })
   const days = Math.floor(hrs / 24)
-  return `${days}d ago`
+  return t('queries.timeDaysAgo', { n: days })
 }
 
 function dataSourceIcon(type?: string) {

@@ -5,7 +5,7 @@
         <div class="flex items-center justify-between">
           <h1 class="text-lg font-semibold text-gray-900">
             <GoBackChevron v-if="isExcel" />
-            Scheduled Tasks
+            {{ $t('scheduled.title') }}
           </h1>
           <button
             @click="openNewTask"
@@ -14,18 +14,18 @@
           >
             <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
             <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
-            {{ creatingTask ? 'Creating...' : 'New task' }}
+            {{ creatingTask ? $t('scheduled.creating') : $t('scheduled.newTask') }}
           </button>
         </div>
 
         <div class="mt-3 flex items-center gap-2">
-          <input v-model="searchTerm" type="text" placeholder="Search tasks..." class="w-full text-sm border rounded px-3 py-2" />
+          <input v-model="searchTerm" type="text" :placeholder="$t('scheduled.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2" />
         </div>
       </div>
 
       <!-- Loading -->
       <div v-if="isLoading" class="text-xs text-gray-500 inline-flex items-center">
-        <Spinner class="me-1" /> Loading...
+        <Spinner class="me-1" /> {{ $t('scheduled.loading') }}
       </div>
 
       <!-- Empty -->
@@ -33,9 +33,9 @@
         <div class="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
           <UIcon name="heroicons-clock" class="w-8 h-8 text-gray-400" />
         </div>
-        <h3 class="text-sm font-medium text-gray-900 mb-1">No scheduled tasks</h3>
+        <h3 class="text-sm font-medium text-gray-900 mb-1">{{ $t('scheduled.empty') }}</h3>
         <p class="text-xs text-gray-500 text-center max-w-sm">
-          Create a scheduled task to automatically run prompts on a recurring basis.
+          {{ $t('scheduled.emptyDescription') }}
         </p>
       </div>
 
@@ -55,11 +55,11 @@
                   :class="task.is_active
                     ? 'text-green-700 border-green-200 bg-green-50'
                     : 'text-gray-700 border-gray-200 bg-gray-50'"
-                >{{ task.is_active ? 'ACTIVE' : 'PAUSED' }}</span>
+                >{{ task.is_active ? $t('scheduled.active') : $t('scheduled.paused') }}</span>
                 <span class="text-[11px] text-gray-400">{{ getCronLabel(task.cron_schedule) }}</span>
-                <span v-if="task.last_run_at" class="text-[11px] text-gray-400">&middot; Last run {{ formatRelativeTime(task.last_run_at) }}</span>
+                <span v-if="task.last_run_at" class="text-[11px] text-gray-400">&middot; {{ $t('scheduled.lastRun', { time: formatRelativeTime(task.last_run_at) }) }}</span>
               </div>
-              <div class="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{{ task.prompt?.content || 'Untitled task' }}</div>
+              <div class="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{{ task.prompt?.content || $t('scheduled.untitledTask') }}</div>
               <div class="flex items-center gap-3 mt-2">
                 <a
                   :href="`/reports/${task.report_id}`"
@@ -67,9 +67,9 @@
                   @click.stop
                 >
                   <UIcon name="heroicons-chat-bubble-left-right" class="w-3 h-3" />
-                  {{ task.report?.title || 'Untitled report' }}
+                  {{ task.report?.title || $t('scheduled.untitledReport') }}
                 </a>
-                <span v-if="task.user_name" class="text-[11px] text-gray-400">by {{ task.user_name }}</span>
+                <span v-if="task.user_name" class="text-[11px] text-gray-400">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
               </div>
             </div>
           </div>
@@ -78,7 +78,7 @@
 
       <!-- Results summary -->
       <div v-if="!isLoading && tasks.length > 0" class="mt-6 text-center text-[11px] text-gray-500">
-        Showing {{ tasks.length }} of {{ pagination.total }} {{ pagination.total === 1 ? 'task' : 'tasks' }}
+        {{ $t(pagination.total === 1 ? 'scheduled.showingOne' : 'scheduled.showingMany', { shown: tasks.length, total: pagination.total }) }}
       </div>
 
       <!-- Load more -->
@@ -88,8 +88,8 @@
           :disabled="isLoadingMore"
           class="text-xs px-3 py-1.5 rounded border border-gray-200 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
         >
-          <template v-if="isLoadingMore"><Spinner class="w-3 h-3 inline me-1" /> Loading...</template>
-          <template v-else>Load more</template>
+          <template v-if="isLoadingMore"><Spinner class="w-3 h-3 inline me-1" /> {{ $t('scheduled.loading') }}</template>
+          <template v-else>{{ $t('scheduled.loadMore') }}</template>
         </button>
       </div>
     </div>
@@ -113,6 +113,7 @@ definePageMeta({ auth: true })
 
 const router = useRouter()
 const toast = useToast()
+const { t } = useI18n()
 const { isExcel } = useExcel()
 const { selectedDomainObjects } = useDomain()
 
@@ -136,7 +137,7 @@ const openNewTask = async () => {
     const response = await useMyFetch('/reports', {
       method: 'POST',
       body: JSON.stringify({
-        title: 'Scheduled task',
+        title: t('scheduled.defaultTitle'),
         files: [],
         data_sources: dataSourceIds,
       }),
@@ -146,7 +147,7 @@ const openNewTask = async () => {
     newTaskReportId.value = data.id
     showModal.value = true
   } catch {
-    toast.add({ title: 'Error', description: 'Failed to create task', color: 'red' })
+    toast.add({ title: t('common.error'), description: t('scheduled.createFailed'), color: 'red' })
   } finally {
     creatingTask.value = false
   }
@@ -204,11 +205,11 @@ function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr)
   const diff = Math.max(0, Date.now() - date.getTime())
   const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 60) return t('queries.timeMinutesAgo', { n: mins })
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
+  if (hrs < 24) return t('queries.timeHoursAgo', { n: hrs })
   const days = Math.floor(hrs / 24)
-  return `${days}d ago`
+  return t('queries.timeDaysAgo', { n: days })
 }
 
 function getCronLabel(cron?: string): string {
@@ -220,8 +221,8 @@ function getCronLabel(cron?: string): string {
   const isStep = (v: string) => v.startsWith('*/')
   const stepVal = (v: string) => parseInt(v.slice(2))
 
-  if (isStep(min) && hour === '*') return `Every ${stepVal(min)} minutes`
-  if (min !== '*' && isStep(hour)) return `Every ${stepVal(hour)} hours`
+  if (isStep(min) && hour === '*') return t('scheduled.everyMinutes', { n: stepVal(min) })
+  if (min !== '*' && isStep(hour)) return t('scheduled.everyHours', { n: stepVal(hour) })
 
   if (min !== '*' && hour !== '*' && !isStep(hour)) {
     const h = parseInt(hour)
@@ -229,13 +230,17 @@ function getCronLabel(cron?: string): string {
     const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
     const time = `${h12}:${min.padStart(2, '0')} ${ampm}`
 
-    if (dow === '*' && dom === '*') return `Daily at ${time}`
+    if (dow === '*' && dom === '*') return t('scheduled.dailyAt', { time })
     if (dow !== '*') {
-      const dayNames: Record<string, string> = { '0': 'Sun', '1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat' }
-      const days = dow.split(',').map((d: string) => dayNames[d] || d).join(', ')
-      return `${days} at ${time}`
+      const dayKeys: Record<string, string> = {
+        '0': 'scheduled.daySun', '1': 'scheduled.dayMon', '2': 'scheduled.dayTue',
+        '3': 'scheduled.dayWed', '4': 'scheduled.dayThu', '5': 'scheduled.dayFri',
+        '6': 'scheduled.daySat',
+      }
+      const days = dow.split(',').map((d: string) => dayKeys[d] ? t(dayKeys[d]) : d).join(', ')
+      return t('scheduled.daysAt', { days, time })
     }
-    return `Monthly on day ${dom} at ${time}`
+    return t('scheduled.monthlyOn', { day: dom, time })
   }
 
   return cron

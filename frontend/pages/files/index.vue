@@ -4,9 +4,9 @@
             <div>
                 <h1 class="text-lg font-semibold">
                     <GoBackChevron v-if="isExcel" />
-                    Files
+                    {{ $t('files.title') }}
                 </h1>
-                <p class="mt-2 text-gray-500">Manage your organization files</p>
+                <p class="mt-2 text-gray-500">{{ $t('files.subtitle') }}</p>
 
             </div>
 
@@ -14,10 +14,10 @@
 <table class="min-w-full divide-y divide-gray-200">
   <thead class="bg-gray-50">
     <tr>
-      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">File</th>
-      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Metadata</th>
-      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Created At</th>
-      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('files.file') }}</th>
+      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('files.metadata') }}</th>
+      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('files.createdAt') }}</th>
+      <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('files.actions') }}</th>
                     </tr>
                     </thead>
 
@@ -35,7 +35,7 @@
                                         <UTooltip :text="Object.keys(schema.schema.fields).join(', ')">
                                             <div class="flex items-center">
                                                 <Icon name="heroicons-view-columns" class="w-5 h-5 text-gray-500 me-2" />
-                                                {{ Object.keys(schema.schema.fields).length }} metadata fields
+                                                {{ $t(Object.keys(schema.schema.fields).length === 1 ? 'files.metadataFieldsOne' : 'files.metadataFieldsMany', { count: Object.keys(schema.schema.fields).length }) }}
                                             </div>
                                         </UTooltip>
                                     </div>
@@ -44,12 +44,12 @@
                                      <UTooltip :text="file.tags.map(tag => tag.key).join(', ')">
                                          <div class="flex items-center">
                                             <Icon name="heroicons-view-columns" class="w-5 h-5 text-gray-500 me-2" />
-                                            {{ file.tags.length }} metadata tags
+                                            {{ $t(file.tags.length === 1 ? 'files.metadataTagsOne' : 'files.metadataTagsMany', { count: file.tags.length }) }}
                                         </div>
                                      </UTooltip>
                                 </div>
                                 <div v-else>
-                                    No metadata
+                                    {{ $t('files.noMetadata') }}
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">{{ file.created_at }}</td>

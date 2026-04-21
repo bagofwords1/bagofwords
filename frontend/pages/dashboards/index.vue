@@ -4,9 +4,9 @@
             <div>
                 <h1 class="text-lg font-semibold">
                     <GoBackChevron v-if="isExcel" />
-                    Dashboards
+                    {{ $t('dashboards.title') }}
                 </h1>
-                <p class="mt-2 text-gray-500">Browse and manage your dashboards and slides</p>
+                <p class="mt-2 text-gray-500">{{ $t('dashboards.subtitle') }}</p>
             </div>
 
             <div class="mt-6">
@@ -17,7 +17,7 @@
                             <input
                                 v-model="searchTerm"
                                 type="text"
-                                placeholder="Search dashboards..."
+                                :placeholder="$t('dashboards.searchPlaceholder')"
                                 class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                             <UIcon
@@ -38,7 +38,7 @@
                                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
                             @click="setActiveFilter('my')"
                         >
-                            <span>My dashboards</span>
+                            <span>{{ $t('dashboards.myDashboards') }}</span>
                         </button>
                         <button
                             class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
@@ -47,7 +47,7 @@
                                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
                             @click="setActiveFilter('shared')"
                         >
-                            <span>Shared with me</span>
+                            <span>{{ $t('dashboards.sharedWithMe') }}</span>
                         </button>
                     </nav>
                 </div>
@@ -87,13 +87,11 @@
                         class="mt-6 flex flex-col md:flex-row gap-3 md:items-center justify-between"
                     >
                         <div class="text-xs text-gray-500">
-                            Showing
-                            {{ ((currentPage - 1) * pagination.limit) + 1 }}
-                            to
-                            {{ Math.min(currentPage * pagination.limit, pagination.total) }}
-                            of
-                            {{ pagination.total }}
-                            dashboards
+                            {{ $t('dashboards.showingRange', {
+                                start: ((currentPage - 1) * pagination.limit) + 1,
+                                end: Math.min(currentPage * pagination.limit, pagination.total),
+                                total: pagination.total,
+                            }) }}
                         </div>
                         <div class="flex items-center gap-2">
                             <button
@@ -144,10 +142,10 @@
                         class="mx-auto h-12 w-12 text-gray-400"
                     />
                     <h3 class="mt-2 text-sm font-medium text-gray-900">
-                        No dashboards found
+                        {{ $t('dashboards.empty') }}
                     </h3>
                     <p class="mt-1 text-sm text-gray-500">
-                        Try adjusting your search term, or create a report with a dashboard.
+                        {{ $t('dashboards.emptyDescription') }}
                     </p>
                 </div>
             </div>
@@ -160,6 +158,7 @@ import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import RecentReportCard from '~/components/home/RecentReportCard.vue'
 
 const { data: currentUser } = useAuth()
+const { t } = useI18n()
 const toast = useToast()
 
 definePageMeta({ auth: true })
@@ -247,8 +246,8 @@ const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my',
     } catch (error) {
         console.error('Error fetching dashboards:', error)
         toast.add({
-            title: 'Error',
-            description: 'Failed to fetch dashboards',
+            title: t('common.error'),
+            description: t('dashboards.fetchFailed'),
             color: 'red',
         })
     } finally {
