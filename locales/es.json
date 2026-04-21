@@ -730,5 +730,115 @@
       "newProvider": "Nuevo proveedor",
       "providerFallback": "Proveedor"
     }
+  },
+  "evals": {
+    "totalTestCases": "Casos de prueba totales",
+    "totalTestRuns": "Ejecuciones de prueba totales",
+    "lastTestResult": "Último resultado",
+    "tabs": {
+      "tests": "Pruebas",
+      "runs": "Ejecuciones"
+    },
+    "tests": {
+      "title": "Pruebas",
+      "search": "Buscar pruebas...",
+      "runSelected": "Ejecutar seleccionadas",
+      "addNew": "Añadir prueba",
+      "empty": "No se encontraron pruebas",
+      "deleteConfirm": "¿Eliminar este caso de prueba? Esta acción no se puede deshacer.",
+      "colPrompt": "Indicación",
+      "colRules": "Reglas",
+      "colSuite": "Suite",
+      "colOptions": "Opciones",
+      "actionEdit": "Editar",
+      "actionRunTest": "Ejecutar",
+      "actionDelete": "Eliminar",
+      "toastDeleted": "Caso de prueba eliminado",
+      "toastCreated": "Caso de prueba creado",
+      "toastDeleteFailed": "No se pudo eliminar el caso de prueba"
+    },
+    "filter": {
+      "allSuites": "Todas las suites",
+      "manageSuites": "Administrar suites…",
+      "allCases": "Todos los casos",
+      "searchRuns": "Buscar ejecuciones..."
+    },
+    "runs": {
+      "title": "Ejecuciones recientes",
+      "empty": "Aún no hay ejecuciones",
+      "fallbackTitle": "Ejecución de prueba",
+      "colTitle": "Título",
+      "colStarted": "Iniciada",
+      "colTrigger": "Disparo",
+      "colBuild": "Build",
+      "colStatus": "Estado",
+      "colResults": "Resultados",
+      "colDuration": "Duración"
+    },
+    "pagination": {
+      "showing": "Página {page} • Mostrando {n} elementos",
+      "pageSize": "{n} / página",
+      "prev": "Anterior",
+      "next": "Siguiente"
+    },
+    "category": {
+      "createData": "Crear datos",
+      "clarify": "Aclarar",
+      "describeTable": "Describir tabla",
+      "metadata": "Metadatos",
+      "completion": "Finalización",
+      "judge": "Evaluador"
+    },
+    "run": {
+      "back": "Volver a Evals",
+      "suite": "Suite {name}",
+      "triggered": "Disparada {when} {adverb}",
+      "triggerManually": "manualmente",
+      "totalDuration": "Duración total: {duration}",
+      "build": "Build #{n}",
+      "stop": "Detener",
+      "cases": "Casos: {n}",
+      "pass": "Éxito: {n}",
+      "fail": "Fallo: {n}",
+      "error": "Error: {n}",
+      "prompt": "Indicación",
+      "logs": "Registros",
+      "openReport": "Abrir informe",
+      "model": "Modelo",
+      "dataSources": "Fuentes de datos",
+      "files": "Archivos",
+      "expectations": "Expectativas",
+      "assertion": "Afirmación:",
+      "actual": "Actual:",
+      "reasoning": "Razonamiento:",
+      "noRules": "No hay reglas configuradas para este caso.",
+      "defaultModel": "predeterminado",
+      "completionRunning": "En ejecución",
+      "completionFinished": "Finalizado",
+      "completionError": "Error",
+      "statusInProgress": "En progreso",
+      "statusSuccess": "Éxito",
+      "statusFailed": "Fallida",
+      "statusError": "Error",
+      "rulePending": "Pendiente…",
+      "ruleSkipped": "Omitida",
+      "rulePass": "Éxito",
+      "ruleFail": "Fallo",
+      "agoSeconds": "hace {n}s",
+      "agoMinutes": "hace {n}m",
+      "agoHours": "hace {n}h",
+      "agoDays": "hace {n}d"
+    },
+    "op": {
+      "textContains": "texto contiene",
+      "textNotContains": "texto no contiene",
+      "textEquals": "texto es igual",
+      "textRegex": "texto coincide con regex",
+      "numberCmp": "comparación numérica",
+      "lengthCmp": "comparación de longitud",
+      "listContains": "lista contiene valor",
+      "listContainsAny": "lista contiene alguno",
+      "listContainsAll": "lista contiene todos"
+    }
   }
 }

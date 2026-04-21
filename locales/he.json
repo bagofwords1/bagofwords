@@ -730,5 +730,115 @@
       "newProvider": "ספק חדש",
       "providerFallback": "ספק"
     }
+  },
+  "evals": {
+    "totalTestCases": "סך מקרי בדיקה",
+    "totalTestRuns": "סך הרצות בדיקה",
+    "lastTestResult": "תוצאה אחרונה",
+    "tabs": {
+      "tests": "בדיקות",
+      "runs": "הרצות"
+    },
+    "tests": {
+      "title": "בדיקות",
+      "search": "חיפוש בדיקות...",
+      "runSelected": "הרצת נבחרות",
+      "addNew": "בדיקה חדשה",
+      "empty": "לא נמצאו בדיקות",
+      "deleteConfirm": "למחוק את מקרה הבדיקה? לא ניתן לבטל פעולה זו.",
+      "colPrompt": "פרומפט",
+      "colRules": "כללים",
+      "colSuite": "Suite",
+      "colOptions": "אפשרויות",
+      "actionEdit": "עריכה",
+      "actionRunTest": "הרצה",
+      "actionDelete": "מחיקה",
+      "toastDeleted": "מקרה הבדיקה נמחק",
+      "toastCreated": "מקרה הבדיקה נוצר",
+      "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה"
+    },
+    "filter": {
+      "allSuites": "כל ה-Suites",
+      "manageSuites": "ניהול Test Suites…",
+      "allCases": "כל המקרים",
+      "searchRuns": "חיפוש הרצות..."
+    },
+    "runs": {
+      "title": "הרצות אחרונות",
+      "empty": "אין הרצות עדיין",
+      "fallbackTitle": "הרצת בדיקה",
+      "colTitle": "כותרת",
+      "colStarted": "התחילה",
+      "colTrigger": "הופעלה על ידי",
+      "colBuild": "Build",
+      "colStatus": "סטטוס",
+      "colResults": "תוצאות",
+      "colDuration": "משך"
+    },
+    "pagination": {
+      "showing": "עמוד {page} • מוצגים {n} פריטים",
+      "pageSize": "{n} לעמוד",
+      "prev": "הקודם",
+      "next": "הבא"
+    },
+    "category": {
+      "createData": "יצירת נתונים",
+      "clarify": "הבהרה",
+      "describeTable": "תיאור טבלה",
+      "metadata": "מטא-דאטה",
+      "completion": "השלמה",
+      "judge": "שופט"
+    },
+    "run": {
+      "back": "חזרה ל־Evals",
+      "suite": "Suite {name}",
+      "triggered": "הופעלה {when} {adverb}",
+      "triggerManually": "ידנית",
+      "totalDuration": "משך כולל: {duration}",
+      "build": "Build #{n}",
+      "stop": "עצור",
+      "cases": "מקרים: {n}",
+      "pass": "עברו: {n}",
+      "fail": "נכשלו: {n}",
+      "error": "שגיאות: {n}",
+      "prompt": "פרומפט",
+      "logs": "לוגים",
+      "openReport": "פתיחת דוח",
+      "model": "מודל",
+      "dataSources": "מקורות נתונים",
+      "files": "קבצים",
+      "expectations": "ציפיות",
+      "assertion": "טענה:",
+      "actual": "בפועל:",
+      "reasoning": "נימוק:",
+      "noRules": "לא הוגדרו כללים למקרה הזה.",
+      "defaultModel": "ברירת מחדל",
+      "completionRunning": "רץ",
+      "completionFinished": "הסתיים",
+      "completionError": "שגיאה",
+      "statusInProgress": "בתהליך",
+      "statusSuccess": "הצלחה",
+      "statusFailed": "נכשלה",
+      "statusError": "שגיאה",
+      "rulePending": "ממתין…",
+      "ruleSkipped": "דולג",
+      "rulePass": "עבר",
+      "ruleFail": "נכשל",
+      "agoSeconds": "לפני {n} שניות",
+      "agoMinutes": "לפני {n} דק׳",
+      "agoHours": "לפני {n} שעות",
+      "agoDays": "לפני {n} ימים"
+    },
+    "op": {
+      "textContains": "טקסט מכיל",
+      "textNotContains": "טקסט לא מכיל",
+      "textEquals": "טקסט שווה",
+      "textRegex": "טקסט תואם regex",
+      "numberCmp": "השוואת מספר",
+      "lengthCmp": "השוואת אורך",
+      "listContains": "הרשימה מכילה ערך",
+      "listContainsAny": "הרשימה מכילה לפחות אחד",
+      "listContainsAll": "הרשימה מכילה את כולם"
+    }
   }
 }

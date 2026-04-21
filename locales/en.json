@@ -730,5 +730,115 @@
       "newProvider": "New Provider",
       "providerFallback": "Provider"
     }
+  },
+  "evals": {
+    "totalTestCases": "Total Test Cases",
+    "totalTestRuns": "Total Test Runs",
+    "lastTestResult": "Last Test Result",
+    "tabs": {
+      "tests": "Tests",
+      "runs": "Test Runs"
+    },
+    "tests": {
+      "title": "Tests",
+      "search": "Search tests...",
+      "runSelected": "Run Selected",
+      "addNew": "Add New Test",
+      "empty": "No tests found",
+      "deleteConfirm": "Delete this test case? This cannot be undone.",
+      "colPrompt": "Prompt",
+      "colRules": "Rules",
+      "colSuite": "Suite",
+      "colOptions": "Options",
+      "actionEdit": "Edit",
+      "actionRunTest": "Run Test",
+      "actionDelete": "Delete",
+      "toastDeleted": "Test case deleted",
+      "toastCreated": "Test case created",
+      "toastDeleteFailed": "Failed to delete test case"
+    },
+    "filter": {
+      "allSuites": "All suites",
+      "manageSuites": "Manage Test Suites…",
+      "allCases": "All cases",
+      "searchRuns": "Search runs..."
+    },
+    "runs": {
+      "title": "Recent Test Runs",
+      "empty": "No test runs yet",
+      "fallbackTitle": "Test Run",
+      "colTitle": "Title",
+      "colStarted": "Started",
+      "colTrigger": "Trigger",
+      "colBuild": "Build",
+      "colStatus": "Status",
+      "colResults": "Results",
+      "colDuration": "Duration"
+    },
+    "pagination": {
+      "showing": "Page {page} • Showing {n} items",
+      "pageSize": "{n} / page",
+      "prev": "Prev",
+      "next": "Next"
+    },
+    "category": {
+      "createData": "Create Data",
+      "clarify": "Clarify",
+      "describeTable": "Describe Table",
+      "metadata": "Metadata",
+      "completion": "Completion",
+      "judge": "Judge"
+    },
+    "run": {
+      "back": "Back to Evals",
+      "suite": "Suite {name}",
+      "triggered": "Triggered {when} {adverb}",
+      "triggerManually": "manually",
+      "totalDuration": "Total duration: {duration}",
+      "build": "Build #{n}",
+      "stop": "Stop",
+      "cases": "Cases: {n}",
+      "pass": "Pass: {n}",
+      "fail": "Fail: {n}",
+      "error": "Error: {n}",
+      "prompt": "Prompt",
+      "logs": "Logs",
+      "openReport": "Open report",
+      "model": "Model",
+      "dataSources": "Data Sources",
+      "files": "Files",
+      "expectations": "Expectations",
+      "assertion": "Assertion:",
+      "actual": "Actual:",
+      "reasoning": "Reasoning:",
+      "noRules": "No rules configured for this case.",
+      "defaultModel": "default",
+      "completionRunning": "Running",
+      "completionFinished": "Finished",
+      "completionError": "Error",
+      "statusInProgress": "In progress",
+      "statusSuccess": "Success",
+      "statusFailed": "Failed",
+      "statusError": "Error",
+      "rulePending": "Pending…",
+      "ruleSkipped": "Skipped",
+      "rulePass": "Pass",
+      "ruleFail": "Fail",
+      "agoSeconds": "{n}s ago",
+      "agoMinutes": "{n}m ago",
+      "agoHours": "{n}h ago",
+      "agoDays": "{n}d ago"
+    },
+    "op": {
+      "textContains": "text contains",
+      "textNotContains": "text not contains",
+      "textEquals": "text equals",
+      "textRegex": "text matches regex",
+      "numberCmp": "number compare",
+      "lengthCmp": "length compare",
+      "listContains": "list contains value",
+      "listContainsAny": "list contains any",
+      "listContainsAll": "list contains all"
+    }
   }
 }
