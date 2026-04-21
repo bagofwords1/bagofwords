@@ -74,6 +74,48 @@ async def get_current_organization(request: Request, db: AsyncSession = Depends(
     raise HTTPException(status_code=400, detail="Organization ID header missing")
 
 
+def _locale_from_org(organization: Optional[Organization]) -> Optional[str]:
+    """Extract org's configured locale, if any. Returns None when unset or invalid."""
+    if organization is None or organization.settings is None:
+        return None
+    cfg_dict = getattr(organization.settings, "config", None) or {}
+    if not isinstance(cfg_dict, dict):
+        return None
+    candidate = cfg_dict.get("locale")
+    if candidate in config.settings.bow_config.i18n.enabled_locales:
+        return candidate
+    return None
+
+
+async def get_current_locale(request: Request) -> str:
+    """Resolve the effective locale for the current request.
+
+    Priority: X-Locale header override (must be in enabled_locales) →
+    system default. Unauthed-safe: no DB access. Authed callers that need
+    org-aware resolution should use `get_org_locale` instead.
+    """
+    enabled = config.settings.bow_config.i18n.enabled_locales
+    override = request.headers.get("X-Locale")
+    if override and override in enabled:
+        return override
+    return config.settings.bow_config.i18n.default_locale
+
+
+async def get_org_locale(
+    request: Request,
+    organization: Organization = Depends(get_current_organization),
+) -> str:
+    """Effective locale for authed requests: header override → org → default."""
+    enabled = config.settings.bow_config.i18n.enabled_locales
+    override = request.headers.get("X-Locale")
+    if override and override in enabled:
+        return override
+    org_locale = _locale_from_org(organization)
+    if org_locale:
+        return org_locale
+    return config.settings.bow_config.i18n.default_locale
+
+
 async def require_mcp_enabled(
     organization: Organization = Depends(get_current_organization)
 ) -> Organization:

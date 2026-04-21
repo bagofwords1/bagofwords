@@ -102,6 +102,12 @@ class OrganizationSettingsConfig(BaseModel):
 
     general: GeneralConfig = GeneralConfig()
 
+    # Locale override for this org. When None, the system default from
+    # bow_config.i18n.default_locale applies. Validated against
+    # bow_config.i18n.enabled_locales at the service layer (not here, to
+    # avoid coupling the schema to runtime config).
+    locale: Optional[str] = None
+
     # Signup policy (domain allowlist). Gate: full_admin_access.
     class SignupPolicy(BaseModel):
         enabled: bool = False

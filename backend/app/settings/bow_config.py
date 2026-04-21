@@ -29,6 +29,32 @@ class Swagger(BaseModel):
     enabled: bool = False
 
 
+class I18nConfig(BaseModel):
+    """Internationalization configuration.
+
+    System-wide default and the allowlist of locales that can be selected by
+    organizations. Individual orgs override `default_locale` via
+    `OrganizationSettingsConfig.locale`.
+    """
+    default_locale: str = "en"
+    enabled_locales: List[str] = ["en", "es", "he"]
+    fallback_locale: str = "en"
+
+    @validator("default_locale")
+    def _default_in_enabled(cls, v, values):
+        enabled = values.get("enabled_locales") or ["en"]
+        if v not in enabled:
+            raise ValueError(f"default_locale '{v}' must be one of enabled_locales {enabled}")
+        return v
+
+    @validator("fallback_locale")
+    def _fallback_in_enabled(cls, v, values):
+        enabled = values.get("enabled_locales") or ["en"]
+        if v not in enabled:
+            raise ValueError(f"fallback_locale '{v}' must be one of enabled_locales {enabled}")
+        return v
+
+
 class DeploymentConfig(BaseModel):
     type: str = "self_hosted"
 
@@ -234,6 +260,7 @@ class BowConfig(BaseModel):
     swagger: Swagger = Swagger()
     license: LicenseConfig = LicenseConfig()
     otel: OTELConfig = OTELConfig()
+    i18n: I18nConfig = I18nConfig()
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):
