@@ -1,0 +1,26 @@
+{% extends "base.html.jinja2" %}
+{% block content %}
+<tr>
+  <td style="padding:32px 40px 24px;" dir="{{ dir }}">
+    <h2 style="margin:0 0 8px; font-size:18px; color:#111827;">{{ heading }}</h2>
+    <p style="margin:0; font-size:14px; color:#6b7280; line-height:1.5;">{{ description | safe }}</p>
+  </td>
+</tr>
+{% if message_html %}
+<tr>
+  <td style="padding: 12px 40px;" dir="{{ dir }}">
+    <div style="background:#f9fafb; border-{{ 'right' if dir == 'rtl' else 'left' }}:3px solid #d1d5db; padding:12px 16px; border-radius:4px; font-style:italic; color:#4b5563;">
+      &ldquo;{{ message_html | safe }}&rdquo;
+    </div>
+  </td>
+</tr>
+{% endif %}
+<tr>
+  <td style="padding:0 40px 32px;" dir="{{ dir }}">
+    <a href="{{ share_url }}"
+       style="display:inline-block; background:#2563eb; color:#ffffff; text-decoration:none; padding:10px 24px; border-radius:6px; font-size:14px; font-weight:500;">
+      {{ t.cta_text }}
+    </a>
+  </td>
+</tr>
+{% endblock %}
