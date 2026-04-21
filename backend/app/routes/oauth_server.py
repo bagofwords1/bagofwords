@@ -1,7 +1,9 @@
 """OAuth 2.1 Authorization Server routes.
 
-Provides the endpoints needed for Claude Web (and other MCP clients) to
-authenticate via OAuth 2.1 Authorization Code + PKCE.
+Provides the endpoints external apps use to obtain access tokens via the
+OAuth 2.1 Authorization Code + PKCE flow. Currently the only protected
+resource is the MCP endpoint; additional resources can be added without
+changing the auth flow.
 
 Two routers:
   - well_known_router: mounted at root for /.well-known/* metadata
@@ -26,6 +28,11 @@ from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Scopes this authorization server can issue. Extend this list when adding a
+# new protected resource; the well-known metadata handlers read from it.
+SUPPORTED_SCOPES = ["mcp"]
+DEFAULT_SCOPE = SUPPORTED_SCOPES[0]
+
 # ── Well-known metadata (mounted at root, no /api prefix) ──────────
 
 well_known_router = APIRouter(tags=["oauth-metadata"])
@@ -44,7 +51,7 @@ async def protected_resource_metadata(request: Request):
     return JSONResponse({
         "resource": f"{base}/api/mcp",
         "authorization_servers": [base],
-        "scopes_supported": ["mcp", "claudeai"],
+        "scopes_supported": list(SUPPORTED_SCOPES),
     })
 
 
@@ -60,7 +67,7 @@ async def authorization_server_metadata(request: Request):
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
-        "scopes_supported": ["mcp", "claudeai"],
+        "scopes_supported": list(SUPPORTED_SCOPES),
     })
 
 
@@ -76,7 +83,7 @@ async def authorize_redirect(
     redirect_uri: str,
     response_type: str = "code",
     state: Optional[str] = None,
-    scope: Optional[str] = "mcp",
+    scope: Optional[str] = None,
     code_challenge: Optional[str] = None,
     code_challenge_method: Optional[str] = None,
 ):
@@ -97,7 +104,7 @@ async def authorize_redirect(
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": response_type,
-        "scope": scope or "mcp",
+        "scope": scope or DEFAULT_SCOPE,
     }
     if state:
         params["state"] = state
@@ -126,7 +133,7 @@ async def authorize_approve(
     client_id = body.get("client_id")
     redirect_uri = body.get("redirect_uri")
     state = body.get("state")
-    scope = body.get("scope", "mcp")
+    scope = body.get("scope") or DEFAULT_SCOPE
     code_challenge = body.get("code_challenge")
     code_challenge_method = body.get("code_challenge_method", "S256")
 
@@ -241,7 +248,7 @@ async def token_endpoint(
         )
 
 
-# ── Client CRUD (used by McpModal) ─────────────────────────────────
+# ── Client CRUD ────────────────────────────────────────────────────
 
 @router.get("/clients")
 @requires_permission("manage_settings")
@@ -265,14 +272,25 @@ async def create_client(
 ):
     """Create an OAuth client for the current organization."""
     body = await request.json()
-    name = body.get("name", "Claude Web")
-    redirect_uris = body.get("redirect_uris")  # Optional, defaults to Claude URIs
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    scopes = body.get("scopes") or DEFAULT_SCOPE
+    # Validate scopes
+    requested = [s for s in scopes.split() if s]
+    for s in requested:
+        if s not in SUPPORTED_SCOPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported scope: {s}")
+
+    redirect_uris = body.get("redirect_uris")  # Optional; service falls back to defaults.
 
     service = OAuthServerService()
     return await service.create_client(
         db=db,
         organization_id=organization.id,
         name=name,
+        scopes=scopes,
         redirect_uris=redirect_uris,
     )
 
