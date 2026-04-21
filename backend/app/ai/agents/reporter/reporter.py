@@ -4,16 +4,20 @@ from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
+from app.ai.prompt_language import build_language_directive
 from app.models.llm_model import LLMModel
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 
 class Reporter:
 
     def __init__(
         self,
         model: LLMModel,
+        organization_settings: Optional[OrganizationSettingsConfig] = None,
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
     ) -> None:
         self.llm = LLM(model, usage_session_maker=usage_session_maker)
+        self.organization_settings = organization_settings
 
     async def generate_report_title(self, messages, plan):
 
@@ -27,7 +31,7 @@ class Reporter:
         {plan}
 
         Generate a title for the report. Should be concise and descriptive of the report. Not more than 5 words.
-
+        {build_language_directive(self.organization_settings)}
         Your response should be just the title, nothing else. No quotes / markdown / etc.
 
         For example:

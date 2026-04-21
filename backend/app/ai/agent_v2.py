@@ -152,7 +152,11 @@ class AgentV2:
         )
         
         # Initialize Reporter for title generation
-        self.reporter = Reporter(model=self.small_model, usage_session_maker=async_session_maker)
+        self.reporter = Reporter(
+            model=self.small_model,
+            organization_settings=self.organization_settings,
+            usage_session_maker=async_session_maker,
+        )
         # Initialize Judge using ContextHub's instruction builder
         self.judge = Judge(
             model=self.small_model,
