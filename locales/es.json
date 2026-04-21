@@ -1,0 +1,110 @@
+{
+  "smoke": {
+    "hello": "Hola",
+    "subtitle": "La infraestructura de i18n está activa"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "confirm": "Confirmar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "close": "Cerrar",
+    "yes": "Sí",
+    "no": "No",
+    "edit": "Editar",
+    "remove": "Quitar",
+    "create": "Crear",
+    "search": "Buscar",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "submit": "Enviar",
+    "retry": "Reintentar",
+    "ok": "Aceptar",
+    "error": "Error",
+    "success": "Listo",
+    "warning": "Aviso",
+    "info": "Información",
+    "optional": "Opcional",
+    "required": "Obligatorio"
+  },
+  "nav": {
+    "home": "Inicio",
+    "reports": "Informes",
+    "dashboards": "Paneles",
+    "dataSources": "Fuentes de datos",
+    "instructions": "Instrucciones",
+    "queries": "Consultas",
+    "settings": "Ajustes",
+    "members": "Miembros",
+    "monitoring": "Supervisión",
+    "integrations": "Integraciones",
+    "files": "Archivos",
+    "scheduledTasks": "Tareas programadas",
+    "evals": "Evaluaciones"
+  },
+  "auth": {
+    "signIn": "Iniciar sesión",
+    "signUp": "Registrarse",
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "forgotPassword": "¿Olvidó su contraseña?",
+    "newToBow": "¿Nuevo en Bag of words?",
+    "alreadyHaveAccount": "¿Ya tiene una cuenta?",
+    "resetPassword": "Restablecer contraseña",
+    "verifyEmail": "Verifique su correo",
+    "logout": "Cerrar sesión"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "general": "General",
+    "language": {
+      "title": "Idioma",
+      "description": "Establece el idioma predeterminado para toda la organización. Los usuarios verán la interfaz en este idioma y la IA responderá en él.",
+      "label": "Idioma de la organización",
+      "systemDefault": "Usar el idioma del sistema ({locale})",
+      "saved": "Idioma actualizado",
+      "saveError": "No se pudo actualizar el idioma"
+    }
+  },
+  "errors": {
+    "generic": "Algo salió mal. Inténtalo de nuevo.",
+    "network": "Error de red. Revisa tu conexión.",
+    "unauthorized": "No tienes permiso para hacer eso.",
+    "notFound": "No encontrado.",
+    "validation": "Revisa el formulario e inténtalo de nuevo.",
+    "artifact.not_found": "Artefacto no encontrado",
+    "access.denied": "Acceso denegado",
+    "connection.not_found": "Conexión no encontrada",
+    "data_source.not_found": "Fuente de datos no encontrada",
+    "file.not_found": "Archivo no encontrado",
+    "verification.invalid": "Token de verificación no válido o expirado",
+    "body.invalid_json": "Cuerpo JSON no válido",
+    "organization.not_found": "Organización no encontrada",
+    "organization.required": "Falta la cabecera de ID de organización",
+    "api_key.invalid": "Clave de API no válida o expirada",
+    "mcp.disabled": "La integración MCP no está habilitada en esta organización",
+    "feature.locked": "Esta función no se puede modificar",
+    "license.enterprise_required": "Esta función requiere una licencia empresarial.",
+    "locale.invalid": "Ese idioma no está habilitado"
+  },
+  "email": {
+    "dashboardShare": {
+      "subject": "Panel compartido contigo",
+      "heading": "ha compartido un panel contigo",
+      "cta": "Abrir panel"
+    },
+    "conversationShare": {
+      "subject": "Conversación compartida contigo",
+      "heading": "ha compartido una conversación contigo",
+      "cta": "Abrir conversación"
+    },
+    "scheduleNotification": {
+      "subject": "Informe programado listo",
+      "heading": "Tu informe programado se ha ejecutado",
+      "cta": "Abrir informe"
+    }
+  }
+}

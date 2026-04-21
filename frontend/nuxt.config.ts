@@ -65,6 +65,7 @@ export default defineNuxtConfig({
   plugins: [
     '~/plugins/vue-draggable-resizable.client.js',
     '~/plugins/vue-flow.client.js',
+    '~/plugins/i18n.ts',
   ],
 
   imports: {

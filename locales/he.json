@@ -1,0 +1,110 @@
+{
+  "smoke": {
+    "hello": "שלום",
+    "subtitle": "תשתית i18n פעילה"
+  },
+  "common": {
+    "loading": "טוען…",
+    "save": "שמירה",
+    "cancel": "ביטול",
+    "delete": "מחיקה",
+    "confirm": "אישור",
+    "back": "חזרה",
+    "next": "הבא",
+    "close": "סגירה",
+    "yes": "כן",
+    "no": "לא",
+    "edit": "עריכה",
+    "remove": "הסרה",
+    "create": "יצירה",
+    "search": "חיפוש",
+    "copy": "העתקה",
+    "copied": "הועתק",
+    "submit": "שליחה",
+    "retry": "ניסיון נוסף",
+    "ok": "אישור",
+    "error": "שגיאה",
+    "success": "הצלחה",
+    "warning": "אזהרה",
+    "info": "מידע",
+    "optional": "רשות",
+    "required": "חובה"
+  },
+  "nav": {
+    "home": "בית",
+    "reports": "דוחות",
+    "dashboards": "לוחות מחוונים",
+    "dataSources": "מקורות נתונים",
+    "instructions": "הנחיות",
+    "queries": "שאילתות",
+    "settings": "הגדרות",
+    "members": "חברים",
+    "monitoring": "ניטור",
+    "integrations": "אינטגרציות",
+    "files": "קבצים",
+    "scheduledTasks": "משימות מתוזמנות",
+    "evals": "הערכות"
+  },
+  "auth": {
+    "signIn": "התחברות",
+    "signUp": "הרשמה",
+    "email": "דוא״ל",
+    "password": "סיסמה",
+    "forgotPassword": "שכחתם סיסמה?",
+    "newToBow": "חדשים ב-Bag of words?",
+    "alreadyHaveAccount": "כבר יש לכם חשבון?",
+    "resetPassword": "איפוס סיסמה",
+    "verifyEmail": "אימות דוא״ל",
+    "logout": "התנתקות"
+  },
+  "settings": {
+    "title": "הגדרות",
+    "general": "כללי",
+    "language": {
+      "title": "שפה",
+      "description": "הגדרת שפת ברירת המחדל לכל הארגון. המשתמשים יראו את הממשק בשפה זו וה-AI יגיב בה.",
+      "label": "שפת הארגון",
+      "systemDefault": "שימוש בשפת המערכת ({locale})",
+      "saved": "השפה עודכנה",
+      "saveError": "לא ניתן לעדכן את השפה"
+    }
+  },
+  "errors": {
+    "generic": "משהו השתבש. נסו שוב.",
+    "network": "שגיאת רשת. בדקו את החיבור.",
+    "unauthorized": "אין לכם הרשאה לפעולה זו.",
+    "notFound": "לא נמצא.",
+    "validation": "בדקו את הטופס ונסו שוב.",
+    "artifact.not_found": "הפריט לא נמצא",
+    "access.denied": "הגישה נדחתה",
+    "connection.not_found": "החיבור לא נמצא",
+    "data_source.not_found": "מקור הנתונים לא נמצא",
+    "file.not_found": "הקובץ לא נמצא",
+    "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",
+    "body.invalid_json": "גוף JSON לא תקין",
+    "organization.not_found": "הארגון לא נמצא",
+    "organization.required": "חסרה כותרת מזהה הארגון",
+    "api_key.invalid": "מפתח API לא תקף או שפג תוקפו",
+    "mcp.disabled": "אינטגרציית MCP אינה מופעלת בארגון זה",
+    "feature.locked": "לא ניתן לשנות תכונה זו",
+    "license.enterprise_required": "התכונה דורשת רישיון ארגוני.",
+    "locale.invalid": "השפה אינה מופעלת"
+  },
+  "email": {
+    "dashboardShare": {
+      "subject": "לוח מחוונים שותף איתכם",
+      "heading": "שיתף איתכם לוח מחוונים",
+      "cta": "פתיחת לוח המחוונים"
+    },
+    "conversationShare": {
+      "subject": "שיחה שותפה איתכם",
+      "heading": "שיתף איתכם שיחה",
+      "cta": "פתיחת השיחה"
+    },
+    "scheduleNotification": {
+      "subject": "הדוח המתוזמן מוכן",
+      "heading": "הדוח המתוזמן שלכם הופעל",
+      "cta": "פתיחת הדוח"
+    }
+  }
+}

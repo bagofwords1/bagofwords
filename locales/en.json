@@ -1,0 +1,110 @@
+{
+  "smoke": {
+    "hello": "Hello",
+    "subtitle": "i18n plumbing is live"
+  },
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "edit": "Edit",
+    "remove": "Remove",
+    "create": "Create",
+    "search": "Search",
+    "copy": "Copy",
+    "copied": "Copied",
+    "submit": "Submit",
+    "retry": "Retry",
+    "ok": "OK",
+    "error": "Error",
+    "success": "Success",
+    "warning": "Warning",
+    "info": "Info",
+    "optional": "Optional",
+    "required": "Required"
+  },
+  "nav": {
+    "home": "Home",
+    "reports": "Reports",
+    "dashboards": "Dashboards",
+    "dataSources": "Data Sources",
+    "instructions": "Instructions",
+    "queries": "Queries",
+    "settings": "Settings",
+    "members": "Members",
+    "monitoring": "Monitoring",
+    "integrations": "Integrations",
+    "files": "Files",
+    "scheduledTasks": "Scheduled Tasks",
+    "evals": "Evals"
+  },
+  "auth": {
+    "signIn": "Login",
+    "signUp": "Sign up",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot Password?",
+    "newToBow": "New to Bag of words?",
+    "alreadyHaveAccount": "Already have an account?",
+    "resetPassword": "Reset Password",
+    "verifyEmail": "Verify your email",
+    "logout": "Log out"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "language": {
+      "title": "Language",
+      "description": "Set the default language for everyone in this organization. Users see the UI in this language and the AI responds in it.",
+      "label": "Organization language",
+      "systemDefault": "Use system default ({locale})",
+      "saved": "Language updated",
+      "saveError": "Could not update language"
+    }
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "network": "Network error. Check your connection.",
+    "unauthorized": "You are not authorized to do that.",
+    "notFound": "Not found.",
+    "validation": "Please check the form and try again.",
+    "artifact.not_found": "Artifact not found",
+    "access.denied": "Access denied",
+    "connection.not_found": "Connection not found",
+    "data_source.not_found": "Data source not found",
+    "file.not_found": "File not found",
+    "verification.invalid": "Invalid or expired verification token",
+    "body.invalid_json": "Invalid JSON body",
+    "organization.not_found": "Organization not found",
+    "organization.required": "Organization ID header missing",
+    "api_key.invalid": "Invalid or expired API key",
+    "mcp.disabled": "MCP integration is not enabled for this organization",
+    "feature.locked": "Feature cannot be modified",
+    "license.enterprise_required": "This feature requires an enterprise license.",
+    "locale.invalid": "Locale is not enabled"
+  },
+  "email": {
+    "dashboardShare": {
+      "subject": "Dashboard shared with you",
+      "heading": "shared a dashboard with you",
+      "cta": "Open dashboard"
+    },
+    "conversationShare": {
+      "subject": "Conversation shared with you",
+      "heading": "shared a conversation with you",
+      "cta": "Open conversation"
+    },
+    "scheduleNotification": {
+      "subject": "Scheduled report ready",
+      "heading": "Your scheduled report ran",
+      "cta": "Open report"
+    }
+  }
+}
