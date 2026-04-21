@@ -176,10 +176,11 @@ Don't use on images
         codegen_ms = None
         execution_ms = None
         execution_start = time.monotonic()
+        raw_errors: List[Any] = []
 
         # No retries by default for inspection to keep it fast, unless it crashes hard
         async for e in streamer.generate_and_execute_stream_v2(
-            request=CodeGenRequest(context=codegen_context, retries=0),
+            request=CodeGenRequest(context=codegen_context, retries=1),
             ds_clients=runtime_ctx.get("ds_clients", {}),
             excel_files=runtime_ctx.get("excel_files", []),
             code_generator_fn=_inspection_generator_fn,
@@ -230,7 +231,15 @@ Don't use on images
                 execution_ms = e["payload"].get("execution_ms")
                 if e["payload"].get("errors"):
                     success = False
-                    execution_error = str(e["payload"]["errors"])
+                    raw_errors = e["payload"]["errors"] or []
+                    # Keep a readable one-line summary as execution_error for the
+                    # output payload; the observation below extracts full detail.
+                    last_text = (raw_errors[-1][1] if raw_errors else "") or ""
+                    cleaned_lines = [
+                        ln for ln in last_text.splitlines()
+                        if ln.strip() and not ln.lstrip().startswith('File "')
+                    ]
+                    execution_error = (cleaned_lines[0][:500] if cleaned_lines else "")[:500]
                 # We append the full log from payload if our streaming accumulation missed anything
                 full_log = e["payload"].get("execution_log")
                 if full_log and len(full_log) > len(output_log):
@@ -268,7 +277,46 @@ Don't use on images
             )
 
         # 6. Final Result
-        # The value is the LOGS.
+        observation: Dict[str, Any] = {
+            "summary": f"Inspection failed for: {data.user_prompt}" if not success else f"Inspection finished for: {data.user_prompt}",
+            "details": output_log[:3000] if output_log else "No output produced.",
+            "code": generated_code,
+            "success": success,
+            "execution_duration_ms": execution_duration_ms,
+        }
+        if not success and raw_errors:
+            # Mirror create_data's error shape so the planner sees the real DB
+            # message / failed SQL instead of a repr of list-of-tuples.
+            last_text = (raw_errors[-1][1] if raw_errors else "") or ""
+            cleaned_lines = [
+                ln for ln in last_text.splitlines()
+                if ln.strip() and not ln.lstrip().startswith('File "')
+            ]
+            summary_line = cleaned_lines[0][:500] if cleaned_lines else ""
+            detail = "\n".join(cleaned_lines)[:1500]
+            error_obj: Dict[str, Any] = {
+                "type": "execution_failure",
+                "message": summary_line or detail[:300] or "execution failed",
+            }
+            if detail:
+                error_obj["detail"] = detail
+            try:
+                failed_timings = [t for t in (query_timings or []) if t.get("error")]
+                if failed_timings:
+                    last_failed = failed_timings[-1]
+                    error_obj["db_message"] = last_failed.get("error")
+                    if last_failed.get("sql"):
+                        error_obj["failed_sql"] = last_failed["sql"]
+            except Exception:
+                pass
+            observation["error"] = error_obj
+            observation["retry_summary"] = {
+                "attempts": int(len(raw_errors)),
+                "succeeded": False,
+                "error_count": int(len(raw_errors)),
+                "last_error_message": summary_line or detail[:300],
+            }
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -282,14 +330,7 @@ Don't use on images
                     "codegen_ms": codegen_ms,
                     "execution_ms": execution_ms,
                 },
-                "observation": {
-                    "summary": f"Inspection failed for: {data.user_prompt}" if not success else f"Inspection finished for: {data.user_prompt}",
-                    "details": output_log[:3000] if output_log else "No output produced.",
-                    "code": generated_code,
-                    "success": success,
-                    "execution_duration_ms": execution_duration_ms,
-                    **({"error": {"type": "execution_failure", "message": execution_error}} if execution_error else {}),
-                }
+                "observation": observation,
             }
         )
 

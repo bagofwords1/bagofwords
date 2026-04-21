@@ -726,7 +726,10 @@ class StreamingCodeExecutor:
         V2: Typed context-based generator. Yields the same event shapes as v1.
         """
         retries = 0
-        max_retries = int(getattr(request, "retries", 2) or 2)
+        # Respect explicit values (including 0→1). `or 2` was swallowing
+        # retries=0 and silently running two attempts.
+        _req_retries = getattr(request, "retries", None)
+        max_retries = max(1, int(_req_retries)) if _req_retries is not None else 2
         code_and_error_messages: List[Tuple[str, str]] = []
         final_code = ""
         exec_df = pd.DataFrame()
