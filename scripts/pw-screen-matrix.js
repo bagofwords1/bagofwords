@@ -28,7 +28,7 @@ fs.mkdirSync(OUT_DIR, { recursive: true });
     executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   });
   const summary = [];
-  for (const locale of ['en', 'he']) {
+  for (const locale of ['en', 'es', 'he']) {
     for (const [name, url, authed] of SCREENS) {
       const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
       await ctx.addInitScript((args) => {

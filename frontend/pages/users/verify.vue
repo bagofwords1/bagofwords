@@ -5,22 +5,22 @@
                 <div>
                     <Icon name="heroicons:envelope" class="w-10 h-10 text-green-500" />
                 </div>
-                <h1 class="font-bold text-lg">Verify your email</h1>
+                <h1 class="font-bold text-lg">{{ $t('auth.verifyEmail') }}</h1>
                 <p class="mt-3 text-sm text-gray-700">
-                    A message with a confirmation link has been sent to your email address.<br /><br />
-                    Please follow the link to activate your account.
+                    {{ $t('auth.verifyEmailMessage') }}<br /><br />
+                    {{ $t('auth.verifyEmailFollow') }}
                 </p>
             </template>
             <template v-else>
                 <div class="text-center">
                     <Icon name="heroicons:exclamation-triangle" class="w-10 h-10 text-yellow-500 mx-auto mb-3" />
-                    <h1 class="font-bold text-lg">Email Verification Unavailable</h1>
+                    <h1 class="font-bold text-lg">{{ $t('auth.verifyUnavailable') }}</h1>
                     <p class="mt-3 text-sm text-gray-700">
-                        Email is not configured on this instance. Please contact your administrator for account verification.
+                        {{ $t('auth.verifyDisabled') }}
                     </p>
                     <div class="mt-5">
                         <NuxtLink to="/users/sign-in" class="text-blue-400 hover:text-blue-600">
-                            Back to Sign in
+                            {{ $t('auth.backToSignIn') }}
                         </NuxtLink>
                     </div>
                 </div>
@@ -49,18 +49,18 @@ const hasToken = ref(false)
 async function verify() {
     try {
         const token = new URLSearchParams(window.location.search).get('token')
-        
+
         if (!token) {
             throw new Error('No verification token provided')
         }
-        
+
         const response = await $fetch('/api/auth/verify', {
             method: 'POST',
             body: { token }
         })
-        
+
         await getSession({ force: true })
-        
+
         const org = await fetchOrganization()
         if (org?.id) {
             navigateTo('/')
@@ -75,7 +75,7 @@ async function verify() {
 onMounted(async () => {
     const token = new URLSearchParams(window.location.search).get('token')
     hasToken.value = !!token
-    
+
     if (token) {
         verify()
     } else {

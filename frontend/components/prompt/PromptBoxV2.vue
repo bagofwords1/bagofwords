@@ -14,7 +14,7 @@
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                         <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />
-                        {{ props.queryList.length }} {{ props.queryList.length === 1 ? 'Query' : 'Queries' }}
+                        {{ props.queryList.length }} {{ props.queryList.length === 1 ? $t('prompt.query') : $t('prompt.queries') }}
                     </button>
                     <!-- Query dropdown on hover — pad-bridge eliminates the gap -->
                     <div
@@ -29,7 +29,7 @@
                                 @click="q.messageId && emit('scrollToMessage', q.messageId, q.stepId); showQueryDropdown = false"
                             >
                                 <div class="text-xs text-gray-700 truncate">{{ q.label }}</div>
-                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 mt-0.5">{{ q.rowCount.toLocaleString() }} rows</div>
+                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 mt-0.5">{{ q.rowCount.toLocaleString() }} {{ $t('prompt.rows') }}</div>
                             </div>
                         </div>
                         <!-- Invisible bridge to cover gap between dropdown and pill -->
@@ -47,7 +47,7 @@
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                         <Icon name="heroicons-clock" class="w-3.5 h-3.5 text-gray-400" />
-                        {{ props.scheduledPrompts.length }} Scheduled
+                        {{ props.scheduledPrompts.length }} {{ $t('prompt.scheduled') }}
                     </button>
                     <div
                         v-if="showScheduledDropdown"
@@ -67,7 +67,7 @@
                                     />
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <div class="text-xs text-gray-700 truncate" :class="{ 'text-gray-400': !sp.is_active }">{{ sp.prompt?.content || 'Untitled' }}</div>
+                                    <div class="text-xs text-gray-700 truncate" :class="{ 'text-gray-400': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
                                     <div class="text-[10px] text-gray-400 mt-0.5">{{ getCronLabel(sp.cron_schedule) }}</div>
                                 </div>
                             </div>
@@ -86,7 +86,7 @@
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                         <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
-                        {{ props.trainingInstructions.length }} Instruction{{ props.trainingInstructions.length === 1 ? '' : 's' }}
+                        {{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.instruction') : $t('prompt.instructionsPlural') }}
                     </button>
                     <div
                         v-if="showTrainingDropdown"
@@ -122,7 +122,7 @@
                     class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-blue-600 hover:bg-blue-50 transition-colors"
                     @click="emit('viewDashboard')"
                 >
-                    View dashboard
+                    {{ $t('prompt.viewDashboard') }}
                     <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
                 </button>
             </div>
@@ -156,7 +156,7 @@
             >
                 <div class="flex flex-col items-center text-blue-600">
                     <Icon name="heroicons-cloud-arrow-up" class="w-8 h-8 mb-2" />
-                    <span class="text-sm font-medium">Drop files to upload</span>
+                    <span class="text-sm font-medium">{{ $t('prompt.dropFilesToUpload') }}</span>
                 </div>
             </div>
 
@@ -170,14 +170,14 @@
                     @click="openInstructions"
                 >
                     <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 me-1.5' : 'w-4 h-4 me-1.5'" />
-                    Instructions
+                    {{ $t('prompt.instructions') }}
                 </button>
                 <div
                     v-if="isHydratingDataSources"
                     class="flex items-center justify-center py-6 space-x-2 text-xs text-gray-500"
                 >
                     <Spinner class="w-4 h-4 text-gray-400" />
-                    <span>Loading report context…</span>
+                    <span>{{ $t('prompt.loadingReportContext') }}</span>
                 </div>
                 <MentionInput
                     v-else
@@ -282,21 +282,21 @@
                                 <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between w-[180px]" @click="() => { selectMode('chat'); close(); }">
                                     <div class="flex items-center">
                                         <Icon name="heroicons-chat-bubble-left-right" class="w-4 h-4 me-2" />
-                                        Chat
+                                        {{ $t('prompt.chat') }}
                                     </div>
                                     <Icon v-if="mode === 'chat'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
                                 <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('deep'); close(); }">
                                     <div class="flex items-center">
                                         <Icon name="heroicons-light-bulb" class="w-4 h-4 me-2" />
-                                        Deep Analytics
+                                        {{ $t('prompt.deepAnalytics') }}
                                     </div>
                                     <Icon v-if="mode === 'deep'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
                                 <div v-if="canUseTrainingMode" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('training'); close(); }">
                                     <div class="flex items-center">
                                         <Icon name="heroicons-academic-cap" class="w-4 h-4 me-2" />
-                                        Training
+                                        {{ $t('prompt.training') }}
                                     </div>
                                     <Icon v-if="mode === 'training'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
@@ -307,7 +307,7 @@
 
                 <div class="flex items-center space-x-0.5">
                     <div v-if="props.showContextIndicator" class="flex items-center">
-                        <UTooltip :text="contextEstimateTooltip || (isLoadingContextEstimate ? 'Estimating...' : 'Estimate unavailable')" :popper="{ placement: 'top', strategy: 'fixed' }">
+                        <UTooltip :text="contextEstimateTooltip || (isLoadingContextEstimate ? $t('prompt.estimating') : $t('prompt.estimateUnavailable'))" :popper="{ placement: 'top', strategy: 'fixed' }">
                             <button class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
                                 :disabled="isLoadingContextEstimate">
                                 <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-gray-400" />
@@ -324,7 +324,7 @@
                     <FileUploadComponent ref="fileUploadRef" :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
 
                     <!-- Schedule a prompt -->
-                    <UTooltip v-if="!props.hideScheduleButton" text="Schedule a prompt" :popper="{ strategy: 'fixed', placement: 'top' }">
+                    <UTooltip v-if="!props.hideScheduleButton" :text="$t('prompt.schedulePrompt')" :popper="{ strategy: 'fixed', placement: 'top' }">
                         <button
                             class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center"
                             @click="openScheduleModal"
@@ -454,8 +454,9 @@ const props = defineProps({
 
 const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions','update:selectedDataSources'])
 
+const { t } = useI18n()
 const text = ref('')
-const placeholder = computed(() => props.compact ? 'Ask for any data' : 'Ask for data, dashboard or a deep analysis')
+const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
 
@@ -621,19 +622,19 @@ const contextUsagePercent = computed(() => {
 
 const contextEstimateTooltip = computed(() => {
     if (!props.showContextIndicator) return ''
-    if (isLoadingContextEstimate.value) return 'Estimating context used...'
+    if (isLoadingContextEstimate.value) return t('prompt.estimatingContext')
     if (contextEstimateError.value) return contextEstimateError.value
     if (!contextEstimate.value) return ''
     const pct = contextUsagePercent.value
     const promptShort = contextEstimateShort.value
     if (pct && promptShort) {
-        return `${pct} ${promptShort} tokens context size`
+        return t('prompt.contextSizeTokens', { pct, tokens: promptShort })
     }
     if (pct) {
-        return `${pct} context size`
+        return t('prompt.contextSizePct', { pct })
     }
-    if (promptShort) return `${promptShort} tokens context size`
-    return 'Context size unavailable'
+    if (promptShort) return t('prompt.contextSizeShort', { tokens: promptShort })
+    return t('prompt.contextSizeUnavailable')
 })
 
 const contextIndicatorIcon = computed(() => {
@@ -649,10 +650,10 @@ const showModelMenu = ref(false)
 // Mode computed properties
 const modeLabel = computed(() => {
     switch (mode.value) {
-        case 'chat': return 'Chat'
-        case 'deep': return 'Deep Analytics'
-        case 'training': return 'Training'
-        default: return 'Chat'
+        case 'chat': return t('prompt.chat')
+        case 'deep': return t('prompt.deepAnalytics')
+        case 'training': return t('prompt.training')
+        default: return t('prompt.chat')
     }
 })
 
@@ -674,7 +675,7 @@ const models = ref<any[]>([])
 const selectedModel = ref<string>('')
 const selectedModelLabel = computed(() => {
     const model = models.value.find(m => m.id === selectedModel.value)
-    return model?.name || 'Select Model'
+    return model?.name || t('prompt.selectModel')
 })
 
 // Legacy popper (for current Nuxt UI stable)
@@ -769,7 +770,7 @@ async function refreshContextEstimate(force = false) {
         contextEstimate.value = estimate
     } catch (err) {
         console.error('Failed to fetch context estimate:', err)
-        contextEstimateError.value = 'Estimate unavailable'
+        contextEstimateError.value = t('prompt.estimateUnavailable')
     } finally {
         isLoadingContextEstimate.value = false
     }
@@ -841,19 +842,19 @@ const canSubmit = computed(() => {
 
 const submitTooltip = computed(() => {
     if (!selectedModel.value && !hasDataSourceOrFile.value) {
-        return 'First connect LLM and data'
+        return t('prompt.connectLLMAndData')
     }
     if (!selectedModel.value) {
-        return 'First connect LLM'
+        return t('prompt.connectLLM')
     }
     if (!hasDataSourceOrFile.value) {
-        return 'Connect data or upload a file'
+        return t('prompt.connectDataOrFile')
     }
     if (hasFilesUploading.value) {
-        return 'Waiting for files to upload...'
+        return t('prompt.waitingForFiles')
     }
     if (!text.value.trim()) {
-        return 'Enter a message'
+        return t('prompt.enterMessage')
     }
     return ''
 })

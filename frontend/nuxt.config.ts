@@ -74,6 +74,9 @@ export default defineNuxtConfig({
 
   imports: {
     dirs: ['ee/composables'],
+    presets: [
+      { from: 'vue-i18n', imports: ['useI18n'] },
+    ],
   },
 
   icon: {

@@ -57,7 +57,7 @@
                  'flex items-center px-3 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed',
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
-              <UTooltip v-if="isCollapsed" :text="creatingReport ? 'Creating...' : 'New report'" :popper="{ placement: 'right' }">
+              <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: 'right' }">
                 <span class="flex items-center justify-center w-[18px] h-[18px]">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
@@ -68,14 +68,14 @@
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
                 </span>
-                <span v-if="showText" class="font-medium">{{ creatingReport ? 'Creating...' : 'New report' }}</span>
+                <span v-if="showText" class="font-medium">{{ creatingReport ? $t('common.loading') : $t('nav.newReport') }}</span>
               </template>
             </button>
         </li>
 
         <template v-for="item in mainNavItems" :key="item.href">
         <li v-if="item.section && !isCollapsed && (!item.adminOnly || isAdmin)" class="pt-3 pb-1 px-3">
-          <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ item.section }}</span>
+          <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ $t(item.section) }}</span>
         </li>
         <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="{ hidden: item.hidden }">
           <a :href="item.href" :class="[
@@ -83,7 +83,7 @@
             isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
-            <UTooltip v-if="isCollapsed" :text="item.label" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: 'right' }">
               <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" />
@@ -94,7 +94,7 @@
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" />
               </span>
-              <span v-if="showText">{{ item.label }}</span>
+              <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
           </a>
         </li>
@@ -107,7 +107,7 @@
             item.external ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-100' : (isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'),
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
-            <UTooltip v-if="isCollapsed" :text="item.label" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: 'right' }">
               <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon :name="item.icon" />
               </span>
@@ -116,7 +116,7 @@
               <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon :name="item.icon" />
               </span>
-              <span v-if="showText">{{ item.label }}</span>
+              <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
           </a>
         </li>
@@ -137,7 +137,7 @@
               <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <McpIcon class="w-[18px] h-[18px]" />
               </span>
-              <span v-if="showText">MCP Server</span>
+              <span v-if="showText">{{ $t('nav.mcpServer') }}</span>
             </template>
           </button>
         </li>
@@ -210,20 +210,20 @@
     section?: string
   }
   const mainNavItems: NavItem[] = [
-    { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'Reports' },
-    { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'Dashboards' },
-    { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'Scheduled' },
-    { href: '/files', icon: 'heroicons-document-duplicate', label: 'Files', hidden: true },
-    { href: '/instructions', icon: 'heroicons-cube', label: 'Instructions' },
-    { href: '/queries', component: LibraryIcon, label: 'Queries' },
-    { href: '/monitoring', component: ActivityIcon, label: 'Monitoring', adminOnly: true, section: 'Manage' },
-    { href: '/evals', icon: 'heroicons-check-circle', label: 'Evals', permission: 'manage_evals' },
+    { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
+    { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
+    { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
+    { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
+    { href: '/instructions', icon: 'heroicons-cube', label: 'nav.instructions' },
+    { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
+    { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true, section: 'nav.manage' },
+    { href: '/evals', icon: 'heroicons-check-circle', label: 'nav.evals', permission: 'manage_evals' },
   ]
 
   const bottomNavItems = [
-    { href: '/data', icon: 'heroicons-circle-stack', label: 'Data Agents' },
-    { href: '/settings', icon: 'heroicons-cog-6-tooth', label: 'Settings' },
-    { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'Documentation', external: true },
+    { href: '/data', icon: 'heroicons-circle-stack', label: 'nav.dataAgents' },
+    { href: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' },
+    { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'nav.documentation', external: true },
   ]
   
   // Domain management - use selectedDomainObjects for new report creation
@@ -297,9 +297,10 @@
     return name.charAt(0).toUpperCase()
   })
 
+  const { t } = useI18n()
   const userDropdownItems = computed(() => [
     [{
-      label: 'Sign out',
+      label: t('auth.logout'),
       icon: 'heroicons-arrow-left',
       click: signOff
     }]
