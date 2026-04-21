@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.models.oauth_account import OAuthAccount
 
 from app.settings import config
+from app.errors import AppError, ErrorCode
 
 # Create a session factory at the start to reuse
 SessionLocal = create_session_factory()
@@ -53,25 +54,25 @@ async def get_current_organization(request: Request, db: AsyncSession = Depends(
         organization = await db.execute(select(Organization).filter(Organization.id == organization_id))
         organization = organization.scalar_one_or_none()
         if not organization:
-            raise HTTPException(status_code=404, detail="Organization not found")
+            raise AppError.not_found(ErrorCode.ORG_NOT_FOUND, "Organization not found")
         return organization
-    
+
     # No header - try to get from API key
     api_key = request.headers.get("X-API-Key") or ""
     auth_header = request.headers.get("Authorization", "")
-    
+
     if api_key.startswith("bow_") or auth_header.startswith("Bearer bow_"):
         from app.services.api_key_service import ApiKeyService
         api_key_service = ApiKeyService()
-        
+
         key = api_key if api_key.startswith("bow_") else auth_header[7:]
         org = await api_key_service.get_organization_by_api_key(db, key)
         if org:
             return org
         # API key was provided but is invalid/expired
-        raise HTTPException(status_code=401, detail="Invalid or expired API key")
-    
-    raise HTTPException(status_code=400, detail="Organization ID header missing")
+        raise AppError.unauthorized(ErrorCode.API_KEY_INVALID, "Invalid or expired API key")
+
+    raise AppError.bad_request(ErrorCode.ORG_HEADER_REQUIRED, "Organization ID header missing")
 
 
 def _locale_from_org(organization: Optional[Organization]) -> Optional[str]:
@@ -121,10 +122,10 @@ async def require_mcp_enabled(
 ) -> Organization:
     """Dependency to ensure MCP is enabled for the organization."""
     if not organization.settings:
-        raise HTTPException(status_code=403, detail="MCP integration is not enabled for this organization")
-    
+        raise AppError.forbidden(ErrorCode.MCP_DISABLED, "MCP integration is not enabled for this organization")
+
     mcp_config = organization.settings.get_config("mcp_enabled")
     if not mcp_config or not getattr(mcp_config, "value", False):
-        raise HTTPException(status_code=403, detail="MCP integration is not enabled for this organization")
-    
+        raise AppError.forbidden(ErrorCode.MCP_DISABLED, "MCP integration is not enabled for this organization")
+
     return organization

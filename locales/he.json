@@ -497,7 +497,21 @@
     "mcp.disabled": "אינטגרציית MCP אינה מופעלת בארגון זה",
     "feature.locked": "לא ניתן לשנות תכונה זו",
     "license.enterprise_required": "התכונה דורשת רישיון ארגוני.",
-    "locale.invalid": "השפה אינה מופעלת"
+    "locale.invalid": "השפה אינה מופעלת",
+    "report.not_found": "הדוח לא נמצא",
+    "entity.not_found": "הישות לא נמצאה",
+    "user.not_found": "המשתמש לא נמצא",
+    "membership.not_found": "החברות לא נמצאה",
+    "role.not_found": "התפקיד לא נמצא",
+    "group.not_found": "הקבוצה לא נמצאה",
+    "instruction.not_found": "ההוראה לא נמצאה",
+    "instruction.version_not_found": "גרסת ההוראה לא נמצאה",
+    "instruction.label_not_found": "תווית ההוראה לא נמצאה",
+    "instruction.version_mismatch": "הגרסה אינה שייכת להוראה הזו",
+    "integration.not_found": "האינטגרציה לא נמצאה",
+    "resource.conflict": "המשאב כבר קיים או סותר את המצב הקיים",
+    "resource.duplicate": "משאב כפול",
+    "setting.update_failed": "עדכון ההגדרה נכשל"
   },
   "email": {
     "dashboardShare": {

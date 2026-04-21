@@ -497,7 +497,21 @@
     "mcp.disabled": "MCP integration is not enabled for this organization",
     "feature.locked": "Feature cannot be modified",
     "license.enterprise_required": "This feature requires an enterprise license.",
-    "locale.invalid": "Locale is not enabled"
+    "locale.invalid": "Locale is not enabled",
+    "report.not_found": "Report not found",
+    "entity.not_found": "Entity not found",
+    "user.not_found": "User not found",
+    "membership.not_found": "Membership not found",
+    "role.not_found": "Role not found",
+    "group.not_found": "Group not found",
+    "instruction.not_found": "Instruction not found",
+    "instruction.version_not_found": "Instruction version not found",
+    "instruction.label_not_found": "Instruction label not found",
+    "instruction.version_mismatch": "Version does not belong to this instruction",
+    "integration.not_found": "Integration not found",
+    "resource.conflict": "Resource already exists or conflicts with existing state",
+    "resource.duplicate": "Duplicate resource",
+    "setting.update_failed": "Failed to update setting"
   },
   "email": {
     "dashboardShare": {

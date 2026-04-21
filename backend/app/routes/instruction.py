@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
 from app.dependencies import get_async_db, get_current_organization
+from app.errors import AppError, ErrorCode
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
@@ -283,7 +284,7 @@ async def delete_instruction_label(
     """Delete (soft delete) an instruction label."""
     success = await instruction_label_service.delete_label(db, label_id, organization, current_user)
     if not success:
-        raise HTTPException(status_code=404, detail="Instruction label not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_LABEL_NOT_FOUND, "Instruction label not found")
     return {"message": "Label deleted successfully"}
 
 
@@ -314,7 +315,7 @@ async def get_instruction(
     """Get a specific instruction by ID"""
     instruction = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if instruction is None:
-        raise HTTPException(status_code=404, detail="Instruction not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     return instruction
 
 @router.put("/instructions/{instruction_id}", response_model=InstructionSchema)
@@ -331,7 +332,7 @@ async def update_instruction(
     # is handled in the resolver).
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Instruction not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
     if existing_ds_ids:
         await check_resource_permissions(
@@ -347,7 +348,7 @@ async def update_instruction(
         db, instruction_id, instruction, organization, current_user
     )
     if updated_instruction is None:
-        raise HTTPException(status_code=404, detail="Instruction not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     return updated_instruction
 
 @router.delete("/instructions/{instruction_id}")
@@ -361,7 +362,7 @@ async def delete_instruction(
     """Delete an instruction (admins or users with per-DS manage_instructions grant)"""
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Instruction not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
     if existing_ds_ids:
         await check_resource_permissions(
@@ -370,7 +371,7 @@ async def delete_instruction(
         )
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
-        raise HTTPException(status_code=404, detail="Instruction not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     return {"message": "Instruction deleted successfully"}
 
 
@@ -401,7 +402,7 @@ async def get_instruction_versions(
         db, instruction_id, organization, current_user
     )
     if not instruction:
-        raise HTTPException(status_code=404, detail="Instruction not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     
     result = await instruction_version_service.get_versions(
         db, instruction_id, skip=skip, limit=limit
@@ -434,15 +435,18 @@ async def get_instruction_version(
         db, instruction_id, organization, current_user
     )
     if not instruction:
-        raise HTTPException(status_code=404, detail="Instruction not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     
     version = await instruction_version_service.get_version(db, version_id)
     
     if not version:
-        raise HTTPException(status_code=404, detail="Version not found")
+        raise AppError.not_found(ErrorCode.INSTRUCTION_VERSION_NOT_FOUND, "Version not found")
     
     if version.instruction_id != instruction_id:
-        raise HTTPException(status_code=400, detail="Version does not belong to this instruction")
+        raise AppError.bad_request(
+            "instruction.version_mismatch",
+            "Version does not belong to this instruction",
+        )
     
     return InstructionVersionSchema.model_validate(version)
 
