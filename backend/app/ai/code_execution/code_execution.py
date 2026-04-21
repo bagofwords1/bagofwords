@@ -653,9 +653,7 @@ class StreamingCodeExecutor:
                 executed_successfully = True
                 break
             except Exception as e:
-                import traceback
-                trace = traceback.format_exc()
-                msg = f"Execution error: {str(e)}\n{trace}"
+                msg = f"Execution error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
@@ -826,9 +824,7 @@ class StreamingCodeExecutor:
                 # Security violations are not retryable
                 break
             except Exception as e:
-                import traceback
-                trace = traceback.format_exc()
-                msg = f"Execution error: {str(e)}\n{trace}"
+                msg = f"Execution error: {str(e)}"
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1

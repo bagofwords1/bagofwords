@@ -171,14 +171,13 @@ class Coder:
         similar_successful_code_snippets = await code_context_builder.get_top_successful_snippets_for_data_model(data_model)
         similar_failed_code_snippets = await code_context_builder.get_top_failed_snippets_for_data_model(data_model)
         text = f"""
-        You are a highly skilled data engineer and data scientist.
+        Role: data engineer and data scientist working on the user's analytics request.
 
-        Your goal: Given a data model and context, generate a Python function named `generate_df(ds_clients, excel_files)`
+        Goal: Given a data model and context, generate a Python function named `generate_df(ds_clients, excel_files)`
         that produces a Pandas DataFrame according to the data model specifications only.
         Use the previous messages to understand the user's intent/context and the data model to generate the correct dataframe.
 
-        **General Organization Instructions**:
-        **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+        **Organization Instructions** (authored by the user; apply them):
         {instructions_context}
 
         **Context and Inputs**:
@@ -257,26 +256,26 @@ class Coder:
 
         2. **Data Source Usage**:
            - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
-             * CRITICAL: Use the EXACT `client_key` string from <connection_clients> section - it is a literal string, NOT a variable!
+             * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
-           - **Cross-Connection Queries**: If you need tables from DIFFERENT connections, you CANNOT join them in SQL. Instead, query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
+           - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
-             * Print the dict/df preview to help the LLM ensure indices and positions are correct.
-           - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", {data_preview_instruction})
-           - Output schema contract: The final DataFrame must contain only primitives (str/int/float/bool/None). Never return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
-           - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
-           - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
+             * Print the dict/df preview to help ensure indices and positions are correct.
+           - After any operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", {data_preview_instruction})
+           - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
+           - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
+           - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
         3. **Schema and Data Model Adherence**:
            - Use only columns and relationships that exist in the provided schemas.
-           - If the data model suggests derived columns or aggregations, ensure you derive them correctly from existing schema fields.
-           - Do NOT invent columns that do not exist or cannot be derived.
-           - Do NOT include client names or non-relevant info inside queries. The data source queries should be generic and directly usable by the ds_clients.
+           - If the data model suggests derived columns or aggregations, derive them from existing schema fields.
+           - Do not invent columns that do not exist or cannot be derived.
+           - Do not include client names or non-relevant info inside queries. The data source queries should be generic and directly usable by the ds_clients.
 
         4. **Handling Previous Code and Errors**:
            - If `retries` ≥ 1, review the code_and_error_messages:
@@ -397,13 +396,12 @@ class Coder:
             except Exception:
                 similar_successful_code_snippets = ""
             text = f"""
-            You are a highly skilled data engineer and data scientist.
+            Role: data engineer and data scientist working on the user's analytics request.
 
-            Your goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
-            that produces a Pandas DataFrame grounded ONLY in the provided schemas and resources.
+            Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
+            that produces a Pandas DataFrame grounded only in the provided schemas and resources.
 
-            **General Organization Instructions**:
-            **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+            **Organization Instructions** (authored by the user; apply them):
             {instructions_context}
 
             **Context and Inputs**:
@@ -458,10 +456,10 @@ class Coder:
             **Guidelines and Requirements**:
 
             0. **Data Modeling**:
-                - Make sure the data structure answers the user prompt and is feasible given the schemas and data sources.
+                - The data structure should answer the user prompt and be feasible given the schemas and data sources.
                 - Bias for a master table: include additional columns that are relevant for filtering and slicing in the visualization layer, even if not explicitly requested by the user. For example, if the user asks for total sales by region, also include date and product category columns if available.
                 - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
-                - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do NOT add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
+                - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do not add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
 
             1. **Function Signature**: Implement exactly:
                `def generate_df(ds_clients, excel_files):`
@@ -469,26 +467,26 @@ class Coder:
 
             2. **Data Source Usage**:
                - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
-                 * CRITICAL: Use the EXACT `client_key` string from <connection_clients> section - it is a literal string, NOT a variable!
+                 * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
                  * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
                - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
-               - **Cross-Connection Queries**: If you need tables from DIFFERENT connections, you CANNOT join them in SQL. Instead, query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
+               - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
                - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)`.
                  * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
                  * Use prints to help validate indices and positions.
-               - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
-               - Output schema contract: The final DataFrame must contain only primitives (str/int/float/bool/None). Never return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
-               - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
-               - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
+               - After any operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
+               - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
+               - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
+               - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
             3. **Schema Adherence**:
                - Use only columns and relationships that exist in the provided schemas.
-               - Do NOT invent columns that do not exist or cannot be derived.
+               - Do not invent columns that do not exist or cannot be derived.
                - Use metadata resources for tables/cols enrichments, code examples, etc.
-               - Never use tables/cols that exist in instructions but are not in the provided schemas.
+               - Do not use tables/cols that exist in instructions but are not in the provided schemas.
 
             4. **Handling Previous Code and Errors**:
                - If `retries` ≥ 1, review the code_and_error_messages:
@@ -636,13 +634,12 @@ class Coder:
             code_error_section = "\n".join(combined)
 
         text = f"""
-        You are a highly skilled data engineer and data scientist.
+        Role: data engineer and data scientist working on the user's analytics request.
 
-        Your goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
-        that produces a Pandas DataFrame grounded ONLY in the provided schemas and resources.
+        Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
+        that produces a Pandas DataFrame grounded only in the provided schemas and resources.
 
-        **General Organization Instructions**:
-        **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+        **Organization Instructions** (authored by the user; apply them):
         {instructions_context}
 
         **Context and Inputs**:
@@ -724,9 +721,9 @@ class Coder:
            - Create a focused DataFrame that answers the user's question.
            - Include additional columns that are relevant for filtering and slicing in the visualization layer, even if not explicitly requested. For example, if the user asks for total sales by region, also include date and product category columns if available.
            - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
-           - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do NOT add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
-           - Do NOT combine multiple unrelated KPIs or analyses into a single DataFrame.
-           - If past_observations contain multi-table inspection queries, those were exploratory research — do NOT mimic that pattern here.
+           - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do not add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
+           - Do not combine multiple unrelated KPIs or analyses into a single DataFrame.
+           - If past_observations contain multi-table inspection queries, those were exploratory research — do not mimic that pattern here.
 
         1. **Function Signature**: Implement exactly:
            `def generate_df(ds_clients, excel_files):`
@@ -734,7 +731,7 @@ class Coder:
 
         2. **Data Source Usage**:
            - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
-             * CRITICAL: Use the EXACT `client_key` string from <data_sources_and_clients> section - it is a literal string, NOT a variable!
+             * Use the exact `client_key` string from the <data_sources_and_clients> section — it is a literal string, not a variable.
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
@@ -742,16 +739,16 @@ class Coder:
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
              * Use prints to help validate indices and positions.
-           - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
-           - Output schema contract: The final DataFrame must contain only primitives (str/int/float/bool/None). Never return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
-           - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
-           - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
+           - After any operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
+           - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
+           - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
+           - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
         3. **Schema Adherence**:
            - Use only columns and relationships that exist in the provided schemas.
            - If deriving columns or aggregations, ensure derivations are correct from existing schema fields.
-           - Do NOT invent columns that do not exist or cannot be derived.
-           - Do NOT include client names or non-relevant info inside queries. The data source queries should be generic and directly usable by the ds_clients.
+           - Do not invent columns that do not exist or cannot be derived.
+           - Do not include client names or non-relevant info inside queries. The data source queries should be generic and directly usable by the ds_clients.
 
         4. **Handling Previous Code and Errors**:
            - If `retries` ≥ 1, review the code_and_error_messages:
@@ -843,10 +840,10 @@ class Coder:
         excel_files_section = "\n".join(excel_files_description)
 
         text = f"""
-        You are a Data Investigator doing a QUICK hypothesis validation.
+        Role: data investigator doing a quick hypothesis validation.
 
-        Your goal: Write a Python function `generate_df(ds_clients, excel_files)` that **validates assumptions** about data before creating tracked widgets.
-        This is NOT for generating insights — insights come from create_data. This is just a quick peek.
+        Goal: Write a Python function `generate_df(ds_clients, excel_files)` that validates assumptions about data before creating tracked widgets.
+        This is not for generating insights — insights come from create_data. This is just a quick peek.
 
         **Context and Inputs**:
         - User Prompt (Validation Goal):
@@ -854,7 +851,7 @@ class Coder:
         {prompt}
         </user_prompt>
 
-        - Schemas (already available, DO NOT query information_schema):
+        - Schemas (already available; do not query information_schema):
         <schemas>
         {schemas}
         </schemas>
@@ -874,12 +871,12 @@ class Coder:
         - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)
         - Example: `df = pd.read_excel(excel_files[0].path, sheet_name=0)`
 
-        **CRITICAL CONSTRAINTS**:
-        1. **MAX 2-3 QUERIES TOTAL** - This is a quick validation, not a full analysis.
-        2. **LIMIT 3** - Always use `LIMIT 3` in SQL. Always use `.head(3)` on DataFrames.
-        3. **Complex joins are OK within the same connection** - But you CANNOT join across different connections in SQL. If tables are under different `<connection>` tags in the schemas, query each connection separately.
+        **Constraints**:
+        1. **Keep it to 2-3 queries** — this is a quick validation, not a full analysis.
+        2. **Limit rows** — use `LIMIT 3` in SQL and `.head(3)` on DataFrames.
+        3. **Joins within one connection are fine**, but cross-connection joins do not work in SQL. If tables are under different `<connection>` tags, query each connection separately.
         4. **Connection-Table Mapping**: Match `<connection name="...">` in schemas to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
-        5. **DO NOT query information_schema** - Schema is already provided above.
+        5. **Do not query information_schema** — schemas are already provided above.
 
         **What to validate**:
         - Sample rows to see data structure
@@ -888,7 +885,7 @@ class Coder:
         - Verify join keys match between tables
         - Check date formats or value ranges
 
-        **PRINT EVERYTHING**: The user will ONLY see what you `print()`.
+        **Print everything**: the user only sees what you `print()`.
         - `print(df.head(3))`
         - `print(df['col'].unique()[:10])`
         - `print(df['col'].isna().sum())`
@@ -897,7 +894,7 @@ class Coder:
 
         **Return**: The inspected dataframe or `None`. The `print()` output is the primary deliverable.
 
-        Now produce ONLY the Python function code. No markdown. Keep it SHORT.
+        Return only the Python function code. No markdown. Keep it short.
         """
 
         result = self.llm.inference(text)
