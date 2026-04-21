@@ -36,7 +36,7 @@
           <div class="space-y-2">
             <div v-for="(s, idx) in encoding.series" :key="idx" class="flex items-center space-x-2">
               <input v-model="s.name" placeholder="name" class="flex-1 border rounded px-2 py-1" />
-              <select v-model="s.value" class="w-40 border rounded px-2 py-1 bg-white">
+              <select v-model="s.value" class="w-32 border rounded px-2 py-1 bg-white">
                 <option value="">value</option>
                 <optgroup label="Suggested">
                   <option v-for="c in numericColumns" :key="`val-s-${c}`" :value="c">{{ c }}</option>
@@ -44,6 +44,9 @@
                 <optgroup label="All columns">
                   <option v-for="c in otherNumericColumns" :key="`val-a-${c}`" :value="c">{{ c }}</option>
                 </optgroup>
+              </select>
+              <select v-model="s.aggregation" class="w-24 border rounded px-2 py-1 bg-white" title="Aggregation applied to duplicate category rows">
+                <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
               </select>
               <button class="px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="removeSeries(idx)">Remove</button>
             </div>
@@ -79,6 +82,12 @@
             </optgroup>
           </select>
         </div>
+        <div>
+          <div class="text-gray-600 mb-1">Aggregation</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+            <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
       </div>
 
       <!-- Scatter -->
@@ -108,6 +117,12 @@
               </optgroup>
             </select>
           </div>
+        </div>
+        <div>
+          <div class="text-gray-600 mb-1">Aggregation (groups duplicate X)</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+            <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
         </div>
       </div>
 
@@ -150,6 +165,12 @@
               </optgroup>
             </select>
           </div>
+        </div>
+        <div>
+          <div class="text-gray-600 mb-1">Aggregation</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+            <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
         </div>
       </div>
 
@@ -323,6 +344,14 @@
           </select>
         </div>
 
+        <!-- Aggregation -->
+        <div>
+          <div class="text-gray-600 mb-1">Aggregation (required for granular rows)</div>
+          <select v-model="local.aggregation" class="w-full border rounded px-2 py-1 bg-white">
+            <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+
         <!-- Format -->
         <div>
           <div class="text-gray-600 mb-1">Format</div>
@@ -433,6 +462,39 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Default Filters -->
+    <div v-if="showEncoding">
+      <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.defaultFilters = !expanded.defaultFilters">
+        <Icon :name="expanded.defaultFilters ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        Default Filters
+        <span v-if="defaultFilters.length" class="ml-2 text-[10px] text-gray-400 normal-case">({{ defaultFilters.length }})</span>
+      </div>
+      <Transition name="fade">
+        <div v-if="expanded.defaultFilters" class="space-y-2">
+          <div class="text-[10px] text-gray-500 mb-1">
+            Applied automatically when this visualization renders (e.g. to focus a granular dataset on the latest period).
+          </div>
+          <div v-for="(f, idx) in defaultFilters" :key="idx" class="flex items-center space-x-1.5">
+            <select v-model="f.column" class="flex-1 border rounded px-2 py-1 bg-white text-[11px]">
+              <option value="">-- Column --</option>
+              <option v-for="c in allColumns" :key="`df-col-${idx}-${c}`" :value="c">{{ c }}</option>
+            </select>
+            <select v-model="f.operator" class="w-28 border rounded px-2 py-1 bg-white text-[11px]">
+              <option v-for="op in filterOperators" :key="op.value" :value="op.value">{{ op.label }}</option>
+            </select>
+            <input
+              v-if="!['is_empty','is_not_empty','is_true','is_false'].includes(f.operator)"
+              v-model="f.value"
+              placeholder="value"
+              class="w-24 border rounded px-2 py-1 text-[11px]"
+            />
+            <button class="px-1.5 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="removeDefaultFilter(idx)">×</button>
+          </div>
+          <button class="mt-1 px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="addDefaultFilter">Add filter</button>
+        </div>
+      </Transition>
     </div>
 
     <!-- Styling -->
@@ -584,7 +646,37 @@ const saving = ref(false)
 const error = ref('')
 
 // UI section expand/collapse state
-const expanded = reactive<{ typeData: boolean; style: boolean; xAxisLabels: boolean; yAxisLabels: boolean }>({ typeData: true, style: true, xAxisLabels: false, yAxisLabels: false })
+const expanded = reactive<{ typeData: boolean; style: boolean; xAxisLabels: boolean; yAxisLabels: boolean; defaultFilters: boolean }>({
+  typeData: true,
+  style: true,
+  xAxisLabels: false,
+  yAxisLabels: false,
+  defaultFilters: false,
+})
+
+// Aggregation + default-filter options (aligned with useSharedFilters operators)
+const aggregationOptions = [
+  { label: 'None', value: '' },
+  { label: 'Sum', value: 'sum' },
+  { label: 'Avg', value: 'avg' },
+  { label: 'Count', value: 'count' },
+  { label: 'Min', value: 'min' },
+  { label: 'Max', value: 'max' },
+]
+const filterOperators = [
+  { label: 'equals', value: 'equals' },
+  { label: 'not equals', value: 'not_equals' },
+  { label: 'contains', value: 'contains' },
+  { label: 'not contains', value: 'not_contains' },
+  { label: 'starts with', value: 'starts_with' },
+  { label: 'ends with', value: 'ends_with' },
+  { label: '>', value: 'greater_than' },
+  { label: '<', value: 'less_than' },
+  { label: '>=', value: 'gte' },
+  { label: '<=', value: 'lte' },
+  { label: 'is empty', value: 'is_empty' },
+  { label: 'is not empty', value: 'is_not_empty' },
+]
 
 function deepClone<T>(v: T): T { return JSON.parse(JSON.stringify(v || {})) }
 
@@ -655,7 +747,35 @@ function initFromView(view: any, step: any) {
       enc.dimensions = s0.dimensions
     }
   }
-  
+
+  // Hydrate per-series aggregation from view.seriesStyles onto encoding.series
+  // so the editor template (`s.aggregation`) binds correctly.
+  const styles: any[] = Array.isArray(v.seriesStyles) ? v.seriesStyles : []
+  if (Array.isArray(enc.series) && styles.length) {
+    enc.series = enc.series.map((s: any) => {
+      if (s?.aggregation) return s
+      const match = styles.find((st: any) => st.key === s.name || st.key === s.value)
+      return match?.aggregation ? { ...s, aggregation: match.aggregation } : s
+    })
+  }
+  // Also fall back to data_model.series[i].aggregation
+  if (Array.isArray(enc.series) && Array.isArray(dm.series)) {
+    enc.series = enc.series.map((s: any, idx: number) => {
+      if (s?.aggregation) return s
+      const dmAgg = dm.series[idx]?.aggregation
+      return dmAgg ? { ...s, aggregation: dmAgg } : s
+    })
+  }
+
+  // Default filters (flat list on view; legacy views won't have this)
+  const defaultFilters = Array.isArray(v.defaultFilters)
+    ? v.defaultFilters.map((d: any) => ({
+        column: String(d?.column || ''),
+        operator: String(d?.operator || 'equals'),
+        value: d?.value ?? ''
+      }))
+    : []
+
   return {
     type: v.type || dm.type || 'table',
     // Encoding for UI binding
@@ -701,12 +821,17 @@ function initFromView(view: any, step: any) {
     variant: v.variant || null,
     style: deepClone(style),
     options: deepClone(v.options || {}),
+    // Top-level aggregation (pie, heatmap, scatter, metric_card, count).
+    // Empty string means "no aggregation — render first row" to match runtime.
+    aggregation: v.aggregation || '',
+    // Flat list of default filters; seeded into shared-filters runtime at render time.
+    defaultFilters,
   }
 }
 
-// Initialize local state - but keep encoding separate for reactivity
+// Initialize local state - but keep encoding/defaultFilters separate for reactivity
 const initialState = initFromView(props.viz?.view, props.step)
-const { encoding: initialEncoding, ...restInitial } = initialState
+const { encoding: initialEncoding, defaultFilters: initialDefaultFilters, ...restInitial } = initialState
 
 const local = reactive<any>({
   ...restInitial,
@@ -715,6 +840,18 @@ const local = reactive<any>({
 
 // Encoding is a separate reactive for proper v-model binding in template
 const encoding = reactive<any>(initialEncoding || {})
+
+// Default filters reactive array for v-model binding in the template
+const defaultFilters = ref<any[]>(Array.isArray(initialDefaultFilters) ? [...initialDefaultFilters] : [])
+
+function addDefaultFilter() {
+  defaultFilters.value = [...defaultFilters.value, { column: '', operator: 'equals', value: '' }]
+}
+function removeDefaultFilter(idx: number) {
+  const next = [...defaultFilters.value]
+  next.splice(idx, 1)
+  defaultFilters.value = next
+}
 const dimensions = computed<string[]>({
   get: () => Array.isArray(encoding.dimensions) ? encoding.dimensions : (encoding.dimensions = []),
   set: (v: string[]) => { encoding.dimensions = v }
@@ -963,7 +1100,41 @@ function toViewPayload() {
   if (local.variant) {
     view.variant = local.variant
   }
-  
+
+  // --- Aggregation + default filters (v2) ---
+  // Top-level aggregation applies to pie/heatmap/scatter/count/metric_card.
+  if (local.aggregation && ['pie_chart','heatmap','scatter_plot','count','metric_card'].includes(t)) {
+    view.aggregation = local.aggregation
+  }
+  // Per-series aggregation for cartesian charts goes onto seriesStyles[i].aggregation.
+  if (['bar_chart','line_chart','area_chart'].includes(t) && Array.isArray(encoding.series)) {
+    const styles = encoding.series
+      .filter((s: any) => s && (s.name || s.value) && s.aggregation)
+      .map((s: any) => ({ key: s.name || s.value, label: s.name, aggregation: s.aggregation }))
+    if (styles.length) {
+      const existing = Array.isArray(view.seriesStyles) ? view.seriesStyles : []
+      // Merge: preserve existing style entries (color, etc.) by key when possible.
+      const merged = [...existing]
+      styles.forEach((st: any) => {
+        const match = merged.find((m: any) => m.key === st.key)
+        if (match) Object.assign(match, st)
+        else merged.push(st)
+      })
+      view.seriesStyles = merged
+    }
+  }
+  // Default filters (flat list; runtime wraps with vizId prefix on mount)
+  const filters = (defaultFilters.value || [])
+    .filter((f: any) => f && typeof f.column === 'string' && f.column.length)
+    .map((f: any) => {
+      const op = String(f.operator || 'equals')
+      const needsValue = !['is_empty','is_not_empty','is_true','is_false'].includes(op)
+      return needsValue ? { column: f.column, operator: op, value: f.value } : { column: f.column, operator: op }
+    })
+  if (filters.length) {
+    view.defaultFilters = filters
+  }
+
   return view
 }
 
@@ -1022,24 +1193,26 @@ async function save() {
 
 function reset() {
   const fresh = initFromView(props.viz?.view, props.step)
-  const { encoding: freshEnc, ...rest } = fresh
+  const { encoding: freshEnc, defaultFilters: freshDefaults, ...rest } = fresh
   // Update local (except encoding placeholder)
   Object.assign(local, rest)
   // Sync encoding reactive in-place
   Object.keys(encoding).forEach(k => delete encoding[k])
   Object.assign(encoding, freshEnc || {})
+  defaultFilters.value = Array.isArray(freshDefaults) ? [...freshDefaults] : []
 }
 
 watch(() => props.viz?.view, (v) => {
   if (!v) return
   // When parent replaces viz.view (e.g., after save), sync local state using v2-aware init
   const fresh = initFromView(v, props.step)
-  const { encoding: freshEnc, ...rest } = fresh
+  const { encoding: freshEnc, defaultFilters: freshDefaults, ...rest } = fresh
   // Update local (except encoding placeholder)
   Object.assign(local, rest)
   // Sync encoding reactive in-place
   Object.keys(encoding).forEach(k => delete encoding[k])
   Object.assign(encoding, freshEnc || {})
+  defaultFilters.value = Array.isArray(freshDefaults) ? [...freshDefaults] : []
   // Auto-detect missing encoding pieces after sync
   try {
     const t = local.type

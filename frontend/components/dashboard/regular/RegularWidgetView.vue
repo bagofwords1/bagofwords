@@ -47,12 +47,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, onMounted, onUnmounted } from 'vue'
+import { computed, defineAsyncComponent, ref, onMounted, onUnmounted, watch } from 'vue'
 import SpinnerComponent from '@/components/SpinnerComponent.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import TableAgGrid from '@/components/dashboard/table/TableAgGrid.vue'
 import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
-import { evaluateFilters, type FilterGroup } from '~/composables/useSharedFilters'
+import { evaluateFilters, parseColumnKey, type FilterGroup } from '~/composables/useSharedFilters'
 
 const props = defineProps<{
   widget: any
@@ -88,6 +88,65 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('filter:updated', handleFilterUpdate)
 })
+
+// Seed shared filters from view.defaultFilters once per widget id. This lets a
+// granular-data visualization open in a filtered state without the user having
+// to click through the filter UI.
+const seededDefaultsFor = ref<Set<string>>(new Set())
+
+function seedDefaultFiltersFromView() {
+  const vizId = String(widget.value?.id || '')
+  if (!vizId || seededDefaultsFor.value.has(vizId)) return
+
+  const viewObj = widget.value?.view as any
+  const viewInner = viewObj?.view || viewObj
+  const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
+  if (!defaults.length) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  const alreadyHasConditions = filters.value.some(g =>
+    g.conditions.some(c => parseColumnKey(c.column).vizId === vizId)
+  )
+  if (alreadyHasConditions) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  const conditions = defaults
+    .filter((d: any) => d && typeof d.column === 'string' && d.column.length > 0)
+    .map((d: any, i: number) => ({
+      id: `default-${vizId}-${i}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      column: `${vizId}:${d.column}`,
+      operator: String(d.operator || 'equals'),
+      value: d.value
+    }))
+  if (!conditions.length) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  const group: FilterGroup = {
+    id: `default-group-${vizId}-${Date.now()}`,
+    conditions
+  }
+  const next = [...filters.value, group]
+  filters.value = next
+  seededDefaultsFor.value.add(vizId)
+
+  try {
+    window.dispatchEvent(new CustomEvent('filter:updated', {
+      detail: { reportId: reportId.value, filters: next, source: filterInstanceId }
+    }))
+  } catch {}
+}
+
+watch(
+  () => [widget.value?.id, widget.value?.view],
+  () => { seedDefaultFiltersFromView() },
+  { immediate: true, deep: true }
+)
 
 // Check if we have data to filter
 const hasData = computed(() => {

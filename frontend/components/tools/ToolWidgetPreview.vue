@@ -445,11 +445,76 @@ const filteredRows = computed(() => {
   const rows = effectiveStep.value?.data?.rows
   if (!Array.isArray(rows)) return []
   if (sharedFilters.value.length === 0 || !visualizationId.value) return rows
-  
-  return rows.filter((row: any) => 
+
+  return rows.filter((row: any) =>
     sharedEvaluateFilters(row, sharedFilters.value, visualizationId.value)
   )
 })
+
+// ------------------------------------------------------------------
+// Default-filter seeding
+// When a visualization declares `view.defaultFilters`, push them into the
+// shared-filter runtime on first paint so the viz opens filtered. We only
+// seed once per viz id so clearing filters doesn't re-seed.
+// ------------------------------------------------------------------
+const seededDefaultsFor = ref<Set<string>>(new Set())
+
+function seedDefaultFiltersFromView() {
+  const vizId = visualizationId.value
+  if (!vizId || seededDefaultsFor.value.has(vizId)) return
+
+  const v = normalizedView.value as any
+  const viewInner = v?.view || v
+  const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
+  if (!defaults.length) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  // Respect existing user-authored filters for this viz
+  const alreadyHasConditions = sharedFilters.value.some(g =>
+    g.conditions.some(c => parseColumnKey(c.column).vizId === vizId)
+  )
+  if (alreadyHasConditions) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  const conditions = defaults
+    .filter((d: any) => d && typeof d.column === 'string' && d.column.length > 0)
+    .map((d: any, i: number) => ({
+      id: `default-${vizId}-${i}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      column: `${vizId}:${d.column}`,
+      operator: String(d.operator || 'equals'),
+      value: d.value
+    }))
+
+  if (!conditions.length) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  const group: FilterGroup = {
+    id: `default-group-${vizId}-${Date.now()}`,
+    conditions
+  }
+  const next = [...sharedFilters.value, group]
+  sharedFilters.value = next
+  seededDefaultsFor.value.add(vizId)
+
+  // Broadcast so VisualizationFilter/FilterBuilder receive the seeded state
+  try {
+    window.dispatchEvent(new CustomEvent('filter:updated', {
+      detail: { reportId: reportId.value, filters: next, source: filterInstanceId }
+    }))
+  } catch {}
+}
+
+watch(
+  () => [visualizationId.value, normalizedView.value],
+  () => { seedDefaultFiltersFromView() },
+  { immediate: true, deep: true }
+)
 
 const filteredRowCount = computed(() => filteredRows.value.length)
 

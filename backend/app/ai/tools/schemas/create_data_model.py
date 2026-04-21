@@ -22,10 +22,21 @@ class DataModelColumn(BaseModel):
     )
 
 
+AggregationFn = Literal["sum", "avg", "count", "min", "max"]
+
+
+class DefaultFilter(BaseModel):
+    """A filter to apply by default when rendering this visualization."""
+    column: str
+    operator: str
+    value: Any = None
+
+
 class SeriesBarLinePieArea(BaseModel):
     name: str
     key: str
     value: str
+    aggregation: Optional[AggregationFn] = None
 
 
 class SeriesCandlestick(BaseModel):
@@ -42,6 +53,7 @@ class SeriesHeatmap(BaseModel):
     x: str
     y: str
     value: str
+    aggregation: Optional[AggregationFn] = None
 
 
 class SeriesScatter(BaseModel):
@@ -49,12 +61,14 @@ class SeriesScatter(BaseModel):
     x: str
     y: str
     size: Optional[str] = None
+    aggregation: Optional[AggregationFn] = None
 
 
 class SeriesMap(BaseModel):
     name: str
     key: str
     value: str
+    aggregation: Optional[AggregationFn] = None
 
 
 class SeriesTreemap(BaseModel):
@@ -63,6 +77,7 @@ class SeriesTreemap(BaseModel):
     parentId: str
     value: str
     key: Optional[str] = None
+    aggregation: Optional[AggregationFn] = None
 
 
 class SeriesRadar(BaseModel):
@@ -96,6 +111,7 @@ class SeriesMetricCard(BaseModel):
     time_series: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
+    aggregation: Optional[AggregationFn] = None
 
 
 SeriesItem = Union[
@@ -132,7 +148,13 @@ class DataModel(BaseModel):
         "scatter_plot",
     ] = Field(..., description="Visualization/data type")
     columns: List[DataModelColumn] = Field(default_factory=list)
-    #filters: Optional[List[Dict[str, Any]]] = Field(default=None, description="Filter predicates")
+    filters: Optional[List[DefaultFilter]] = Field(
+        default=None,
+        description=(
+            "Default filters applied when rendering this visualization. "
+            "Used when raw data is granular and should open in a filtered state."
+        ),
+    )
     group_by: Optional[List[str]] = Field(default=None, description="Group-by fields")
     #sort: Optional[List[SortSpec]] = Field(default=None, description="Sorting specifications")
     #limit: Optional[int] = Field(default=100, description="Row limit")
