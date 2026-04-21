@@ -2,7 +2,7 @@
   <UPopover v-model="isOpen" :popper="{ placement: 'bottom-end' }">
     <!-- Trigger Button (default slot) - matches Toolbar button style -->
 
-        <UTooltip text="Add Filters">
+        <UTooltip :text="$t('filter.addFilters')">
     <UChip v-if="activeFilterCount > 0" :text="activeFilterCount" size="2xl" color="blue">
       <button
         type="button"
@@ -25,7 +25,7 @@
       <div class="w-[460px] max-w-[95vw]">
         <!-- Header -->
         <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200">
-          <span class="font-medium text-sm text-gray-700">Filters</span>
+          <span class="font-medium text-sm text-gray-700">{{ $t('filter.title') }}</span>
           <UButton
             v-if="hasActiveFilters"
             color="gray"
@@ -33,7 +33,7 @@
             size="xs"
             @click="clearAllFilters"
           >
-            Clear
+            {{ $t('filter.clear') }}
           </UButton>
         </div>
 
@@ -42,22 +42,22 @@
           <!-- Loading state -->
           <div v-if="props.isLoading" class="text-center py-6">
             <Icon name="heroicons:arrow-path" class="w-5 h-5 text-gray-300 mx-auto mb-2 animate-spin" />
-            <p class="text-xs text-gray-500">Loading...</p>
+            <p class="text-xs text-gray-500">{{ $t('filter.loading') }}</p>
           </div>
-          
+
           <!-- No columns available -->
           <div v-else-if="discoveredColumns.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500 mb-2">No data available to filter</p>
+            <p class="text-xs text-gray-500 mb-2">{{ $t('filter.noData') }}</p>
             <UButton size="xs" color="gray" variant="ghost" @click="refreshColumns">
-              Refresh
+              {{ $t('filter.refresh') }}
             </UButton>
           </div>
-          
+
           <!-- Empty State - has columns but no filters -->
           <div v-else-if="filterGroups.length === 0" class="text-center py-6">
-            <p class="text-xs text-gray-500 mb-3">No filters applied</p>
+            <p class="text-xs text-gray-500 mb-3">{{ $t('filter.noFilters') }}</p>
             <UButton size="xs" color="blue" @click="addGroup">
-              Add filter
+              {{ $t('filter.addFilter') }}
             </UButton>
           </div>
 
@@ -70,7 +70,7 @@
               <!-- OR Divider -->
               <div v-if="groupIndex > 0" class="flex items-center gap-2 py-1">
                 <div class="flex-1 h-px bg-gray-300"></div>
-                <span class="text-[10px] font-semibold text-orange-500">OR</span>
+                <span class="text-[10px] font-semibold text-orange-500">{{ $t('filter.orDivider') }}</span>
                 <div class="flex-1 h-px bg-gray-300"></div>
               </div>
 
@@ -82,20 +82,20 @@
                   :key="condition.id"
                   class="mb-2 last:mb-0"
                 >
-                  <div v-if="condIndex > 0" class="text-[10px] font-semibold text-blue-500 mb-1">AND</div>
+                  <div v-if="condIndex > 0" class="text-[10px] font-semibold text-blue-500 mb-1">{{ $t('filter.andDivider') }}</div>
 
                   <div class="flex items-center gap-1.5">
                     <!-- Column Select -->
                     <USelectMenu
                       v-model="condition.column"
                       :options="columnOptions"
-                      placeholder="Column"
+                      :placeholder="$t('filter.columnPlaceholder')"
                       size="xs"
                       value-attribute="value"
                       option-attribute="label"
                       class="w-[160px]"
                       searchable
-                      searchable-placeholder="Search..."
+                      :searchable-placeholder="$t('filter.searchPlaceholder')"
                       :popper="{ strategy: 'fixed', placement: 'bottom-start' }"
                       :ui-menu="{ height: 'max-h-48', option: { size: 'text-xs', padding: 'py-1 px-2' } }"
                       @update:model-value="onColumnChange(condition)"
@@ -131,13 +131,13 @@
                         v-if="shouldShowSelect(condition)"
                         v-model="condition.value"
                         :options="getValueOptions(condition.column)"
-                        placeholder="Value"
+                        :placeholder="$t('filter.valuePlaceholder')"
                         size="xs"
                         value-attribute="value"
                         option-attribute="label"
                         class="flex-1 min-w-[100px]"
                         searchable
-                        searchable-placeholder="Search..."
+                        :searchable-placeholder="$t('filter.searchPlaceholder')"
                         :popper="{ strategy: 'fixed', placement: 'bottom-start' }"
                         :ui-menu="{ height: 'max-h-48', option: { size: 'text-xs', padding: 'py-1 px-2' } }"
                       />
@@ -145,7 +145,7 @@
                         v-else-if="getColumnType(condition.column) === 'number'"
                         v-model="condition.value"
                         type="number"
-                        placeholder="Value"
+                        :placeholder="$t('filter.valuePlaceholder')"
                         size="xs"
                         class="flex-1 min-w-[100px]"
                       />
@@ -160,7 +160,7 @@
                         v-else
                         v-model="condition.value"
                         type="text"
-                        placeholder="Value"
+                        :placeholder="$t('filter.valuePlaceholder')"
                         size="xs"
                         class="flex-1 min-w-[100px]"
                       />
@@ -186,7 +186,7 @@
                     icon="i-heroicons-plus"
                     @click="addCondition(group)"
                   >
-                    AND
+                    {{ $t('filter.andDivider') }}
                   </UButton>
                   <UButton
                     v-if="groupIndex === filterGroups.length - 1"
@@ -195,7 +195,7 @@
                     size="xs"
                     @click="addGroup"
                   >
-                    OR
+                    {{ $t('filter.orDivider') }}
                   </UButton>
                   <div class="flex-1"></div>
                   <UButton
@@ -214,10 +214,10 @@
         <!-- Footer -->
         <div v-if="filterGroups.length > 0" class="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
           <span class="text-xs text-gray-500">
-            {{ filteredRowCount }} of {{ totalRowCount }} rows
+            {{ $t('filter.rowsCount', { shown: filteredRowCount, total: totalRowCount }) }}
           </span>
           <UButton size="xs" color="blue" @click="applyFilters">
-            Apply
+            {{ $t('filter.apply') }}
           </UButton>
         </div>
       </div>
@@ -540,52 +540,54 @@ function getColumnDisplayName(key: string): string {
 }
 
 // Operators based on column type
-const stringOperators = [
-  { label: 'equals', value: 'equals' },
-  { label: 'not equals', value: 'not_equals' },
-  { label: 'contains', value: 'contains' },
-  { label: 'not contains', value: 'not_contains' },
-  { label: 'starts with', value: 'starts_with' },
-  { label: 'ends with', value: 'ends_with' },
-  { label: 'is empty', value: 'is_empty' },
-  { label: 'is not empty', value: 'is_not_empty' },
-  { label: 'in', value: 'in' },
-  { label: 'not in', value: 'not_in' },
-]
+const { t } = useI18n()
 
-const numberOperators = [
-  { label: 'equals', value: 'equals' },
-  { label: 'not equals', value: 'not_equals' },
-  { label: 'greater than', value: 'greater_than' },
-  { label: 'less than', value: 'less_than' },
-  { label: 'greater or equal', value: 'gte' },
-  { label: 'less or equal', value: 'lte' },
-  { label: 'between', value: 'between' },
-  { label: 'is empty', value: 'is_empty' },
-  { label: 'is not empty', value: 'is_not_empty' },
-]
+const stringOperators = computed(() => [
+  { label: t('filter.op.equals'), value: 'equals' },
+  { label: t('filter.op.notEquals'), value: 'not_equals' },
+  { label: t('filter.op.contains'), value: 'contains' },
+  { label: t('filter.op.notContains'), value: 'not_contains' },
+  { label: t('filter.op.startsWith'), value: 'starts_with' },
+  { label: t('filter.op.endsWith'), value: 'ends_with' },
+  { label: t('filter.op.isEmpty'), value: 'is_empty' },
+  { label: t('filter.op.isNotEmpty'), value: 'is_not_empty' },
+  { label: t('filter.op.in'), value: 'in' },
+  { label: t('filter.op.notIn'), value: 'not_in' },
+])
 
-const dateOperators = [
-  { label: 'equals', value: 'equals' },
-  { label: 'before', value: 'before' },
-  { label: 'after', value: 'after' },
-  { label: 'between', value: 'between' },
-  { label: 'is empty', value: 'is_empty' },
-  { label: 'is not empty', value: 'is_not_empty' },
-]
+const numberOperators = computed(() => [
+  { label: t('filter.op.equals'), value: 'equals' },
+  { label: t('filter.op.notEquals'), value: 'not_equals' },
+  { label: t('filter.op.greaterThan'), value: 'greater_than' },
+  { label: t('filter.op.lessThan'), value: 'less_than' },
+  { label: t('filter.op.greaterOrEqual'), value: 'gte' },
+  { label: t('filter.op.lessOrEqual'), value: 'lte' },
+  { label: t('filter.op.between'), value: 'between' },
+  { label: t('filter.op.isEmpty'), value: 'is_empty' },
+  { label: t('filter.op.isNotEmpty'), value: 'is_not_empty' },
+])
 
-const booleanOperators = [
-  { label: 'is true', value: 'is_true' },
-  { label: 'is false', value: 'is_false' },
-]
+const dateOperators = computed(() => [
+  { label: t('filter.op.equals'), value: 'equals' },
+  { label: t('filter.op.before'), value: 'before' },
+  { label: t('filter.op.after'), value: 'after' },
+  { label: t('filter.op.between'), value: 'between' },
+  { label: t('filter.op.isEmpty'), value: 'is_empty' },
+  { label: t('filter.op.isNotEmpty'), value: 'is_not_empty' },
+])
+
+const booleanOperators = computed(() => [
+  { label: t('filter.op.isTrue'), value: 'is_true' },
+  { label: t('filter.op.isFalse'), value: 'is_false' },
+])
 
 function getOperatorsForColumn(columnName: string) {
   const type = getColumnType(columnName)
   switch (type) {
-    case 'number': return numberOperators
-    case 'date': return dateOperators
-    case 'boolean': return booleanOperators
-    default: return stringOperators
+    case 'number': return numberOperators.value
+    case 'date': return dateOperators.value
+    case 'boolean': return booleanOperators.value
+    default: return stringOperators.value
   }
 }
 
