@@ -4,7 +4,7 @@
             <!-- Full page loading spinner -->
             <div v-if="loading" class="flex flex-col items-center justify-center py-20">
                 <Spinner class="h-4 w-4 text-gray-400" />
-                <p class="text-sm text-gray-500 mt-2">Loading...</p>
+                <p class="text-sm text-gray-500 mt-2">{{ $t('common.loading') }}</p>
             </div>
 
             <div v-else>
@@ -13,9 +13,9 @@
                     <div>
                         <h1 class="text-lg font-semibold">
                             <GoBackChevron v-if="isExcel" />
-                            Data Agents
+                            {{ $t('data.agentsTitle') }}
                         </h1>
-                        <p class="mt-2 text-gray-500">Organize tables and instructions into agents.</p>
+                        <p class="mt-2 text-gray-500">{{ $t('data.agentsSubtitle') }}</p>
                     </div>
 
                     <!-- Header with search -->
@@ -25,7 +25,7 @@
                                 <input
                                     v-model="searchQuery"
                                     type="text"
-                                    placeholder="Search data agents..."
+                                    :placeholder="$t('data.searchAgents')"
                                     class="w-full ps-10 pe-4 text-xs py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                 />
                                 <UIcon
@@ -45,14 +45,14 @@
                                 class="w-full md:w-auto"
                                 @click="navigateTo('/data/new')"
                             >
-                                Create Data Agent
+                                {{ $t('data.createAgent') }}
                             </UButton>
                         </div>
                     </div>
 
                     <!-- Sample databases -->
                     <div v-if="uninstalledDemos.length > 0 && allDomains.length === 0" class="mb-4">
-                        <div class="text-xs text-gray-400 mb-2">Try a sample database:</div>
+                        <div class="text-xs text-gray-400 mb-2">{{ $t('data.trySample') }}</div>
                         <div class="flex flex-wrap gap-2">
                             <button
                                 v-for="demo in uninstalledDemos"
@@ -64,7 +64,7 @@
                                 <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
                                 <DataSourceIcon v-else class="h-4" :type="demo.type" />
                                 {{ demo.name }}
-                                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+                                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
                             </button>
                         </div>
                     </div>
@@ -87,7 +87,7 @@
                                         <DataSourceIcon class="h-3.5" :type="conn.type" />
                                     </UTooltip>
                                     <span v-if="(ds.connections || []).length > 3" class="text-gray-400">+{{ (ds.connections || []).length - 3 }}</span>
-                                    <span v-if="userHasAccess(ds)">{{ getTableCount(ds) }} tables</span>
+                                    <span v-if="userHasAccess(ds)">{{ getTableCount(ds) }} {{ $t('data.tables') }}</span>
                                 </div>
 
                                 <!-- Description (2 lines max) -->
@@ -95,7 +95,7 @@
                                     {{ ds.description }}
                                 </p>
                                 <p v-else class="text-xs text-gray-300 italic">
-                                    No description
+                                    {{ $t('data.noDescription') }}
                                 </p>
                             </component>
 
@@ -106,7 +106,7 @@
                                 class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
                             >
                                 <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
-                                Connect
+                                {{ $t('data.connect') }}
                             </button>
                         </div>
                     </div>
@@ -116,15 +116,15 @@
                         <div class="text-gray-400 mb-2">
                             <UIcon name="heroicons-magnifying-glass" class="w-8 h-8 mx-auto opacity-50" />
                         </div>
-                        <p class="text-sm text-gray-500 mb-1">No data agents found</p>
-                        <p class="text-xs text-gray-400">Try a different search term</p>
+                        <p class="text-sm text-gray-500 mb-1">{{ $t('data.noAgentsFound') }}</p>
+                        <p class="text-xs text-gray-400">{{ $t('data.noAgentsHint') }}</p>
                     </div>
                 </div>
 
                 <!-- Connections Section -->
                 <div class="mb-6">
                     <div class="flex items-center justify-between mb-1">
-                        <h1 class="text-lg font-semibold">Connections</h1>
+                        <h1 class="text-lg font-semibold">{{ $t('data.connectionsTitle') }}</h1>
                         <UButton
                             v-if="canCreateDataSource"
                             @click="selectedDataSourceType = undefined; showAddConnectionModal = true"
@@ -132,10 +132,10 @@
                             size="xs"
                         >
                             <UIcon name="heroicons-plus" class="w-3 h-3 me-1" />
-                            Add Connection
+                            {{ $t('data.addConnection') }}
                         </UButton>
                     </div>
-                    <p class="text-gray-500 mb-3">Manage your database connections.</p>
+                    <p class="text-gray-500 mb-3">{{ $t('data.subtitle') }}</p>
 
                     <!-- Connection chips (when connections exist) -->
                     <div v-if="connections.length > 0" class="flex flex-wrap items-center gap-2">
@@ -195,6 +195,7 @@ import { resolveComponent } from 'vue'
 
 const NuxtLink = resolveComponent('NuxtLink')
 
+const { t } = useI18n()
 const { organization } = useOrganization()
 const { isExcel } = useExcel()
 
@@ -333,8 +334,8 @@ const toast = useToast()
 
 function handleDemoInstalled(result: any) {
     toast.add({
-        title: 'Sample data added',
-        description: 'Sample database has been added successfully.',
+        title: t('data.sampleAdded'),
+        description: t('data.sampleAddedDesc'),
         icon: 'i-heroicons-check-circle',
         color: 'green'
     })
@@ -383,10 +384,10 @@ async function installDemo(demoId: string) {
         const response = await useMyFetch(`/data_sources/demos/${demoId}`, { method: 'POST' })
         const result = response.data.value as any
         if (result?.success) {
-            const demoName = demo_ds.value.find((d: any) => d.id === demoId)?.name || 'Sample data'
+            const demoName = demo_ds.value.find((d: any) => d.id === demoId)?.name || t('data.sampleDataFallback')
             toast.add({
-                title: 'Sample data added',
-                description: `${demoName} has been added successfully.`,
+                title: t('data.sampleAdded'),
+                description: t('data.sampleAddedNamed', { name: demoName }),
                 icon: 'i-heroicons-check-circle',
                 color: 'green'
             })
@@ -416,12 +417,12 @@ onMounted(async () => {
     const route = useRoute()
     if (route.query.oauth === 'success') {
         const toast = useToast()
-        toast.add({ title: 'Connected successfully', color: 'green', icon: 'i-heroicons-check-circle' })
+        toast.add({ title: t('data.connectedSuccess'), color: 'green', icon: 'i-heroicons-check-circle' })
         // Clean up query params
         navigateTo('/data', { replace: true })
     } else if (route.query.oauth === 'error') {
         const toast = useToast()
-        toast.add({ title: 'Connection failed', description: route.query.message as string || '', color: 'red', icon: 'i-heroicons-x-circle' })
+        toast.add({ title: t('data.connectionFailed'), description: route.query.message as string || '', color: 'red', icon: 'i-heroicons-x-circle' })
         navigateTo('/data', { replace: true })
     }
 })

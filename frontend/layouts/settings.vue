@@ -4,7 +4,7 @@
             <div class="w-full max-w-7xl px-4 ps-0 py-4">
                 <div>
                     <h1 class="text-lg font-semibold">
-                        Settings
+                        {{ $t('settings.title') }}
                     </h1>
                     
                     <!-- Tabs navigation -->
@@ -21,7 +21,7 @@
                                     'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium'
                                 ]"
                             >
-                                {{ tab.label }}
+                                {{ $t(tab.label) }}
                             </NuxtLink>
                         </nav>
                     </div>
@@ -39,14 +39,14 @@ const route = useRoute()
 
 // All available tabs with their required permissions
 const allTabs = [
-    { name: 'members', label: 'Members', requiredPermission: "view_members" },
-    { name: 'models', label: 'LLM', requiredPermission: "manage_llm" },
-    { name: 'ai_settings', label: 'AI Settings', requiredPermission: "manage_settings" },
-    { name: 'general', label: 'General', requiredPermission: "manage_settings" },
-    { name: "integrations", label: "Integrations", requiredPermission: "manage_settings" },
-    { name: 'audit', label: 'Audit Logs', requiredPermission: "view_audit_logs" },
-    { name: 'identity-provider', label: 'Identity Provider', requiredPermission: "manage_identity_providers" },
-    { name: 'license', label: 'License', requiredPermission: "manage_settings" },
+    { name: 'members', label: 'settings.members', requiredPermission: "view_members" },
+    { name: 'models', label: 'settings.llm', requiredPermission: "manage_llm" },
+    { name: 'ai_settings', label: 'settings.aiSettings', requiredPermission: "manage_settings" },
+    { name: 'general', label: 'settings.general', requiredPermission: "manage_settings" },
+    { name: "integrations", label: "settings.integrations", requiredPermission: "manage_settings" },
+    { name: 'audit', label: 'settings.auditLogs', requiredPermission: "view_audit_logs" },
+    { name: 'identity-provider', label: 'settings.identityProvider', requiredPermission: "manage_identity_providers" },
+    { name: 'license', label: 'settings.license', requiredPermission: "manage_settings" },
 ]
 
 // Filter tabs based on user permissions

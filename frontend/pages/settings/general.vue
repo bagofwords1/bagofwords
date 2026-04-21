@@ -1,8 +1,8 @@
 <template>
     <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900">General
+        <h2 class="text-lg font-medium text-gray-900">{{ $t('settings.general') }}
             <p class="text-sm text-gray-500 font-normal mb-8">
-                Manage workspace identity and preferences.
+                {{ $t('settings.subtitle') }}
             </p>
         </h2>
 
@@ -17,42 +17,42 @@
         <div v-if="!loading && !error" class="space-y-6">
             <!-- Organization Name -->
             <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">Organization name</div>
-                <UInput v-model="form.organization_name" :maxlength="80" placeholder="Workspace name" />
+                <div class="text-sm font-medium text-gray-800">{{ $t('settings.organizationName') }}</div>
+                <UInput v-model="form.organization_name" :maxlength="80" :placeholder="$t('settings.workspacePlaceholder')" />
             </div>
             <!-- Organization Icon -->
             <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">Organization icon</div>
+                <div class="text-sm font-medium text-gray-800">{{ $t('settings.organizationIcon') }}</div>
                 <div class="flex items-center space-x-4">
                     <div class="w-20 h-14 rounded border bg-white overflow-hidden flex items-center justify-center">
                         <img v-if="form.icon_url" :src="form.icon_url" class="max-w-full max-h-full object-contain" />
                         <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-gray-400" />
                     </div>
                     <div class="space-x-2">
-                        <UButton size="sm" variant="outline" color="blue" @click="selectIcon">{{ form.icon_url ? 'Change' : 'Upload' }} Icon</UButton>
-                        <UButton v-if="form.icon_url" size="sm" color="red" variant="soft" @click="queueRemoveIcon">Remove</UButton>
+                        <UButton size="sm" variant="outline" color="blue" @click="selectIcon">{{ form.icon_url ? $t('settings.changeIcon') : $t('settings.uploadIconButton') }}</UButton>
+                        <UButton v-if="form.icon_url" size="sm" color="red" variant="soft" @click="queueRemoveIcon">{{ $t('common.remove') }}</UButton>
                         <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onIconSelected" />
                     </div>
                 </div>
-                <div class="text-xs text-gray-500">PNG/JPEG, ≤ 512 KB.</div>
+                <div class="text-xs text-gray-500">{{ $t('settings.iconConstraints') }}</div>
             </div>
 
 
 
             <!-- AI Analyst Name -->
             <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">AI analyst name</div>
+                <div class="text-sm font-medium text-gray-800">{{ $t('settings.aiAnalystName') }}</div>
                 <UInput v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
             </div>
 
             <!-- Credit toggle -->
             <div class="md:w-2/3 flex items-center justify-between">
-                <div class="text-sm text-gray-800">Show "Made with Bag of words" credit</div>
+                <div class="text-sm text-gray-800">{{ $t('settings.showCredit') }}</div>
                 <UToggle v-model="form.bow_credit" />
             </div>
 
             <div class="md:w-2/3 pt-2">
-                <UButton color="blue" @click="saveAll" :loading="saving">Save changes</UButton>
+                <UButton color="blue" @click="saveAll" :loading="saving">{{ $t('common.saveChanges') }}</UButton>
             </div>
         </div>
     </div>
@@ -61,6 +61,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useToast } from '#imports'
+
+const { t } = useI18n()
 
 interface GeneralConfig {
     ai_analyst_name: string
@@ -90,15 +92,15 @@ const fetchSettings = async () => {
     error.value = ''
     try {
         const response = await useMyFetch('/api/organization/settings')
-        if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || 'Failed to fetch settings')
+        if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToFetch'))
         const cfg = (response.data.value as SettingsResponse)?.config
         general.value = cfg?.general || { ai_analyst_name: 'AI Analyst', bow_credit: true }
         // Fetch current organization name from session if available
         const { organization } = useOrganization()
         form.value = { organization_name: organization.value?.name, ...general.value }
     } catch (e: any) {
-        error.value = e.message || 'Failed to load settings'
-        toast.add({ title: 'Error', description: error.value, color: 'red' })
+        error.value = e.message || t('settings.failedToLoad')
+        toast.add({ title: t('common.error'), description: error.value, color: 'red' })
     } finally {
         loading.value = false
     }
@@ -112,13 +114,13 @@ const saveAll = async () => {
             const formData = new FormData()
             formData.append('icon', pendingIconFile.value)
             const upload = await useMyFetch('/api/organization/general/icon', { method: 'POST', body: formData })
-            if (upload.status.value !== 'success') throw new Error(upload.error?.value?.data?.message || 'Upload failed')
+            if (upload.status.value !== 'success') throw new Error(upload.error?.value?.data?.message || t('settings.uploadFailed'))
             const cfg = (upload.data.value as SettingsResponse)?.config
             form.value.icon_url = cfg?.general?.icon_url || form.value.icon_url
             form.value.icon_key = cfg?.general?.icon_key || form.value.icon_key
         } else if (removeIcon.value) {
             const remove = await useMyFetch('/api/organization/general/icon', { method: 'DELETE' })
-            if (remove.status.value !== 'success') throw new Error(remove.error?.value?.data?.message || 'Remove failed')
+            if (remove.status.value !== 'success') throw new Error(remove.error?.value?.data?.message || t('settings.removeFailed'))
             form.value.icon_url = null
             form.value.icon_key = null
         }
@@ -131,14 +133,14 @@ const saveAll = async () => {
         // 3) Save textual and toggle settings
         const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
         const response = await useMyFetch('/api/organization/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || 'Failed to update settings')
+        if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToUpdate'))
 
         general.value = ((response.data.value as SettingsResponse)?.config?.general) || form.value
-        toast.add({ title: 'Saved', color: 'green' })
+        toast.add({ title: t('settings.saved'), color: 'green' })
         // reload to reflect icon in default layout
         window.location.reload()
     } catch (e: any) {
-        toast.add({ title: 'Error', description: e.message || 'Failed to save', color: 'red' })
+        toast.add({ title: t('common.error'), description: e.message || t('settings.failedToSave'), color: 'red' })
     } finally {
         saving.value = false
         pendingIconFile.value = null
@@ -153,7 +155,7 @@ const onIconSelected = async (evt: Event) => {
     const file = input.files?.[0]
     if (!file) return
     if (file.size > 512 * 1024) {
-        toast.add({ title: 'Icon too large', description: 'Max 512 KB', color: 'red' })
+        toast.add({ title: t('settings.iconTooLarge'), description: t('settings.iconMaxSize'), color: 'red' })
         return
     }
     pendingIconFile.value = file

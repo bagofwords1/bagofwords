@@ -43,7 +43,7 @@
             <!-- Enterprise badge -->
             <div v-if="isLocked(ds)" class="mt-1">
               <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
-                Enterprise
+                {{ $t('data.enterprise') }}
               </span>
             </div>
           </div>
@@ -52,7 +52,7 @@
 
       <!-- Sample databases -->
       <div v-if="showDemos && uninstalledDemos.length > 0" class="mt-6">
-        <div class="text-xs text-gray-400 mb-2">Or try a sample database:</div>
+        <div class="text-xs text-gray-400 mb-2">{{ $t('data.orTrySample') }}</div>
         <div class="flex flex-wrap gap-2">
           <button
             v-for="demo in uninstalledDemos"
@@ -64,7 +64,7 @@
             <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
             <DataSourceIcon v-else class="h-4" :type="demo.type" />
             {{ demo.name }}
-            <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+            <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
           </button>
         </div>
       </div>
