@@ -4,16 +4,16 @@
       <!-- Step 1: Select data source type -->
       <div v-if="step === 'select'">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold">Add Connection</h3>
+          <h3 class="text-lg font-semibold">{{ $t('data.addConnection') }}</h3>
           <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600">
             <UIcon name="heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
-        <p class="text-sm text-gray-500 mb-4">Select a data source type to connect.</p>
+        <p class="text-sm text-gray-500 mb-4">{{ $t('data.selectTypeHint') }}</p>
 
         <!-- Demo data sources at the top -->
         <div v-if="uninstalledDemos.length > 0" class="mb-4">
-          <div class="text-xs text-gray-400 mb-2">Try a sample database:</div>
+          <div class="text-xs text-gray-400 mb-2">{{ $t('data.trySample') }}</div>
           <div class="flex flex-wrap gap-2">
             <button
               v-for="demo in uninstalledDemos"
@@ -25,7 +25,7 @@
               <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
               <DataSourceIcon v-else class="h-4" :type="demo.type" />
               {{ demo.name }}
-              <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+              <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
             </button>
           </div>
         </div>
@@ -34,7 +34,7 @@
         <div class="mb-4">
           <UInput
             v-model="searchQuery"
-            placeholder="Search data sources..."
+            :placeholder="$t('data.searchSources')"
             icon="i-heroicons-magnifying-glass"
             size="sm"
           />
@@ -72,7 +72,7 @@
               <div class="text-xs text-gray-500 mt-1">{{ ds.title }}</div>
               <div v-if="isLocked(ds)" class="mt-1">
                 <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
-                  Enterprise
+                  {{ $t('data.enterprise') }}
                 </span>
               </div>
             </div>
@@ -81,7 +81,7 @@
 
         <!-- No results -->
         <div v-if="!loadingDataSources && filteredDataSources.length === 0" class="text-center py-8 text-gray-500 text-sm">
-          No data sources found matching "{{ searchQuery }}"
+          {{ $t('data.noSourcesFound', { query: searchQuery }) }}
         </div>
       </div>
 
@@ -138,6 +138,7 @@ const isOpen = computed({
 })
 
 const { isLicensed } = useEnterprise()
+const { t } = useI18n()
 const toast = useToast()
 
 // State
@@ -191,10 +192,10 @@ async function handleInstallDemo(demoId: string) {
     const response = await useMyFetch(`/data_sources/demos/${demoId}`, { method: 'POST' })
     const result = response.data.value as any
     if (result?.success) {
-      const demoName = demos.value.find(d => d.id === demoId)?.name || 'Sample data'
+      const demoName = demos.value.find(d => d.id === demoId)?.name || t('data.sampleDataFallback')
       toast.add({
-        title: 'Sample data added',
-        description: `${demoName} has been added successfully.`,
+        title: t('data.sampleAdded'),
+        description: t('data.sampleAddedNamed', { name: demoName }),
         icon: 'i-heroicons-check-circle',
         color: 'green'
       })
@@ -220,8 +221,8 @@ function handleConnectionSuccess(connection: any) {
   emit('created', connection)
 
   toast.add({
-    title: 'Connection created',
-    description: `${connection?.name || 'Connection'} has been connected successfully.`,
+    title: t('data.connectionCreated'),
+    description: t('data.connectionCreatedDesc', { name: connection?.name || t('data.connectionFallback') }),
     icon: 'i-heroicons-check-circle',
     color: 'green'
   })
