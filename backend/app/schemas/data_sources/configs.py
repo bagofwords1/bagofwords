@@ -724,6 +724,57 @@ class QVDConfig(BaseModel):
     )
 
 
+# Qlik Sense (live connector — Cloud + Enterprise on Windows)
+class QlikSenseApiKeyCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="Qlik Cloud API key (bearer token). Generate at 'Settings > API keys' on the tenant.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class QlikSenseConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description=(
+            "Qlik tenant base URL. "
+            "Qlik Cloud example: https://tenant.us.qlikcloud.com. "
+            "Qlik Sense Enterprise on Windows: https://qs.company.com (optionally with virtual-proxy prefix)."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify TLS certificate when calling Qlik REST and WebSocket endpoints.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    timeout_sec: int = Field(
+        30,
+        ge=1,
+        le=300,
+        title="Timeout (sec)",
+        description="HTTP timeout for REST calls.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    space_filter: Optional[str] = Field(
+        None,
+        title="Space Filter",
+        description="Optional comma-separated list of space IDs or names. If empty, all visible spaces are crawled.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    max_concurrency: int = Field(
+        10,
+        ge=1,
+        le=64,
+        title="Max Concurrency",
+        description="Maximum parallel REST/WebSocket calls during schema crawl.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Timbr Semantic Layer
 class TimbrTokenCredentials(BaseModel):
     api_key: str = Field(
@@ -1021,6 +1072,9 @@ __all__ = [
     # QVD Files
     "QVDCredentials",
     "QVDConfig",
+    # Qlik Sense (live connector)
+    "QlikSenseApiKeyCredentials",
+    "QlikSenseConfig",
     # Microsoft Fabric
     "MSFabricCredentials",
     "MSFabricConfig",
