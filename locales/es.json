@@ -581,5 +581,55 @@
       "isTrue": "es verdadero",
       "isFalse": "es falso"
     }
+  },
+  "slideViewer": {
+    "loading": "Cargando diapositivas...",
+    "noPreviews": "No hay imágenes de vista previa disponibles",
+    "imageLoadFailed": "No se pudo cargar la imagen de la diapositiva",
+    "loadFailed": "No se pudieron cargar las vistas previas",
+    "fetchPreviewsFailed": "No se pudieron obtener las vistas previas",
+    "slideAlt": "Diapositiva {n}",
+    "thumbAlt": "Miniatura {n}"
+  },
+  "agentFlyout": {
+    "loading": "Cargando...",
+    "connectionsOne": "{count} conexión",
+    "connectionsMany": "{count} conexiones",
+    "noConnections": "Sin conexiones",
+    "connected": "Conectado",
+    "notConnected": "No conectado",
+    "openAgent": "Abrir agente →",
+    "overview": "Resumen",
+    "tables": "Tablas",
+    "instructions": "Instrucciones",
+    "queries": "Consultas",
+    "sampleQuestions": "Preguntas de ejemplo",
+    "moreCount": "+{n} más",
+    "noDetails": "No hay detalles disponibles",
+    "noTables": "No se encontraron tablas",
+    "noTablesShort": "Sin tablas.",
+    "noColumns": "Sin columnas.",
+    "columns": "Columnas",
+    "back": "← Atrás",
+    "colsAbbr": "{n} cols",
+    "noInstructions": "No se encontraron instrucciones",
+    "noQueries": "No se encontraron consultas guardadas",
+    "untitled": "Sin título",
+    "global": "Global",
+    "tablesLoadFailed": "No se pudieron cargar las tablas",
+    "instructionsLoadFailed": "No se pudieron cargar las instrucciones",
+    "queriesLoadFailed": "No se pudieron cargar las consultas"
+  },
+  "consoleInstructions": {
+    "title": "Instrucciones",
+    "subtitle": "Crea y gestiona tus instrucciones",
+    "aiSuggestions": "Sugerencias de IA",
+    "pendingReview": "Pendientes de revisión",
+    "addInstruction": "Añadir instrucción",
+    "suggest": "Sugerir",
+    "emptyTitle": "Sin instrucciones",
+    "emptyMessage": "No se encontraron instrucciones. Crea una para empezar.",
+    "confirmDeleteOne": "¿Seguro que quieres eliminar 1 instrucción? Esta acción no se puede deshacer.",
+    "confirmDeleteMany": "¿Seguro que quieres eliminar {count} instrucciones? Esta acción no se puede deshacer."
   }
 }

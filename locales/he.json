@@ -581,5 +581,55 @@
       "isTrue": "אמת",
       "isFalse": "שקר"
     }
+  },
+  "slideViewer": {
+    "loading": "טוען שקופיות...",
+    "noPreviews": "אין תמונות תצוגה מקדימה זמינות",
+    "imageLoadFailed": "טעינת תמונת השקופית נכשלה",
+    "loadFailed": "טעינת תצוגות מקדימות נכשלה",
+    "fetchPreviewsFailed": "שליפת תצוגות מקדימות נכשלה",
+    "slideAlt": "שקופית {n}",
+    "thumbAlt": "תמונה ממוזערת {n}"
+  },
+  "agentFlyout": {
+    "loading": "טוען...",
+    "connectionsOne": "חיבור {count}",
+    "connectionsMany": "{count} חיבורים",
+    "noConnections": "אין חיבורים",
+    "connected": "מחובר",
+    "notConnected": "לא מחובר",
+    "openAgent": "פתח סוכן →",
+    "overview": "סקירה",
+    "tables": "טבלאות",
+    "instructions": "הוראות",
+    "queries": "שאילתות",
+    "sampleQuestions": "שאלות לדוגמה",
+    "moreCount": "+{n} נוספים",
+    "noDetails": "אין פרטים זמינים",
+    "noTables": "לא נמצאו טבלאות",
+    "noTablesShort": "אין טבלאות.",
+    "noColumns": "אין עמודות.",
+    "columns": "עמודות",
+    "back": "→ חזרה",
+    "colsAbbr": "{n} עמודות",
+    "noInstructions": "לא נמצאו הוראות",
+    "noQueries": "לא נמצאו שאילתות שמורות",
+    "untitled": "ללא כותרת",
+    "global": "גלובלי",
+    "tablesLoadFailed": "טעינת הטבלאות נכשלה",
+    "instructionsLoadFailed": "טעינת ההוראות נכשלה",
+    "queriesLoadFailed": "טעינת השאילתות נכשלה"
+  },
+  "consoleInstructions": {
+    "title": "הוראות",
+    "subtitle": "צור ונהל את ההוראות שלך",
+    "aiSuggestions": "הצעות AI",
+    "pendingReview": "ממתין לבדיקה",
+    "addInstruction": "הוסף הוראה",
+    "suggest": "הצע",
+    "emptyTitle": "אין הוראות",
+    "emptyMessage": "לא נמצאו הוראות. צור אחת כדי להתחיל.",
+    "confirmDeleteOne": "האם אתה בטוח שברצונך למחוק הוראה אחת? לא ניתן לבטל פעולה זו.",
+    "confirmDeleteMany": "האם אתה בטוח שברצונך למחוק {count} הוראות? לא ניתן לבטל פעולה זו."
   }
 }

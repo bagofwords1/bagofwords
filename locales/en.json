@@ -241,7 +241,17 @@
       "createFailed": "Failed to create report"
     },
     "empty": "No reports found",
-    "emptyHint": "Try adjusting your filters or search term"
+    "emptyHint": "Try adjusting your filters or search term",
+    "allDashboards": "All dashboards",
+    "allModes": "All modes",
+    "allSchedules": "All schedules",
+    "allSources": "All sources",
+    "allStatus": "All status",
+    "columnActions": "Actions",
+    "columnCreated": "Created",
+    "columnDataSources": "Data sources",
+    "columnTitle": "Title",
+    "columnUser": "User"
   },
   "settings": {
     "title": "Settings",
@@ -571,5 +581,55 @@
       "isTrue": "is true",
       "isFalse": "is false"
     }
+  },
+  "slideViewer": {
+    "loading": "Loading slides...",
+    "noPreviews": "No preview images available",
+    "imageLoadFailed": "Failed to load slide image",
+    "loadFailed": "Failed to load previews",
+    "fetchPreviewsFailed": "Failed to fetch previews",
+    "slideAlt": "Slide {n}",
+    "thumbAlt": "Thumbnail {n}"
+  },
+  "agentFlyout": {
+    "loading": "Loading...",
+    "connectionsOne": "{count} connection",
+    "connectionsMany": "{count} connections",
+    "noConnections": "No connections",
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "openAgent": "Open agent →",
+    "overview": "Overview",
+    "tables": "Tables",
+    "instructions": "Instructions",
+    "queries": "Queries",
+    "sampleQuestions": "Sample Questions",
+    "moreCount": "+{n} more",
+    "noDetails": "No details available",
+    "noTables": "No tables found",
+    "noTablesShort": "No tables.",
+    "noColumns": "No columns.",
+    "columns": "Columns",
+    "back": "← Back",
+    "colsAbbr": "{n} cols",
+    "noInstructions": "No instructions found",
+    "noQueries": "No saved queries found",
+    "untitled": "Untitled",
+    "global": "Global",
+    "tablesLoadFailed": "Failed to load tables",
+    "instructionsLoadFailed": "Failed to load instructions",
+    "queriesLoadFailed": "Failed to load queries"
+  },
+  "consoleInstructions": {
+    "title": "Instructions",
+    "subtitle": "Create and manage your instructions",
+    "aiSuggestions": "AI Suggestions",
+    "pendingReview": "Pending Review",
+    "addInstruction": "Add Instruction",
+    "suggest": "Suggest",
+    "emptyTitle": "No instructions",
+    "emptyMessage": "No instructions found. Create one to get started.",
+    "confirmDeleteOne": "Are you sure you want to delete 1 instruction? This action cannot be undone.",
+    "confirmDeleteMany": "Are you sure you want to delete {count} instructions? This action cannot be undone."
   }
 }
