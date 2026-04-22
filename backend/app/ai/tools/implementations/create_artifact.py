@@ -361,19 +361,19 @@ class CreateArtifactTool(Tool):
         fix_prompt = f"""{base_prompt}
 
 ═══════════════════════════════════════════════════════════════════════════════
-CRITICAL: FIX THESE ERRORS
+Fix the following errors
 ═══════════════════════════════════════════════════════════════════════════════
 
-The previous code attempt had the following runtime errors that MUST be fixed:
+The previous code attempt produced these runtime errors:
 
 {error_text}{screenshot_context}
 
-Previous broken code:
+Previous code:
 ```
 {code}
 ```
 
-Fix these errors while keeping the same design and functionality. Output the corrected code now:"""
+Fix the errors while keeping the same design and functionality. Output the corrected code:"""
 
         # Skip fix if sigkill
         sigkill_event = runtime_ctx.get("sigkill_event")
@@ -1066,29 +1066,29 @@ Fix these errors while keeping the same design and functionality. Output the cor
         if image_count > 0:
             images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
-        return f"""You are an expert at creating professional presentations using python-pptx.
+        return f"""Role: presentation author using python-pptx.
 Generate python-pptx code to create a polished slide deck.
 
 ═══════════════════════════════════════════════════════════════════════════════
-AVAILABLE IN NAMESPACE (do not import - already provided)
+AVAILABLE IN NAMESPACE (already provided — do not import)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Python-pptx classes and FUNCTIONS:
+Python-pptx classes and functions:
 - Presentation, Inches, Pt, Emu, RGBColor
 - PP_ALIGN, MSO_ANCHOR, MSO_SHAPE
 - XL_CHART_TYPE, XL_LEGEND_POSITION
 - CategoryChartData, ChartData
 
-⚠️ CRITICAL: Inches, Pt, Emu are FUNCTIONS, not methods!
-   ✅ CORRECT: Inches(1), Pt(24), Emu(914400)
-   ❌ WRONG: 1.inches, 24.pt, value.inches
+Note: Inches, Pt, Emu are functions, not methods.
+   Use: Inches(1), Pt(24), Emu(914400)
+   Not: 1.inches, 24.pt, value.inches
 
 Data variables:
-- visualizations: List[Dict] - each has 'title', 'columns', 'rows'
+- visualizations: List[Dict] — each has 'title', 'columns', 'rows'
 - report: Dict with 'id', 'title', 'theme'
 
 Output:
-- _pptx_output_path: str - path where you MUST save the presentation
+- _pptx_output_path: str — path to save the presentation to
 
 ═══════════════════════════════════════════════════════════════════════════════
 YOUR VISUALIZATIONS
@@ -1140,7 +1140,7 @@ p.font.color.rgb = RGBColor(255, 255, 255)
 p.alignment = PP_ALIGN.CENTER
 ```
 
-**Add BAR CHART (CRITICAL - use this for charts):**
+**Add bar chart (use this pattern for charts):**
 ```python
 chart_data = CategoryChartData()
 chart_data.categories = ['Q1', 'Q2', 'Q3', 'Q4']
@@ -1206,8 +1206,8 @@ Example palettes (pick one that fits the topic):
 - **Sunset Warm**: Burgundy (128,0,32), Orange (255,140,0), Cream (255,253,240)
 - **Modern Minimal**: Charcoal (54,69,79), Light gray (220,220,220), Teal accent (0,150,136)
 
-**LAYOUT VARIETY - Never Repeat:**
-Every slide MUST have visual elements - charts, shapes, or decorative elements. NO text-only slides.
+**Layout variety — vary between slides:**
+Every slide should have visual elements — charts, shapes, or decorative elements. Avoid text-only slides.
 
 Vary layouts between:
 - Two-column (text left, chart right or vice versa)
@@ -1216,9 +1216,9 @@ Vary layouts between:
 - Chart with callout boxes for key insights
 - Split layout with accent shape dividers
 
-**TYPOGRAPHY:**
+**Typography:**
 - Titles: 36-44pt bold, interesting positioning (not always centered)
-- Body text: 18-24pt, LEFT-aligned (never center-align body text)
+- Body text: 18-24pt, left-aligned (avoid center-aligning body text)
 - KPI numbers: 48-72pt bold for impact
 - Use font color contrast: white on dark, dark on light accents
 
@@ -1228,21 +1228,21 @@ Vary layouts between:
 - Colored boxes behind KPI numbers
 - Subtle shape overlays for visual interest
 
-**COMMON MISTAKES TO AVOID:**
-- ⚠️ Using `value.inches` instead of `Inches(value)` - Inches/Pt/Emu are FUNCTIONS!
-- Repeating the same layout across slides (VARY IT!)
-- Center-aligning body text (use LEFT alignment)
-- Using only blue without topic-specific reasoning
-- Creating text-only slides without visual elements
-- Accent lines directly under titles (hallmark of generic slides)
-- Cramming too much data - limit charts to top 8-10 items
+**Common mistakes to avoid:**
+- Using `value.inches` instead of `Inches(value)` — Inches/Pt/Emu are functions.
+- Repeating the same layout across slides — vary it.
+- Center-aligning body text — use left alignment.
+- Using only blue without topic-specific reasoning.
+- Text-only slides without visual elements.
+- Accent lines directly under titles (hallmark of generic slides).
+- Cramming too much data — limit charts to top 8-10 items.
 
-**TECHNICAL REQUIREMENTS:**
-1. Define `generate_slides(visualizations, report)` returning a Presentation
-2. Use 16:9 widescreen: Inches(13.333) x Inches(7.5)
-3. Create REAL charts with slide.shapes.add_chart() + CategoryChartData
-4. Use visualization data from the visualizations list
-5. Margins: start shapes at Inches(0.75) to Inches(1) from edges
+**Technical requirements:**
+1. Define `generate_slides(visualizations, report)` returning a Presentation.
+2. Use 16:9 widescreen: Inches(13.333) x Inches(7.5).
+3. Create real charts with slide.shapes.add_chart() + CategoryChartData.
+4. Use visualization data from the visualizations list.
+5. Margins: start shapes at Inches(0.75) to Inches(1) from edges.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT - Example with Design Principles Applied
@@ -1406,10 +1406,10 @@ Create a beautiful, varied presentation following these design principles. Each 
         # Note: Previous artifact code is now available via observation context (from create_artifact/read_artifact)
         # The planner can call read_artifact if needed to load previous code into context
 
-        return f"""You are a world-class frontend developer and data visualization expert.
+        return f"""Role: frontend developer and data visualization engineer.
 
 ═══════════════════════════════════════════════════════════════════════════════
-DESIGN REQUEST (primary specification — follow exactly, overrides all defaults)
+Design request (primary specification — takes precedence when it conflicts with defaults)
 ═══════════════════════════════════════════════════════════════════════════════
 
 **Report Title:** {report_title or title or 'Dashboard'}
@@ -1478,8 +1478,8 @@ Each visualization:
 - Use `column.field` to access row values: `row[column.field]`
 - Use `column.headerName` for display labels
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
-- **NEVER hardcode data** — ALL values must come from `data.visualizations[N].rows`
-- **DEFENSIVE CODING**: Row values and properties can be `null`/`undefined`. ALWAYS use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call string methods on a value that could be nullish.
+- **Do not hardcode data** — all values should come from `data.visualizations[N].rows`
+- **Defensive coding**: Row values and properties can be `null`/`undefined`. Use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Do not call string methods on a value that could be nullish.
 
 YOUR VISUALIZATIONS:
 
@@ -1504,17 +1504,17 @@ For each dimension you intend to filter by:
 3. **Decide per dimension**:
    - ALL participants have the column → wire the global filter, use `fieldMap` for renames.
    - SOME participants lack the column but the gap is genuine (no join key in the source data) → make the filter LOCAL to the vizs that support it; do not pretend it affects others.
-   - SOME participants lack the column but they SHOULD have it (the underlying data supports it, the query just didn't project the column) → **DO NOT wire the filter. Do not build the dashboard with a dead filter.** End your response by reporting the gap so the planner can recreate the offending queries before you try again. Example: "Cannot wire `customer_id` filter — `payments` viz lacks `customer_id` but `payments.customer_id` exists in schema. Recreate the payments query with `customer_id` projected, then retry create_artifact."
+   - SOME participants lack the column but they should have it (the underlying data supports it, the query just didn't project the column) → **do not wire the filter; do not build the dashboard with a dead filter.** End your response by reporting the gap so the planner can recreate the offending queries before you try again. Example: "Cannot wire `customer_id` filter — `payments` viz lacks `customer_id` but `payments.customer_id` exists in schema. Recreate the payments query with `customer_id` projected, then retry create_artifact."
 
 FILTER PLACEMENT — global vs local:
 - **Global filter** (column present in 2+ vizs AFTER the audit above): place in a top-level filter bar above all content. Use one shared filter + `fieldMap` for renames, not duplicates.
 - **Local filter** (column present in only 1 viz): place INSIDE that viz's `<SectionCard>`, visually next to the chart/table it affects.
 - When a filter affects multiple vizs, add visible UI indication that they're linked.
 
-FILTER DATA FLOW — CRITICAL:
-- Every viz that passes the feasibility audit for a filter MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
-- KPI cards that summarize filtered data (sum, count, avg) MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
-- Never call `filterRows` on a viz that doesn't have the filter column just to "be safe" — silently passing rows through makes the filter look active when it isn't. Audit first, wire second.
+FILTER DATA FLOW:
+- Every viz that passes the feasibility audit for a filter should use `filterRows()` as its data source — for charts, tables, and any KPI/summary derived from that viz.
+- KPI cards that summarize filtered data (sum, count, avg) should be computed from filtered rows, not from raw `viz[N].rows`.
+- Do not call `filterRows` on a viz that doesn't have the filter column just to "be safe" — silently passing rows through makes the filter look active when it isn't. Audit first, wire second.
 
 EXAMPLE 1 — Global "region" filter affecting KPIs + bar chart + table:
   const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
@@ -1582,11 +1582,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 ```
 
-CRITICAL: ALL code MUST be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. NEVER put return statements outside a function.
+Structure: all code should be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. Do not put return statements outside a function.
 
-RULES: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji. ALWAYS guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
+Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Responsive. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji. Guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
 
-⚠️ **CODE SIZE:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity.
+**Code size:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity.
 
 Now create the dashboard:"""
 
