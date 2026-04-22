@@ -61,6 +61,9 @@ def _infer_palette_theme(runtime_ctx: Dict[str, Any]) -> Optional[str]:
         return None
 
 
+_VALID_AGGREGATIONS = {"sum", "avg", "count", "min", "max"}
+
+
 def _build_series_styles(series: List[Dict[str, Any]]) -> List[SeriesStyle]:
     styles: List[SeriesStyle] = []
     for entry in series or []:
@@ -68,11 +71,51 @@ def _build_series_styles(series: List[Dict[str, Any]]) -> List[SeriesStyle]:
         if not key:
             continue
         label = entry.get("name")
+        raw_agg = entry.get("aggregation")
+        # Drop unknown aggregation values instead of failing construction, so a
+        # bad hint doesn't erase the label/color fields for this series.
+        agg = raw_agg if raw_agg in _VALID_AGGREGATIONS else None
         try:
-            styles.append(SeriesStyle(key=str(key), label=label))
+            styles.append(SeriesStyle(key=str(key), label=label, aggregation=agg))
         except Exception:
-            continue
+            try:
+                styles.append(SeriesStyle(key=str(key), label=label))
+            except Exception:
+                continue
     return styles
+
+
+def _build_default_filters(data_model: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract default filters from a DataModel dict into the view shape.
+
+    Stored as flat dicts matching DefaultFilterCondition. The runtime is
+    responsible for wrapping them into a FilterGroup with the proper
+    vizId:column encoding when seeding shared filters.
+    """
+    raw = (data_model or {}).get("filters") or []
+    out: List[Dict[str, Any]] = []
+    if not isinstance(raw, list):
+        return out
+    for f in raw:
+        if not isinstance(f, dict):
+            continue
+        col = f.get("column") or f.get("field")
+        op = f.get("operator") or f.get("op")
+        if not col or not op:
+            continue
+        out.append({"column": str(col), "operator": str(op), "value": f.get("value")})
+    return out
+
+
+def _first_series_aggregation(series: List[Dict[str, Any]]) -> Optional[str]:
+    """Pull an aggregation hint from the first series entry if present."""
+    if not series:
+        return None
+    first = series[0] if isinstance(series[0], dict) else {}
+    agg = first.get("aggregation")
+    if agg in _VALID_AGGREGATIONS:
+        return agg
+    return None
 
 
 def build_view_from_data_model(
@@ -88,17 +131,18 @@ def build_view_from_data_model(
 
     palette = Palette(theme=(palette_theme or "default"))
     series = data_model.get("series") or []
+    default_filters = _build_default_filters(data_model)
 
     if chart_type in {"bar_chart", "line_chart", "area_chart"}:
         x_key = next((s.get("key") for s in series if s.get("key")), None)
         value_cols = [s.get("value") for s in series if s.get("value")]
-        
+
         # Fallback: infer x_key from available columns when missing
         # Pick the first column that's not used as a value
         if not x_key and value_cols and available_columns:
             value_cols_set = set(value_cols)
             x_key = next((col for col in available_columns if col not in value_cols_set), None)
-        
+
         if not x_key or not value_cols:
             return None
         # Use list when multiple measures exist
@@ -119,6 +163,7 @@ def build_view_from_data_model(
             palette=palette,
             seriesStyles=series_styles,
             legend=LegendOptions(show=bool(has_multiple_series)),
+            defaultFilters=default_filters,
         )
         # Slightly different axis defaults for time series vs categorical
         view.axisX = AxisOptions(rotate=45, interval=0)
@@ -137,6 +182,8 @@ def build_view_from_data_model(
             value=str(value),
             palette=palette,
             legend=LegendOptions(show=True, position="right"),  # Pie charts benefit from legend
+            aggregation=_first_series_aggregation(series),
+            defaultFilters=default_filters,
         )
         return ViewSchema(view=view)
 
@@ -153,6 +200,8 @@ def build_view_from_data_model(
             size=base.get("size"),
             colorBy=base.get("color"),
             palette=palette,
+            aggregation=_first_series_aggregation(series),
+            defaultFilters=default_filters,
         )
         return ViewSchema(view=view)
 
@@ -180,11 +229,13 @@ def build_view_from_data_model(
             showValues=bool(show_values),
             axisX=AxisOptions(rotate=45, interval=0),
             axisY=AxisOptions(rotate=0, interval=0),
+            aggregation=_first_series_aggregation(series),
+            defaultFilters=default_filters,
         )
         return ViewSchema(view=view)
 
     if chart_type == "table":
-        view = TableView(title=title)
+        view = TableView(title=title, defaultFilters=default_filters)
         return ViewSchema(view=view)
 
     # CountView - simple single value display (value is optional)
@@ -195,6 +246,8 @@ def build_view_from_data_model(
             title=title,
             value=str(value_key) if value_key else None,
             palette=palette,
+            aggregation=_first_series_aggregation(series),
+            defaultFilters=default_filters,
         )
         return ViewSchema(view=view)
 
@@ -206,15 +259,15 @@ def build_view_from_data_model(
         if not value_key:
             # Try to use first available column name from series
             value_key = base.get("key") or base.get("name")
-        
+
         # Extract comparison/trend column
         comparison_key = base.get("comparison") or base.get("trend") or base.get("change")
-        
+
         # Build sparkline config if LLM specified time-series columns
         sparkline = None
         sparkline_col = base.get("sparkline_column") or base.get("time_series")
         sparkline_x = base.get("sparkline_x") or base.get("date") or base.get("time")
-        
+
         # Only enable sparkline if LLM explicitly configured it
         if sparkline_col or data_model.get("has_time_series"):
             sparkline = SparklineConfig(
@@ -223,17 +276,17 @@ def build_view_from_data_model(
                 xColumn=sparkline_x,
                 type="area",
             )
-        
+
         # Determine if trend should be inverted (down is good)
         # Use `or False` because base.get returns None if key exists with None value
         invert_trend = base.get("invert_trend") or False
         comparison_label = base.get("comparison_label") or base.get("trend_label")
-        
+
         # value is REQUIRED for MetricCardView - if we don't have it, fall back to CountView
         if not value_key:
-            view = CountView(title=title, palette=palette)
+            view = CountView(title=title, palette=palette, defaultFilters=default_filters)
             return ViewSchema(view=view)
-        
+
         view = MetricCardView(
             title=title,
             value=str(value_key),
@@ -242,6 +295,8 @@ def build_view_from_data_model(
             invertTrend=invert_trend,
             sparkline=sparkline,
             palette=palette,
+            aggregation=_first_series_aggregation(series),
+            defaultFilters=default_filters,
         )
         return ViewSchema(view=view)
 
@@ -375,10 +430,10 @@ OTHER CHART TYPES
 Allowed types: {", ".join(allowed_types)}
 
 Series contracts:
-- bar/line/area: [{{"name", "key", "value"}}] — both `key` and `value` are required.
-- pie/map: [{{"name", "key", "value"}}]
-- scatter: [{{"name", "x", "y"}}] (+ size optional)
-- heatmap: [{{"name", "x", "y", "value", "colorScheme", "showValues"}}]
+- bar/line/area: [{{"name", "key", "value", "aggregation?"}}] — both `key` and `value` are required.
+- pie/map: [{{"name", "key", "value", "aggregation?"}}]
+- scatter: [{{"name", "x", "y", "aggregation?"}}] (+ size optional)
+- heatmap: [{{"name", "x", "y", "value", "colorScheme", "showValues", "aggregation?"}}]
   - colorScheme: "blue" | "green" | "red" | "violet" | "orange" (default: "blue")
   - showValues: true | false (default: true) — whether to show values in cells
 - table: series: []
@@ -433,13 +488,68 @@ DECISION LOGIC:
 7. Raw data display → table
 
 ═══════════════════════════════════════════════════════════════════════════════
+Granularity: aggregation and default filters
+═══════════════════════════════════════════════════════════════════════════════
+
+Data is often granular — many rows per x-axis category or per metric value. Pick
+an "aggregation" on each series or emit top-level "filters" to reduce the rows
+to one per bucket.
+
+Detecting granularity:
+- Compute expected_rows = unique_count(chosen_key) × unique_count(group_by or 1).
+- If row_count exceeds expected_rows, the data has multiple rows per bucket —
+  pick an aggregation or a filter. Without one the chart shows only the first
+  row per bucket, which is usually wrong.
+
+Aggregation values: "sum" | "avg" | "count" | "min" | "max"
+- sum: totals (revenue, amount, qty) — the common default
+- avg: averages (price, score, rating)
+- count: row counts (transactions, events) — rarely the `value` column itself
+- min/max: extrema (latest price, highest score)
+
+Aggregation example (cartesian, granular transactions):
+Columns: ["transaction_date", "amount", "region"]
+row_count: 5,000; unique_count(transaction_date): 30; unique_count(region): 4
+Expected rows without aggregation: 30 × 4 = 120, but the profile shows 5,000 — granular.
+Recommended (aggregate sum per date+region):
+{{"type": "bar_chart", "series": [{{"name": "Revenue", "key": "transaction_date", "value": "amount", "aggregation": "sum"}}], "group_by": "region"}}
+
+Aggregation example (metric_card, granular daily sales):
+Columns: ["date", "sales"]
+row_count: 365; unique_count(date): 365
+Without aggregation, metric_card shows the first row's sales only (not a KPI).
+Recommended:
+{{"type": "metric_card", "series": [{{"name": "Total Sales", "value": "sales", "aggregation": "sum"}}]}}
+
+Default filters (alternative to aggregation):
+Use "filters" at the top level to reduce granular data down to a single row per
+bucket when the user's intent is clearly "just the latest" or "just this one
+segment". Filters open the widget pre-filtered and remain user-editable.
+
+Filter shape: [{{"column": "<column>", "operator": "<op>", "value": <value>}}]
+Operators: "equals", "not_equals", "contains", "not_contains", "starts_with",
+"ends_with", "greater_than", "less_than", "gte", "lte", "before", "after",
+"is_empty", "is_not_empty".
+
+Default filters example (pick latest period):
+Columns: ["month", "revenue"]
+User prompt: "show this month's revenue"
+{{"type": "metric_card", "series": [{{"name": "Revenue", "value": "revenue"}}],
+  "filters": [{{"column": "month", "operator": "equals", "value": "2024-06"}}]}}
+
+Prefer aggregation when the intent is "all data, summarized". Prefer filters
+when the intent is "this specific slice". Setting both is rarely useful.
+
+═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
 Return only valid JSON:
-{{"type": "...", "series": [...], "group_by": "column_name_or_null"}}
+{{"type": "...", "series": [...], "group_by": "column_name_or_null", "filters": [...]}}
 
 Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.
+Include "aggregation" on each series entry when rows are granular.
+Include "filters" only when narrowing the data to a specific slice.
 
 Reminder: use exact column names from: {column_names}
 Do not use generic placeholders like "value" unless that is the actual column name."""
@@ -458,7 +568,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 candidate_json = None
             if isinstance(candidate_json, dict):
                 try:
-                    dm = DataModel(**{k: v for k, v in candidate_json.items() if k in {"type", "series", "group_by", "sort", "limit"}})
+                    dm = DataModel(**{k: v for k, v in candidate_json.items() if k in {"type", "series", "group_by", "sort", "limit", "filters"}})
                     candidate = dm.model_dump()
                 except Exception:
                     candidate = {"type": "table", "series": []}
