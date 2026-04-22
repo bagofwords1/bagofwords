@@ -143,9 +143,14 @@ function seedDefaultFiltersFromView() {
 }
 
 watch(
-  () => [widget.value?.id, widget.value?.view],
+  () => {
+    const viewObj = widget.value?.view as any
+    const viewInner = viewObj?.view || viewObj
+    const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
+    return [widget.value?.id, JSON.stringify(defaults)]
+  },
   () => { seedDefaultFiltersFromView() },
-  { immediate: true, deep: true }
+  { immediate: true }
 )
 
 // Check if we have data to filter

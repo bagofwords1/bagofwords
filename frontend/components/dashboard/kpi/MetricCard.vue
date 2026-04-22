@@ -132,6 +132,20 @@ const rawValue = computed(() => {
   const fn = aggregationFn.value
 
   if (col && fn) {
+    // `count` is row-cardinality, not a numeric reduction. Counting only
+    // parseable numbers would undercount string/boolean columns, so special-
+    // case it to non-null occurrences of the selected column.
+    if (fn === 'count') {
+      let n = 0
+      for (const row of rows) {
+        if (!row) continue
+        const key = Object.keys(row).find(k => k.toLowerCase() === col)
+        if (!key) continue
+        const v = row[key]
+        if (v !== null && v !== undefined && v !== '') n += 1
+      }
+      return n
+    }
     const values: number[] = []
     for (const row of rows) {
       if (!row) continue

@@ -596,6 +596,12 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, onMounted } from 'vue'
 import { useMyFetch } from '~/composables/useMyFetch'
+import {
+  stringOperators,
+  numberOperators,
+  dateOperators,
+  booleanOperators,
+} from '~/composables/useSharedFilters'
 
 interface Props {
   viz: any
@@ -663,20 +669,19 @@ const aggregationOptions = [
   { label: 'Min', value: 'min' },
   { label: 'Max', value: 'max' },
 ]
-const filterOperators = [
-  { label: 'equals', value: 'equals' },
-  { label: 'not equals', value: 'not_equals' },
-  { label: 'contains', value: 'contains' },
-  { label: 'not contains', value: 'not_contains' },
-  { label: 'starts with', value: 'starts_with' },
-  { label: 'ends with', value: 'ends_with' },
-  { label: '>', value: 'greater_than' },
-  { label: '<', value: 'less_than' },
-  { label: '>=', value: 'gte' },
-  { label: '<=', value: 'lte' },
-  { label: 'is empty', value: 'is_empty' },
-  { label: 'is not empty', value: 'is_not_empty' },
-]
+// Union of every operator the shared-filter runtime evaluates, de-duplicated
+// by value. The defaults editor doesn't know the column's data type, so we
+// expose the full set and let the runtime reject unsupported pairings.
+const filterOperators = (() => {
+  const seen = new Set<string>()
+  const merged: { label: string; value: string }[] = []
+  for (const op of [...stringOperators, ...numberOperators, ...dateOperators, ...booleanOperators]) {
+    if (seen.has(op.value)) continue
+    seen.add(op.value)
+    merged.push(op)
+  }
+  return merged
+})()
 
 function deepClone<T>(v: T): T { return JSON.parse(JSON.stringify(v || {})) }
 

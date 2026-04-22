@@ -314,24 +314,33 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
   if (groupByKey) {
     // GroupBy mode: create one series per unique group value
     const groups = Array.from(new Set(rows.map((r: any) => String(r[groupByKey] ?? '')))).filter(Boolean)
-    
-    const valueKey = (viewV2?.y 
+
+    const valueKey = (viewV2?.y
       ? (Array.isArray(viewV2.y) ? viewV2.y[0] : viewV2.y)
       : dm?.series?.[0]?.value
     )?.toLowerCase()
 
     if (!valueKey) return {}
 
+    // Pre-index rows into a Map<`${cat}::${group}`, number[]> in one pass so the
+    // per-cell lookup is O(1) instead of scanning all rows for each bucket.
+    const bucketed = new Map<string, number[]>()
+    for (const r of rows) {
+      const cat = String(r[categoryKey] ?? '')
+      const grp = String(r[groupByKey] ?? '')
+      const v = Number(r[valueKey])
+      if (Number.isNaN(v)) continue
+      const k = `${cat}::${grp}`
+      const arr = bucketed.get(k)
+      if (arr) arr.push(v)
+      else bucketed.set(k, [v])
+    }
+
     series = groups.map((group: string, i: number) => {
       const aggFn = resolveSeriesAggregation(viewV2, dm, group, i)
       const data = categories.map(cat => {
-        const matching = rows.filter((r: any) =>
-          String(r[categoryKey] ?? '') === cat && String(r[groupByKey] ?? '') === group
-        )
-        if (!matching.length) return null
-        const values = matching
-          .map((r: any) => Number(r[valueKey]))
-          .filter((v: number) => !Number.isNaN(v))
+        const values = bucketed.get(`${cat}::${group}`)
+        if (!values || !values.length) return null
         return aggregateValues(values, aggFn)
       })
 
@@ -362,23 +371,37 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
       return base
     })
   } else {
-    // Traditional mode: each series config is a series
+    // Traditional mode: each series config is a series.
+    // Pre-index rows by category once so every series reuses the same buckets.
+    const rowsByCategory = new Map<string, any[]>()
+    for (const r of rows) {
+      const cat = String(r[categoryKey] ?? '')
+      const arr = rowsByCategory.get(cat)
+      if (arr) arr.push(r)
+      else rowsByCategory.set(cat, [r])
+    }
+
     series = (dm?.series || [])
       .map((s: any, i: number) => {
         const valueKey = s?.value?.toLowerCase()
         if (!valueKey) return null
 
-        const aggFn = resolveSeriesAggregation(viewV2, dm, s?.name, i)
+        // Match the key used by the editor when writing seriesStyles so blank
+        // names still resolve aggregation/color overrides.
+        const seriesKey = s?.name || s?.value
+        const aggFn = resolveSeriesAggregation(viewV2, dm, seriesKey, i)
         const data = categories.map(cat => {
-          const matching = rows.filter((r: any) => String(r[categoryKey] ?? '') === cat)
-          if (!matching.length) return null
-          const values = matching
-            .map((r: any) => Number(r[valueKey]))
-            .filter((v: number) => !Number.isNaN(v))
+          const matching = rowsByCategory.get(cat)
+          if (!matching || !matching.length) return null
+          const values: number[] = []
+          for (const r of matching) {
+            const v = Number(r[valueKey])
+            if (!Number.isNaN(v)) values.push(v)
+          }
           return aggregateValues(values, aggFn)
         })
 
-        const styleOverride = viewV2?.seriesStyles?.find((st: any) => st.key === s.name)
+        const styleOverride = viewV2?.seriesStyles?.find((st: any) => st.key === seriesKey)
         const color = resolveColorInput(styleOverride?.color || colors[i % colors.length])
         
         const base: any = {

@@ -61,6 +61,9 @@ def _infer_palette_theme(runtime_ctx: Dict[str, Any]) -> Optional[str]:
         return None
 
 
+_VALID_AGGREGATIONS = {"sum", "avg", "count", "min", "max"}
+
+
 def _build_series_styles(series: List[Dict[str, Any]]) -> List[SeriesStyle]:
     styles: List[SeriesStyle] = []
     for entry in series or []:
@@ -68,11 +71,17 @@ def _build_series_styles(series: List[Dict[str, Any]]) -> List[SeriesStyle]:
         if not key:
             continue
         label = entry.get("name")
-        agg = entry.get("aggregation")
+        raw_agg = entry.get("aggregation")
+        # Drop unknown aggregation values instead of failing construction, so a
+        # bad hint doesn't erase the label/color fields for this series.
+        agg = raw_agg if raw_agg in _VALID_AGGREGATIONS else None
         try:
             styles.append(SeriesStyle(key=str(key), label=label, aggregation=agg))
         except Exception:
-            continue
+            try:
+                styles.append(SeriesStyle(key=str(key), label=label))
+            except Exception:
+                continue
     return styles
 
 
@@ -104,7 +113,7 @@ def _first_series_aggregation(series: List[Dict[str, Any]]) -> Optional[str]:
         return None
     first = series[0] if isinstance(series[0], dict) else {}
     agg = first.get("aggregation")
-    if agg in {"sum", "avg", "count", "min", "max"}:
+    if agg in _VALID_AGGREGATIONS:
         return agg
     return None
 

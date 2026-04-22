@@ -511,9 +511,16 @@ function seedDefaultFiltersFromView() {
 }
 
 watch(
-  () => [visualizationId.value, normalizedView.value],
+  () => {
+    const v = normalizedView.value as any
+    const viewInner = v?.view || v
+    const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
+    // Stringify so the watcher only fires when the seed-relevant fields change,
+    // avoiding deep traversal of the full normalized view.
+    return [visualizationId.value, JSON.stringify(defaults)]
+  },
   () => { seedDefaultFiltersFromView() },
-  { immediate: true, deep: true }
+  { immediate: true }
 )
 
 const filteredRowCount = computed(() => filteredRows.value.length)
