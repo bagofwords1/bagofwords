@@ -131,25 +131,28 @@ class QlikSenseClient(DataSourceClient):
                 "message": f"Authenticated but failed to list apps: {e}",
             }
 
-        app_count = len(items.get("data") or [])
-        if items.get("links", {}).get("next"):
-            # Qlik returns an 'x-total' or pagination hint; if next link exists
-            # we only know "≥ app_count" without an extra call.
-            app_count_text = f"{app_count}+"
-        else:
-            app_count_text = str(app_count)
+        # We intentionally ask for limit=1 to keep this O(1). That means the
+        # "data" length is at most 1 — it indicates presence, not a real count.
+        has_apps = bool(items.get("data"))
+        has_more = bool((items.get("links") or {}).get("next"))
 
-        msg = (
-            f"Connected to Qlik Cloud as '{me.get('email') or me.get('id') or 'user'}'. "
-            f"Found {app_count_text} app(s)."
-        )
-        if app_count == 0:
-            msg += " (Tenant has no apps visible to this key — grant the key 'apps.read' scope and workspace access.)"
+        if has_apps:
+            visibility = "1+" if has_more else "1"
+            msg = (
+                f"Connected to Qlik Cloud as '{me.get('email') or me.get('id') or 'user'}'. "
+                f"Sampled {visibility} app(s) visible to this key."
+            )
+        else:
+            msg = (
+                f"Connected to Qlik Cloud as '{me.get('email') or me.get('id') or 'user'}'. "
+                "Tenant has no apps visible to this key — grant the key 'apps.read' scope and workspace access."
+            )
         return {
             "success": True,
             "message": msg,
             "user": me.get("email") or me.get("id"),
-            "app_count": app_count,
+            "has_apps": has_apps,
+            "has_more": has_more,
         }
 
     # ------------------------------------------------------------------
@@ -200,22 +203,6 @@ class QlikSenseClient(DataSourceClient):
     # ------------------------------------------------------------------
     # Schema discovery
     # ------------------------------------------------------------------
-
-    def _get_app_metadata_rest(self, app_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Phase-1 fast path: GET /api/v1/apps/{id}/data/metadata.
-
-        Returns the payload, or None if the app has no metadata (never reloaded
-        or permissions don't allow the REST view). Returns the payload even if
-        it's "empty" (empty tables + empty fields) so the caller can decide
-        whether to fall back to QIX.
-        """
-        try:
-            payload = self._rest_get(f"/api/v1/apps/{app_id}/data/metadata")
-        except Exception as e:
-            logger.debug("REST metadata for app %s failed: %s", app_id, e)
-            return None
-        return payload or {}
 
     @staticmethod
     def _rest_metadata_has_content(payload: Optional[Dict[str, Any]]) -> bool:
@@ -428,8 +415,8 @@ class QlikSenseClient(DataSourceClient):
             except Exception as e:
                 qix_error = e
 
-        if rest_error is not None:
-            err = rest_error if (not qtr or qix_error is None) else qix_error
+        if rest_error is not None or qix_error is not None:
+            err = rest_error or qix_error
             logger.warning("Qlik app crawl failed for %s (%s): %s", app_name, app_id, err)
             stub_name = app_key if app_key else (app_id or "unknown-app")
             return [Table(
@@ -503,27 +490,19 @@ class QlikSenseClient(DataSourceClient):
         netloc = parsed.netloc or parsed.path.lstrip("/")
         return urlunparse((scheme, netloc, f"/app/{app_id}", "", "", ""))
 
-    def _qix_call(
-        self,
-        app_id: str,
-        method_calls: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+    def _qix_get_tables_and_keys(self, app_id: str):
         """
-        Open a WebSocket to the app, run the JSON-RPC method_calls in order,
-        return the list of result payloads in the same order. `method_calls`
-        is a list of {handle, method, params} dicts — id is auto-assigned.
+        Open the app and call GetTablesAndKeys in a single WebSocket session.
 
-        Uses an event loop in the current thread (via asyncio.run) so the
-        call is synchronous from the caller's perspective, matching the rest
-        of the sync DataSourceClient interface.
+        Returns (qtr, qk) lists from the result. On failure returns ([], []).
         """
-        return asyncio.run(self._qix_call_async(app_id, method_calls))
+        try:
+            return asyncio.run(self._qix_get_tables_and_keys_async(app_id))
+        except Exception as e:
+            logger.debug("QIX GetTablesAndKeys failed for %s: %s", app_id, e)
+            return [], []
 
-    async def _qix_call_async(
-        self,
-        app_id: str,
-        method_calls: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+    async def _qix_get_tables_and_keys_async(self, app_id: str):
         import ssl
         import websockets
 
@@ -536,9 +515,8 @@ class QlikSenseClient(DataSourceClient):
                 ssl_ctx.verify_mode = ssl.CERT_NONE
         else:
             ssl_ctx = None
-
         headers = [("Authorization", f"Bearer {self.api_key}")]
-        results: List[Dict[str, Any]] = []
+
         async with websockets.connect(
             url,
             extra_headers=headers,
@@ -546,58 +524,33 @@ class QlikSenseClient(DataSourceClient):
             open_timeout=self.timeout_sec,
             close_timeout=5,
         ) as ws:
-            next_id = 1
-            for call in method_calls:
+
+            async def rpc(handle: int, method: str, params) -> Dict[str, Any]:
                 payload = {
                     "jsonrpc": "2.0",
-                    "id": next_id,
-                    "handle": call.get("handle", -1),
-                    "method": call["method"],
-                    "params": call.get("params", {}),
+                    "id": rpc.counter,
+                    "handle": handle,
+                    "method": method,
+                    "params": params,
                 }
+                rpc.counter += 1
                 await ws.send(json.dumps(payload))
                 raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout_sec)
                 msg = json.loads(raw)
                 if "error" in msg:
                     err = msg["error"] or {}
-                    raise RuntimeError(
-                        f"Qlik QIX error on {call['method']}: "
-                        f"{err.get('message') or err}"
-                    )
-                results.append(msg.get("result") or {})
-                next_id += 1
-        return results
+                    raise RuntimeError(f"Qlik QIX error on {method}: {err.get('message') or err}")
+                return msg.get("result") or {}
 
-    def _qix_get_tables_and_keys(self, app_id: str):
-        """
-        Open the app and call GetTablesAndKeys.
-
-        Returns (qtr, qk) lists from the result. On failure returns ([], []).
-        """
-        calls = [
-            {"handle": -1, "method": "OpenDoc", "params": [app_id]},
-        ]
-        try:
-            opendoc_result = self._qix_call(app_id, calls)
-            doc_handle = (
-                (opendoc_result[0].get("qReturn") or {}).get("qHandle")
-                if opendoc_result
-                else None
-            )
+            rpc.counter = 1
+            opendoc = await rpc(-1, "OpenDoc", [app_id])
+            doc_handle = (opendoc.get("qReturn") or {}).get("qHandle")
             if doc_handle is None:
                 return [], []
-            tk_calls = [
-                {"handle": -1, "method": "OpenDoc", "params": [app_id]},
-                {"handle": doc_handle, "method": "GetTablesAndKeys", "params": [
-                    {"qcx": 1000, "qcy": 1000}, {"qcx": 0, "qcy": 0}, 0, True, False,
-                ]},
-            ]
-            results = self._qix_call(app_id, tk_calls)
-            tk = results[-1] if results else {}
+            tk = await rpc(doc_handle, "GetTablesAndKeys", [
+                {"qcx": 1000, "qcy": 1000}, {"qcx": 0, "qcy": 0}, 0, True, False,
+            ])
             return tk.get("qtr") or [], tk.get("qk") or []
-        except Exception as e:
-            logger.debug("QIX GetTablesAndKeys failed for %s: %s", app_id, e)
-            return [], []
 
     # ------------------------------------------------------------------
     # Query execution
@@ -638,13 +591,9 @@ class QlikSenseClient(DataSourceClient):
         hypercube_def = _build_hypercube_def(dimensions, measures, max_rows)
         selections = list((filters or {}).items())
 
-        calls: List[Dict[str, Any]] = [
-            {"handle": -1, "method": "OpenDoc", "params": [app_id]},
-        ]
-        # Selections come BEFORE CreateSessionObject so the cube sees narrowed state
-        # These get re-stamped with the doc_handle at transport time.
-        result = asyncio.run(self._execute_hypercube(app_id, selections, hypercube_def, max_rows))
-        return result
+        # Selections are applied inside _execute_hypercube() before CreateSessionObject
+        # so the hypercube reflects the narrowed associative state.
+        return asyncio.run(self._execute_hypercube(app_id, selections, hypercube_def, max_rows))
 
     async def _execute_hypercube(
         self,
@@ -743,20 +692,31 @@ class QlikSenseClient(DataSourceClient):
         return _hypercube_matrix_to_df(hypercube_def, rows)
 
     def _resolve_app_id(self, target: str) -> str:
-        """Accept either a raw app ID or a 'Space/AppName' / 'AppName' string."""
+        """
+        Accept a raw app ID or a 'Space/AppName' / 'AppName' string.
+
+        Always attempts a lookup against list_apps() first so that plain names
+        like "Ops" or "Forecast" (no "/" and no spaces) resolve correctly. Falls
+        back to returning `target` verbatim when list_apps() is unavailable
+        (e.g., offline) or when nothing matches — callers can still pass an
+        opaque ID that doesn't appear in the items listing.
+        """
         if not target:
             raise ValueError("app is required")
-        if "/" not in target and not any(c in target for c in (" ",)):
+        try:
+            apps = self.list_apps()
+        except Exception as e:
+            logger.debug("list_apps() failed during resolve_app_id(%r): %s", target, e)
             return target
-        for app in self.list_apps():
+        for app in apps:
             full = (
                 f"{app.get('space_name') or ''}/{app.get('name')}"
                 if app.get("space_name")
                 else (app.get("name") or "")
             )
             if full == target or app.get("name") == target or app.get("id") == target:
-                return app.get("id")
-        raise RuntimeError(f"Qlik app not found: {target}")
+                return app.get("id") or target
+        return target
 
     # ------------------------------------------------------------------
     # Prompt / description
@@ -886,7 +846,7 @@ def _build_hypercube_def(
         "qInitialDataFetch": [{
             "qTop": 0,
             "qLeft": 0,
-            "qHeight": min(max_rows, 10000 // width),
+            "qHeight": min(max_rows, max(1, 10000 // width)),
             "qWidth": width,
         }],
         "qSuppressZero": False,

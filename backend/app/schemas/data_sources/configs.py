@@ -724,7 +724,7 @@ class QVDConfig(BaseModel):
     )
 
 
-# Qlik Sense (live connector — Cloud + Enterprise on Windows)
+# Qlik Sense (live connector — Qlik Cloud)
 class QlikSenseApiKeyCredentials(BaseModel):
     api_key: str = Field(
         ...,
@@ -739,9 +739,9 @@ class QlikSenseConfig(BaseModel):
         ...,
         title="Base URL",
         description=(
-            "Qlik tenant base URL. "
-            "Qlik Cloud example: https://tenant.us.qlikcloud.com. "
-            "Qlik Sense Enterprise on Windows: https://qs.company.com (optionally with virtual-proxy prefix)."
+            "Qlik Cloud tenant base URL. "
+            "Example: https://tenant.us.qlikcloud.com. "
+            "(On-prem Qlik Sense Enterprise on Windows is not supported in v1.)"
         ),
         json_schema_extra={"ui:type": "string"},
     )

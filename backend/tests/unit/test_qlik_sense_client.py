@@ -1,11 +1,10 @@
 """Unit tests for QlikSenseClient — all REST + QIX I/O is mocked."""
 
-import asyncio
 import json
+import sys
 from typing import List
 from unittest.mock import MagicMock
 
-import pandas as pd
 import pytest
 
 from app.data_sources.clients.qlik_sense_client import (
@@ -176,7 +175,7 @@ class TestTestConnection:
         })
         result = client.test_connection()
         assert result["success"] is True
-        assert result["app_count"] == 2
+        assert result["has_apps"] is True
         assert "Connected to Qlik Cloud" in result["message"]
 
     def test_auth_failure(self):
@@ -197,7 +196,7 @@ class TestTestConnection:
         })
         result = client.test_connection()
         assert result["success"] is True
-        assert result["app_count"] == 0
+        assert result["has_apps"] is False
         assert "no apps" in result["message"].lower()
 
     def test_test_connection_is_O1_in_tenant_size(self):
@@ -458,7 +457,6 @@ class TestExecuteQuery:
                 ],
             }]}},
         ]
-        import app.data_sources.clients.qlik_sense_client as mod
         connect_fn, fake = _fake_connect(canned)
         fake_websockets = MagicMock()
         fake_websockets.connect = connect_fn
@@ -471,7 +469,7 @@ class TestExecuteQuery:
             }], "links": {}},
         })
 
-        monkeypatch.setitem(__import__("sys").modules, "websockets", fake_websockets)
+        monkeypatch.setitem(sys.modules, "websockets", fake_websockets)
 
         df = client.execute_query(
             app="Sales/Pipeline 2025",
@@ -491,6 +489,9 @@ class TestExecuteQuery:
     def test_filters_applied_as_selections(self, monkeypatch):
         client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
         client.connect()
+        # _resolve_app_id now always attempts a list_apps() lookup first; give
+        # it an empty result so an opaque ID passes straight through.
+        _install_rest(client, {"/api/v1/items": {"data": [], "links": {}}})
         canned = [
             {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 10}}},
             {"jsonrpc": "2.0", "id": 2, "result": {}},  # SelectInField
@@ -500,7 +501,7 @@ class TestExecuteQuery:
         connect_fn, fake = _fake_connect(canned)
         fake_websockets = MagicMock()
         fake_websockets.connect = connect_fn
-        monkeypatch.setitem(__import__("sys").modules, "websockets", fake_websockets)
+        monkeypatch.setitem(sys.modules, "websockets", fake_websockets)
 
         df = client.execute_query(
             app="app-1",
