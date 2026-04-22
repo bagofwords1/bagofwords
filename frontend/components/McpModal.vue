@@ -418,13 +418,13 @@ async function createApiKey() {
 }
 
 async function deleteApiKey(key: ApiKey) {
-    if (!confirm('Delete this API key?')) return
+    if (!confirm(t('mcpServerModal.confirmDeleteKey'))) return
     try {
         await useMyFetch(`/api/api_keys/${key.id}`, { method: 'DELETE' })
         apiKeys.value = apiKeys.value.filter(k => k.id !== key.id)
-        toast.add({ title: 'API key deleted', icon: 'i-heroicons-check-circle', color: 'green' })
+        toast.add({ title: t('mcpServerModal.toastKeyDeleted'), icon: 'i-heroicons-check-circle', color: 'green' })
     } catch (e) {
-        toast.add({ title: 'Failed to delete API key', icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: t('mcpServerModal.toastKeyDeleteFailed'), icon: 'i-heroicons-x-circle', color: 'red' })
     }
 }
 
@@ -452,10 +452,10 @@ async function generateOAuthClient() {
             const client = res.data.value as OAuthClient
             oauthClients.value = [client]
             oauthCurrentSecret.value = client.client_secret || null
-            toast.add({ title: 'OAuth credentials generated', icon: 'i-heroicons-check-circle', color: 'green' })
+            toast.add({ title: t('mcpServerModal.toastOauthGenerated'), icon: 'i-heroicons-check-circle', color: 'green' })
         }
     } catch (e) {
-        toast.add({ title: 'Failed to generate credentials', icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: t('mcpServerModal.toastOauthFailed'), icon: 'i-heroicons-x-circle', color: 'red' })
     } finally {
         oauthCreating.value = false
     }
@@ -473,10 +473,10 @@ async function rotateOAuthSecret() {
             const updated = res.data.value as OAuthClient
             oauthClients.value[0].client_id = updated.client_id
             oauthCurrentSecret.value = updated.client_secret || null
-            toast.add({ title: 'Secret regenerated', icon: 'i-heroicons-check-circle', color: 'green' })
+            toast.add({ title: t('mcpServerModal.toastSecretRegenerated'), icon: 'i-heroicons-check-circle', color: 'green' })
         }
     } catch (e) {
-        toast.add({ title: 'Failed to regenerate secret', icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: t('mcpServerModal.toastSecretFailed'), icon: 'i-heroicons-x-circle', color: 'red' })
     } finally {
         oauthCreating.value = false
     }

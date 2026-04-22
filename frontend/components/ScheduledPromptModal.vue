@@ -3,7 +3,7 @@
         <UCard :ui="{ body: { padding: 'px-5 py-4 sm:p-5' }, header: { padding: 'px-5 py-3 sm:px-5 sm:py-3' }, footer: { padding: 'px-5 py-3 sm:px-5 sm:py-3' } }">
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900">{{ isEditing ? 'Edit scheduled task' : 'Schedule a task' }}</h3>
+                    <h3 class="text-sm font-semibold text-gray-900">{{ isEditing ? $t('scheduledPrompt.editTitle') : $t('scheduledPrompt.newTitle') }}</h3>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
                 </div>
             </template>
@@ -23,7 +23,7 @@
 
             <!-- Schedule -->
             <div class="mt-3">
-                <div class="text-xs text-gray-500 mb-1.5">Schedule</div>
+                <div class="text-xs text-gray-500 mb-1.5">{{ $t('scheduledPrompt.schedule') }}</div>
 
                 <div class="flex gap-0.5 p-0.5 bg-gray-100 rounded w-fit mb-2">
                     <button
@@ -38,43 +38,43 @@
                 </div>
 
                 <div v-if="scheduleType === 'once'" class="flex items-center gap-1.5 text-xs text-gray-600">
-                    <span>Run in</span>
+                    <span>{{ $t('scheduledPrompt.runIn') }}</span>
                     <input v-model.number="delayAmount" type="number" min="1" class="w-14 rounded border border-gray-200 px-1.5 py-1 text-xs text-center" />
                     <select v-model="delayUnit" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
-                        <option value="minutes">min</option>
-                        <option value="hours">hr</option>
-                        <option value="days">days</option>
+                        <option value="minutes">{{ $t('scheduledPrompt.unitMinutes') }}</option>
+                        <option value="hours">{{ $t('scheduledPrompt.unitHours') }}</option>
+                        <option value="days">{{ $t('scheduledPrompt.unitDays') }}</option>
                     </select>
                 </div>
 
                 <div v-else class="flex items-center gap-1.5 text-xs text-gray-600 flex-wrap">
-                    <span>Every</span>
+                    <span>{{ $t('scheduledPrompt.every') }}</span>
                     <template v-if="recurInterval === 'minutes' || recurInterval === 'hours'">
                         <input v-model.number="recurEveryN" type="number" min="1" :max="recurInterval === 'minutes' ? 59 : 23"
                             class="w-12 rounded border border-gray-200 px-1 py-1 text-xs text-center" />
                     </template>
                     <select v-model="recurInterval" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
-                        <option value="minutes">minutes</option>
-                        <option value="hours">hours</option>
-                        <option value="day">day</option>
-                        <option value="weekdays">weekdays</option>
-                        <option value="week">week</option>
-                        <option value="month">month</option>
+                        <option value="minutes">{{ $t('scheduledPrompt.intervalMinutes') }}</option>
+                        <option value="hours">{{ $t('scheduledPrompt.intervalHours') }}</option>
+                        <option value="day">{{ $t('scheduledPrompt.intervalDay') }}</option>
+                        <option value="weekdays">{{ $t('scheduledPrompt.intervalWeekdays') }}</option>
+                        <option value="week">{{ $t('scheduledPrompt.intervalWeek') }}</option>
+                        <option value="month">{{ $t('scheduledPrompt.intervalMonth') }}</option>
                     </select>
                     <template v-if="recurInterval === 'day' || recurInterval === 'weekdays' || recurInterval === 'week' || recurInterval === 'month'">
-                        <span>at</span>
+                        <span>{{ $t('scheduledPrompt.at') }}</span>
                         <select v-model="recurHour" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
                             <option v-for="h in 24" :key="h - 1" :value="h - 1">{{ String(h - 1).padStart(2, '0') }}:00</option>
                         </select>
                     </template>
                     <template v-if="recurInterval === 'week'">
-                        <span>on</span>
+                        <span>{{ $t('scheduledPrompt.on') }}</span>
                         <select v-model="recurDay" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
                             <option v-for="d in weekdays" :key="d.value" :value="d.value">{{ d.label }}</option>
                         </select>
                     </template>
                     <template v-if="recurInterval === 'month'">
-                        <span>on day</span>
+                        <span>{{ $t('scheduledPrompt.onDay') }}</span>
                         <select v-model="recurDayOfMonth" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
                             <option v-for="d in 28" :key="d" :value="d">{{ d }}</option>
                         </select>
@@ -84,7 +84,7 @@
 
             <!-- Active toggle (edit mode) -->
             <div v-if="isEditing" class="mt-3 flex items-center justify-between">
-                <span class="text-xs text-gray-500">Active</span>
+                <span class="text-xs text-gray-500">{{ $t('scheduledPrompt.active') }}</span>
                 <button
                     @click="isActive = !isActive"
                     class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors"
@@ -98,7 +98,7 @@
             <div v-if="smtpEnabled" class="border-t border-gray-100 pt-3 mt-3">
                 <div class="flex items-center gap-1.5 text-xs text-gray-500 mb-1.5">
                     <Icon name="heroicons:envelope" class="w-3 h-3" />
-                    Notify after each run
+                    {{ $t('scheduledPrompt.notifyAfterRun') }}
                 </div>
                 <div class="flex flex-wrap items-center gap-1 border border-gray-200 rounded px-2 py-1 min-h-[30px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
                     <span v-for="(sub, idx) in subscribers" :key="idx"
@@ -111,7 +111,7 @@
                     <div class="relative flex-1 min-w-[120px]">
                         <input ref="inputRef" v-model="inputValue" type="text"
                             class="w-full border-none outline-none text-xs bg-transparent p-0"
-                            placeholder="Email or member..."
+                            :placeholder="$t('scheduledPrompt.emailOrMemberPlaceholder')"
                             @keydown.enter.prevent="handleEnter"
                             @keydown.,.prevent="handleComma"
                             @keydown.backspace="handleBackspace"
@@ -133,8 +133,8 @@
 
             <template #footer>
                 <div class="flex justify-end gap-2">
-                    <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">Cancel</UButton>
-                    <UButton color="blue" size="xs" :loading="isSaving" @click="saveFromCurrentState">{{ isEditing ? 'Update' : 'Schedule' }}</UButton>
+                    <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">{{ $t('scheduledPrompt.cancel') }}</UButton>
+                    <UButton color="blue" size="xs" :loading="isSaving" @click="saveFromCurrentState">{{ isEditing ? $t('scheduledPrompt.update') : $t('scheduledPrompt.scheduleAction') }}</UButton>
                 </div>
             </template>
         </UCard>
@@ -145,6 +145,7 @@
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '@/components/prompt/PromptBoxV2.vue'
 
+const { t } = useI18n()
 const toast = useToast()
 const { smtpEnabled } = useAppSettings()
 
@@ -173,10 +174,10 @@ const initialDataSources = computed(() => props.initialDataSources || [])
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
 
 // Schedule type: one-time or recurring
-const scheduleTypes = [
-    { value: 'once' as const, label: 'One-time' },
-    { value: 'recurring' as const, label: 'Recurring' },
-]
+const scheduleTypes = computed(() => [
+    { value: 'once' as const, label: t('scheduledPrompt.typeOnce') },
+    { value: 'recurring' as const, label: t('scheduledPrompt.typeRecurring') },
+])
 const scheduleType = ref<'once' | 'recurring'>('recurring')
 const delayAmount = ref(1)
 const delayUnit = ref<'minutes' | 'hours' | 'days'>('hours')
@@ -188,10 +189,10 @@ const recurEveryN = ref(15)
 const recurHour = ref(8)
 const recurDay = ref(1)
 const recurDayOfMonth = ref(1)
-const weekdays = [
-    { value: 0, label: 'Sun' }, { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
-    { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
-]
+const weekdays = computed(() => [
+    { value: 0, label: t('scheduledPrompt.dowSun') }, { value: 1, label: t('scheduledPrompt.dowMon') }, { value: 2, label: t('scheduledPrompt.dowTue') },
+    { value: 3, label: t('scheduledPrompt.dowWed') }, { value: 4, label: t('scheduledPrompt.dowThu') }, { value: 5, label: t('scheduledPrompt.dowFri') }, { value: 6, label: t('scheduledPrompt.dowSat') },
+])
 
 function parseCronToStructured(cron: string) {
     if (!cron) return
@@ -299,16 +300,16 @@ async function saveScheduledPrompt(prompt: { content: string; mentions?: any[]; 
 
         if (response.data.value) {
             toast.add({
-                title: isEditing.value ? 'Scheduled prompt updated' : 'Prompt scheduled',
+                title: isEditing.value ? t('scheduledPrompt.toastUpdated') : t('scheduledPrompt.toastScheduled'),
                 color: 'green',
             })
             isOpen.value = false
             emit('saved')
         } else {
-            toast.add({ title: 'Error', color: 'red', description: 'Failed to save scheduled prompt' })
+            toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastSaveFailed') })
         }
     } catch {
-        toast.add({ title: 'Error', color: 'red', description: 'Failed to save scheduled prompt' })
+        toast.add({ title: t('scheduledPrompt.toastError'), color: 'red', description: t('scheduledPrompt.toastSaveFailed') })
     } finally {
         isSaving.value = false
     }
@@ -342,7 +343,7 @@ const fetchMembers = async () => {
 fetchMembers()
 
 const getMemberName = (userId: string | undefined) => {
-    if (!userId) return 'Unknown'
+    if (!userId) return t('scheduledPrompt.unknownMember')
     const m = members.value.find((m) => m.id === userId)
     return m ? (m.name || m.email) : userId
 }
