@@ -52,6 +52,7 @@ from app.schemas.data_sources.configs import (
     # Qlik Sense (live connector)
     QlikSenseConfig,
     QlikSenseApiKeyCredentials,
+    QlikSenseOAuthM2MCredentials,
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
@@ -519,6 +520,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 "api_key": AuthVariant(
                     title="API Key",
                     schema=QlikSenseApiKeyCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth_m2m": AuthVariant(
+                    title="OAuth 2.0 (Client Credentials)",
+                    schema=QlikSenseOAuthM2MCredentials,
                     scopes=["system", "user"],
                 ),
             },

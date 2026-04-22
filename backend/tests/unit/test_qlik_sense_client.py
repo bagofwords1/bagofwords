@@ -139,10 +139,21 @@ class TestTransport:
         with pytest.raises(RuntimeError, match="base_url is required"):
             client.connect()
 
-    def test_connect_requires_api_key(self):
+    def test_connect_requires_some_credential(self):
         client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key=None)
-        with pytest.raises(RuntimeError, match="api_key is required"):
+        with pytest.raises(RuntimeError, match="api_key or .*client_id"):
             client.connect()
+
+    def test_connect_accepts_oauth_without_api_key(self):
+        client = QlikSenseClient(
+            base_url="https://tenant.qlikcloud.com",
+            client_id="cid",
+            client_secret="sec",
+        )
+        # connect() should succeed without touching the network; token is
+        # only fetched lazily when an auth header is actually needed.
+        client.connect()
+        assert client._http is not None
 
     def test_rest_get_sets_bearer_header(self):
         client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="secret-xyz")
@@ -563,3 +574,168 @@ class TestTagsToDtype:
     ])
     def test_tag_priority(self, tags, expected):
         assert _tags_to_dtype(tags) == expected
+
+
+# ---------------------------------------------------------------------------
+# 9. OAuth M2M (Client Credentials)
+# ---------------------------------------------------------------------------
+
+class TestOAuthM2M:
+    def _oauth_client(self, **overrides):
+        kwargs = dict(
+            base_url="https://tenant.qlikcloud.com",
+            client_id="cid-1",
+            client_secret="sec-1",
+        )
+        kwargs.update(overrides)
+        return QlikSenseClient(**kwargs)
+
+    def test_fetch_token_and_use_it_on_rest_calls(self, monkeypatch):
+        client = self._oauth_client()
+
+        token_calls: List[dict] = []
+
+        def _fake_post(url, data=None, headers=None, timeout=None, verify=None):
+            token_calls.append({"url": url, "data": dict(data or {})})
+            return _json_response(
+                {"access_token": "tok-abc", "token_type": "bearer", "expires_in": 3600}
+            )
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        session = _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
+
+        client._rest_get("/api/v1/users/me")
+
+        # Token was fetched exactly once
+        assert len(token_calls) == 1
+        assert token_calls[0]["url"] == "https://tenant.qlikcloud.com/oauth/token"
+        assert token_calls[0]["data"]["grant_type"] == "client_credentials"
+        assert token_calls[0]["data"]["client_id"] == "cid-1"
+        assert token_calls[0]["data"]["client_secret"] == "sec-1"
+        # REST call used the fresh token
+        _, kwargs = session.get.call_args
+        assert kwargs["headers"]["Authorization"] == "Bearer tok-abc"
+
+    def test_token_is_cached_across_calls(self, monkeypatch):
+        client = self._oauth_client()
+        call_count = {"n": 0}
+
+        def _fake_post(url, data=None, headers=None, timeout=None, verify=None):
+            call_count["n"] += 1
+            return _json_response(
+                {"access_token": f"tok-{call_count['n']}", "expires_in": 3600}
+            )
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        _install_rest(client, {
+            "/api/v1/users/me": USERS_ME_OK,
+            "/api/v1/items": {"data": [], "links": {}},
+        })
+
+        client._rest_get("/api/v1/users/me")
+        client._rest_get("/api/v1/users/me")
+        client._rest_get("/api/v1/items")
+        assert call_count["n"] == 1
+        assert client._access_token == "tok-1"
+
+    def test_expired_token_is_refreshed(self, monkeypatch):
+        client = self._oauth_client()
+        tokens = iter(["tok-1", "tok-2"])
+
+        def _fake_post(url, data=None, headers=None, timeout=None, verify=None):
+            return _json_response({"access_token": next(tokens), "expires_in": 3600})
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        session = _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
+
+        client._rest_get("/api/v1/users/me")
+        assert client._access_token == "tok-1"
+        # Force expiry past the refresh skew window
+        client._token_expires_at = 0.0
+        client._rest_get("/api/v1/users/me")
+        assert client._access_token == "tok-2"
+        # Second REST call used the refreshed token
+        _, kwargs = session.get.call_args
+        assert kwargs["headers"]["Authorization"] == "Bearer tok-2"
+
+    def test_token_endpoint_failure_raises(self, monkeypatch):
+        client = self._oauth_client()
+
+        def _fake_post(url, data=None, headers=None, timeout=None, verify=None):
+            return _json_response({"error": "invalid_client"}, status=401)
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
+        with pytest.raises(RuntimeError, match="OAuth token exchange failed"):
+            client._rest_get("/api/v1/users/me")
+
+    def test_missing_access_token_in_response_raises(self, monkeypatch):
+        client = self._oauth_client()
+
+        def _fake_post(url, data=None, headers=None, timeout=None, verify=None):
+            return _json_response({"token_type": "bearer"})  # no access_token
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
+        with pytest.raises(RuntimeError, match="missing access_token"):
+            client._rest_get("/api/v1/users/me")
+
+    def test_api_key_takes_priority_over_oauth_when_both_set(self, monkeypatch):
+        """If api_key is present, we never hit /oauth/token."""
+        client = QlikSenseClient(
+            base_url="https://tenant.qlikcloud.com",
+            api_key="direct-key",
+            client_id="cid",
+            client_secret="sec",
+        )
+
+        def _fake_post(*a, **kw):
+            raise AssertionError("OAuth token endpoint must not be called when api_key is set")
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        session = _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
+        client._rest_get("/api/v1/users/me")
+        _, kwargs = session.get.call_args
+        assert kwargs["headers"]["Authorization"] == "Bearer direct-key"
+
+    def test_default_scope_is_user_default(self, monkeypatch):
+        client = self._oauth_client()
+        captured: dict = {}
+
+        def _fake_post(url, data=None, headers=None, timeout=None, verify=None):
+            captured.update(data or {})
+            return _json_response({"access_token": "t", "expires_in": 3600})
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
+        client._rest_get("/api/v1/users/me")
+        assert captured.get("scope") == "user_default"
+
+    def test_custom_scope_is_forwarded(self, monkeypatch):
+        client = self._oauth_client(scope="admin_classic")
+        captured: dict = {}
+
+        def _fake_post(url, data=None, headers=None, timeout=None, verify=None):
+            captured.update(data or {})
+            return _json_response({"access_token": "t", "expires_in": 3600})
+
+        monkeypatch.setattr(
+            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+        )
+        _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
+        client._rest_get("/api/v1/users/me")
+        assert captured.get("scope") == "admin_classic"
