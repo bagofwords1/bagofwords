@@ -133,7 +133,7 @@ async def authorize_approve(
     client_id = body.get("client_id")
     redirect_uri = body.get("redirect_uri")
     state = body.get("state")
-    scope = body.get("scope") or DEFAULT_SCOPE
+    raw_scope = body.get("scope")
     code_challenge = body.get("code_challenge")
     code_challenge_method = body.get("code_challenge_method", "S256")
 
@@ -153,6 +153,18 @@ async def authorize_approve(
     # Validate redirect_uri
     if not service.validate_redirect_uri(client, redirect_uri):
         raise HTTPException(status_code=400, detail="Invalid redirect_uri")
+
+    # Validate requested scope: must be a non-empty subset of both the server's
+    # SUPPORTED_SCOPES and the client's registered scopes.
+    scope_source = raw_scope if isinstance(raw_scope, str) and raw_scope.strip() else DEFAULT_SCOPE
+    requested_scopes = scope_source.split()
+    if not requested_scopes:
+        raise HTTPException(status_code=400, detail="invalid_scope")
+    client_scopes = set((client.scopes or "").split())
+    for s in requested_scopes:
+        if s not in SUPPORTED_SCOPES or s not in client_scopes:
+            raise HTTPException(status_code=400, detail=f"invalid_scope: {s}")
+    scope = " ".join(requested_scopes)
 
     # Create authorization code
     code = await service.create_authorization_code(
@@ -276,14 +288,23 @@ async def create_client(
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
 
-    scopes = body.get("scopes") or DEFAULT_SCOPE
-    # Validate scopes
-    requested = [s for s in scopes.split() if s]
+    raw_scopes = body.get("scopes")
+    scopes_source = raw_scopes if isinstance(raw_scopes, str) and raw_scopes.strip() else DEFAULT_SCOPE
+    requested = scopes_source.split()
+    if not requested:
+        raise HTTPException(status_code=400, detail="scopes must include at least one supported scope")
     for s in requested:
         if s not in SUPPORTED_SCOPES:
             raise HTTPException(status_code=400, detail=f"Unsupported scope: {s}")
+    scopes = " ".join(requested)
 
-    redirect_uris = body.get("redirect_uris")  # Optional; service falls back to defaults.
+    redirect_uris = body.get("redirect_uris")
+    if redirect_uris is not None:
+        if not isinstance(redirect_uris, list) or not redirect_uris:
+            raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
+        for uri in redirect_uris:
+            if not isinstance(uri, str) or not uri.strip():
+                raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
 
     service = OAuthServerService()
     return await service.create_client(
