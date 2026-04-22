@@ -8,11 +8,11 @@
       <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
-      <span v-if="status === 'running'" class="tool-shimmer">Editing Dashboard</span>
-      <span v-else-if="status === 'success'" class="text-gray-700">Dashboard Edited</span>
-      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">Editing Dashboard</span>
-      <span v-else-if="status === 'error'" class="text-gray-700">Failed to Edit Dashboard</span>
-      <span v-else class="text-gray-700">Edit Artifact</span>
+      <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.editArtifact.editing') }}</span>
+      <span v-else-if="status === 'success'" class="text-gray-700">{{ $t('tools.editArtifact.edited') }}</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ $t('tools.editArtifact.editing') }}</span>
+      <span v-else-if="status === 'error'" class="text-gray-700">{{ $t('tools.editArtifact.failed') }}</span>
+      <span v-else class="text-gray-700">{{ $t('tools.editArtifact.edit') }}</span>
 
       <!-- Diff badge -->
       <span

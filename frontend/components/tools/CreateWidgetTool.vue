@@ -27,8 +27,8 @@
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleDm">
             <Spinner v-if="!dmDone" class="w-3 h-3 me-1.5 text-gray-400" />
             <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <span v-if="!dmDone" class="tool-shimmer">Creating Data Model</span>
-            <span v-else class="text-gray-700">Creating Data Model</span>
+            <span v-if="!dmDone" class="tool-shimmer">{{ $t('tools.createWidget.creatingDataModel') }}</span>
+            <span v-else class="text-gray-700">{{ $t('tools.createWidget.creatingDataModel') }}</span>
             <Icon :name="dmCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2" />
           </div>
           <Transition name="fade">
@@ -62,9 +62,9 @@
             <Spinner v-if="isCodeRunning" class="w-3 h-3 me-1.5 text-gray-400" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating Code</span>
-            <span v-else-if="isCodeRunning" class="tool-shimmer">Generating Code</span>
-            <span v-else class="text-gray-700">Generating Code</span>
+            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingCode') }}</span>
+            <span v-else-if="isCodeRunning" class="tool-shimmer">{{ $t('tools.createWidget.generatingCode') }}</span>
+            <span v-else class="text-gray-700">{{ $t('tools.createWidget.generatingCode') }}</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2" />
           </div>
           <Transition name="fade">
@@ -74,8 +74,8 @@
                 
                 
                 <div class="mb-2 text-xs bg-gray-50 rounded-lg px-4 py-3 text-gray-500 flex items-center">
-                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating... (Attempt {{ currentAttempt }})</span>
-                  <span v-else-if="isCodeRunning" class="tool-shimmer">Running... (Attempt {{ currentAttempt }})</span>
+                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingAttempt', { n: currentAttempt }) }}</span>
+                  <span v-else-if="isCodeRunning" class="tool-shimmer">{{ $t('tools.createWidget.runningAttempt', { n: currentAttempt }) }}</span>
                   <span v-else-if="status === 'success'" class="flex items-center">
                     <span class="text-green-500 flex items-center">
                       <Icon name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />

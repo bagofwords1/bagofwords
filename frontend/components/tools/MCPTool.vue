@@ -35,7 +35,7 @@
               :name="showPreview ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
               class="w-2.5 h-2.5 me-1 text-gray-400"
             />
-            <span>Output</span>
+            <span>{{ $t('tools.common.output') }}</span>
           </div>
           <div v-if="showPreview" class="max-h-28 overflow-auto rounded bg-gray-50 border border-gray-100">
             <pre class="text-[10px] leading-tight text-gray-600 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ preview }}</pre>
@@ -53,6 +53,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -85,30 +86,30 @@ const duration = computed(() => {
 })
 
 const runningLabel = computed(() => {
-  if (toolName.value === 'search_mcps') return 'Searching MCP tools…'
+  if (toolName.value === 'search_mcps') return t('tools.mcp.searching')
   if (toolName.value === 'execute_mcp') {
     const connName = resultJson.value.connection_name
     const label = connName || args.value.tool_name || 'MCP tool'
-    return `Calling ${label}…`
+    return t('tools.mcp.callingTool', { name: label })
   }
-  if (toolName.value === 'write_csv') return 'Writing CSV…'
-  return 'Running MCP tool…'
+  if (toolName.value === 'write_csv') return t('tools.mcp.writingCsv')
+  return t('tools.mcp.running')
 })
 
 const doneLabel = computed(() => {
   if (toolName.value === 'search_mcps') {
     const count = resultJson.value.total_count ?? resultJson.value.tools?.length ?? 0
-    return `Found ${count} tool(s)`
+    return t('tools.mcp.foundTools', { count })
   }
   if (toolName.value === 'execute_mcp') {
     const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
-    if (resultJson.value.file_id) return `${connName} → CSV`
-    if (resultJson.value.success === false) return `${connName} (failed)`
+    if (resultJson.value.file_id) return t('tools.mcp.csvSuccess', { name: connName })
+    if (resultJson.value.success === false) return t('tools.mcp.failed', { name: connName })
     return `${connName}`
   }
   if (toolName.value === 'write_csv') {
     const rows = resultJson.value.row_count
-    return rows ? `Wrote ${rows} rows to CSV` : 'CSV written'
+    return rows ? t('tools.common.rows', { n: rows }) : 'CSV'
   }
   return 'MCP tool'
 })

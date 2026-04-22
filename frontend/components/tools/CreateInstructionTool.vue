@@ -29,7 +29,7 @@
         </span>
         <span v-else-if="isRejected" class="text-gray-600 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>Instruction rejected</span>
+          <span>{{ $t('tools.createInstruction.rejected') }}</span>
           <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
@@ -38,7 +38,7 @@
         </span>
         <span v-else class="text-gray-600 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>Failed to create instruction</span>
+          <span>{{ $t('tools.createInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 ms-1 text-gray-400"
@@ -101,7 +101,7 @@
             <!-- Show status for published instructions -->
             <div v-if="currentGlobalStatus === 'approved'" class="flex items-center">
               <Icon name="heroicons:check-circle" class="w-3 h-3 text-gray-500 me-1" />
-              <span class="text-[10px] font-medium text-gray-500">Published</span>
+              <span class="text-[10px] font-medium text-gray-500">{{ $t('tools.createInstruction.published') }}</span>
             </div>
 
             <!-- Show action buttons for draft/suggested instructions -->
@@ -128,7 +128,7 @@
                 class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
               >
                 <Icon name="heroicons:pencil" class="w-3 h-3 text-blue-600 me-1" />
-                <span>Edit</span>
+                <span>{{ $t('tools.common.edit') }}</span>
               </button>
               <button
                 @click.stop="handleDelete"

@@ -16,12 +16,12 @@
       </span>
       <span v-else-if="succeeded" class="text-gray-700 flex items-center">
         <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
-        <span class="align-middle">Ran Excel code</span>
+        <span class="align-middle">{{ $t('tools.writeOfficeJs.ran') }}</span>
         <span v-if="description" class="ms-1.5 text-[10px] text-gray-400 truncate max-w-[320px]">· {{ description }}</span>
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
-        <span class="align-middle">Excel code failed</span>
+        <span class="align-middle">{{ $t('tools.writeOfficeJs.failed') }}</span>
         <span v-if="isSyntaxError" class="ms-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 flex-shrink-0">syntax</span>
         <span v-if="errorMessage" class="ms-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>

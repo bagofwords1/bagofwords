@@ -3,14 +3,14 @@
 	<!-- Loading until report and completions are fetched -->
 	<div v-if="(!reportLoaded || !completionsLoaded) && messages.length === 0 && !reportNotFound" class="h-screen w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 me-2" />
-		<span class="text-sm">Loading report…</span>
+		<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 	</div>
 
 	<!-- Report not found / no access -->
 	<div v-else-if="reportNotFound" class="h-screen w-full flex flex-col items-center justify-center text-gray-400">
 		<span class="text-5xl font-light">404</span>
-		<span class="mt-2 text-sm">Report not found</span>
-		<NuxtLink to="/reports" class="mt-4 text-sm text-blue-500 hover:underline">Back to reports</NuxtLink>
+		<span class="mt-2 text-sm">{{ $t('reportView.reportNotFound') }}</span>
+		<NuxtLink to="/reports" class="mt-4 text-sm text-blue-500 hover:underline">{{ $t('reportView.backToReports') }}</NuxtLink>
 	</div>
 
 	<SplitScreenLayout v-else
@@ -90,21 +90,21 @@
 				<!-- Fork summary separator -->
 				<div v-if="report?.forked_from_id && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
 					<div class="flex-1 border-t border-dashed border-gray-200"></div>
-					<span class="text-[10px] text-gray-300 uppercase tracking-wider">Your conversation</span>
+					<span class="text-[10px] text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
 					<div class="flex-1 border-t border-dashed border-gray-200"></div>
 				</div>
 
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
 					<!-- Top loader for older pages -->
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
-						<Spinner class="w-4 h-4 inline me-2" /> Loading older messages…
+						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
 					<li v-for="m in messages" :key="m.id" :data-message-id="m.id" class="text-gray-700 mb-2 text-sm">
 						<!-- Fork summary card (special rendering) -->
 						<div v-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
 								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
-								<span class="font-medium">Summary of original analysis</span>
+								<span class="font-medium">{{ $t('reportView.summaryOfOriginal') }}</span>
 							</div>
 							<div class="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
 						</div>
@@ -116,7 +116,7 @@
 								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
-								<span class="font-medium text-gray-500">Scheduled run</span>
+								<span class="font-medium text-gray-500">{{ $t('reportView.scheduledRun') }}</span>
 								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-400">{{ getScheduledStats(m) }}</span>
@@ -221,7 +221,7 @@
 															/>
 														</template>
 														<template v-else-if="block.status === 'stopped'">
-															<div class="text-gray-400 italic">Generation was stopped before completion.</div>
+															<div class="text-gray-400 italic">{{ $t('reportView.generationStoppedBefore') }}</div>
 														</template>
 													</div>
 												</Transition>
@@ -263,9 +263,9 @@
 														</span>
 														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
 															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-															<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
-															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
-															<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
+															<div v-if="block.tool_execution.duration_ms">{{ $t('reportView.duration', { ms: block.tool_execution.duration_ms }) }}</div>
+															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">{{ $t('reportView.widgetRef', { id: block.tool_execution.created_widget_id }) }}</div>
+															<div v-if="block.tool_execution.created_step_id" class="text-purple-600">{{ $t('reportView.stepRef', { id: block.tool_execution.created_step_id }) }}</div>
 														</div>
 													</div>
 												</div>
@@ -309,11 +309,11 @@
 											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }" ref="instructionsPopoverRef">
 												<UButton variant="ghost" color="gray" size="xs" class="!px-1.5">
 													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
-													<span class="text-xs text-gray-700 font-normal">{{ visibleInstructions(m).length }} instructions</span>
+													<span class="text-xs text-gray-700 font-normal">{{ $t('reportView.instructionsCount', { count: visibleInstructions(m).length }) }}</span>
 												</UButton>
 												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
-														<div class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Instructions loaded</div>
+														<div class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
 														<div class="space-y-0.5">
 															<div
 																v-for="ins in visibleInstructions(m)"
@@ -323,7 +323,7 @@
 															>
 																<DataSourceIcon v-if="ins.data_source_type" :type="ins.data_source_type" class="h-3.5 w-3.5 flex-shrink-0" />
 																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-																<span class="flex-1 truncate">{{ ins.title || 'Untitled' }}</span>
+																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
 																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
 																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'">
@@ -340,7 +340,7 @@
 												v-if="canViewConsole"
 												@click="openTraceModal(m.system_completion_id || m.id)"
 												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 rounded-md transition-colors group"
-												:title="'View Agent Trace'"
+												:title="$t('reportView.viewAgentTrace')"
 											>
 												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
 											</button>
@@ -493,7 +493,7 @@
 						: 'text-gray-400 hover:text-gray-600'"
 				>
 					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
-					Summary
+					{{ $t('reportView.tabSummary') }}
 				</button>
 				<button
 					@click="rightPanelView = 'artifact'"
@@ -503,7 +503,7 @@
 						: 'text-gray-400 hover:text-gray-600'"
 				>
 					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
-					Dashboard
+					{{ $t('reportView.tabDashboard') }}
 				</button>
 				<button
 					@click="rightPanelView = 'agent'"
@@ -518,7 +518,7 @@
 						class="h-3.5 flex-shrink-0"
 					/>
 					<Icon v-else name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
-					{{ currentAgents.length > 1 ? 'Agents' : (currentAgents[0]?.name || 'Agent') }}
+					{{ currentAgents.length > 1 ? $t('reportView.tabAgents') : (currentAgents[0]?.name || $t('reportView.tabAgent')) }}
 				</button>
 			</div>
 			<button
@@ -738,6 +738,7 @@ interface ChatMessage {
 	scheduled_prompt_id?: string | null
 }
 
+const { t } = useI18n()
 const route = useRoute()
 const report_id = (route.params.id as string) || ''
 
@@ -1271,7 +1272,7 @@ function shouldShowWorkingDots(message: ChatMessage): boolean {
 function getThoughtProcessLabel(block: CompletionBlock): string {
 	// Handle stopped blocks
 	if (block.status === 'stopped') {
-		return 'Thought Process'
+		return t('reportView.thoughtProcess')
 	}
 
 	// Prefer planner-provided reasoning duration when available
@@ -1279,32 +1280,32 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 	const thinkingMs: number | undefined = metricsAny?.thinking_ms
 	if (typeof thinkingMs === 'number' && isFinite(thinkingMs) && thinkingMs >= 0) {
 		const secs = Math.max(0, Math.round(thinkingMs / 1000))
-		return `Thought for ${secs}s`
+		return t('reportView.thoughtForSeconds', { seconds: secs })
 	}
-	
+
 	// Calculate duration from started_at to completed_at if available
 	if (block.started_at && block.completed_at) {
 		const startTime = new Date(block.started_at).getTime()
 		const endTime = new Date(block.completed_at).getTime()
 		const durationMs = endTime - startTime
 		const durationSeconds = Math.round(durationMs / 1000)
-		
+
 		// Sanity check for unreasonable durations (over 30 minutes)
 		if (durationSeconds > 1800) {
-			return 'Stopped'
+			return t('reportView.stopped')
 		}
-		
-		return `Thought for ${durationSeconds}s`
+
+		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
 	}
-	
+
 	// Fallback to duration from tool execution if available
 	if (block.tool_execution?.duration_ms) {
 		const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-		return `Thought for ${durationSeconds}s`
+		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
 	}
-	
+
 	// Default fallback
-	return 'Thought Process'
+	return t('reportView.thoughtProcess')
 }
 
 

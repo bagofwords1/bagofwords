@@ -33,7 +33,7 @@
           >
             <Icon :name="profileCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
             <Icon name="heroicons-table-cells" class="w-3 h-3 me-1" />
-            <span>Data Profile</span>
+            <span>{{ $t('tools.describeEntity.dataProfile') }}</span>
             <span class="ms-2 text-gray-400">{{ dataProfile.row_count?.toLocaleString() || 0 }} rows, {{ dataProfile.column_count || 0 }} columns</span>
           </div>
           <Transition name="fade">
@@ -77,7 +77,7 @@
           >
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
             <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
-            <span>Code</span>
+            <span>{{ $t('tools.common.code') }}</span>
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">

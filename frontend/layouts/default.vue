@@ -36,7 +36,7 @@
           </button>
     <div class="h-full px-3 py-4 bg-gray-50 flex flex-col justify-between">
 
-      <ul class="font-normal text-[13px]">
+      <ul class="font-normal text-[13px] !ps-0">
         <li>
             <button @click="router.push('/')" class="flex items-center justify-center p-1 text-gray-700 group">
               <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-8 max-w-[120px] object-contain'" />
@@ -100,7 +100,7 @@
         </li>
         </template>
       </ul>
-      <ul class="font-normal text-[13px]">
+      <ul class="font-normal text-[13px] !ps-0">
         <li v-for="item in bottomNavItems" :key="item.href">
           <a :href="item.href" :target="item.external ? '_blank' : undefined" :class="[
             'flex items-center px-3 py-1.5 w-full rounded-md',

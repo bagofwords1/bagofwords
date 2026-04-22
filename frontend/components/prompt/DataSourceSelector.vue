@@ -81,7 +81,7 @@ import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
-type DataSource = { id: string; name: string; type?: string; auth_policy?: string; user_status?: { effective_auth?: string; has_user_credentials?: boolean } }
+type DataSource = { id: string; name: string; type?: string; auth_policy?: string; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
 const internalSelectedDataSources = ref<DataSource[]>([])
 const dataSources = ref<DataSource[]>([])
 const isLoading = ref(true)
@@ -204,8 +204,9 @@ async function getDataSources() {
         // Exclude data sources that require user credentials the user hasn't provided
         dataSources.value = allSources.filter((ds: any) => {
             if (ds.auth_policy === 'user_required') {
-                const eff = ds.user_status?.effective_auth
-                return eff === 'user' || eff === 'system'
+                const status = ds.user_status
+                if (status?.has_user_credentials) return true
+                return status?.effective_auth === 'system' && !status?.uses_fallback
             }
             return true
         })

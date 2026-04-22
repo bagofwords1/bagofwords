@@ -21,7 +21,7 @@
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
-        <span class="align-middle">Read failed</span>
+        <span class="align-middle">{{ $t('tools.readExcelRange.readFailed') }}</span>
         <span v-if="errorMessage" class="ms-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
     </div>

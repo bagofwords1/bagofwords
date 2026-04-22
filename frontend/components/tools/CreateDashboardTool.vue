@@ -9,10 +9,10 @@
       <!-- Action label with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer inline-flex items-center">
         <Spinner class="w-3 h-3 me-1.5 text-gray-400" />
-        Creating dashboard
+        {{ $t('tools.createDashboard.creating') }}
       </span>
-      <span v-else-if="status === 'success'" class="text-gray-700">Dashboard created</span>
-      <span v-else class="text-gray-700">Create dashboard</span>
+      <span v-else-if="status === 'success'" class="text-gray-700">{{ $t('tools.createDashboard.created') }}</span>
+      <span v-else class="text-gray-700">{{ $t('tools.createDashboard.create') }}</span>
   </div>
 </div>
 </template>

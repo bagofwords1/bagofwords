@@ -12,7 +12,7 @@
       <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
       <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ runningLabel }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700">{{ errorLabel }}</span>
-      <span v-else class="text-gray-700">Create Artifact</span>
+      <span v-else class="text-gray-700">{{ $t('tools.createArtifact.create') }}</span>
 
       <!-- Mode Badge -->
       <span
@@ -91,13 +91,13 @@
             <span v-if="progressChars" class="ms-1 text-gray-300">({{ progressChars }} chars)</span>
           </div>
           <div v-else-if="progressStage === 'validating'" class="flex items-center gap-1.5">
-            <span>Validating</span>
+            <span>{{ $t('tools.createArtifact.validating') }}</span>
             <span v-if="validationAttempt" class="text-gray-300">(attempt {{ validationAttempt }}/{{ validationMaxAttempts }})</span>
           </div>
           <div v-else-if="progressStage === 'fixing_errors'" class="space-y-1">
             <div class="flex items-center gap-1.5 text-amber-500">
               <Icon name="heroicons:wrench-screwdriver" class="w-3 h-3" />
-              <span>Fixing errors</span>
+              <span>{{ $t('tools.createArtifact.fixingErrors') }}</span>
               <span class="text-gray-300">(attempt {{ validationAttempt }}/{{ validationMaxAttempts }})</span>
             </div>
             <div v-if="fixingErrors.length > 0" class="ms-4 text-[10px] text-gray-400 space-y-0.5">
@@ -111,7 +111,7 @@
 
       <!-- Confirmation card -->
       <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
-        <div class="text-xs font-medium text-gray-700">Confirm artifact creation</div>
+        <div class="text-xs font-medium text-gray-700">{{ $t('tools.createArtifact.confirm') }}</div>
         <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
           <span
             v-for="viz in confirmation.visualizations"

@@ -34,7 +34,7 @@
           >
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
             <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
-            <span>Code</span>
+            <span>{{ $t('tools.common.code') }}</span>
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">

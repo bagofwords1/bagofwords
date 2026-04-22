@@ -261,6 +261,161 @@
     "emptyTipLabel": "Tip:",
     "emptyTipBody": "Not sure what to ask? You can ask the AI Analyst to suggest questions about a specific topic."
   },
+  "reportView": {
+    "tabChat": "Chat",
+    "tabSummary": "Summary",
+    "tabDashboard": "Dashboard",
+    "tabAgent": "Agent",
+    "tabAgents": "Agents",
+    "sidebar": "Sidebar",
+    "openSidebar": "Open Sidebar",
+    "closeSidebar": "Close Sidebar",
+    "loadingReport": "Loading report…",
+    "reportNotFound": "Report not found",
+    "backToReports": "Back to reports",
+    "loadingOlderMessages": "Loading older messages…",
+    "yourConversation": "Your conversation",
+    "summaryOfOriginal": "Summary of original analysis",
+    "scheduledRun": "Scheduled run",
+    "generationStopped": "Generation stopped",
+    "generationStoppedBefore": "Generation was stopped before completion.",
+    "anErrorOccurred": "An error occurred",
+    "thoughtProcess": "Thought Process",
+    "thoughtForSeconds": "Thought for {seconds}s",
+    "thinking": "Thinking",
+    "stopped": "Stopped",
+    "instructionsLoaded": "Instructions loaded",
+    "instructionsCount": "{count} instructions",
+    "instructionsCountOne": "{count} instruction",
+    "untitled": "Untitled",
+    "duration": "Duration: {ms}ms",
+    "widgetRef": "→ Widget: {id}",
+    "stepRef": "→ Step: {id}",
+    "viewAgentTrace": "View Agent Trace"
+  },
+  "tools": {
+    "common": {
+      "input": "Input",
+      "output": "Output",
+      "summary": "Summary:",
+      "errorLabel": "Error:",
+      "running": "Running…",
+      "success": "Success",
+      "failed": "Failed",
+      "showAll": "Show all ({count} chars)",
+      "showLess": "Show less",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "showFullOutput": "Show full output",
+      "hideFullOutput": "Hide full output",
+      "attempt": "Attempt {n}",
+      "attemptSuffix": "· attempt {n}",
+      "rows": "{n} rows",
+      "duration": "Duration: {ms}ms",
+      "edit": "Edit",
+      "generationStopped": "Generation stopped",
+      "code": "Code"
+    },
+    "createData": {
+      "creating": "Creating Data",
+      "created": "Created Data",
+      "create": "Create Data",
+      "generatingCode": "Generating Code",
+      "generatedCode": "Generated Code",
+      "editCode": "Edit code",
+      "executing": "Executing",
+      "executionFailed": "Execution failed",
+      "executionSucceeded": "Execution succeeded",
+      "retrying": "Retrying · attempt {n}",
+      "visualizing": "Visualizing"
+    },
+    "createArtifact": {
+      "creating": "Creating Artifact",
+      "created": "Artifact Created",
+      "create": "Create Artifact",
+      "validating": "Validating",
+      "fixingErrors": "Fixing errors",
+      "confirm": "Confirm artifact creation"
+    },
+    "createDashboard": {
+      "creating": "Creating Dashboard",
+      "created": "Dashboard Created",
+      "create": "Create Dashboard",
+      "failed": "Failed to Create Dashboard"
+    },
+    "editArtifact": {
+      "editing": "Editing Dashboard",
+      "edited": "Dashboard Edited",
+      "failed": "Failed to Edit Dashboard",
+      "edit": "Edit Artifact",
+      "confirm": "Confirm artifact edit",
+      "dashboardEdited": "Dashboard edited"
+    },
+    "createWidget": {
+      "creatingDataModel": "Creating Data Model",
+      "validatingCode": "Validating Code",
+      "generatingCode": "Generating Code",
+      "validatingAttempt": "Validating... (Attempt {n})",
+      "runningAttempt": "Running... (Attempt {n})"
+    },
+    "createInstruction": {
+      "rejected": "Instruction rejected",
+      "failed": "Failed to create instruction",
+      "published": "Published",
+      "edit": "Edit"
+    },
+    "editInstruction": {
+      "rejected": "Edit rejected",
+      "failed": "Failed to edit instruction",
+      "textChanges": "Text changes",
+      "published": "Published",
+      "edit": "Edit"
+    },
+    "inspectData": {
+      "inspecting": "Inspecting",
+      "inspected": "Inspected",
+      "generatingCode": "Generating Code",
+      "generatedCode": "Generated Code",
+      "executing": "Executing",
+      "executed": "Executed"
+    },
+    "mcp": {
+      "searching": "Searching MCP tools…",
+      "callingTool": "Calling {name}…",
+      "writingCsv": "Writing CSV…",
+      "running": "Running MCP tool…",
+      "foundTools": "Found {count} tool(s)",
+      "csvSuccess": "{name} → CSV",
+      "failed": "{name} (failed)"
+    },
+    "answerQuestion": {
+      "thought": "Thought about answer"
+    },
+    "readArtifact": {
+      "reading": "Reading artifact…",
+      "readingPast": "Reading artifact",
+      "failed": "Failed to read artifact",
+      "read": "Read Artifact"
+    },
+    "readExcelRange": {
+      "readFailed": "Read failed"
+    },
+    "writeOfficeJs": {
+      "ran": "Ran Excel code",
+      "failed": "Excel code failed"
+    },
+    "searchInstructions": {
+      "open": "Open instruction"
+    },
+    "describeEntity": {
+      "dataProfile": "Data Profile"
+    },
+    "generic": {
+      "running": "Running...",
+      "success": "Success",
+      "failed": "Failed"
+    }
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Manage workspace identity and preferences",

@@ -36,7 +36,7 @@
   "nav": {
     "home": "בית",
     "reports": "דוחות",
-    "dashboards": "לוחות מחוונים",
+    "dashboards": "דשבורדים",
     "data": "נתונים",
     "dataSources": "מקורות נתונים",
     "dataAgents": "סוכני נתונים",
@@ -123,8 +123,8 @@
   },
   "home": {
     "title": "אנליסט AI",
-    "subtitle": "צרו דוחות, לוחות מחוונים וקבלו את הנתונים שאתם צריכים",
-    "instructionsPlaceholder": "בקשו נתונים, גלריה או ניתוח מעמיק",
+    "subtitle": "צרו דוחות, דשבורדים וקבלו את הנתונים שאתם צריכים",
+    "instructionsPlaceholder": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
     "instructionsLabel": "הנחיות",
     "chat": "צ׳אט",
     "selectModel": "בחירת מודל",
@@ -134,12 +134,12 @@
     "viewIntegrations": "צפייה באינטגרציות"
   },
   "prompt": {
-    "placeholderDefault": "בקשו נתונים, גלריה או ניתוח מעמיק",
+    "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
     "placeholderCompact": "בקשו נתונים",
     "instructions": "הנחיות",
     "loadingReportContext": "טוען הקשר של הדוח…",
     "dropFilesToUpload": "שחררו כאן כדי להעלות קבצים",
-    "viewDashboard": "פתיחת גלריה",
+    "viewDashboard": "פתיחת דשבורד",
     "chat": "צ׳אט",
     "deepAnalytics": "ניתוח מעמיק",
     "training": "אימון",
@@ -174,10 +174,10 @@
     "archiveSelected": "העברת המסומנים לארכיון",
     "archiveConfirm": "האם אתם בטוחים שברצונכם להעביר דוח זה לארכיון?",
     "archiveConfirmBulk": "להעביר לארכיון {count} דוחות שנבחרו?",
-    "dashboardLabel": "גלריה",
+    "dashboardLabel": "דשבורד",
     "conversationLabel": "שיחה",
-    "dashboardPrivate": "גלריה (פרטי)",
-    "dashboardWithVisibility": "גלריה: {visibility}",
+    "dashboardPrivate": "דשבורד (פרטי)",
+    "dashboardWithVisibility": "דשבורד: {visibility}",
     "filters": {
       "allStatus": "כל הסטטוסים",
       "private": "פרטיים",
@@ -190,9 +190,9 @@
       "deep": "ניתוח מעמיק",
       "training": "אימון",
       "allSources": "כל המקורות",
-      "allDashboards": "כל לוחות המחוונים",
-      "withDashboard": "עם גלריה",
-      "noDashboard": "ללא גלריה",
+      "allDashboards": "כל הדשבורדים",
+      "withDashboard": "עם דשבורד",
+      "noDashboard": "ללא דשבורד",
       "status": "סטטוס",
       "schedule": "תזמון",
       "type": "סוג",
@@ -245,7 +245,7 @@
     "myReports": "הדוחות שלי",
     "sharedWithMe": "משותפים איתי",
     "actions": "פעולות",
-    "allDashboards": "כל הלוחות",
+    "allDashboards": "כל הדשבורדים",
     "allSources": "כל המקורות",
     "allModes": "כל המצבים",
     "allSchedules": "כל התזמונים",
@@ -260,6 +260,161 @@
     "emptyTitle": "שאל שאלה כדי להתחיל.",
     "emptyTipLabel": "טיפ:",
     "emptyTipBody": "לא בטוח מה לשאול? אפשר לבקש מסוכן ה-AI להציע שאלות על נושא מסוים."
+  },
+  "reportView": {
+    "tabChat": "צ'אט",
+    "tabSummary": "סיכום",
+    "tabDashboard": "דשבורד",
+    "tabAgent": "סוכן",
+    "tabAgents": "סוכנים",
+    "sidebar": "סרגל צד",
+    "openSidebar": "פתח סרגל צד",
+    "closeSidebar": "סגור סרגל צד",
+    "loadingReport": "טוען דוח…",
+    "reportNotFound": "הדוח לא נמצא",
+    "backToReports": "חזרה לדוחות",
+    "loadingOlderMessages": "טוען הודעות קודמות…",
+    "yourConversation": "השיחה שלך",
+    "summaryOfOriginal": "סיכום הניתוח המקורי",
+    "scheduledRun": "הרצה מתוזמנת",
+    "generationStopped": "היצירה נעצרה",
+    "generationStoppedBefore": "היצירה נעצרה לפני ההשלמה.",
+    "anErrorOccurred": "אירעה שגיאה",
+    "thoughtProcess": "תהליך חשיבה",
+    "thoughtForSeconds": "חשב במשך {seconds} שניות",
+    "thinking": "חושב",
+    "stopped": "נעצר",
+    "instructionsLoaded": "הנחיות שנטענו",
+    "instructionsCount": "{count} הנחיות",
+    "instructionsCountOne": "הנחיה {count}",
+    "untitled": "ללא כותרת",
+    "duration": "משך: {ms} מילישניות",
+    "widgetRef": "← ווידג'ט: {id}",
+    "stepRef": "← שלב: {id}",
+    "viewAgentTrace": "הצג מעקב סוכן"
+  },
+  "tools": {
+    "common": {
+      "input": "קלט",
+      "output": "פלט",
+      "summary": "סיכום:",
+      "errorLabel": "שגיאה:",
+      "running": "פועל…",
+      "success": "הצלחה",
+      "failed": "נכשל",
+      "showAll": "הצג הכל ({count} תווים)",
+      "showLess": "הצג פחות",
+      "expand": "הרחב",
+      "collapse": "כווץ",
+      "showFullOutput": "הצג פלט מלא",
+      "hideFullOutput": "הסתר פלט מלא",
+      "attempt": "ניסיון {n}",
+      "attemptSuffix": "· ניסיון {n}",
+      "rows": "{n} שורות",
+      "duration": "משך: {ms} מילישניות",
+      "edit": "עריכה",
+      "generationStopped": "היצירה נעצרה",
+      "code": "קוד"
+    },
+    "createData": {
+      "creating": "יוצר נתונים",
+      "created": "הנתונים נוצרו",
+      "create": "יצירת נתונים",
+      "generatingCode": "מייצר קוד",
+      "generatedCode": "הקוד נוצר",
+      "editCode": "ערוך קוד",
+      "executing": "מריץ",
+      "executionFailed": "ההרצה נכשלה",
+      "executionSucceeded": "ההרצה הצליחה",
+      "retrying": "מנסה שוב · ניסיון {n}",
+      "visualizing": "ממחיש"
+    },
+    "createArtifact": {
+      "creating": "יוצר פריט",
+      "created": "הפריט נוצר",
+      "create": "יצירת פריט",
+      "validating": "מאמת",
+      "fixingErrors": "מתקן שגיאות",
+      "confirm": "אישור יצירת פריט"
+    },
+    "createDashboard": {
+      "creating": "יוצר דשבורד",
+      "created": "דשבורד נוצר",
+      "create": "יצירת דשבורד",
+      "failed": "יצירת הדשבורד נכשלה"
+    },
+    "editArtifact": {
+      "editing": "עורך דשבורד",
+      "edited": "דשבורד עודכן",
+      "failed": "עריכת הדשבורד נכשלה",
+      "edit": "עריכת דשבורד",
+      "confirm": "אישור עריכת דשבורד",
+      "dashboardEdited": "דשבורד עודכן"
+    },
+    "createWidget": {
+      "creatingDataModel": "יוצר מודל נתונים",
+      "validatingCode": "מאמת קוד",
+      "generatingCode": "מייצר קוד",
+      "validatingAttempt": "מאמת... (ניסיון {n})",
+      "runningAttempt": "מריץ... (ניסיון {n})"
+    },
+    "createInstruction": {
+      "rejected": "ההנחיה נדחתה",
+      "failed": "יצירת ההנחיה נכשלה",
+      "published": "פורסם",
+      "edit": "עריכה"
+    },
+    "editInstruction": {
+      "rejected": "העריכה נדחתה",
+      "failed": "עריכת ההנחיה נכשלה",
+      "textChanges": "שינויי טקסט",
+      "published": "פורסם",
+      "edit": "עריכה"
+    },
+    "inspectData": {
+      "inspecting": "בוחן",
+      "inspected": "נבחן",
+      "generatingCode": "מייצר קוד",
+      "generatedCode": "הקוד נוצר",
+      "executing": "מריץ",
+      "executed": "הורץ"
+    },
+    "mcp": {
+      "searching": "מחפש כלי MCP…",
+      "callingTool": "קורא ל-{name}…",
+      "writingCsv": "כותב CSV…",
+      "running": "מריץ כלי MCP…",
+      "foundTools": "נמצאו {count} כלים",
+      "csvSuccess": "{name} ← CSV",
+      "failed": "{name} (נכשל)"
+    },
+    "answerQuestion": {
+      "thought": "חשב על התשובה"
+    },
+    "readArtifact": {
+      "reading": "קורא פריט…",
+      "readingPast": "קריאת פריט",
+      "failed": "קריאת הפריט נכשלה",
+      "read": "קרא פריט"
+    },
+    "readExcelRange": {
+      "readFailed": "הקריאה נכשלה"
+    },
+    "writeOfficeJs": {
+      "ran": "הריץ קוד Excel",
+      "failed": "קוד ה-Excel נכשל"
+    },
+    "searchInstructions": {
+      "open": "פתח הנחיה"
+    },
+    "describeEntity": {
+      "dataProfile": "פרופיל נתונים"
+    },
+    "generic": {
+      "running": "פועל...",
+      "success": "הצלחה",
+      "failed": "נכשל"
+    }
   },
   "settings": {
     "title": "הגדרות",
@@ -599,7 +754,7 @@
     "tablesRemovedNote": "כל הטבלאות מחיבור זה יוסרו מסוכני הנתונים האלה."
   },
   "share": {
-    "shareDashboard": "שיתוף גלריה",
+    "shareDashboard": "שיתוף דשבורד",
     "share": "שיתוף",
     "shareDashboardDesc": "קבעו מי יכול לצפות בלוח המחוונים הזה.",
     "shareConversationDesc": "קבעו מי יכול לצפות בשיחה הזו ובהודעות שלה.",
@@ -625,7 +780,7 @@
   "publish": {
     "published": "פורסם",
     "publish": "פרסום",
-    "publishDashboard": "פרסום גלריה",
+    "publishDashboard": "פרסום דשבורד",
     "publishSubtitle": "הפיכת לוח המחוונים לזמין לכולם",
     "allowPublicAccess": "אפשרו גישה ציבורית ללוח המחוונים הזה",
     "url": "כתובת",
@@ -802,15 +957,15 @@
     "noMetadata": "אין מטא-דאטה"
   },
   "dashboards": {
-    "title": "לוחות בקרה",
-    "subtitle": "עיון וניהול של לוחות הבקרה והמצגות שלך",
-    "searchPlaceholder": "חיפוש לוחות בקרה…",
-    "myDashboards": "לוחות הבקרה שלי",
+    "title": "דשבורדים",
+    "subtitle": "עיון וניהול של דשבורדים והמצגות שלך",
+    "searchPlaceholder": "חיפוש דשבורדים…",
+    "myDashboards": "דשבורדים שלי",
     "sharedWithMe": "משותפים איתי",
-    "empty": "לא נמצאו לוחות בקרה",
-    "emptyDescription": "נסה לשנות את מונח החיפוש, או צור דוח עם לוח בקרה.",
-    "showingRange": "מוצגים {start} עד {end} מתוך {total} לוחות בקרה",
-    "fetchFailed": "טעינת לוחות הבקרה נכשלה"
+    "empty": "לא נמצאו דשבורדים",
+    "emptyDescription": "נסה לשנות את מונח החיפוש, או צור דשבורד חדש.",
+    "showingRange": "מוצגים {start} עד {end} מתוך {total} דשבורדים",
+    "fetchFailed": "טעינת הדשבורדים נכשלה"
   },
   "excel": {
     "greeting": "היי, {name} 👋",
@@ -825,14 +980,14 @@
   "toolbar": {
     "collapse": "כיווץ",
     "switchToArtifact": "מעבר לתצוגת ארטיפקט",
-    "dashboard": "לוח בקרה",
+    "dashboard": "דשבורד",
     "addComponent": "הוסף רכיב",
     "addText": "הוסף טקסט",
     "theme": "ערכת נושא",
     "rerun": "הרצת הדוח מחדש",
-    "openInNewTab": "פתח את לוח הבקרה בלשונית חדשה",
+    "openInNewTab": "פתח את הדשבורד בלשונית חדשה",
     "fullscreen": "מסך מלא",
-    "shareDashboard": "שיתוף לוח בקרה"
+    "shareDashboard": "שיתוף דשבורד"
   },
   "filter": {
     "addFilters": "הוסף מסננים",

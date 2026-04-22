@@ -49,7 +49,7 @@
                   @click="emit('openInstruction', item.id)"
                 >
                   <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-                  <span>Open instruction</span>
+                  <span>{{ $t('tools.searchInstructions.open') }}</span>
                 </button>
               </div>
             </Transition>

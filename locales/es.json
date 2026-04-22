@@ -261,6 +261,161 @@
     "emptyTipLabel": "Consejo:",
     "emptyTipBody": "¿No sabes qué preguntar? Pide al analista de IA que sugiera preguntas sobre un tema concreto."
   },
+  "reportView": {
+    "tabChat": "Chat",
+    "tabSummary": "Resumen",
+    "tabDashboard": "Panel",
+    "tabAgent": "Agente",
+    "tabAgents": "Agentes",
+    "sidebar": "Barra lateral",
+    "openSidebar": "Abrir barra lateral",
+    "closeSidebar": "Cerrar barra lateral",
+    "loadingReport": "Cargando informe…",
+    "reportNotFound": "Informe no encontrado",
+    "backToReports": "Volver a informes",
+    "loadingOlderMessages": "Cargando mensajes anteriores…",
+    "yourConversation": "Tu conversación",
+    "summaryOfOriginal": "Resumen del análisis original",
+    "scheduledRun": "Ejecución programada",
+    "generationStopped": "Generación detenida",
+    "generationStoppedBefore": "La generación se detuvo antes de completarse.",
+    "anErrorOccurred": "Se produjo un error",
+    "thoughtProcess": "Proceso de pensamiento",
+    "thoughtForSeconds": "Pensó durante {seconds}s",
+    "thinking": "Pensando",
+    "stopped": "Detenido",
+    "instructionsLoaded": "Instrucciones cargadas",
+    "instructionsCount": "{count} instrucciones",
+    "instructionsCountOne": "{count} instrucción",
+    "untitled": "Sin título",
+    "duration": "Duración: {ms}ms",
+    "widgetRef": "→ Widget: {id}",
+    "stepRef": "→ Paso: {id}",
+    "viewAgentTrace": "Ver traza del agente"
+  },
+  "tools": {
+    "common": {
+      "input": "Entrada",
+      "output": "Salida",
+      "summary": "Resumen:",
+      "errorLabel": "Error:",
+      "running": "Ejecutando…",
+      "success": "Éxito",
+      "failed": "Falló",
+      "showAll": "Mostrar todo ({count} caracteres)",
+      "showLess": "Mostrar menos",
+      "expand": "Expandir",
+      "collapse": "Contraer",
+      "showFullOutput": "Mostrar salida completa",
+      "hideFullOutput": "Ocultar salida completa",
+      "attempt": "Intento {n}",
+      "attemptSuffix": "· intento {n}",
+      "rows": "{n} filas",
+      "duration": "Duración: {ms}ms",
+      "edit": "Editar",
+      "generationStopped": "Generación detenida",
+      "code": "Código"
+    },
+    "createData": {
+      "creating": "Creando datos",
+      "created": "Datos creados",
+      "create": "Crear datos",
+      "generatingCode": "Generando código",
+      "generatedCode": "Código generado",
+      "editCode": "Editar código",
+      "executing": "Ejecutando",
+      "executionFailed": "Ejecución fallida",
+      "executionSucceeded": "Ejecución exitosa",
+      "retrying": "Reintentando · intento {n}",
+      "visualizing": "Visualizando"
+    },
+    "createArtifact": {
+      "creating": "Creando artefacto",
+      "created": "Artefacto creado",
+      "create": "Crear artefacto",
+      "validating": "Validando",
+      "fixingErrors": "Corrigiendo errores",
+      "confirm": "Confirmar creación de artefacto"
+    },
+    "createDashboard": {
+      "creating": "Creando panel",
+      "created": "Panel creado",
+      "create": "Crear panel",
+      "failed": "Error al crear el panel"
+    },
+    "editArtifact": {
+      "editing": "Editando panel",
+      "edited": "Panel editado",
+      "failed": "Error al editar el panel",
+      "edit": "Editar artefacto",
+      "confirm": "Confirmar edición de artefacto",
+      "dashboardEdited": "Panel editado"
+    },
+    "createWidget": {
+      "creatingDataModel": "Creando modelo de datos",
+      "validatingCode": "Validando código",
+      "generatingCode": "Generando código",
+      "validatingAttempt": "Validando... (Intento {n})",
+      "runningAttempt": "Ejecutando... (Intento {n})"
+    },
+    "createInstruction": {
+      "rejected": "Instrucción rechazada",
+      "failed": "Error al crear instrucción",
+      "published": "Publicado",
+      "edit": "Editar"
+    },
+    "editInstruction": {
+      "rejected": "Edición rechazada",
+      "failed": "Error al editar instrucción",
+      "textChanges": "Cambios de texto",
+      "published": "Publicado",
+      "edit": "Editar"
+    },
+    "inspectData": {
+      "inspecting": "Inspeccionando",
+      "inspected": "Inspeccionado",
+      "generatingCode": "Generando código",
+      "generatedCode": "Código generado",
+      "executing": "Ejecutando",
+      "executed": "Ejecutado"
+    },
+    "mcp": {
+      "searching": "Buscando herramientas MCP…",
+      "callingTool": "Llamando a {name}…",
+      "writingCsv": "Escribiendo CSV…",
+      "running": "Ejecutando herramienta MCP…",
+      "foundTools": "Se encontraron {count} herramientas",
+      "csvSuccess": "{name} → CSV",
+      "failed": "{name} (falló)"
+    },
+    "answerQuestion": {
+      "thought": "Pensó la respuesta"
+    },
+    "readArtifact": {
+      "reading": "Leyendo artefacto…",
+      "readingPast": "Leyendo artefacto",
+      "failed": "Error al leer artefacto",
+      "read": "Leer artefacto"
+    },
+    "readExcelRange": {
+      "readFailed": "Error de lectura"
+    },
+    "writeOfficeJs": {
+      "ran": "Código Excel ejecutado",
+      "failed": "Error en código Excel"
+    },
+    "searchInstructions": {
+      "open": "Abrir instrucción"
+    },
+    "describeEntity": {
+      "dataProfile": "Perfil de datos"
+    },
+    "generic": {
+      "running": "Ejecutando...",
+      "success": "Éxito",
+      "failed": "Falló"
+    }
+  },
   "settings": {
     "title": "Ajustes",
     "subtitle": "Gestione la identidad y las preferencias del espacio",

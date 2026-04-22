@@ -21,10 +21,10 @@
             </h1>
             <div class="ms-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" title="Share Conversation" />
-                <UTooltip :text="isSplitScreen ? 'Close Sidebar' : 'Open Sidebar'">
+                <UTooltip :text="isSplitScreen ? t('reportView.closeSidebar') : t('reportView.openSidebar')">
                     <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 items-center gap-1.5">
                         <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500" />
-                        <span v-if="!isSplitScreen" class="text-xs text-gray-500">Sidebar</span>
+                        <span v-if="!isSplitScreen" class="text-xs text-gray-500">{{ t('reportView.sidebar') }}</span>
                     </button>
                 </UTooltip>
             </div>
@@ -69,13 +69,14 @@ const props = defineProps<{
 
 defineEmits(['toggleSplitScreen', 'stop', 'update:mobileView'])
 
-const mobileTabs = [
-    { value: 'chat', label: 'Chat', icon: 'heroicons:chat-bubble-left-right' },
-    { value: 'summary', label: 'Summary', icon: 'heroicons:queue-list' },
-    { value: 'dashboard', label: 'Dashboard', icon: 'heroicons:chart-bar-square' },
-    { value: 'agent', label: 'Agent', icon: 'heroicons:cog-6-tooth' },
-]
+const mobileTabs = computed(() => [
+    { value: 'chat', label: t('reportView.tabChat'), icon: 'heroicons:chat-bubble-left-right' },
+    { value: 'summary', label: t('reportView.tabSummary'), icon: 'heroicons:queue-list' },
+    { value: 'dashboard', label: t('reportView.tabDashboard'), icon: 'heroicons:chart-bar-square' },
+    { value: 'agent', label: t('reportView.tabAgent'), icon: 'heroicons:cog-6-tooth' },
+])
 
+const { t } = useI18n()
 const route = useRoute()
 const report_id = route.params.id
 const reportTitleInput = ref<HTMLInputElement | null>(null)

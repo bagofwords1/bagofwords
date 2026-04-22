@@ -8,7 +8,7 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center flex-wrap gap-1">
           <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Inspecting</span>
+          <span>{{ $t('tools.inspectData.inspecting') }}</span>
           <template v-if="groupedTables.length">
             <template v-for="(group, gidx) in groupedTables" :key="gidx">
               <span v-if="gidx > 0" class="text-gray-300">|</span>
@@ -20,7 +20,7 @@
         </span>
         <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
           <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-gray-400" />
-          <span>Inspected</span>
+          <span>{{ $t('tools.inspectData.inspected') }}</span>
           <template v-if="groupedTables.length">
             <template v-for="(group, gidx) in groupedTables" :key="gidx">
               <span v-if="gidx > 0" class="text-gray-300">|</span>
@@ -44,14 +44,14 @@
         <div class="flex items-center text-[11px] text-gray-500">
           <Spinner v-if="isCodeGenerating" class="w-2.5 h-2.5 me-1 text-gray-400" />
           <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-2.5 h-2.5 me-1 text-green-500" />
-          <span v-if="isCodeGenerating" class="tool-shimmer">Generating Code</span>
-          <span v-else-if="codeGenDone" class="text-gray-500">Generated Code</span>
+          <span v-if="isCodeGenerating" class="tool-shimmer">{{ $t('tools.inspectData.generatingCode') }}</span>
+          <span v-else-if="codeGenDone" class="text-gray-500">{{ $t('tools.inspectData.generatedCode') }}</span>
         </div>
         <div v-if="showExecutingStep" class="flex items-center text-[11px] text-gray-500">
           <Spinner v-if="isExecuting" class="w-2.5 h-2.5 me-1 text-gray-400" />
           <Icon v-else-if="executionDone" name="heroicons-check" class="w-2.5 h-2.5 me-1 text-green-500" />
-          <span v-if="isExecuting" class="tool-shimmer">Executing</span>
-          <span v-else-if="executionDone" class="text-gray-500">Executed</span>
+          <span v-if="isExecuting" class="tool-shimmer">{{ $t('tools.inspectData.executing') }}</span>
+          <span v-else-if="executionDone" class="text-gray-500">{{ $t('tools.inspectData.executed') }}</span>
         </div>
         <!-- Execution error from stdout -->
         <div v-if="latestStdoutError" class="text-[10px] text-amber-600 bg-amber-50/50 rounded px-2 py-1 max-h-12 overflow-y-auto">
@@ -73,7 +73,7 @@
               :name="showCode ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
               class="w-2.5 h-2.5 me-1 text-gray-400"
             />
-            <span>Code</span>
+            <span>{{ $t('tools.common.code') }}</span>
           </div>
           <div v-if="showCode" class="max-h-24 overflow-auto rounded bg-gray-50 border border-gray-100">
             <pre class="text-[10px] leading-tight text-gray-600 p-2 m-0 whitespace-pre-wrap break-words">{{ code }}</pre>
@@ -90,7 +90,7 @@
               :name="showOutput ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
               class="w-2.5 h-2.5 me-1 text-gray-400"
             />
-            <span>Output</span>
+            <span>{{ $t('tools.common.output') }}</span>
           </div>
           <div v-if="showOutput" class="max-h-28 overflow-auto rounded bg-gray-50 border border-gray-100">
             <pre class="text-[10px] leading-tight text-gray-600 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ output }}</pre>

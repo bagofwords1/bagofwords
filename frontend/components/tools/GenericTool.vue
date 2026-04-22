@@ -21,7 +21,7 @@
       <div v-if="!isCollapsed" class="mt-2 ms-4 space-y-3">
         <!-- Input arguments - Full Display -->
         <div v-if="hasInput">
-          <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Input</div>
+          <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">{{ $t('tools.common.input') }}</div>
           <div class="border rounded-md overflow-hidden">
             <!-- Structured Input Fields -->
             <div class="divide-y divide-gray-100">
@@ -39,7 +39,7 @@
                           class="text-[10px] text-blue-600 hover:text-blue-800"
                           @click.stop="toggleFullInput(key)"
                         >
-                          {{ showFullInput[key] ? 'Show less' : `Show all (${value.length} chars)` }}
+                          {{ showFullInput[key] ? $t('tools.common.showLess') : $t('tools.common.showAll', { count: value.length }) }}
                         </button>
                       </div>
                       <div v-else class="text-xs text-gray-800 whitespace-pre-wrap break-words">{{ value }}</div>
@@ -68,7 +68,7 @@
                           class="text-[10px] text-blue-600 hover:text-blue-800"
                           @click.stop="toggleFullInput(key)"
                         >
-                          {{ showFullInput[key] ? 'Show less' : `Show all (${value.length} items)` }}
+                          {{ showFullInput[key] ? $t('tools.common.showLess') : $t('tools.common.showAll', { count: value.length }) }}
                         </button>
                       </div>
                     </template>
@@ -81,7 +81,7 @@
                           class="text-[10px] text-blue-600 hover:text-blue-800"
                           @click.stop="toggleFullInput(key)"
                         >
-                          {{ showFullInput[key] ? 'Collapse' : 'Expand' }}
+                          {{ showFullInput[key] ? $t('tools.common.collapse') : $t('tools.common.expand') }}
                         </button>
                       </div>
                     </template>
@@ -98,9 +98,9 @@
 
         <!-- Status -->
         <div class="text-xs">
-          <span v-if="status === 'running'" class="tool-shimmer">Running...</span>
-          <span v-else-if="status === 'success'" class="text-green-600 font-medium">✓ Success</span>
-          <span v-else-if="status === 'error'" class="text-red-600 font-medium">✗ {{ statusReason || 'Failed' }}</span>
+          <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.generic.running') }}</span>
+          <span v-else-if="status === 'success'" class="text-green-600 font-medium">✓ {{ $t('tools.common.success') }}</span>
+          <span v-else-if="status === 'error'" class="text-red-600 font-medium">✗ {{ statusReason || $t('tools.common.failed') }}</span>
           <span v-else>{{ status }}</span>
         </div>
 
@@ -112,7 +112,7 @@
 
         <!-- Output - Full Display -->
         <div v-if="hasOutput">
-          <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Output</div>
+          <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">{{ $t('tools.common.output') }}</div>
           <div class="border rounded-md overflow-hidden">
             <!-- Result Summary (if available) -->
             <div v-if="toolExecution.result_summary" class="px-3 py-2 bg-green-50 border-b border-green-100">
@@ -131,7 +131,7 @@
                   class="text-[10px] text-blue-600 hover:text-blue-800 mt-1"
                   @click.stop="showFullOutput = !showFullOutput"
                 >
-                  {{ showFullOutput ? 'Show less' : `Show all (${outputData.length} chars)` }}
+                  {{ showFullOutput ? $t('tools.common.showLess') : $t('tools.common.showAll', { count: outputData.length }) }}
                 </button>
               </template>
               <!-- Object output -->
@@ -139,10 +139,10 @@
                 <div class="space-y-2">
                   <!-- Show key fields prominently -->
                   <div v-if="outputData.summary" class="text-xs text-gray-800">
-                    <span class="text-gray-500">Summary:</span> {{ outputData.summary }}
+                    <span class="text-gray-500">{{ $t('tools.common.summary') }}</span> {{ outputData.summary }}
                   </div>
                   <div v-if="outputData.error" class="text-xs text-red-700 bg-red-50 rounded px-2 py-1">
-                    <span class="font-medium">Error:</span> 
+                    <span class="font-medium">{{ $t('tools.common.errorLabel') }}</span>
                     {{ typeof outputData.error === 'string' ? outputData.error : outputData.error.message || JSON.stringify(outputData.error) }}
                   </div>
                   
@@ -153,7 +153,7 @@
                       @click.stop="showFullOutput = !showFullOutput"
                     >
                       <Icon :name="showFullOutput ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
-                      {{ showFullOutput ? 'Hide full output' : 'Show full output' }}
+                      {{ showFullOutput ? $t('tools.common.hideFullOutput') : $t('tools.common.showFullOutput') }}
                     </button>
                     <Transition name="fade">
                       <pre v-if="showFullOutput" class="mt-1 text-[11px] text-gray-800 whitespace-pre-wrap break-words bg-gray-50 rounded px-2 py-1.5 overflow-x-auto max-h-64 overflow-y-auto">{{ JSON.stringify(outputData, null, 2) }}</pre>
