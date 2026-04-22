@@ -3,19 +3,19 @@
         <!-- Hide content when there's a fetch error (layout shows error state) -->
         <div v-if="fetchError" />
         <div v-else class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
-            <div v-if="loading" class="text-xs text-gray-500 text-center">Loading…</div>
+            <div v-if="loading" class="text-xs text-gray-500 text-center">{{ $t('common.loading') }}</div>
             <div v-else class="md:w-2/3 ">
                 <div class="flex items-center gap-2">
-                    <div class="text-xs uppercase tracking-wide text-gray-400">Description</div>
-                    <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">Edit</button>
+                    <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.description') }}</div>
+                    <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
                 </div>
                 <div class="mt-3 markdown-wrapper text-sm leading-relaxed text-start text-gray-600" v-if="computedDescription">
                     <MDC :value="computedDescription" class="markdown-content" />
                 </div>
                 <div class="mt-8">
                     <div class="flex items-center gap-2">
-                        <div class="text-xs uppercase tracking-wide text-gray-400">Conversation starters</div>
-                        <button v-if="useCan('update_data_source')" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">Edit</button>
+                        <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.conversationStarters') }}</div>
+                        <button v-if="useCan('update_data_source')" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
                     </div>
                     <div class="mt-3 flex flex-wrap gap-2">
                         <div v-for="starter in displayDataSource?.conversation_starters" :key="starter"
@@ -27,54 +27,54 @@
                 </div>
             </div>
         </div>
-        
+
         <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-2xl' }">
             <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">Edit conversation starters</div>
-                <div class="text-xs text-gray-600 mt-1">Titles are shown as chips. Prompts are inserted when clicked.</div>
+                <div class="text-sm font-medium text-gray-900">{{ $t('dataSource.editStartersTitle') }}</div>
+                <div class="text-xs text-gray-600 mt-1">{{ $t('dataSource.editStartersHint') }}</div>
 
                 <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
                     <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 p-2">
                         <div class="flex items-center justify-between mb-1">
-                            <span class="text-[10px] uppercase tracking-wide text-gray-400">Starter {{ idx + 1 }}</span>
-                            <button @click="removeStarter(idx)" class="text-[11px] text-gray-500 hover:text-red-600">Remove</button>
+                            <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('dataSource.starterN', { n: idx + 1 }) }}</span>
+                            <button @click="removeStarter(idx)" class="text-[11px] text-gray-500 hover:text-red-600">{{ $t('dataSource.remove') }}</button>
                         </div>
                         <div class="space-y-1">
                             <div>
-                                <label class="block text-[11px] text-gray-500 mb-0.5">Title</label>
-                                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" placeholder="e.g. Overview of Snowflake" />
+                                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
+                                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
                             </div>
                             <div>
-                                <label class="block text-[11px] text-gray-500 mb-0.5">Prompt</label>
-                                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" placeholder="Optional extra instructions"></textarea>
+                                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
+                                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
                             </div>
                         </div>
                     </div>
                     <div>
-                        <button @click="addStarter" class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-1 hover:bg-gray-50">Add starter</button>
+                        <button @click="addStarter" class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-1 hover:bg-gray-50">{{ $t('dataSource.addStarter') }}</button>
                     </div>
                 </div>
-                
+
                 <div class="flex justify-end gap-2 mt-4">
-                    <button @click="onCancelEdit" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
-                    <button @click="onSaveStarters" :disabled="savingStarters" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingStarters ? 'Saving…' : 'Save' }}</button>
+                    <button @click="onCancelEdit" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">{{ $t('dataSource.cancel') }}</button>
+                    <button @click="onSaveStarters" :disabled="savingStarters" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingStarters ? $t('dataSource.saving') : $t('dataSource.save') }}</button>
                 </div>
             </div>
         </UModal>
 
         <UModal v-model="showDescModal" :ui="{ width: 'sm:max-w-xl' }">
             <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">Edit description</div>
-                <div class="text-xs text-gray-600 mt-1">A short description helps users understand this data source.</div>
+                <div class="text-sm font-medium text-gray-900">{{ $t('dataSource.editDescTitle') }}</div>
+                <div class="text-xs text-gray-600 mt-1">{{ $t('dataSource.editDescHint') }}</div>
 
                 <div class="mt-3">
-                    <label class="block text-[11px] text-gray-500 mb-0.5">Description</label>
-                    <textarea v-model="descForm" rows="6" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" placeholder="Write a concise description…"></textarea>
+                    <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.description') }}</label>
+                    <textarea v-model="descForm" rows="6" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.descPlaceholder')"></textarea>
                 </div>
 
                 <div class="flex justify-end gap-2 mt-4">
-                    <button @click="onCancelDesc" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
-                    <button @click="onSaveDesc" :disabled="savingDesc" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingDesc ? 'Saving…' : 'Save' }}</button>
+                    <button @click="onCancelDesc" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">{{ $t('dataSource.cancel') }}</button>
+                    <button @click="onSaveDesc" :disabled="savingDesc" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingDesc ? $t('dataSource.saving') : $t('dataSource.save') }}</button>
                 </div>
             </div>
         </UModal>
@@ -89,6 +89,7 @@ import type { Ref } from 'vue'
 
 definePageMeta({ auth: true, layout: 'data' })
 
+const { t } = useI18n()
 const route = useRoute()
 const toast = useToast?.()
 
@@ -180,9 +181,9 @@ async function onSaveStarters() {
         // Refresh from layout
         await injectedFetchIntegration()
         showEditModal.value = false
-        toast?.add?.({ title: 'Saved', description: 'Conversation starters updated' })
+        toast?.add?.({ title: t('dataSource.savedTitle'), description: t('dataSource.startersUpdated') })
     } else {
-        toast?.add?.({ title: 'Error', description: String(error.value), color: 'red' })
+        toast?.add?.({ title: t('dataSource.errorTitle'), description: String(error.value), color: 'red' })
     }
 }
 
@@ -206,9 +207,9 @@ async function onSaveDesc() {
         // Refresh from layout
         await injectedFetchIntegration()
         showDescModal.value = false
-        toast?.add?.({ title: 'Saved', description: 'Description updated' })
+        toast?.add?.({ title: t('dataSource.savedTitle'), description: t('dataSource.descUpdated') })
     } else {
-        toast?.add?.({ title: 'Error', description: String(error.value), color: 'red' })
+        toast?.add?.({ title: t('dataSource.errorTitle'), description: String(error.value), color: 'red' })
     }
 }
 
@@ -230,7 +231,7 @@ function onCancelDesc() {
 	h2 { @apply text-2xl; }
 	h3 { @apply text-xl; }
 
-	ul, ol { @apply pl-6 mb-4; }
+	ul, ol { @apply ps-6 mb-4; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
 	li { @apply mb-1.5; }

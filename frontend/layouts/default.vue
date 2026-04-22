@@ -11,25 +11,25 @@
     </div>
   <aside id="separator-sidebar"
     :class="[
-      'fixed start-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full sm:translate-x-0 border-e border-gray-200/80',
+      'fixed start-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full rtl:translate-x-full sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80',
       isCollapsed ? 'w-14' : 'w-48',
       showGlobalOnboardingBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
     <button @click="toggleSidebar" :class="[
             'flex items-center gap-3 rounded-lg transition-all duration-200 bg-gray-50',
-            isCollapsed 
-              ? 'px-2 py-2 w-full text-center justify-center -mb-4 text-gray-700 hover:text-blue-500' 
+            isCollapsed
+              ? 'px-2 py-2 w-full text-center justify-center -mb-4 text-gray-700 hover:text-blue-500'
               : 'px-1 py-1 mt-3 ms-auto -mb-5 text-gray-400 hover:text-gray-600'
           ]">
-            <UTooltip v-if="isCollapsed" text="Expand sidebar" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" :text="$t('nav.expandSidebar')" :popper="{ placement: tooltipPlacement }">
               <span class="flex items-center justify-center w-4 h-4 text-sm">
-                <UIcon name="heroicons-chevron-right" />
+                <UIcon name="heroicons-chevron-right" class="rtl-flip" />
               </span>
             </UTooltip>
             <template v-else>
               <span class="flex items-center justify-center w-4 h-4 text-sm">
-                <UIcon name="heroicons-chevron-left" />
+                <UIcon name="heroicons-chevron-left" class="rtl-flip" />
               </span>
               <span v-if="showText" class="text-xs opacity-75"></span>
             </template>
@@ -57,7 +57,7 @@
                  'flex items-center px-3 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed',
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
-              <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: 'right' }">
+              <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
                 <span class="flex items-center justify-center w-[18px] h-[18px]">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
@@ -83,7 +83,7 @@
             isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
-            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
               <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" />
@@ -107,7 +107,7 @@
             item.external ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-100' : (isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'),
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
-            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
               <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <UIcon :name="item.icon" />
               </span>
@@ -128,7 +128,7 @@
               isCollapsed ? 'justify-center' : 'gap-2.5'
             ]"
           >
-            <UTooltip v-if="isCollapsed" text="MCP - Connect Claude/Cursor to your data" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" :text="$t('mcp.tooltipCollapsed')" :popper="{ placement: tooltipPlacement }">
               <span class="flex items-center justify-center w-[18px] h-[18px]">
                 <McpIcon class="w-[18px] h-[18px]" />
               </span>
@@ -147,7 +147,7 @@
                'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100',
                isCollapsed ? 'justify-center' : 'gap-2.5'
              ]">
-              <UTooltip v-if="isCollapsed" :text="`Logged in as ${currentUserName}`" :popper="{ placement: 'right' }">
+              <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
                 <div class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
                   {{ userInitial }}
                 </div>
@@ -162,7 +162,7 @@
           </UDropdown>
         </li>
         <li v-if="version">
-          <UTooltip text="Version" :popper="{ placement: 'right' }">
+          <UTooltip :text="$t('nav.version')" :popper="{ placement: tooltipPlacement }">
             <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900">
               {{ version }}
             </div>
@@ -305,6 +305,15 @@
   // Sidebar collapse state (shared via composable)
   const { isCollapsed, showText, toggle: toggleSidebar } = useSidebar()
   const creatingReport = ref(false)
+
+  // Collapsed sidebar tooltips need to pop INTO the viewport, not out of it.
+  // In LTR the sidebar is on the left so tooltips go right; in RTL the
+  // sidebar is on the right so tooltips go left.
+  const { locale: i18nLocale } = useI18n()
+  const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+  const tooltipPlacement = computed<'left' | 'right'>(() =>
+    RTL_LOCALES.has(i18nLocale.value) ? 'left' : 'right'
+  )
   
   const currentUserName = computed<string>(() => {
     const user = currentUser.value as any
