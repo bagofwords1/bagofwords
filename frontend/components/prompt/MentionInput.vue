@@ -3,6 +3,7 @@
     <div
       ref="inputRef"
       contenteditable="true"
+      dir="auto"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-start',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
@@ -1048,7 +1049,9 @@ function scrollSelectedIntoView() {
 <style>
 [contenteditable] {
   overflow-y: auto;
-  text-align: left !important;
+  /* `text-align: start` lets dir="auto" choose left vs right from the
+   * first strong-direction character — Latin stays LTR, Hebrew goes RTL. */
+  text-align: start;
   vertical-align: top;
   line-height: 1.5;
   white-space: pre-wrap;

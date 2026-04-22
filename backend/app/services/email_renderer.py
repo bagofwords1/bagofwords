@@ -12,6 +12,7 @@ an email is actually rendered.
 """
 from __future__ import annotations
 
+from html import escape as _html_escape
 from pathlib import Path
 from typing import Optional
 
@@ -96,12 +97,32 @@ def render_notification_email(
     sender_name: str,
     message: Optional[str] = None,
 ) -> tuple[str, str]:
-    """Render (subject, html) for a share/schedule dispatch email."""
+    """Render (subject, html) for a share/schedule dispatch email.
+
+    Subject, heading, and description strings accept `{report_title}` and
+    `{sender_name}` placeholders. Both values can contain arbitrary HTML
+    (report titles and user display names are free-text), and description
+    is rendered with `| safe` in the template to let the string itself
+    carry trusted `<strong>` markup. We therefore HTML-escape the
+    untrusted substitutions before `_format` so an injected `<script>` or
+    quote-break can't land inside the rendered HTML.
+
+    The subject line is a plain string in a header — no HTML context —
+    but we escape it anyway for consistency; unused HTML entities in a
+    subject are harmless (most clients decode them, the rest show a few
+    extra `&amp;` characters).
+    """
     t = strings_for(locale, notification_type)
     dir_ = direction_for(locale)
+    safe_title = _html_escape(report_title or "", quote=True)
+    safe_sender = _html_escape(sender_name or "", quote=True)
+    # Heading and subject templates render without `| safe`, so Jinja
+    # auto-escapes — pass raw values to avoid double-escaping.
+    # Description renders with `| safe` (so the intentional `<strong>`
+    # survives) — so its substitutions must be pre-escaped.
     subject = _format(t.get("subject", ""), report_title=report_title, sender_name=sender_name)
     heading = _format(t.get("heading", ""), report_title=report_title, sender_name=sender_name)
-    description = _format(t.get("description", ""), report_title=report_title, sender_name=sender_name)
+    description = _format(t.get("description", ""), report_title=safe_title, sender_name=safe_sender)
     message_html = _escape_user_text(message) if message else ""
 
     env = _get_env()
@@ -134,6 +155,9 @@ def render_scheduled_prompt_email(
     content without sanitization."""
     t = strings_for(locale, SCHEDULED_PROMPT)
     dir_ = direction_for(locale)
+    # scheduled_prompt.html.jinja2 renders {{ intro_sentence }} without
+    # `| safe`, so Jinja auto-escapes. Pass raw report_title; double-escaping
+    # here would produce `&amp;amp;` in the final email.
     subject = _format(t.get("subject", ""), report_title=report_title)
     intro = _format(t.get("intro", ""), report_title=report_title)
     stats = _stats_sentence(t, exec_summary)

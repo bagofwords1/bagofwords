@@ -123,7 +123,7 @@
                     @click="emit('viewDashboard')"
                 >
                     {{ $t('prompt.viewDashboard') }}
-                    <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
+                    <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5 rtl-flip" />
                 </button>
             </div>
             <div v-else></div>
@@ -373,7 +373,7 @@
                             :disabled="!canSubmit"
                             @click="submit"
                         >
-                            <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
+                            <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5 rtl-flip" />
                         </button>
                     </UTooltip>
                 </div>

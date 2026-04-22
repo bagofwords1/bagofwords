@@ -43,7 +43,7 @@ const allTabs = [
     { name: 'models', label: 'settings.llm', requiredPermission: "manage_llm" },
     { name: 'ai_settings', label: 'settings.aiSettings', requiredPermission: "manage_settings" },
     { name: 'general', label: 'settings.general', requiredPermission: "manage_settings" },
-    { name: "integrations", label: "settings.integrations", requiredPermission: "manage_settings" },
+    { name: "integrations", label: "settings.integrations.title", requiredPermission: "manage_settings" },
     { name: 'audit', label: 'settings.auditLogs', requiredPermission: "view_audit_logs" },
     { name: 'identity-provider', label: 'settings.identityProvider', requiredPermission: "manage_identity_providers" },
     { name: 'license', label: 'settings.license', requiredPermission: "manage_settings" },

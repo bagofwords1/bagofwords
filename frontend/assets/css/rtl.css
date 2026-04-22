@@ -50,3 +50,32 @@
 [dir="rtl"] .rtl-flip {
   transform: scaleX(-1);
 }
+
+/* 4. Bullet / numbered list indentation. Browser default is padding-left,
+ *    which leaves the bullets hanging on the LTR edge under RTL. Use the
+ *    logical property so the markers sit on the start edge regardless. */
+[dir="rtl"] ul,
+[dir="rtl"] ol {
+  padding-inline-start: 2rem;
+  padding-inline-end: 0;
+}
+
+/* 5. ProseMirror / markdown-rendered content: lists inside our prose
+ *    blocks already carry `list-inside` or custom padding. Keep their
+ *    marker on the start edge too. */
+[dir="rtl"] .prose ul,
+[dir="rtl"] .prose ol {
+  padding-inline-start: 1.5rem;
+  padding-inline-end: 0;
+}
+
+/* 6. Chevron-right and arrow-right heroicons embedded via <Icon>: we opt in
+ *    per-use with rtl-flip (rule 3). The automatic-flip list below covers
+ *    icons that are almost always directional in our codebase. Add new
+ *    directional icon classes here rather than per-component.
+ *    (Heroicons renders as an <svg> with no intrinsic dir handling.) */
+[dir="rtl"] .i-heroicons-arrow-long-right,
+[dir="rtl"] .i-heroicons-arrow-small-right,
+[dir="rtl"] .i-heroicons-arrow-up-right {
+  transform: scaleX(-1);
+}
