@@ -306,6 +306,14 @@
     "failedToUpdate": "Failed to update settings",
     "uploadFailed": "Upload failed",
     "removeFailed": "Remove failed",
+    "language": {
+      "title": "Language",
+      "description": "Sets the default language for the entire organization. Users will see the interface in this language and the AI will respond in it.",
+      "label": "Organization language",
+      "systemDefault": "Use system default ({locale})",
+      "saved": "Language updated",
+      "saveError": "Could not update language"
+    },
     "membersTabs": {
       "members": "Members",
       "roles": "Roles",

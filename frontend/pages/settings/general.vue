@@ -51,6 +51,18 @@
                 <UToggle v-model="form.bow_credit" />
             </div>
 
+            <!-- Organization language -->
+            <div class="md:w-2/3 space-y-2">
+                <div class="text-sm font-medium text-gray-800">{{ $t('settings.language.label') }}</div>
+                <USelect
+                    v-model="form.locale"
+                    :options="localeOptions"
+                    option-attribute="label"
+                    value-attribute="value"
+                />
+                <div class="text-xs text-gray-500">{{ $t('settings.language.description') }}</div>
+            </div>
+
             <div class="md:w-2/3 pt-2">
                 <UButton color="blue" @click="saveAll" :loading="saving">{{ $t('common.saveChanges') }}</UButton>
             </div>
@@ -59,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
 
 const { t } = useI18n()
@@ -75,29 +87,74 @@ interface SettingsResponse {
     config?: { general?: GeneralConfig }
 }
 
+interface LocaleResponse {
+    org_locale: string | null
+    default_locale: string
+    enabled_locales: string[]
+    effective_locale: string
+}
+
+// Language labels rendered in their own language so a user can find
+// their locale even while the UI is still in another language.
+const LOCALE_NATIVE_LABELS: Record<string, string> = {
+    en: 'English',
+    es: 'Español',
+    he: 'עברית',
+}
+
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
 const loading = ref(true)
 const error = ref('')
 const general = ref<GeneralConfig>({ ai_analyst_name: 'AI Analyst', bow_credit: true })
-const form = ref<{ organization_name?: string } & GeneralConfig>({ ai_analyst_name: 'AI Analyst', bow_credit: true })
+const form = ref<{ organization_name?: string; locale: string } & GeneralConfig>({
+    ai_analyst_name: 'AI Analyst',
+    bow_credit: true,
+    locale: '',
+})
+// Empty string represents "no org override" (system default). Tracking the
+// initial value lets saveAll skip the PUT when the user hasn't touched it.
+const initialLocale = ref<string>('')
+const enabledLocales = ref<string[]>([])
+const systemDefaultLocale = ref<string>('en')
 const pendingIconFile = ref<File | null>(null)
 const removeIcon = ref(false)
 const saving = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const toast = useToast()
 
+const localeOptions = computed(() => {
+    const defaultLabel = LOCALE_NATIVE_LABELS[systemDefaultLocale.value] || systemDefaultLocale.value
+    const opts = [
+        { label: t('settings.language.systemDefault', { locale: defaultLabel }), value: '' },
+    ]
+    for (const code of enabledLocales.value) {
+        opts.push({ label: LOCALE_NATIVE_LABELS[code] || code, value: code })
+    }
+    return opts
+})
+
 const fetchSettings = async () => {
     loading.value = true
     error.value = ''
     try {
-        const response = await useMyFetch('/api/organization/settings')
-        if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToFetch'))
-        const cfg = (response.data.value as SettingsResponse)?.config
+        const [settingsResp, localeResp] = await Promise.all([
+            useMyFetch('/api/organization/settings'),
+            useMyFetch('/api/organization/locale'),
+        ])
+        if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.message || t('settings.failedToFetch'))
+        const cfg = (settingsResp.data.value as SettingsResponse)?.config
         general.value = cfg?.general || { ai_analyst_name: 'AI Analyst', bow_credit: true }
+
+        const loc = localeResp.data.value as LocaleResponse | null
+        const orgLocale = loc?.org_locale ?? ''
+        enabledLocales.value = loc?.enabled_locales ?? ['en']
+        systemDefaultLocale.value = loc?.default_locale ?? 'en'
+        initialLocale.value = orgLocale
+
         // Fetch current organization name from session if available
         const { organization } = useOrganization()
-        form.value = { organization_name: organization.value?.name, ...general.value }
+        form.value = { organization_name: organization.value?.name, locale: orgLocale, ...general.value }
     } catch (e: any) {
         error.value = e.message || t('settings.failedToLoad')
         toast.add({ title: t('common.error'), description: error.value, color: 'red' })
@@ -136,6 +193,15 @@ const saveAll = async () => {
         if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToUpdate'))
 
         general.value = ((response.data.value as SettingsResponse)?.config?.general) || form.value
+
+        // 4) Save org locale override (empty string clears it to system default).
+        if (form.value.locale !== initialLocale.value) {
+            const localeBody = JSON.stringify({ locale: form.value.locale || null })
+            const localeResp = await useMyFetch('/api/organization/locale', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: localeBody })
+            if (localeResp.status.value !== 'success') throw new Error(localeResp.error?.value?.data?.detail || t('settings.language.saveError'))
+            initialLocale.value = form.value.locale
+        }
+
         toast.add({ title: t('settings.saved'), color: 'green' })
         // reload to reflect icon in default layout
         window.location.reload()
