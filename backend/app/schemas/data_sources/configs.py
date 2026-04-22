@@ -751,27 +751,11 @@ class QlikSenseConfig(BaseModel):
         description="Verify TLS certificate when calling Qlik REST and WebSocket endpoints.",
         json_schema_extra={"ui:type": "boolean"},
     )
-    timeout_sec: int = Field(
-        30,
-        ge=1,
-        le=300,
-        title="Timeout (sec)",
-        description="HTTP timeout for REST calls.",
-        json_schema_extra={"ui:type": "number"},
-    )
     space_filter: Optional[str] = Field(
         None,
         title="Space Filter",
         description="Optional comma-separated list of space IDs or names. If empty, all visible spaces are crawled.",
         json_schema_extra={"ui:type": "string"},
-    )
-    max_concurrency: int = Field(
-        10,
-        ge=1,
-        le=64,
-        title="Max Concurrency",
-        description="Maximum parallel REST/WebSocket calls during schema crawl.",
-        json_schema_extra={"ui:type": "number"},
     )
 
 

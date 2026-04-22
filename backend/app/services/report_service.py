@@ -1788,6 +1788,7 @@ class ReportService:
                 is_edit=is_edit or (instructions[existing_idx].is_edit if existing_idx is not None else False),
                 line_count=len([l for l in text.split("\n") if l.strip()]) if text else (instructions[existing_idx].line_count if existing_idx is not None else 0),
                 message_id=str(completion_id),
+                build_id=rj.get("build_id"),
             )
 
             if existing_idx is not None:
@@ -1796,7 +1797,33 @@ class ReportService:
                 seen_instr_ids[instr_id] = len(instructions)
                 instructions.append(item)
 
+        # 6) Find the most recent draft / pending build referenced by these
+        # training tool calls, so the pill can offer approve/discard.
+        from app.models.instruction_build import InstructionBuild
+        from app.schemas.report_summary_schema import PendingTrainingBuildSchema
+        pending_build = None
+        build_ids = [i.build_id for i in instructions if i.build_id]
+        if build_ids:
+            build_res = await db.execute(
+                select(InstructionBuild)
+                .where(
+                    InstructionBuild.id.in_(list(set(build_ids))),
+                    InstructionBuild.status.in_(["draft", "pending_approval"]),
+                    InstructionBuild.deleted_at == None,
+                )
+                .order_by(InstructionBuild.created_at.desc())
+                .limit(1)
+            )
+            build_obj = build_res.scalar_one_or_none()
+            if build_obj:
+                pending_build = PendingTrainingBuildSchema(
+                    id=str(build_obj.id),
+                    status=build_obj.status,
+                    total_instructions=build_obj.total_instructions or 0,
+                )
+
         return {
             "queries": queries,
             "instructions": instructions,
+            "pending_training_build": pending_build.model_dump() if pending_build else None,
         }

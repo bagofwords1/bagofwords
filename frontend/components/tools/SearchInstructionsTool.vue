@@ -5,12 +5,12 @@
       <div class="mb-2 flex items-center text-xs text-gray-500">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          Searching instructions for {{ queryLabel }}…
+          {{ $t('tools.searchInstructions.searching', { query: queryLabel }) }}
         </span>
         <span v-else class="text-gray-700 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span class="align-middle">Searched instructions for {{ queryLabel }}</span>
-          <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total }} match{{ total === 1 ? '' : 'es' }}</span>
+          <span class="align-middle">{{ $t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
+          <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? $t('tools.searchInstructions.matchSingular', { count: total }) : $t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
         </span>
       </div>
     </Transition>
@@ -60,13 +60,16 @@
 
     <!-- Empty state (after search completes with no results) -->
     <div v-if="status !== 'running' && !instructions.length" class="text-xs text-gray-400 ms-1">
-      No matching instructions found.
+      {{ $t('tools.searchInstructions.empty') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -91,9 +94,9 @@ const queryLabel = computed<string>(() => {
   const rj = props.toolExecution?.result_json || {}
   let q: any = rj.search_query
   if (q == null) q = (props.toolExecution as any)?.arguments_json?.query
-  if (Array.isArray(q)) return q.filter(Boolean).map((s: string) => `"${s}"`).join(', ') || 'instructions'
+  if (Array.isArray(q)) return q.filter(Boolean).map((s: string) => `"${s}"`).join(', ') || t('tools.searchInstructions.fallbackQuery')
   if (typeof q === 'string' && q) return `"${q}"`
-  return 'instructions'
+  return t('tools.searchInstructions.fallbackQuery')
 })
 
 const instructions = computed<any[]>(() => {
@@ -121,9 +124,9 @@ function isExpanded(index: number): boolean {
 function displayTitle(item: any): string {
   if (item?.title) return item.title
   const text = String(item?.text || '').trim()
-  if (!text) return 'Untitled'
+  if (!text) return t('tools.searchInstructions.untitled')
   const firstLine = text.split('\n')[0].replace(/^#+\s*/, '').trim()
-  return firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine || 'Untitled'
+  return firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine || t('tools.searchInstructions.untitled')
 }
 </script>
 

@@ -62,7 +62,7 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <span v-if="isLoading" class="text-xs text-gray-400">Loading...</span>
+        <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
         <!-- Refresh Dashboard (rerun + refresh) -->
         <UTooltip text="Refresh Data">
@@ -117,7 +117,7 @@
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white">
         <div class="flex flex-col items-center gap-3">
           <Spinner class="w-6 h-6 text-gray-400" />
-          <span class="text-sm text-gray-400">Loading...</span>
+          <span class="text-sm text-gray-400">{{ t('artifactFrame.loading') }}</span>
         </div>
       </div>
 
@@ -192,7 +192,7 @@
       <!-- Polish Mode Button -->
       <div
         v-if="hasArtifact && !isLoading && !isPendingArtifact && !iframeError"
-        class="absolute bottom-4 start-4 z-20"
+        class="absolute bottom-4 left-4 z-20"
       >
         <button
           @click="togglePolishMode"
@@ -204,7 +204,7 @@
           ]"
         >
           <Icon name="heroicons:paint-brush" class="w-4 h-4" />
-          <span class="text-xs font-medium">Polish Dashboard</span>
+          <span class="text-xs font-medium">{{ t('toolbar.polishDashboard') }}</span>
         </button>
       </div>
 
@@ -287,6 +287,7 @@ import ShareModal from '../ShareModal.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
 
+const { t } = useI18n();
 const toast = useToast();
 const config = useRuntimeConfig();
 const { token } = useAuth();
@@ -1168,7 +1169,7 @@ const iframeSrcdoc = computed(() => {
   </style>
 </head>
 <body>
-  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">Loading artifact...</div></div>
+  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">${t('artifactFrame.loadingArtifact')}</div></div>
 
   <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
   <script src="/libs/artifact-globals.js">${SC}

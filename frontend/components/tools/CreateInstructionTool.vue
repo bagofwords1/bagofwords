@@ -8,8 +8,8 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400" />
-          <span v-if="instructionText" class="truncate max-w-[300px]">Creating: {{ truncatedText }}</span>
-          <span v-else>Creating instruction...</span>
+          <span v-if="instructionText" class="truncate max-w-[300px]">{{ $t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</span>
+          <span v-else>{{ $t('tools.createInstruction.creating') }}</span>
           <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
           <Icon
             v-if="instructionText"
@@ -65,7 +65,7 @@
           <div class="flex flex-wrap items-center gap-2 text-[10px] mb-2">
             <!-- Confidence -->
             <div v-if="confidence" class="flex items-center gap-1">
-              <span class="text-gray-500">Confidence:</span>
+              <span class="text-gray-500">{{ $t('tools.createInstruction.confidence') }}</span>
               <span
                 class="font-medium"
                 :class="confidence >= 0.9 ? 'text-green-600' : confidence >= 0.7 ? 'text-yellow-600' : 'text-red-600'"
@@ -76,7 +76,7 @@
 
             <!-- Load mode -->
             <div v-if="loadMode" class="flex items-center gap-1">
-              <span class="text-gray-500">Load:</span>
+              <span class="text-gray-500">{{ $t('tools.createInstruction.load') }}</span>
               <span class="px-1.5 py-0.5 rounded text-[9px] font-medium"
                 :class="loadMode === 'always' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'"
               >
@@ -87,66 +87,32 @@
             <!-- Tables scoped -->
             <div v-if="tableCount > 0" class="flex items-center gap-1">
               <Icon name="heroicons-table-cells" class="w-3 h-3 text-gray-400" />
-              <span class="text-gray-600">{{ tableCount }} table{{ tableCount > 1 ? 's' : '' }}</span>
+              <span class="text-gray-600">{{ tableCount === 1 ? $t('tools.createInstruction.tableSingular', { n: tableCount }) : $t('tools.createInstruction.tablePlural', { n: tableCount }) }}</span>
             </div>
           </div>
 
           <!-- Evidence (if available) -->
           <div v-if="evidence" class="text-[10px] text-gray-500 italic mb-2">
-            <span class="font-medium">Evidence:</span> {{ evidence }}
+            <span class="font-medium">{{ $t('tools.createInstruction.evidence') }}</span> {{ evidence }}
           </div>
 
-          <!-- Action buttons / Status display -->
-          <div v-if="isSuccess && instructionId" class="flex justify-start gap-2 pt-2 border-t border-gray-200">
-            <!-- Show status for published instructions -->
-            <div v-if="currentGlobalStatus === 'approved'" class="flex items-center">
-              <Icon name="heroicons:check-circle" class="w-3 h-3 text-gray-500 me-1" />
-              <span class="text-[10px] font-medium text-gray-500">{{ $t('tools.createInstruction.published') }}</span>
-            </div>
-
-            <!-- Show action buttons for draft/suggested instructions -->
-            <template v-else>
-              <button
-                v-if="canCreateInstructions"
-                @click.stop="handlePublish"
-                class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-                :disabled="isPublishing"
-              >
-                <Spinner
-                  v-if="isPublishing"
-                  class="w-3 h-3 text-green-600 me-1"
-                />
-                <Icon
-                  v-else
-                  name="heroicons:check"
-                  class="w-3 h-3 text-green-600 me-1"
-                />
-                <span>{{ isPublishing ? 'Publishing...' : 'Publish' }}</span>
-              </button>
-              <button
-                @click.stop="handleEdit"
-                class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-              >
-                <Icon name="heroicons:pencil" class="w-3 h-3 text-blue-600 me-1" />
-                <span>{{ $t('tools.common.edit') }}</span>
-              </button>
-              <button
-                @click.stop="handleDelete"
-                class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-                :disabled="isDeleting"
-              >
-                <Spinner
-                  v-if="isDeleting"
-                  class="w-3 h-3 text-red-600 me-1"
-                />
-                <Icon
-                  v-else
-                  name="heroicons:trash"
-                  class="w-3 h-3 text-red-600 me-1"
-                />
-                <span>{{ isDeleting ? 'Deleting...' : 'Delete' }}</span>
-              </button>
-            </template>
+          <!-- Status display — staged in draft build; approved via session pill -->
+          <div v-if="isSuccess && instructionId" class="flex items-center gap-1 pt-2 border-t border-gray-200">
+            <Icon
+              v-if="currentGlobalStatus === 'approved'"
+              name="heroicons:check-circle"
+              class="w-3 h-3 text-gray-500"
+            />
+            <Icon
+              v-else
+              name="heroicons:clock"
+              class="w-3 h-3 text-gray-400"
+            />
+            <span class="text-[10px] font-medium text-gray-500">
+              {{ currentGlobalStatus === 'approved'
+                ? $t('tools.createInstruction.published')
+                : $t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
+            </span>
           </div>
 
           <!-- Error message -->
@@ -169,8 +135,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
+
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -224,13 +193,13 @@ const instructionText = computed(() => {
 
 const truncatedText = computed(() => {
   const text = instructionText.value
-  if (!text) return 'Created instruction'
+  if (!text) return t('tools.createInstruction.createdFallback')
   // Get first line and truncate if needed
   const firstLine = text.split('\n')[0].replace(/^#+\s*/, '').trim()
   if (firstLine.length > 60) {
     return firstLine.substring(0, 57) + '...'
   }
-  return firstLine || 'Created instruction'
+  return firstLine || t('tools.createInstruction.createdFallback')
 })
 
 const category = computed(() => {
@@ -286,7 +255,7 @@ const rejectedReason = computed(() => {
 const errorMessage = computed(() => {
   if (status.value === 'error') {
     const rj = props.toolExecution?.result_json || {}
-    return rj.error || rj.message || 'An error occurred'
+    return rj.error || rj.message || t('tools.createInstruction.errorOccurred')
   }
   if (isRejected.value) {
     const rj = props.toolExecution?.result_json || {}
@@ -342,14 +311,14 @@ async function handlePublish() {
     })
     if (!error.value) {
       localGlobalStatus.value = 'approved'
-      toast.add({ title: 'Success', description: 'Instruction published', color: 'green' })
+      toast.add({ title: t('tools.createInstruction.toastSuccess'), description: t('tools.createInstruction.toastPublished'), color: 'green' })
       emit('instruction-updated')
     } else {
       throw new Error('Failed to publish')
     }
   } catch (e) {
     console.error('Failed to publish instruction:', e)
-    toast.add({ title: 'Error', description: 'Failed to publish instruction', color: 'red' })
+    toast.add({ title: t('tools.createInstruction.toastError'), description: t('tools.createInstruction.toastFailedPublish'), color: 'red' })
   } finally {
     isPublishing.value = false
   }
@@ -357,7 +326,7 @@ async function handlePublish() {
 
 async function handleDelete() {
   if (!instructionId.value) return
-  if (!confirm('Delete this instruction?')) return
+  if (!confirm(t('tools.createInstruction.confirmDelete'))) return
 
   isDeleting.value = true
   try {
@@ -365,14 +334,14 @@ async function handleDelete() {
     if (!error.value) {
       // Mark as deleted by setting a special status
       localGlobalStatus.value = 'deleted'
-      toast.add({ title: 'Deleted', description: 'Instruction deleted', color: 'orange' })
+      toast.add({ title: t('tools.createInstruction.toastDeleted'), description: t('tools.createInstruction.toastDeletedDesc'), color: 'orange' })
       emit('instruction-updated')
     } else {
       throw new Error('Failed to delete')
     }
   } catch (e) {
     console.error('Failed to delete instruction:', e)
-    toast.add({ title: 'Error', description: 'Failed to delete instruction', color: 'red' })
+    toast.add({ title: t('tools.createInstruction.toastError'), description: t('tools.createInstruction.toastFailedDelete'), color: 'red' })
   } finally {
     isDeleting.value = false
   }
@@ -384,7 +353,7 @@ function handleInstructionSaved(data: any) {
     localGlobalStatus.value = updated.global_status
   }
   showInstructionModal.value = false
-  toast.add({ title: 'Success', description: 'Instruction saved', color: 'green' })
+  toast.add({ title: t('tools.createInstruction.toastSuccess'), description: t('tools.createInstruction.toastSaved'), color: 'green' })
   emit('instruction-updated')
 }
 </script>

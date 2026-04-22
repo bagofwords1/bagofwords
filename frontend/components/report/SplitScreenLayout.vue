@@ -28,10 +28,12 @@
                 <div class="h-full w-full bg-[#f8f8f7] rounded-xl border border-black/[0.08] overflow-hidden">
                     <slot name="right" />
                 </div>
-                <!-- Resizer overlaid on rounded panel left border -->
-                <div class="absolute left-[5px] top-0 bottom-0 w-[8px] cursor-col-resize z-30 group"
+                <!-- Resizer overlaid on rounded panel's start edge (between
+                     chat pane and dashboard). Use logical `start-*` so it
+                     flips to the correct visual side under RTL. -->
+                <div class="absolute start-[5px] top-0 bottom-0 w-[8px] cursor-col-resize z-30 group"
                      @mousedown="$emit('startResize', $event)">
-                    <div class="absolute inset-y-0 left-[3px] w-[3px] rounded-full opacity-0 group-hover:opacity-100 bg-blue-400 transition-opacity"></div>
+                    <div class="absolute inset-y-0 start-[3px] w-[3px] rounded-full opacity-0 group-hover:opacity-100 bg-blue-400 transition-opacity"></div>
                 </div>
             </div>
             <!-- Overlay to prevent iframe from capturing mouse events during resize -->

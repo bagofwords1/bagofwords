@@ -35,6 +35,7 @@ from app.services.artifact_libs import get_inline_scripts
 from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
 from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+from app.ai.prompt_language import build_language_directive
 
 
 class CreateArtifactTool(Tool):
@@ -350,6 +351,7 @@ class CreateArtifactTool(Tool):
             allow_llm_see_data=prompt_context["allow_llm_see_data"],
             messages_context=prompt_context.get("messages_context", ""),
             image_count=prompt_context.get("image_count", 0),
+            organization_settings=prompt_context.get("organization_settings"),
         )
 
         # Build screenshot context if available
@@ -772,6 +774,7 @@ Fix the errors while keeping the same design and functionality. Output the corre
             "allow_llm_see_data": allow_llm_see_data,
             "messages_context": messages_context,
             "image_count": len(completion_images),
+            "organization_settings": organization_settings,
         }
 
         prompt = self._build_prompt(
@@ -784,6 +787,7 @@ Fix the errors while keeping the same design and functionality. Output the corre
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
             image_count=len(completion_images),
+            organization_settings=organization_settings,
         )
 
         # Stream from LLM
@@ -1073,16 +1077,19 @@ Fix the errors while keeping the same design and functionality. Output the corre
         allow_llm_see_data: bool,
         messages_context: str = "",
         image_count: int = 0,
+        organization_settings: Any = None,
     ) -> str:
         """Build the prompt for generating slides using python-pptx code."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        language_directive = build_language_directive(organization_settings)
 
         # Build attached images context
         images_context = ""
         if image_count > 0:
             images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
-        return f"""Role: presentation author using python-pptx.
+        return f"""Role: presentation author using python-pptx.{language_directive}
 Generate python-pptx code to create a polished slide deck.
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1410,9 +1417,12 @@ Create a beautiful, varied presentation following these design principles. Each 
         allow_llm_see_data: bool,
         messages_context: str = "",
         image_count: int = 0,
+        organization_settings: Any = None,
     ) -> str:
         """Build the prompt for generating page/dashboard (React + ECharts)."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        language_directive = build_language_directive(organization_settings)
 
         # Build attached images context
         images_context = ""
@@ -1434,6 +1444,7 @@ Design request (primary specification — takes precedence when it conflicts wit
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
+{language_directive}
 
 If the user specified a theme, layout, colors, or style above — follow that exactly.
 If the user did not specify styling, use the design guidance at the end of this prompt.
@@ -1642,6 +1653,7 @@ Now create the dashboard:"""
         allow_llm_see_data: bool,
         messages_context: str = "",
         image_count: int = 0,
+        organization_settings: Any = None,
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -1654,6 +1666,7 @@ Now create the dashboard:"""
                 allow_llm_see_data=allow_llm_see_data,
                 messages_context=messages_context,
                 image_count=image_count,
+                organization_settings=organization_settings,
             )
         return self._build_page_prompt(
             user_prompt=user_prompt,
@@ -1664,6 +1677,7 @@ Now create the dashboard:"""
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
             image_count=image_count,
+            organization_settings=organization_settings,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

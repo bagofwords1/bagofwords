@@ -693,5 +693,11 @@ function setInstructionLoading(value: boolean) {
   instructionLoading.value = value
 }
 
-defineExpose({ openInstruction, setInstructionLoading })
+function refreshInstructions() {
+  if (!selectedAgentId.value) return
+  delete instructionsCache.value[selectedAgentId.value]
+  fetchTabData(selectedAgentId.value, 'instructions')
+}
+
+defineExpose({ openInstruction, setInstructionLoading, refreshInstructions })
 </script>

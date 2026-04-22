@@ -74,9 +74,8 @@ export function useMarkdownAutoDir() {
       m.addedNodes.forEach((n) => {
         if (n.nodeType !== 1) return
         const el = n as Element
-        if (!el.closest?.('.markdown-wrapper') && !el.querySelector?.('.markdown-wrapper')) return
-        if (el.matches?.('ol, ul, li')) schedule(el)
-        el.querySelectorAll?.('ol, ul, li').forEach((child) => schedule(child))
+        if (el.matches?.('ol, ul, li') && el.closest?.('.markdown-wrapper')) schedule(el)
+        el.querySelectorAll?.('.markdown-wrapper ol, .markdown-wrapper ul, .markdown-wrapper li').forEach((child) => schedule(child))
         // And re-scan any list ancestor whose text just grew.
         const parentList = el.parentElement?.closest?.('ol, ul, li')
         if (parentList && parentList.closest('.markdown-wrapper')) schedule(parentList)

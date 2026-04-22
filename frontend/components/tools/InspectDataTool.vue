@@ -16,7 +16,7 @@
               <span>{{ group.names.join(', ') }}</span>
             </template>
           </template>
-          <span v-else>data…</span>
+          <span v-else>{{ $t('tools.inspectData.dataRunning') }}</span>
         </span>
         <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
           <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-gray-400" />
@@ -28,7 +28,7 @@
               <span>{{ group.names.join(', ') }}</span>
             </template>
           </template>
-          <span v-else>data</span>
+          <span v-else>{{ $t('tools.inspectData.data') }}</span>
           <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"

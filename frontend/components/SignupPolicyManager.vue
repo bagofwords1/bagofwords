@@ -1,44 +1,41 @@
 <template>
     <div class="mt-4 max-w-2xl">
         <div>
-            <h3 class="text-base font-medium text-gray-900">Domain-based signup</h3>
+            <h3 class="text-base font-medium text-gray-900">{{ $t('signupPolicy.title') }}</h3>
             <p class="text-sm text-gray-500 mt-1">
-                Auto-invite anyone signing up with an email at one of these domains. Matching users
-                are attached to this organization with the selected role — no manual invite needed.
+                {{ $t('signupPolicy.description') }}
             </p>
 
             <div
                 v-if="globalUninvitedDisabled && form.enabled"
                 class="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
             >
-                <b>Heads up:</b> the server-wide
-                <code class="font-mono">allow_uninvited_signups</code> flag is <b>off</b>.
-                Domain matches still work as implicit invites — new users whose email matches a domain
-                here will be allowed through.
+                <b>{{ $t('signupPolicy.headsUpPrefix') }}</b> {{ $t('signupPolicy.headsUpMiddle') }}
+                <code class="font-mono">allow_uninvited_signups</code> {{ $t('signupPolicy.headsUpFlagOff') }} <b>{{ $t('signupPolicy.headsUpOff') }}</b>{{ $t('signupPolicy.headsUpSuffix') }}
             </div>
 
             <!-- Enabled toggle -->
             <div class="mt-5 flex items-center justify-between">
                 <div>
-                    <div class="text-sm font-medium text-gray-900">Enable</div>
-                    <div class="text-xs text-gray-500">When off, the allowed domains are ignored.</div>
+                    <div class="text-sm font-medium text-gray-900">{{ $t('signupPolicy.enable') }}</div>
+                    <div class="text-xs text-gray-500">{{ $t('signupPolicy.enableHint') }}</div>
                 </div>
                 <UToggle v-model="form.enabled" />
             </div>
 
             <!-- Domains -->
             <div class="mt-5">
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">Allowed domains</label>
+                <label class="block text-xs font-medium text-gray-600 mb-1.5">{{ $t('signupPolicy.allowedDomains') }}</label>
                 <div class="flex items-center gap-2">
                     <input
                         v-model="domainInput"
                         type="text"
-                        placeholder="acme.com"
+                        :placeholder="$t('signupPolicy.domainPlaceholder')"
                         class="flex-1 text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         @keydown.enter.prevent="addDomain"
                         @keydown.,.prevent="addDomain"
                     />
-                    <UButton size="xs" variant="solid" color="blue" @click="addDomain">Add</UButton>
+                    <UButton size="xs" variant="solid" color="blue" @click="addDomain">{{ $t('signupPolicy.add') }}</UButton>
                 </div>
                 <div v-if="form.allowed_domains.length" class="flex flex-wrap gap-2 mt-3">
                     <span
@@ -50,20 +47,20 @@
                         <button
                             class="text-gray-500 hover:text-gray-700"
                             @click="removeDomain(d)"
-                            aria-label="Remove domain"
+                            :aria-label="$t('signupPolicy.removeDomainAria')"
                         >
                             <Icon name="heroicons:x-mark" class="h-3.5 w-3.5" />
                         </button>
                     </span>
                 </div>
                 <p class="mt-2 text-xs text-gray-500">
-                    Exact match only. No wildcards. Pair with email verification to avoid spoofing.
+                    {{ $t('signupPolicy.domainsHint') }}
                 </p>
             </div>
 
             <!-- Role -->
             <div class="mt-5">
-                <label class="block text-xs font-medium text-gray-600 mb-1.5">Auto-invite role</label>
+                <label class="block text-xs font-medium text-gray-600 mb-1.5">{{ $t('signupPolicy.autoInviteRole') }}</label>
                 <USelectMenu
                     v-if="roles.length"
                     v-model="form.auto_invite_role"
@@ -78,14 +75,14 @@
                     class="w-60 text-sm border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p class="mt-2 text-xs text-gray-500">
-                    Role granted on signup. You can change it for existing members afterwards.
+                    {{ $t('signupPolicy.roleHint') }}
                 </p>
             </div>
 
             <!-- Footer -->
             <div class="mt-6 flex items-center justify-between pt-4 border-t border-gray-100">
                 <p class="text-xs text-gray-500">
-                    Removing a domain only affects new signups — existing members keep their access.
+                    {{ $t('signupPolicy.removeHint') }}
                 </p>
                 <UButton
                     color="blue"
@@ -94,7 +91,7 @@
                     :disabled="!isDirty"
                     @click="save"
                 >
-                    Save
+                    {{ $t('signupPolicy.save') }}
                 </UButton>
             </div>
         </div>
@@ -103,6 +100,9 @@
 
 <script setup lang="ts">
 import { useAppSettings } from '~/composables/useAppSettings'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
     organization: { id: string; name: string }
@@ -171,7 +171,7 @@ function removeDomain(d: string) {
 
 async function save() {
     if (form.enabled && form.allowed_domains.length === 0) {
-        toast.add({ title: 'Add at least one domain before enabling', color: 'amber' })
+        toast.add({ title: t('signupPolicy.toastAddDomain'), color: 'amber' })
         return
     }
     saving.value = true
@@ -185,10 +185,10 @@ async function save() {
             const p = data.value as Policy
             Object.assign(form, p)
             original.value = JSON.parse(JSON.stringify(p))
-            toast.add({ title: 'Signup policy saved', color: 'green' })
+            toast.add({ title: t('signupPolicy.toastSaved'), color: 'green' })
         }
     } catch (e: any) {
-        const msg = e?.data?.detail || e?.message || 'Failed to save'
+        const msg = e?.data?.detail || e?.message || t('signupPolicy.toastFailed')
         toast.add({ title: msg, color: 'red' })
     } finally {
         saving.value = false

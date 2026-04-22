@@ -31,6 +31,7 @@ from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
 from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+from app.ai.prompt_language import build_language_directive
 
 logger = logging.getLogger(__name__)
 
@@ -349,10 +350,12 @@ class EditArtifactTool(Tool):
         report_title: Optional[str] = None,
         image_count: int = 0,
         original_spec: Optional[str] = None,
+        organization_settings: Any = None,
     ) -> str:
         """Build the prompt for editing existing artifact code."""
 
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+        language_directive = build_language_directive(organization_settings)
 
         if mode == "slides":
             return self._build_slides_edit_prompt(
@@ -363,6 +366,7 @@ class EditArtifactTool(Tool):
                 messages_context=messages_context,
                 report_title=report_title,
                 image_count=image_count,
+                language_directive=language_directive,
             )
 
         images_context = ""
@@ -382,7 +386,7 @@ IMPORTANT: The above spec describes what the dashboard should already look like.
 Preserve ALL of these requirements while applying the new edit below.
 """
 
-        return f"""You are editing an existing React dashboard. Apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.
+        return f"""You are editing an existing React dashboard. Apply the user's requested change with surgical precision. Do not rewrite code that does not need to change. Preserve all existing functionality, styling, layout, event handlers, and responsive behavior unless the user explicitly asked to change it.{language_directive}
 
 ═══════════════════════════════════════════════════════════════════════════════
 EDIT REQUEST (primary specification — follow exactly)
@@ -517,6 +521,7 @@ Apply the user's edit now:"""
         messages_context: str = "",
         report_title: Optional[str] = None,
         image_count: int = 0,
+        language_directive: str = "",
     ) -> str:
         """Build edit prompt for slides mode (python-pptx code)."""
 
@@ -524,7 +529,7 @@ Apply the user's edit now:"""
         if image_count > 0:
             images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
-        return f"""You are editing existing python-pptx presentation code. Apply the user's requested change with surgical precision. Preserve all existing slide structure, styling, and data access unless the user explicitly asked to change it.
+        return f"""You are editing existing python-pptx presentation code. Apply the user's requested change with surgical precision. Preserve all existing slide structure, styling, and data access unless the user explicitly asked to change it.{language_directive}
 
 ═══════════════════════════════════════════════════════════════════════════════
 EXISTING PYTHON-PPTX CODE
@@ -809,6 +814,7 @@ Apply the edit now:"""
             report_title=getattr(report, 'title', None) if report else None,
             image_count=len(completion_images),
             original_spec=artifact.generation_prompt,
+            organization_settings=organization_settings,
         )
 
         # Stream LLM response

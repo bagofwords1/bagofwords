@@ -315,7 +315,9 @@ class CreateInstructionTool(Tool):
                         ))
                         matched_table_names.append(table.name)
 
-            # Create the instruction
+            # Create the instruction as a draft — promotion of the training
+            # build will flip status to "published" and surface it to planner
+            # loaders (the legacy status-based fallback path reads inst.status).
             instruction_data = InstructionCreate(
                 text=data.text,
                 title=title,
@@ -323,7 +325,7 @@ class CreateInstructionTool(Tool):
                 load_mode=load_mode,
                 data_source_ids=list(data_source_ids) if data_source_ids else [],
                 references=references,
-                status="published",
+                status="draft",
             )
 
             # Create instruction (without auto-finalizing build - we do that at session end)

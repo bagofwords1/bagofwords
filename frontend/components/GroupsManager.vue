@@ -7,7 +7,7 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="Search groups..."
+                        :placeholder="$t('groupsManager.searchPlaceholder')"
                         class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
@@ -25,7 +25,7 @@
                     icon="i-heroicons-plus"
                     @click="openCreateModal"
                 >
-                    New Group
+                    {{ $t('groupsManager.newGroup') }}
                 </UButton>
             </div>
         </div>
@@ -36,12 +36,12 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Roles</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Members</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
-                            <th v-if="useCan('manage_groups')" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colName') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colDescription') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colRoles') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colMembers') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colSource') }}</th>
+                            <th v-if="useCan('manage_groups')" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colActions') }}</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
@@ -50,7 +50,7 @@
                             <td :colspan="useCan('manage_groups') ? 6 : 5" class="px-6 py-12 text-center">
                                 <div class="flex items-center justify-center text-gray-500">
                                     <Spinner class="w-4 h-4 me-2" />
-                                    <span class="text-sm">Loading...</span>
+                                    <span class="text-sm">{{ $t('groupsManager.loading') }}</span>
                                 </div>
                             </td>
                         </tr>
@@ -86,7 +86,7 @@
                                                 <UBadge v-for="r in getGroupRoles(group)" :key="r.id" size="xs" color="gray">
                                                     {{ r.name }}
                                                 </UBadge>
-                                                <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">None</span>
+                                                <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('groupsManager.none') }}</span>
                                             </div>
                                         </template>
                                     </USelectMenu>
@@ -94,7 +94,7 @@
                                         <UBadge v-for="r in getGroupRoles(group)" :key="r.id" size="xs" color="gray">
                                             {{ r.name }}
                                         </UBadge>
-                                        <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">None</span>
+                                        <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('groupsManager.none') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
@@ -102,14 +102,14 @@
                                         @click="openMembersModal(group)"
                                         class="text-blue-600 hover:text-blue-800 text-sm font-medium"
                                     >
-                                        {{ group.member_count }} {{ group.member_count === 1 ? 'member' : 'members' }}
+                                        {{ group.member_count === 1 ? $t('groupsManager.memberSingular', { n: group.member_count }) : $t('groupsManager.memberPlural', { n: group.member_count }) }}
                                     </button>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                     <UBadge v-if="group.external_provider" size="xs" color="blue" variant="subtle">
                                         {{ group.external_provider }}
                                     </UBadge>
-                                    <span v-else class="text-gray-400 italic">Manual</span>
+                                    <span v-else class="text-gray-400 italic">{{ $t('groupsManager.manual') }}</span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div class="flex gap-2">
@@ -140,10 +140,10 @@
                                             class="mx-auto h-12 w-12 text-gray-400"
                                         />
                                         <h3 class="mt-2 text-sm font-medium text-gray-900">
-                                            No groups found
+                                            {{ $t('groupsManager.noGroupsFound') }}
                                         </h3>
                                         <p class="mt-1 text-sm text-gray-500">
-                                            Create a group to organize members.
+                                            {{ $t('groupsManager.noGroupsHint') }}
                                         </p>
                                     </div>
                                 </td>
@@ -161,28 +161,28 @@
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
                 <h3 class="text-lg font-semibold">
-                    {{ editingGroup ? 'Edit Group' : 'Create Group' }}
+                    {{ editingGroup ? $t('groupsManager.editGroup') : $t('groupsManager.createGroup') }}
                 </h3>
-                <p class="text-sm text-gray-500">{{ editingGroup ? 'Update group details' : 'Create a new group to organize members' }}</p>
+                <p class="text-sm text-gray-500">{{ editingGroup ? $t('groupsManager.updateGroupDetails') : $t('groupsManager.createNewGroupHint') }}</p>
                 <hr class="my-4" />
 
                 <form @submit.prevent="saveGroup" class="space-y-4">
                     <div class="flex flex-col">
-                        <label class="text-sm font-medium text-gray-700 mb-2">Name</label>
-                        <UInput v-model="form.name" placeholder="e.g. Engineering" required />
+                        <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('groupsManager.nameLabel') }}</label>
+                        <UInput v-model="form.name" :placeholder="$t('groupsManager.namePlaceholder')" required />
                     </div>
 
                     <div class="flex flex-col">
-                        <label class="text-sm font-medium text-gray-700 mb-2">Description</label>
-                        <UInput v-model="form.description" placeholder="Optional description" />
+                        <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('groupsManager.descriptionLabel') }}</label>
+                        <UInput v-model="form.description" :placeholder="$t('groupsManager.descriptionPlaceholder')" />
                     </div>
 
                     <div class="flex justify-end space-x-2 pt-4">
                         <UButton variant="ghost" type="button" @click="showFormModal = false">
-                            Cancel
+                            {{ $t('groupsManager.cancel') }}
                         </UButton>
                         <UButton type="submit" color="blue" :loading="saving">
-                            {{ editingGroup ? 'Save' : 'Create' }}
+                            {{ editingGroup ? $t('groupsManager.save') : $t('groupsManager.create') }}
                         </UButton>
                     </div>
                 </form>
@@ -195,8 +195,8 @@
                 <button @click="showMembersModal = false" class="absolute top-4 end-4 text-gray-500 hover:text-gray-700 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
-                <h3 class="text-lg font-semibold">{{ selectedGroup?.name }} — Members</h3>
-                <p class="text-sm text-gray-500 mb-4">Manage who belongs to this group</p>
+                <h3 class="text-lg font-semibold">{{ selectedGroup?.name }} {{ $t('groupsManager.membersSuffix') }}</h3>
+                <p class="text-sm text-gray-500 mb-4">{{ $t('groupsManager.manageMembersHint') }}</p>
 
                 <!-- Add member -->
                 <div v-if="useCan('manage_groups')" class="flex gap-2 mb-4">
@@ -206,7 +206,7 @@
                         option-attribute="label"
                         value-attribute="value"
                         searchable
-                        placeholder="Add a member..."
+                        :placeholder="$t('groupsManager.addMemberPlaceholder')"
                         class="flex-1"
                         size="sm"
                     />
@@ -216,7 +216,7 @@
                         :disabled="!memberToAdd"
                         @click="addMember"
                     >
-                        Add
+                        {{ $t('groupsManager.add') }}
                     </UButton>
                 </div>
 
@@ -224,13 +224,13 @@
                 <div class="border rounded-lg divide-y divide-gray-200 max-h-80 overflow-y-auto">
                     <div v-if="groupMembersLoading" class="px-4 py-8 text-center text-gray-500 text-sm">
                         <Spinner class="w-4 h-4 me-2 inline" />
-                        Loading...
+                        {{ $t('groupsManager.loading') }}
                     </div>
                     <div
                         v-else-if="groupMembers.length === 0"
                         class="px-4 py-8 text-center text-gray-500 text-sm"
                     >
-                        No members in this group yet.
+                        {{ $t('groupsManager.noMembers') }}
                     </div>
                     <div
                         v-for="member in groupMembers"
@@ -244,7 +244,7 @@
                                 </span>
                             </div>
                             <div>
-                                <div class="text-sm font-medium text-gray-900">{{ member.user_name || 'Unknown' }}</div>
+                                <div class="text-sm font-medium text-gray-900">{{ member.user_name || $t('groupsManager.unknown') }}</div>
                                 <div class="text-xs text-gray-500">{{ member.user_email }}</div>
                             </div>
                         </div>
@@ -266,6 +266,9 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface GroupData {
     id: string
@@ -346,7 +349,7 @@ const addableMemberOptions = computed(() => {
         })
         .map(m => ({
             value: m.user_id || m.user?.id || '',
-            label: m.user?.name || m.user?.email || m.email || 'Unknown',
+            label: m.user?.name || m.user?.email || m.email || t('groupsManager.unknown'),
         }))
 })
 
@@ -411,9 +414,9 @@ async function updateGroupRoles(group: GroupData, selectedRoleIds: string[]) {
         }
 
         await loadGroupRoleAssignments()
-        toast.add({ title: 'Group roles updated', color: 'green' })
+        toast.add({ title: t('groupsManager.toastRolesUpdated'), color: 'green' })
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || 'Failed to update group roles'
+        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToUpdateRoles')
         toast.add({ title: detail, color: 'red' })
     }
 }
@@ -471,26 +474,26 @@ async function saveGroup() {
                 body,
             })
             if (error.value) {
-                toast.add({ title: error.value.data?.detail || 'Failed to update group', color: 'red' })
+                toast.add({ title: error.value.data?.detail || t('groupsManager.failedToUpdate'), color: 'red' })
                 return
             }
-            toast.add({ title: 'Group updated', color: 'green' })
+            toast.add({ title: t('groupsManager.toastUpdated'), color: 'green' })
         } else {
             const { error } = await useMyFetch(`/organizations/${organizationId}/groups`, {
                 method: 'POST',
                 body,
             })
             if (error.value) {
-                toast.add({ title: error.value.data?.detail || 'Failed to create group', color: 'red' })
+                toast.add({ title: error.value.data?.detail || t('groupsManager.failedToCreate'), color: 'red' })
                 return
             }
-            toast.add({ title: 'Group created', color: 'green' })
+            toast.add({ title: t('groupsManager.toastCreated'), color: 'green' })
         }
 
         showFormModal.value = false
         await loadGroups()
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || 'Failed to save group'
+        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToSave')
         toast.add({ title: detail, color: 'red' })
     } finally {
         saving.value = false
@@ -498,19 +501,19 @@ async function saveGroup() {
 }
 
 async function deleteGroup(group: GroupData) {
-    if (!confirm(`Delete group "${group.name}"?`)) return
+    if (!confirm(t('groupsManager.confirmDelete', { name: group.name }))) return
     try {
         const { error } = await useMyFetch(`/organizations/${organizationId}/groups/${group.id}`, {
             method: 'DELETE',
         })
         if (error.value) {
-            toast.add({ title: error.value.data?.detail || 'Failed to delete group', color: 'red' })
+            toast.add({ title: error.value.data?.detail || t('groupsManager.failedToDelete'), color: 'red' })
             return
         }
-        toast.add({ title: 'Group deleted', color: 'green' })
+        toast.add({ title: t('groupsManager.toastDeleted'), color: 'green' })
         await loadGroups()
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || 'Failed to delete group'
+        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToDelete')
         toast.add({ title: detail, color: 'red' })
     }
 }
@@ -543,7 +546,7 @@ async function addMember() {
             method: 'POST',
             body: { user_id: memberToAdd.value },
         })
-        toast.add({ title: 'Member added to group', color: 'green' })
+        toast.add({ title: t('groupsManager.toastMemberAdded'), color: 'green' })
         memberToAdd.value = null
         // Reload group members and group list (for count update)
         await Promise.all([
@@ -551,7 +554,7 @@ async function addMember() {
             loadGroups(),
         ])
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || 'Failed to add member'
+        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToAddMember')
         toast.add({ title: detail, color: 'red' })
     }
 }
@@ -562,13 +565,13 @@ async function removeMember(userId: string) {
         await useMyFetch(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members/${userId}`, {
             method: 'DELETE',
         })
-        toast.add({ title: 'Member removed from group', color: 'green' })
+        toast.add({ title: t('groupsManager.toastMemberRemoved'), color: 'green' })
         await Promise.all([
             openMembersModal(selectedGroup.value),
             loadGroups(),
         ])
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || 'Failed to remove member'
+        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToRemoveMember')
         toast.add({ title: detail, color: 'red' })
     }
 }

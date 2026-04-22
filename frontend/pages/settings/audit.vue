@@ -263,7 +263,7 @@ const clearFilters = () => {
   fetchLogs()
 }
 
-const { t, locale } = useI18n()
+const { t, locale } = useI18n({ useScope: 'global' })
 const formatTimestamp = (timestamp: string) => {
   // Ensure UTC parsing if no timezone specified
   const isoTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z'

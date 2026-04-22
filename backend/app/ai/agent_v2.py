@@ -1265,6 +1265,23 @@ class AgentV2:
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
             
+            # Seed a draft training build up-front so edit-only sessions also
+            # accumulate staged changes in a build (not just create-first sessions).
+            if self.mode == "training" and not self.training_build_id:
+                try:
+                    from app.services.build_service import BuildService
+                    _bs = BuildService()
+                    _tb = await _bs.get_or_create_draft_build(
+                        self.db,
+                        str(self.organization.id),
+                        source='ai',
+                        user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                        agent_execution_id=str(self.current_execution.id),
+                    )
+                    self.training_build_id = str(_tb.id)
+                except Exception as _tb_err:
+                    logger.warning(f"Failed to seed training draft build: {_tb_err}")
+
             # Early scoring will be launched as a background task using an isolated session
             _mlog("loop_starting")
 
@@ -2489,9 +2506,12 @@ class AgentV2:
             print(f"Error emitting SSE event: {e}")
 
     async def _finalize_training_build(self):
-        """Finalize the training build by publishing it (approve + promote to main).
+        """Leave the training build in draft for the user to review and approve.
 
-        Called at the end of a training mode session to make all created instructions live.
+        Called at the end of a training mode session. The build accumulates all
+        create_instruction / edit_instruction changes as draft versions; the
+        user sees a pill and explicitly approves to promote the build to main.
+        Previously this auto-published the build which bypassed human approval.
         """
         if not self.training_build_id:
             logger.info("Training mode ended with no instructions created - no build to finalize")
@@ -2501,32 +2521,22 @@ class AgentV2:
             from app.services.build_service import BuildService
 
             build_service = BuildService()
-            user_id = str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
-
-            result = await build_service.publish_build(
-                db=self.db,
-                build_id=self.training_build_id,
-                user_id=user_id,
-            )
-
-            build = result.get("build")
-            merged = result.get("merged", False)
+            build = await build_service.get_build(self.db, self.training_build_id)
 
             logger.info(
-                f"Training build {self.training_build_id} published successfully "
-                f"(merged={merged}, new_build_id={build.id if build else 'N/A'})"
+                f"Training build {self.training_build_id} left in draft for user approval "
+                f"(status={build.status if build else 'unknown'})"
             )
 
-            # Emit SSE event to notify frontend that training build was finalized
             if self.event_queue:
                 try:
                     await self.event_queue.put(SSEEvent(
                         event="training.build_finalized",
                         completion_id=str(self.system_completion.id) if self.system_completion else None,
                         data={
-                            "build_id": str(build.id) if build else self.training_build_id,
-                            "merged": merged,
-                            "status": "published",
+                            "build_id": self.training_build_id,
+                            "status": build.status if build else "draft",
+                            "awaiting_approval": True,
                         }
                     ))
                 except Exception:

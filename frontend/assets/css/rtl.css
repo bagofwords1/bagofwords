@@ -51,14 +51,13 @@
   transform: scaleX(-1);
 }
 
-/* 4. Bullet / numbered list indentation. Browser default is padding-left,
- *    which leaves the bullets hanging on the LTR edge under RTL. Use the
- *    logical property so the markers sit on the start edge regardless. */
-[dir="rtl"] ul,
-[dir="rtl"] ol {
-  padding-inline-start: 2rem;
-  padding-inline-end: 0;
-}
+/* 4. [removed] A blanket `[dir="rtl"] ul, ol { padding-inline-start: 2rem }`
+ *    used to live here to flip the browser-default left padding for list
+ *    markers. It was redundant — Tailwind's preflight already zeroes ul/ol
+ *    padding globally — and caused a phantom 2rem start gutter on every
+ *    non-list `<ul>` under RTL (notably the chat message list). The three
+ *    contexts where we actually re-enable list markers (.prose, .markstream-vue,
+ *    .markdown-wrapper) are handled by rules 5, 7, and 7b below. */
 
 /* 5. ProseMirror / markdown-rendered content: lists inside our prose
  *    blocks already carry `list-inside` or custom padding. Keep their

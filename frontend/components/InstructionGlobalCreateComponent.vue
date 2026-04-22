@@ -19,9 +19,9 @@
                     <div v-if="props.isGitSourced" class="shrink-0">
                         <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600">
                             <GitBranchIcon class="w-3 h-3" />
-                            Synced
+                            {{ $t('instructionGlobalCreate.status.synced') }}
                         </span>
-                        <span v-else class="text-[10px] text-gray-400">Unlinked</span>
+                        <span v-else class="text-[10px] text-gray-400">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
                     </div>
                 </div>
 
@@ -42,7 +42,7 @@
                 <div class="flex flex-wrap items-center gap-4 text-xs">
                     <!-- Created By -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Created by:</span>
+                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.createdBy') }}</span>
                         <div class="inline-flex items-center gap-1 text-gray-700">
                             <Icon :name="getSourceTypeIcon()" class="w-3 h-3" :class="getSourceTypeIconClass()" />
                             <span>{{ getCreatorDisplayName() }}</span>
@@ -52,7 +52,7 @@
 
                     <!-- Approved By (if exists) -->
                     <div v-if="props.instruction?.reviewed_by" class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Approved by:</span>
+                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.approvedBy') }}</span>
                         <span class="text-gray-700">{{ props.instruction.reviewed_by.name || props.instruction.reviewed_by.email }}</span>
                     </div>
                 </div>
@@ -61,7 +61,7 @@
                 <div class="flex flex-wrap items-center gap-3 text-xs">
                     <!-- Status -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Status:</span>
+                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.fields.status') }}</span>
                         <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
                             {{ getCurrentStatusDisplayText() }}
                         </span>
@@ -69,7 +69,7 @@
 
                     <!-- Category -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Category:</span>
+                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.fields.category') }}</span>
                         <div class="inline-flex items-center text-gray-700">
                             <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 me-1" />
                             {{ formatCategory(instructionForm.category) }}
@@ -78,7 +78,7 @@
 
                     <!-- Load Mode -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Loading:</span>
+                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.fields.loading') }}</span>
                         <div class="inline-flex items-center text-gray-700">
                             <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 me-1" />
                             {{ getLoadModeLabel(instructionForm.load_mode) }}
@@ -88,13 +88,13 @@
                     <!-- Visibility -->
                     <div class="flex items-center gap-1.5">
                         <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3 text-gray-400" />
-                        <span class="text-gray-600">{{ instructionForm.is_seen ? 'Visible' : 'Hidden' }}</span>
+                        <span class="text-gray-600">{{ instructionForm.is_seen ? $t('instructionGlobalCreate.status.visible') : $t('instructionGlobalCreate.status.hidden') }}</span>
                     </div>
                 </div>
 
                 <!-- Labels (read-only) -->
                 <div v-if="selectedLabelObjects.length > 0" class="flex items-center gap-2">
-                    <span class="text-[11px] text-gray-400">Labels:</span>
+                    <span class="text-[11px] text-gray-400">{{ $t('instructionGlobalCreate.fields.labels') }}</span>
                     <div class="flex flex-wrap gap-1">
                         <span
                             v-for="label in selectedLabelObjects"
@@ -112,8 +112,8 @@
                 <div class="space-y-2 text-xs">
                     <!-- Data Agents -->
                     <div class="flex items-start gap-1.5">
-                        <span class="text-gray-400 shrink-0">Agents:</span>
-                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">All agents</span>
+                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.fields.agents') }}</span>
+                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">{{ $t('instructionGlobalCreate.allAgents') }}</span>
                         <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex flex-wrap gap-1.5">
                             <div
                                 v-for="ds in getSelectedDataSourceObjects"
@@ -124,13 +124,13 @@
                                 {{ ds.name }}
                             </div>
                         </div>
-                        <span v-else class="text-gray-400">None</span>
+                        <span v-else class="text-gray-400">{{ $t('instructionGlobalCreate.none') }}</span>
                     </div>
 
                     <!-- References -->
                     <div class="flex items-start gap-1.5">
-                        <span class="text-gray-400 shrink-0">References:</span>
-                        <span v-if="selectedReferences.length === 0" class="text-gray-400">None</span>
+                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.fields.references') }}</span>
+                        <span v-if="selectedReferences.length === 0" class="text-gray-400">{{ $t('instructionGlobalCreate.none') }}</span>
                         <div v-else class="flex flex-wrap gap-1.5">
                             <div
                                 v-for="ref in selectedReferences"
@@ -158,12 +158,12 @@
                         :loading="isDeleting"
                     >
                         <Icon name="heroicons:trash" class="w-3.5 h-3.5 me-1" />
-                        Delete
+                        {{ $t('instructionGlobalCreate.actions.delete') }}
                     </UButton>
 
                     <div class="flex gap-2 ms-auto">
                         <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
-                            Close
+                            {{ $t('instructionGlobalCreate.actions.close') }}
                         </UButton>
                         <UButton
                             v-if="canEditInstructions || canSuggestInstructions"
@@ -172,7 +172,7 @@
                             @click="isViewMode = false"
                         >
                             <Icon name="heroicons:pencil" class="w-3.5 h-3.5 me-1" />
-                            {{ isSuggestMode ? 'Suggest edit' : 'Edit' }}
+                            {{ isSuggestMode ? $t('instructionGlobalCreate.actions.suggestEdit') : $t('instructionGlobalCreate.actions.edit') }}
                         </UButton>
                     </div>
                 </div>
@@ -189,14 +189,14 @@
                     <input
                         v-model="instructionForm.title"
                         type="text"
-                        placeholder="TITLE (optional, e.g. REVENUE_RULES)"
+                        :placeholder="$t('instructionGlobalCreate.titlePlaceholder')"
                         class="w-full px-3 py-2 text-sm font-mono uppercase tracking-wide
                                border border-gray-200 rounded-lg
                                focus:ring-2 focus:ring-blue-100 focus:border-blue-400 focus:outline-none
                                placeholder:text-gray-400 placeholder:normal-case placeholder:tracking-normal"
                         @input="instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase()"
                     />
-                    <p class="mt-1 text-[10px] text-gray-400">Short identifier (1-4 words) that users can reference</p>
+                    <p class="mt-1 text-[10px] text-gray-400">{{ $t('instructionGlobalCreate.titleHint') }}</p>
                 </div>
 
                 <!-- Hero Textarea / Code Editor -->
@@ -206,48 +206,48 @@
                         <div class="flex items-center gap-2 min-w-0">
                             <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
                             <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
-                            <span v-else class="text-xs font-medium text-gray-500">Instruction</span>
+                            <span v-else class="text-xs font-medium text-gray-500">{{ $t('instructionGlobalCreate.instruction') }}</span>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             <!-- Git sync status and actions -->
                             <template v-if="props.isGitSourced">
-                                <UTooltip 
+                                <UTooltip
                                     v-if="props.isGitSynced"
-                                    text="Stop syncing from git. You'll be able to edit manually."
+                                    :text="$t('instructionGlobalCreate.tooltips.stopSyncing')"
                                     :popper="{ placement: 'top' }"
                                 >
-                                    <button 
+                                    <button
                                         type="button"
                                         class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors"
                                         @click="$emit('unlink-from-git')"
                                     >
                                         <GitBranchIcon class="w-3 h-3" />
-                                        Synced
+                                        {{ $t('instructionGlobalCreate.status.synced') }}
                                         <Icon name="heroicons:x-mark" class="w-3 h-3" />
                                     </button>
                                 </UTooltip>
                                 <template v-else>
-                                    <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Unlinked</span>
-                                    <UTooltip 
-                                        text="Resume syncing from git"
+                                    <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                                    <UTooltip
+                                        :text="$t('instructionGlobalCreate.tooltips.resumeSyncing')"
                                         :popper="{ placement: 'top' }"
                                     >
-                                        <button 
+                                        <button
                                             type="button"
                                             class="text-[10px] text-blue-500 hover:text-blue-600 transition-colors"
                                             @click="$emit('relink-to-git')"
                                         >
-                                            Relink
+                                            {{ $t('instructionGlobalCreate.actions.relink') }}
                                         </button>
                                     </UTooltip>
                                 </template>
                             </template>
                             <!-- Code view toggle -->
-                            <button 
+                            <button
                                 type="button"
                                 @click="codeView = !codeView"
                                 class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
-                                :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
+                                :title="codeView ? $t('instructionGlobalCreate.tooltips.switchToTextEditor') : $t('instructionGlobalCreate.tooltips.switchToCodeEditor')"
                             >
                                 <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
                             </button>
@@ -268,14 +268,7 @@
                         <textarea
                             ref="textareaRef"
                             v-model="instructionForm.text"
-                            placeholder="Describe the instruction for the AI agent...
-
-Examples:
-• When querying revenue, always filter out cancelled orders
-• Use the customers_v2 table instead of the deprecated customers table
-• Calculate MRR as sum of active subscription amounts
-
-Tip: Type @ to reference other instructions"
+                            :placeholder="$t('instructionGlobalCreate.textareaPlaceholder')"
                             class="mention-textarea"
                             required
                             @input="handleTextareaInput"
@@ -292,7 +285,7 @@ Tip: Type @ to reference other instructions"
                             :style="mentionDropdownStyle"
                         >
                             <div v-if="filteredMentionItems.length === 0" class="px-3 py-2 text-xs text-gray-500">
-                                Type to search...
+                                {{ $t('instructionGlobalCreate.typeToSearch') }}
                             </div>
                             <button
                                 v-for="(item, index) in filteredMentionItems"
@@ -310,7 +303,7 @@ Tip: Type @ to reference other instructions"
                                     :class="item.type === 'instruction' ? 'text-indigo-500' : 'text-blue-500'"
                                 />
                                 <div class="flex-1 min-w-0">
-                                    <!-- Instruction -->
+                                    <!-- Instruction (mention dropdown item) -->
                                     <template v-if="item.type === 'instruction'">
                                         <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
                                         <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
@@ -362,19 +355,19 @@ Tip: Type @ to reference other instructions"
                         >
                             <Spinner v-if="isEnhancing" class="w-3.5 h-3.5" />
                             <Icon v-else name="heroicons:sparkles" class="w-3.5 h-3.5 text-purple-500" />
-                            {{ isEnhancing ? 'Enhancing...' : 'Enhance' }}
+                            {{ isEnhancing ? $t('instructionGlobalCreate.actions.enhancing') : $t('instructionGlobalCreate.actions.enhance') }}
                         </button>
-                        <button 
+                        <button
                             type="button"
                             @click="$emit('toggle-analyze')"
-                            class="inline-flex items-center gap-1 px-2.5 py-1 
+                            class="inline-flex items-center gap-1 px-2.5 py-1
                                    bg-white border border-gray-200 rounded-full
                                    text-xs text-gray-500
                                    hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700
                                    transition-all"
                         >
                             <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
-                            Analyze
+                            {{ $t('instructionGlobalCreate.actions.analyze') }}
                         </button>
                     </div>
                 </div>
@@ -463,11 +456,11 @@ Tip: Type @ to reference other instructions"
                         size="xs"
                         class="flex-1 min-w-[120px]"
                         searchable
-                        searchable-placeholder="Search labels..."
+                        :searchable-placeholder="$t('instructionGlobalCreate.searchLabels')"
                     >
                         <template #label>
                             <div class="flex items-center flex-wrap gap-1">
-                                <span v-if="selectedLabelObjects.length === 0" class="text-gray-500 text-xs">+ Labels</span>
+                                <span v-if="selectedLabelObjects.length === 0" class="text-gray-500 text-xs">{{ $t('instructionGlobalCreate.plusLabels') }}</span>
                                 <span
                                     v-for="label in selectedLabelObjects.slice(0, 2)"
                                     :key="label.id"
@@ -478,7 +471,7 @@ Tip: Type @ to reference other instructions"
                                     {{ label.name }}
                                 </span>
                                 <span v-if="selectedLabelObjects.length > 2" class="text-[10px] text-gray-500">
-                                    +{{ selectedLabelObjects.length - 2 }}
+                                    {{ $t('instructionGlobalCreate.plusMore', { n: selectedLabelObjects.length - 2 }) }}
                                 </span>
                             </div>
                         </template>
@@ -490,7 +483,7 @@ Tip: Type @ to reference other instructions"
                                 @click.stop="openAddLabelModal"
                             >
                                 <Icon name="heroicons:plus" class="w-2.5 h-2.5 me-1" />
-                                <span class="text-[11px] font-medium">Add label</span>
+                                <span class="text-[11px] font-medium">{{ $t('instructionGlobalCreate.addLabel') }}</span>
                             </div>
                             <div v-else class="flex items-center w-full py-0.5 gap-1">
                                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94a3b8' }"></span>
@@ -510,8 +503,8 @@ Tip: Type @ to reference other instructions"
                     </USelectMenu>
 
                     <!-- Visibility Toggle -->
-                    <UTooltip 
-                        :text="instructionForm.is_seen ? 'Visible in instructions list' : 'Hidden from instructions list'"
+                    <UTooltip
+                        :text="instructionForm.is_seen ? $t('instructionGlobalCreate.tooltips.visibleInList') : $t('instructionGlobalCreate.tooltips.hiddenFromList')"
                         :popper="{ placement: 'top' }"
                     >
                         <button
@@ -523,14 +516,14 @@ Tip: Type @ to reference other instructions"
                                 : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200'"
                         >
                             <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3" />
-                            <span>{{ instructionForm.is_seen ? 'Visible' : 'Hidden' }}</span>
+                            <span>{{ instructionForm.is_seen ? $t('instructionGlobalCreate.status.visible') : $t('instructionGlobalCreate.status.hidden') }}</span>
                         </button>
                     </UTooltip>
                 </div>
 
                 <!-- Scope Row -->
                 <div class="flex items-center gap-3">
-                    <span class="text-[11px] text-gray-500 shrink-0">Scope:</span>
+                    <span class="text-[11px] text-gray-500 shrink-0">{{ $t('instructionGlobalCreate.fields.scope') }}</span>
                     
                     <!-- Data Sources -->
                     <USelectMenu 
@@ -543,12 +536,12 @@ Tip: Type @ to reference other instructions"
                         class="min-w-[200px]"
                     >
                         <template #label>
-                            <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">All sources</span>
-                            <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">Sources</span>
+                            <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">{{ $t('instructionGlobalCreate.allSources') }}</span>
+                            <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">{{ $t('instructionGlobalCreate.fields.sources') }}</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
                                 <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" class="h-3" />
                                 <span class="truncate max-w-[100px]">{{ getSelectedDataSourceObjects[0]?.name }}</span>
-                                <span v-if="getSelectedDataSourceObjects.length > 1" class="text-gray-500">+{{ getSelectedDataSourceObjects.length - 1 }}</span>
+                                <span v-if="getSelectedDataSourceObjects.length > 1" class="text-gray-500">{{ $t('instructionGlobalCreate.plusN', { n: getSelectedDataSourceObjects.length - 1 }) }}</span>
                             </div>
                         </template>
                         <template #option="{ option }">
@@ -570,18 +563,18 @@ Tip: Type @ to reference other instructions"
                         size="xs"
                         multiple
                         searchable
-                        searchable-placeholder="Search references..."
+                        :searchable-placeholder="$t('instructionGlobalCreate.searchReferences')"
                         :model-value="selectedReferenceIds"
                         @update:model-value="handleReferencesChange"
                         class="min-w-[200px]"
                         :ui-menu="{ width: 'w-96', option: { base: 'py-1.5' } }"
                     >
                         <template #label>
-                            <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">References</span>
+                            <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">{{ $t('instructionGlobalCreate.fields.referencesShort') }}</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
                                 <Icon :name="getRefIconHeroicons(selectedReferences[0].type)" class="w-3 h-3 text-gray-500" />
                                 <span class="truncate max-w-[120px]">{{ selectedReferences[0].name }}</span>
-                                <span v-if="selectedReferences.length > 1" class="text-gray-500">+{{ selectedReferences.length - 1 }}</span>
+                                <span v-if="selectedReferences.length > 1" class="text-gray-500">{{ $t('instructionGlobalCreate.plusN', { n: selectedReferences.length - 1 }) }}</span>
                             </div>
                         </template>
                         <template #option="{ option }">
@@ -596,7 +589,7 @@ Tip: Type @ to reference other instructions"
                                 </div>
                                 <div v-else-if="option.type === 'instruction'" class="flex items-center gap-1">
                                     <Icon name="heroicons:cube" class="w-2.5 h-2.5 text-indigo-400 flex-shrink-0" />
-                                    <span class="text-[10px] text-gray-500">Instruction</span>
+                                    <span class="text-[10px] text-gray-500">{{ $t('instructionGlobalCreate.instruction') }}</span>
                                 </div>
                             </div>
                         </template>
@@ -618,15 +611,15 @@ Tip: Type @ to reference other instructions"
                         :loading="isDeleting"
                     >
                         <Icon name="heroicons:trash" class="w-3.5 h-3.5 me-1" />
-                        Delete
+                        {{ $t('instructionGlobalCreate.actions.delete') }}
                     </UButton>
 
                     <div class="flex gap-2" :class="{ 'ms-auto': !(isEditing && canDeleteInstructions) }">
                         <UButton v-if="isEditing" color="gray" variant="ghost" size="xs" @click="cancelEdit">
-                            Cancel
+                            {{ $t('instructionGlobalCreate.actions.cancel') }}
                         </UButton>
                         <UButton v-else color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
-                            Cancel
+                            {{ $t('instructionGlobalCreate.actions.cancel') }}
                         </UButton>
                         <UButton
                             type="submit"
@@ -634,7 +627,7 @@ Tip: Type @ to reference other instructions"
                             color="blue"
                             :loading="isSubmitting"
                         >
-                            {{ isSuggestMode ? 'Submit suggestion' : (isEditing ? 'Update' : 'Create') }}
+                            {{ isSuggestMode ? $t('instructionGlobalCreate.actions.submitSuggestion') : (isEditing ? $t('instructionGlobalCreate.actions.update') : $t('instructionGlobalCreate.actions.create')) }}
                         </UButton>
                     </div>
                 </div>
@@ -657,18 +650,18 @@ Tip: Type @ to reference other instructions"
                     <Icon name="heroicons:link-slash" class="w-4 h-4 text-amber-600" />
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900 mb-1">Unlink from Git?</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 mb-1">{{ $t('instructionGlobalCreate.unlinkDialog.title') }}</h3>
                     <p class="text-sm text-gray-600">
-                        This will stop automatic syncing from git. Your local changes will be preserved and can be pushed back to git later via <span class="font-medium">Push to Git</span>.
+                        {{ $t('instructionGlobalCreate.unlinkDialog.bodyBefore') }}<span class="font-medium">{{ $t('instructionGlobalCreate.unlinkDialog.pushToGit') }}</span>{{ $t('instructionGlobalCreate.unlinkDialog.bodyAfter') }}
                     </p>
                 </div>
             </div>
             <div class="flex justify-end gap-2">
                 <UButton color="gray" variant="ghost" size="xs" @click="showUnlinkConfirm = false">
-                    Cancel
+                    {{ $t('instructionGlobalCreate.actions.cancel') }}
                 </UButton>
                 <UButton color="blue" size="xs" @click="confirmUnlinkAndSave">
-                    Unlink & Save
+                    {{ $t('instructionGlobalCreate.actions.unlinkAndSave') }}
                 </UButton>
             </div>
         </div>
@@ -678,17 +671,17 @@ Tip: Type @ to reference other instructions"
     <UModal v-model="showDeleteConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
             <p class="text-sm text-gray-700 mb-3">
-                Are you sure you want to delete this instruction?
+                {{ $t('instructionGlobalCreate.deleteDialog.title') }}
             </p>
             <p class="text-xs text-gray-500 mb-4">
-                This action cannot be undone.
+                {{ $t('instructionGlobalCreate.deleteDialog.cannotUndo') }}
             </p>
             <div class="flex justify-end gap-2">
                 <UButton color="gray" variant="ghost" size="xs" @click="showDeleteConfirm = false">
-                    Cancel
+                    {{ $t('instructionGlobalCreate.actions.cancel') }}
                 </UButton>
                 <UButton color="red" size="xs" @click="confirmDeleteNonGit">
-                    Delete
+                    {{ $t('instructionGlobalCreate.actions.delete') }}
                 </UButton>
             </div>
         </div>
@@ -698,27 +691,27 @@ Tip: Type @ to reference other instructions"
     <UModal v-model="showDeleteGitConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
             <p class="text-sm text-gray-700 mb-3">
-                This instruction is synced from git.
+                {{ $t('instructionGlobalCreate.deleteGitDialog.title') }}
             </p>
             <div class="space-y-2 mb-4">
                 <div class="flex items-start gap-2 text-xs text-gray-600">
-                    <span class="text-red-500 font-medium shrink-0">Delete:</span>
-                    <span>Will be recreated on next git sync</span>
+                    <span class="text-red-500 font-medium shrink-0">{{ $t('instructionGlobalCreate.deleteGitDialog.deleteLabel') }}</span>
+                    <span>{{ $t('instructionGlobalCreate.deleteGitDialog.deleteHint') }}</span>
                 </div>
                 <div class="flex items-start gap-2 text-xs text-gray-600">
-                    <span class="text-orange-500 font-medium shrink-0">Unlink & Delete:</span>
-                    <span>Will not be recreated (stops syncing)</span>
+                    <span class="text-orange-500 font-medium shrink-0">{{ $t('instructionGlobalCreate.deleteGitDialog.unlinkDeleteLabel') }}</span>
+                    <span>{{ $t('instructionGlobalCreate.deleteGitDialog.unlinkDeleteHint') }}</span>
                 </div>
             </div>
             <div class="flex justify-end gap-2">
                 <UButton color="gray" variant="ghost" size="xs" @click="showDeleteGitConfirm = false">
-                    Cancel
+                    {{ $t('instructionGlobalCreate.actions.cancel') }}
                 </UButton>
                 <UButton color="red" variant="soft" size="xs" @click="confirmDeleteGitSynced">
-                    Delete
+                    {{ $t('instructionGlobalCreate.actions.delete') }}
                 </UButton>
                 <UButton color="orange" size="xs" @click="confirmUnlinkAndDelete">
-                    Unlink & Delete
+                    {{ $t('instructionGlobalCreate.actions.unlinkAndDelete') }}
                 </UButton>
             </div>
         </div>
@@ -731,6 +724,8 @@ import Spinner from '~/components/Spinner.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import { useDomain } from '~/composables/useDomain'
+
+const { t } = useI18n()
 
 // Define interfaces
 interface DataSource {
@@ -1237,7 +1232,7 @@ const shouldRenderAsMarkdown = computed(() => {
 const dataSourceOptions = computed(() => {
     const allOption = {
         id: 'all',
-        name: 'All Data Sources',
+        name: t('instructionGlobalCreate.allDataSources'),
         type: 'all'
     }
     return [allOption, ...availableDataSources.value]
@@ -1259,7 +1254,7 @@ const labelSelectOptions = computed(() => {
         ...base,
         {
             id: '__add__',
-            name: 'Add label',
+            name: t('instructionGlobalCreate.addLabel'),
             color: undefined,
             description: undefined,
             __isAdd: true
@@ -1275,13 +1270,13 @@ const selectedLabelObjects = computed(() => {
     return selectedLabelIds.value.map(id => lookup[id]).filter(Boolean)
 })
 
-const labelModalTitle = computed(() => editingLabel.value?.id ? 'Edit Label' : 'Add Label')
+const labelModalTitle = computed(() => editingLabel.value?.id ? t('instructionGlobalCreate.labelModal.editTitle') : t('instructionGlobalCreate.labelModal.addTitle'))
 
 // Load mode options for dropdown
-const loadModeOptions = [
-    { value: 'always' as const, label: 'Always', description: 'Always included in AI context' },
-    { value: 'intelligent' as const, label: 'Smart', description: 'Included only when relevant to the query' }
-]
+const loadModeOptions = computed(() => [
+    { value: 'always' as const, label: t('instructionGlobalCreate.loadMode.alwaysLabel'), description: t('instructionGlobalCreate.loadMode.alwaysDesc') },
+    { value: 'intelligent' as const, label: t('instructionGlobalCreate.loadMode.smartLabel'), description: t('instructionGlobalCreate.loadMode.smartDesc') }
+])
 
 const getLoadModeIcon = (mode: string) => {
     const icons: Record<string, string> = {
@@ -1293,8 +1288,8 @@ const getLoadModeIcon = (mode: string) => {
 
 const getLoadModeLabel = (mode: string) => {
     const labels: Record<string, string> = {
-        always: 'Always',
-        intelligent: 'Smart'
+        always: t('instructionGlobalCreate.loadMode.alwaysLabel'),
+        intelligent: t('instructionGlobalCreate.loadMode.smartLabel')
     }
     return labels[mode] || mode
 }
@@ -1327,8 +1322,8 @@ const filteredMentionableOptions = computed(() => {
 // Labels are user-facing; backend enum values unchanged.
 const statusOptions = computed(() => {
     return [
-        { label: 'Active', value: 'published' },
-        { label: 'Inactive', value: 'draft' }
+        { label: t('instructionGlobalCreate.status.active'), value: 'published' },
+        { label: t('instructionGlobalCreate.status.inactive'), value: 'draft' }
     ]
 })
 
@@ -1344,12 +1339,12 @@ const isPendingReview = computed(() => {
 
 // Display text for the currently-selected status badge.
 const getCurrentStatusDisplayText = () => {
-    if (isPendingReview.value) return 'Pending review'
+    if (isPendingReview.value) return t('instructionGlobalCreate.status.pendingReview')
     const currentStatus = instructionForm.value.status
     const statusMap: Record<string, string> = {
-        draft: 'Inactive',
-        published: 'Active',
-        archived: 'Archived'
+        draft: t('instructionGlobalCreate.status.inactive'),
+        published: t('instructionGlobalCreate.status.active'),
+        archived: t('instructionGlobalCreate.status.archived')
     }
     return statusMap[currentStatus] || formatStatus(currentStatus)
 }
@@ -1373,8 +1368,8 @@ const enhanceInstruction = async () => {
     } catch (error) {
         console.error('Error enhancing instruction:', error)
         toast.add({
-            title: 'Error',
-            description: 'Failed to enhance instruction',
+            title: t('instructionGlobalCreate.toast.errorTitle'),
+            description: t('instructionGlobalCreate.toast.enhanceFailed'),
             color: 'red'
         })
     } finally {
@@ -1383,12 +1378,12 @@ const enhanceInstruction = async () => {
 }
 
 // Options for dropdowns
-const categoryOptions = [
-    { label: 'General', value: 'general' },
-    { label: 'Code Generation', value: 'code_gen' },
-    { label: 'System', value: 'system' },
-    { label: 'Visualizations', value: 'visualizations' }
-]
+const categoryOptions = computed(() => [
+    { label: t('instructionGlobalCreate.category.general'), value: 'general' },
+    { label: t('instructionGlobalCreate.category.codeGen'), value: 'code_gen' },
+    { label: t('instructionGlobalCreate.category.system'), value: 'system' },
+    { label: t('instructionGlobalCreate.category.visualizations'), value: 'visualizations' }
+])
 
 // Data source methods
 const fetchDataSources = async () => {
@@ -1428,21 +1423,21 @@ const handleDataSourceToggle = (dataSourceId: string) => {
 // Helper functions
 const formatStatus = (status: string) => {
     const statusMap = {
-        draft: 'Inactive',
-        published: 'Active',
-        archived: 'Archived'
+        draft: t('instructionGlobalCreate.status.inactive'),
+        published: t('instructionGlobalCreate.status.active'),
+        archived: t('instructionGlobalCreate.status.archived')
     }
     return statusMap[status as keyof typeof statusMap] || status
 }
 
 const formatCategory = (category: string) => {
     const categoryMap = {
-        code_gen: 'Code Generation',
-        data_modeling: 'Data Modeling',
-        general: 'General',
-        system: 'System',
-        visualizations: 'Visualizations',
-        dashboard: 'Dashboard'
+        code_gen: t('instructionGlobalCreate.category.codeGen'),
+        data_modeling: t('instructionGlobalCreate.category.dataModeling'),
+        general: t('instructionGlobalCreate.category.general'),
+        system: t('instructionGlobalCreate.category.system'),
+        visualizations: t('instructionGlobalCreate.category.visualizations'),
+        dashboard: t('instructionGlobalCreate.category.dashboard')
     }
     return categoryMap[category as keyof typeof categoryMap] || category
 }
@@ -1493,12 +1488,12 @@ const getCreatorDisplayName = () => {
     const userName = user?.name || user?.email
 
     if (sourceType === 'ai') {
-        return userName ? `AI (for ${userName})` : 'AI'
+        return userName ? t('instructionGlobalCreate.creator.aiFor', { name: userName }) : t('instructionGlobalCreate.creator.ai')
     }
     if (sourceType === 'git') {
-        return userName ? `Git Sync (${userName})` : 'Git Sync'
+        return userName ? t('instructionGlobalCreate.creator.gitSyncFor', { name: userName }) : t('instructionGlobalCreate.creator.gitSync')
     }
-    return userName || 'Unknown'
+    return userName || t('instructionGlobalCreate.creator.unknown')
 }
 
 const getRefIcon = (type: string) => {
@@ -1708,11 +1703,11 @@ const doSubmit = async () => {
 
         if (response.status.value === 'success') {
             toast.add({
-                title: 'Success',
-                description: `Instruction ${isEditing.value ? 'updated' : 'created'} successfully`,
+                title: t('instructionGlobalCreate.toast.successTitle'),
+                description: isEditing.value ? t('instructionGlobalCreate.toast.updateSuccess') : t('instructionGlobalCreate.toast.createSuccess'),
                 color: 'green'
             })
-            
+
             emit('instructionSaved', response.data.value)
             resetForm()
         } else {
@@ -1721,8 +1716,8 @@ const doSubmit = async () => {
     } catch (error) {
         console.error('Error saving instruction:', error)
         toast.add({
-            title: 'Error',
-            description: `Failed to ${isEditing.value ? 'update' : 'create'} instruction`,
+            title: t('instructionGlobalCreate.toast.errorTitle'),
+            description: isEditing.value ? t('instructionGlobalCreate.toast.updateFailed') : t('instructionGlobalCreate.toast.createFailed'),
             color: 'red'
         })
     } finally {
@@ -1803,11 +1798,11 @@ const doDelete = async () => {
         
         if (response.status.value === 'success') {
             toast.add({
-                title: 'Success',
-                description: 'Instruction deleted successfully',
+                title: t('instructionGlobalCreate.toast.successTitle'),
+                description: t('instructionGlobalCreate.toast.deleteSuccess'),
                 color: 'green'
             })
-            
+
             emit('instructionSaved', { deleted: true, id: props.instruction.id })
             resetForm()
         } else {
@@ -1816,8 +1811,8 @@ const doDelete = async () => {
     } catch (error) {
         console.error('Error deleting instruction:', error)
         toast.add({
-            title: 'Error',
-            description: 'Failed to delete instruction',
+            title: t('instructionGlobalCreate.toast.errorTitle'),
+            description: t('instructionGlobalCreate.toast.deleteFailed'),
             color: 'red'
         })
     } finally {

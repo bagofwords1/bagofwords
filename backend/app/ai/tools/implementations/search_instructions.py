@@ -251,10 +251,22 @@ class SearchInstructionsTool(Tool):
                 f"query={queries} category='{data.category or ''}'"
             )
 
+            output_dict = output.model_dump()
+            output_dict["related_instructions"] = [
+                {
+                    "id": i.id,
+                    "title": i.title,
+                    "category": i.category,
+                    "load_mode": i.load_mode,
+                    "source_type": "search",
+                }
+                for i in search_items
+            ]
+
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
-                    "output": output.model_dump(),
+                    "output": output_dict,
                     "observation": {
                         "summary": summary,
                         "artifacts": [

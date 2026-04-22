@@ -45,6 +45,10 @@
 							:queryList="queryList"
 							:queryExecutions="summaryQueries"
 							:trainingInstructions="summaryInstructions"
+						:pendingTrainingBuild="pendingTrainingBuild"
+						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
+						@approveTrainingBuild="onApproveTrainingBuild"
+						@discardTrainingBuild="onDiscardTrainingBuild"
 							@editScheduledPrompt="editScheduledPrompt"
 							@openArtifact="handleOpenArtifact"
 							@scrollToMessage="scrollToMessage"
@@ -152,7 +156,7 @@
 							class="flex rounded-lg p-1"
 							:class="m.role === 'user' ? 'justify-end' : 'justify-start'"
 						>
-							<!-- User message (right-aligned bubble with subtle background) -->
+							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<!-- User message bubble -->
@@ -448,6 +452,10 @@
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
 					:trainingInstructions="summaryInstructions"
+						:pendingTrainingBuild="pendingTrainingBuild"
+						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
+						@approveTrainingBuild="onApproveTrainingBuild"
+						@discardTrainingBuild="onDiscardTrainingBuild"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					@submitCompletion="onSubmitCompletion"
@@ -538,6 +546,10 @@
 						:queryList="queryList"
 						:queryExecutions="summaryQueries"
 						:trainingInstructions="summaryInstructions"
+						:pendingTrainingBuild="pendingTrainingBuild"
+						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
+						@approveTrainingBuild="onApproveTrainingBuild"
+						@discardTrainingBuild="onDiscardTrainingBuild"
 						:showClose="true"
 						@close="toggleSplitScreen"
 						@editScheduledPrompt="editScheduledPrompt"
@@ -738,7 +750,9 @@ interface ChatMessage {
 	scheduled_prompt_id?: string | null
 }
 
-const { t } = useI18n()
+const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
+const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
 const report_id = (route.params.id as string) || ''
 
@@ -824,6 +838,74 @@ const textWidgetsIds = ref<string[]>([])
 // Report summary (queries + instructions independent of message pagination)
 const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
+const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
+const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
+
+async function loadPendingBuildDiff() {
+    const build = pendingTrainingBuild.value
+    if (!build) { pendingTrainingBuildDiff.value = null; return }
+    try {
+        const mainRes = await useMyFetch<any>('/builds/main')
+        const mainId = mainRes?.data?.value?.id
+        if (!mainId || mainId === build.id) {
+            pendingTrainingBuildDiff.value = { added_lines: 0, removed_lines: 0 }
+            return
+        }
+        const { data } = await useMyFetch<any>(`/builds/${build.id}/diff/details?compare_to=${mainId}`)
+        const items = (data?.value?.items || []) as any[]
+        let added = 0, removed = 0
+        for (const it of items) {
+            const prev = (it.previous_text || '').split('\n')
+            const next = (it.text || '').split('\n')
+            const prevSet = new Set(prev)
+            const nextSet = new Set(next)
+            if (it.change_type === 'added') { for (const l of next) if (!prevSet.has(l)) added++ }
+            else if (it.change_type === 'removed') { for (const l of prev) if (!nextSet.has(l)) removed++ }
+            else {
+                for (const l of next) if (!prevSet.has(l)) added++
+                for (const l of prev) if (!nextSet.has(l)) removed++
+            }
+        }
+        pendingTrainingBuildDiff.value = { added_lines: added, removed_lines: removed }
+    } catch {
+        pendingTrainingBuildDiff.value = null
+    }
+}
+
+async function onApproveTrainingBuild(payload: { buildId: string; instructionIds: string[] } | string) {
+    const buildId = typeof payload === 'string' ? payload : payload?.buildId
+    const instructionIds = typeof payload === 'string' ? undefined : payload?.instructionIds
+    if (!buildId) return
+    try {
+        const body: any = {}
+        if (instructionIds && instructionIds.length > 0) body.instruction_ids = instructionIds
+        const { error } = await useMyFetch(`/builds/${buildId}/publish`, { method: 'POST', body })
+        if (error.value) throw error.value
+        pendingTrainingBuild.value = null
+        pendingTrainingBuildDiff.value = null
+        await loadReportSummary()
+        agentPanelRef.value?.refreshInstructions?.()
+        mobileAgentPanelRef.value?.refreshInstructions?.()
+    } catch (e) {
+        console.error('Failed to approve training build', e)
+    }
+}
+
+async function onDiscardTrainingBuild(buildId: string) {
+    if (!buildId) return
+    if (!confirm('Discard all staged instruction changes from this session?')) return
+    try {
+        const { error } = await useMyFetch(`/builds/${buildId}/reject`, {
+            method: 'POST',
+            body: { reason: 'discarded from training session pill' },
+        })
+        if (error.value) throw error.value
+        pendingTrainingBuild.value = null
+        await loadReportSummary()
+    } catch (e) {
+        console.error('Failed to discard training build', e)
+    }
+}
 
 // Scheduled prompts state
 const scheduledPrompts = ref<any[]>([])
@@ -961,10 +1043,22 @@ async function loadReportSummary() {
         const { data } = await useMyFetch(`/reports/${report_id}/summary`)
         const res = data.value as any
         summaryQueries.value = res?.queries || []
-        summaryInstructions.value = res?.instructions || []
+        summaryInstructions.value = (res?.instructions || []).map((i: any) => ({
+            instructionId: i.instruction_id,
+            title: i.title,
+            category: i.category,
+            isEdit: i.is_edit,
+            lineCount: i.line_count,
+            messageId: i.message_id,
+            buildId: i.build_id,
+        }))
+        pendingTrainingBuild.value = res?.pending_training_build || null
+        await loadPendingBuildDiff()
     } catch {
         summaryQueries.value = []
         summaryInstructions.value = []
+        pendingTrainingBuild.value = null
+        pendingTrainingBuildDiff.value = null
     }
 }
 
@@ -2466,7 +2560,9 @@ function handleResize(e: MouseEvent) {
 	const minWidth = 280
 	const maxWidth = window.innerWidth * 0.8
 	const dx = e.clientX - initialMouseX.value
-	const newWidth = initialPanelWidth.value + dx
+	// Under RTL the chat panel is visually on the right and the resizer sits
+	// on its right edge, so a rightward drag shrinks it.
+	const newWidth = initialPanelWidth.value + (isRtl.value ? -dx : dx)
 	leftPanelWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
 	// Trigger scroll to bottom during live resize to maintain scroll position
     safeScrollToBottom()

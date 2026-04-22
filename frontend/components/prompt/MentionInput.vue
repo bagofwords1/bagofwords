@@ -160,7 +160,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
 
-const { t, locale: i18nLocale } = useI18n()
+const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 
 interface MentionItem {
   id: string

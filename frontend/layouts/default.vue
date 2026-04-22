@@ -309,7 +309,7 @@
   // Collapsed sidebar tooltips need to pop INTO the viewport, not out of it.
   // In LTR the sidebar is on the left so tooltips go right; in RTL the
   // sidebar is on the right so tooltips go left.
-  const { locale: i18nLocale } = useI18n()
+  const { locale: i18nLocale } = useI18n({ useScope: 'global' })
   const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
   const tooltipPlacement = computed<'left' | 'right'>(() =>
     RTL_LOCALES.has(i18nLocale.value) ? 'left' : 'right'
