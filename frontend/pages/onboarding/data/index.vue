@@ -21,7 +21,7 @@
                     <div class="p-1 relative">
                       <DataSourceIcon class="h-5" :type="ds.type" />
                       <!-- Lock icon overlay for enterprise -->
-                      <div v-if="isLocked(ds)" class="absolute -top-1 -right-1">
+                      <div v-if="isLocked(ds)" class="absolute -top-1 -end-1">
                         <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                           <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
                         </svg>
@@ -33,7 +33,7 @@
                     <!-- Enterprise badge -->
                     <div v-if="isLocked(ds)" class="mt-1">
                       <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
-                        Enterprise
+                        {{ $t('onboarding.data.enterprise') }}
                       </span>
                     </div>
                   </div>
@@ -42,7 +42,7 @@
 
               <!-- Sample databases -->
               <div v-if="uninstalledDemos.length > 0" class="mt-6">
-                <div class="text-xs text-gray-400 mb-2">Or try a sample database:</div>
+                <div class="text-xs text-gray-400 mb-2">{{ $t('onboarding.data.orTry') }}</div>
                 <div class="flex flex-wrap gap-2">
                   <button
                     v-for="demo in uninstalledDemos"
@@ -54,7 +54,7 @@
                     <Spinner v-if="installingDemo === demo.id" class="h-3" />
                     <DataSourceIcon v-else class="h-4" :type="demo.type" />
                     {{ demo.name }}
-                    <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+                    <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">{{ $t('onboarding.data.sample') }}</span>
                   </button>
                 </div>
               </div>
@@ -85,7 +85,7 @@
         </template>
       </OnboardingView>
       <div class="text-center mt-4">
-        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">Skip onboarding</button>
+        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">{{ $t('onboarding.skip') }}</button>
       </div>
     </div>
   </div>
@@ -100,6 +100,7 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { updateOnboarding } = useOnboarding()
 const router = useRouter()
+const { t } = useI18n()
 async function skipForNow() { await updateOnboarding({ dismissed: true }); router.push('/') }
 
 const { isLicensed } = useEnterprise()
@@ -117,7 +118,7 @@ const isLocked = (ds: any) => ds.requires_license === 'enterprise' && !isLicense
 async function getAvailableDataSources() {
   const { data, error } = await useMyFetch('/available_data_sources', { method: 'GET' })
   if (error.value) {
-    throw new Error('Could not fetch available data sources')
+    throw new Error(t('onboarding.data.errorAvailable'))
   }
   available_ds.value = (data.value as any[]) || []
 }

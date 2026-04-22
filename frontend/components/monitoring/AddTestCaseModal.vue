@@ -48,7 +48,7 @@
                 </div>
             </template>
 
-            <div class="max-h-[62vh] overflow-hidden pr-1">
+            <div class="max-h-[62vh] overflow-hidden pe-1">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[420px]">
                 <!-- Left: Prompt -->
                 <div class="border border-gray-200 rounded-lg overflow-hidden">
@@ -82,7 +82,7 @@
                         <template v-else>
                           <div class="flex items-center gap-2">
                               <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
-                              <div class="text-[11px] text-gray-500 ml-auto" v-if="catalogLoading">Loading catalog…</div>
+                              <div class="text-[11px] text-gray-500 ms-auto" v-if="catalogLoading">Loading catalog…</div>
                           </div>
                           <!-- Category list -->
                           <div class="space-y-3">
@@ -108,7 +108,7 @@
                                   </template>
                                 </USelectMenu>
                               </div>
-                              <div class="ml-auto">
+                              <div class="ms-auto">
                                 <UButton color="gray" variant="ghost" icon="i-heroicons-trash" @click="removeCategory(cat.key)" />
                               </div>
                             </div>
@@ -144,20 +144,20 @@
                                   <UTooltip :text="judgeSelectedModelLabel(cat)" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
                                     <button class="text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center border border-gray-200">
                                       <Icon name="heroicons-cpu-chip" class="w-4 h-4" />
-                                      <span class="ml-1 truncate max-w-[240px] text-left">{{ judgeSelectedModelLabel(cat) }}</span>
+                                      <span class="ms-1 truncate max-w-[240px] text-start">{{ judgeSelectedModelLabel(cat) }}</span>
                                     </button>
                                   </UTooltip>
                                   <template #panel="{ close }">
                                     <div class="p-2 text-xs max-h-64 overflow-y-auto w-[260px]">
                                       <div v-for="m in judgeModels" :key="m.id || m.model_id" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center" @click="() => { setJudgeModel(cat, m); close(); }">
-                                        <div class="mr-2">
+                                        <div class="me-2">
                                           <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                                         </div>
-                                        <div class="flex flex-col flex-1 text-left min-w-0">
+                                        <div class="flex flex-col flex-1 text-start min-w-0">
                                           <span class="font-medium truncate">{{ m.name || m.model_id }}</span>
                                           <span class="text-gray-500 text-[10px] truncate">{{ m.provider?.name || m.provider_name || '' }}</span>
                                         </div>
-                                        <Icon v-if="(getJudgeRule(cat, 'model_id').matcher as any).value === (m.model_id || m.value)" name="heroicons-check" class="w-4 h-4 text-blue-500 ml-2 flex-shrink-0" />
+                                        <Icon v-if="(getJudgeRule(cat, 'model_id').matcher as any).value === (m.model_id || m.value)" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                                       </div>
                                     </div>
                                   </template>

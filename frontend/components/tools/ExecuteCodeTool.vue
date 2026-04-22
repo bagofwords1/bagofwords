@@ -1,11 +1,11 @@
 <template>
   <div class="mb-2">
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
 
       <!-- Status icon -->
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
+      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
       
       <!-- Action label with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer">{{ actionLabel }}
@@ -13,15 +13,15 @@
       <span v-else class="text-gray-700">{{ actionLabel }}</span>
       
       <!-- Row count if available -->
-      <span v-if="rowCount" class="ml-2 text-gray-400">{{ rowCount }} rows</span>
+      <span v-if="rowCount" class="ms-2 text-gray-400">{{ rowCount }} rows</span>
       
       <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ml-2 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="showDuration" class="ms-2 text-gray-400">{{ formatDuration }}</span>
     </div>
     
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed" class="mt-1 ml-4">
+      <div v-if="!isCollapsed" class="mt-1 ms-4">
         <!-- Minimalistic code display -->
         <div v-if="codeContent" class="text-xs mb-2">
           <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto">
@@ -30,18 +30,18 @@
           
           <!-- Run status below code -->
           <div class="mt-2 text-xs bg-gray-50 rounded-lg px-4 py-3 text-gray-500 flex items-center">
-            <span v-if="status === 'running'" class="tool-shimmer">Running...</span>
+            <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.generic.running') }}</span>
             <span v-else-if="status === 'success'" class="flex items-center">
               <span class="text-green-500 flex items-center">
-                <Icon name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-                Success</span>
-              <span class="ml-2" v-if="successDetails"> • {{ successDetails }}</span>
+                <Icon name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+                {{ $t('tools.common.success') }}</span>
+              <span class="ms-2" v-if="successDetails"> • {{ successDetails }}</span>
             </span>
             <span v-else-if="status === 'error'" class="flex items-center">
               <span class="text-red-500 flex items-center">
-                <Icon name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
-                Failed</span>
-              <span class="ml-2" v-if="statusReason"> • {{ statusReason }}</span>
+                <Icon name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
+                {{ $t('tools.common.failed') }}</span>
+              <span class="ms-2" v-if="statusReason"> • {{ statusReason }}</span>
             </span>
             <span v-else>Preparing...</span>
           </div>

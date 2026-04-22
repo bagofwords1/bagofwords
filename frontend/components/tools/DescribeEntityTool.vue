@@ -3,15 +3,15 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleDetails">
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1 text-gray-400" />
+        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-gray-400" />
           Loading from catalog: "{{ entityTitle }}"…
         </span>
         <span v-else class="flex items-center" :class="hasErrors ? 'text-red-600' : 'text-gray-700'">
-          <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 mr-1 text-red-500" />
-          <Icon v-else-if="isActionMode && isSuccess" name="heroicons-check" class="w-3 h-3 mr-1 text-green-500" />
-          <Icon v-else name="heroicons-cube" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
+          <Icon v-else-if="isActionMode && isSuccess" name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
+          <Icon v-else name="heroicons-cube" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">{{ statusLabel }}</span>
         </span>
       </div>
@@ -19,7 +19,7 @@
 
     <!-- Entity Details Section (collapsible) -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed && entityInfo" class="ml-4 text-xs text-gray-600 space-y-2">
+      <div v-if="!detailsCollapsed && entityInfo" class="ms-4 text-xs text-gray-600 space-y-2">
         <!-- Description -->
         <div v-if="entityInfo.description" class="text-gray-500 leading-relaxed">
           {{ entityInfo.description }}
@@ -31,28 +31,28 @@
             class="flex items-center text-gray-500 cursor-pointer hover:text-gray-700"
             @click.stop="toggleProfile"
           >
-            <Icon :name="profileCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1" />
-            <Icon name="heroicons-table-cells" class="w-3 h-3 mr-1" />
-            <span>Data Profile</span>
-            <span class="ml-2 text-gray-400">{{ dataProfile.row_count?.toLocaleString() || 0 }} rows, {{ dataProfile.column_count || 0 }} columns</span>
+            <Icon :name="profileCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
+            <Icon name="heroicons-table-cells" class="w-3 h-3 me-1" />
+            <span>{{ $t('tools.describeEntity.dataProfile') }}</span>
+            <span class="ms-2 text-gray-400">{{ dataProfile.row_count?.toLocaleString() || 0 }} rows, {{ dataProfile.column_count || 0 }} columns</span>
           </div>
           <Transition name="fade">
-            <div v-if="!profileCollapsed" class="mt-2 ml-4">
+            <div v-if="!profileCollapsed" class="mt-2 ms-4">
               <!-- Columns table -->
               <table v-if="profileColumns.length" class="min-w-0 text-[11px]">
                 <thead class="text-gray-400">
                   <tr>
-                    <th class="text-left pr-4 font-normal">Column</th>
-                    <th class="text-left pr-4 font-normal">Type</th>
-                    <th class="text-left pr-4 font-normal">Unique</th>
-                    <th class="text-left font-normal">Nulls</th>
+                    <th class="text-start pe-4 font-normal">Column</th>
+                    <th class="text-start pe-4 font-normal">Type</th>
+                    <th class="text-start pe-4 font-normal">Unique</th>
+                    <th class="text-start font-normal">Nulls</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(col, idx) in profileColumns.slice(0, 10)" :key="idx">
-                    <td class="pr-4 text-gray-600">{{ col.name }}</td>
-                    <td class="pr-4 text-gray-400">{{ col.dtype || '—' }}</td>
-                    <td class="pr-4 text-gray-400">{{ col.unique_count ?? '—' }}</td>
+                    <td class="pe-4 text-gray-600">{{ col.name }}</td>
+                    <td class="pe-4 text-gray-400">{{ col.dtype || '—' }}</td>
+                    <td class="pe-4 text-gray-400">{{ col.unique_count ?? '—' }}</td>
                     <td class="text-gray-400">{{ col.null_count ?? '—' }}</td>
                   </tr>
                   <tr v-if="profileColumns.length > 10">
@@ -75,12 +75,12 @@
             class="flex items-center text-gray-500 cursor-pointer hover:text-gray-700"
             @click.stop="toggleCode"
           >
-            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1" />
-            <Icon name="heroicons-code-bracket" class="w-3 h-3 mr-1" />
-            <span>Code</span>
+            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
+            <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
+            <span>{{ $t('tools.common.code') }}</span>
           </div>
           <Transition name="fade">
-            <div v-if="!codeCollapsed" class="mt-1 ml-4">
+            <div v-if="!codeCollapsed" class="mt-1 ms-4">
               <pre class="bg-gray-50 rounded px-3 py-2 text-[11px] text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ entityCode }}</pre>
             </div>
           </Transition>
@@ -88,7 +88,7 @@
 
         <!-- Execution info -->
         <div v-if="wasRerun" class="mt-2 flex items-center text-gray-400">
-          <Icon name="heroicons-arrow-path" class="w-3 h-3 mr-1" />
+          <Icon name="heroicons-arrow-path" class="w-3 h-3 me-1" />
           <span>Re-executed with fresh data</span>
         </div>
 

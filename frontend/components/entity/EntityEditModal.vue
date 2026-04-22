@@ -6,10 +6,10 @@
         <button class="text-xs text-gray-500 hover:text-gray-700" @click="close">Close</button>
       </div>
       <div class="flex-1 flex overflow-hidden min-h-0">
-        <aside class="w-32 bg-white border-r">
+        <aside class="w-32 bg-white border-e">
           <nav class="p-2">
-            <button class="w-full text-left px-2 py-1.5 text-xs rounded mb-1 transition-colors" :class="editTab==='details' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'" @click="editTab='details'">Details</button>
-            <button class="w-full text-left px-2 py-1.5 text-xs rounded transition-colors" :class="editTab==='code' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'" @click="editTab='code'">Code</button>
+            <button class="w-full text-start px-2 py-1.5 text-xs rounded mb-1 transition-colors" :class="editTab==='details' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'" @click="editTab='details'">Details</button>
+            <button class="w-full text-start px-2 py-1.5 text-xs rounded transition-colors" :class="editTab==='code' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'" @click="editTab='code'">Code</button>
           </nav>
         </aside>
         <section class="flex-1 flex flex-col overflow-hidden min-h-0">
@@ -62,7 +62,7 @@
                     <table class="min-w-full text-xs">
                       <thead class="bg-gray-50 sticky top-0 border-b">
                         <tr>
-                          <th v-for="col in codePreview.columns" :key="col.field" class="px-3 py-2 text-left text-xs font-medium text-gray-700">
+                          <th v-for="col in codePreview.columns" :key="col.field" class="px-3 py-2 text-start text-xs font-medium text-gray-700">
                             {{ col.headerName || col.field }}
                           </th>
                         </tr>

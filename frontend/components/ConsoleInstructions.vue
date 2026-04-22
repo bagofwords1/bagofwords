@@ -3,8 +3,8 @@
         <!-- Optional page header -->
         <div v-if="showHeader" class="flex items-start justify-between mb-6 shrink-0">
             <div>
-                <h1 class="text-lg font-semibold">Instructions</h1>
-                <p class="mt-2 text-gray-500">Create and manage your instructions</p>
+                <h1 class="text-lg font-semibold">{{ $t('consoleInstructions.title') }}</h1>
+                <p class="mt-2 text-gray-500">{{ $t('consoleInstructions.subtitle') }}</p>
             </div>
             <div class="flex items-center gap-2 mt-1">
                 <!-- AI Suggestions button - only for users who can modify settings -->
@@ -21,7 +21,7 @@
                     <span v-else>
                         <UIcon name="i-heroicons-bolt-slash" class="w-3 h-3" />
                     </span>
-                    AI Suggestions
+                    {{ $t('consoleInstructions.aiSuggestions') }}
                 </UButton>
 
                 <!-- Pending Review button (only show when there is something pending) -->
@@ -31,7 +31,7 @@
                         size="xs"
                         @click="showSuggestionsModal = true"
                     >
-                        Pending Review
+                        {{ $t('consoleInstructions.pendingReview') }}
                     </UButton>
                 </UChip>
 
@@ -131,8 +131,8 @@
                 :total-items="inst.total.value"
                 :total-pages="inst.pages.value"
                 :visible-pages="inst.visiblePages.value"
-                empty-title="No instructions"
-                empty-message="No instructions found. Create one to get started."
+                :empty-title="$t('consoleInstructions.emptyTitle')"
+                :empty-message="$t('consoleInstructions.emptyMessage')"
                 @click="openInstruction"
                 @page-change="inst.setPage"
                 @toggle-select="inst.toggleSelection"
@@ -214,6 +214,7 @@ withDefaults(defineProps<{
 
 // Domain filtering
 const { selectedDomains } = useDomain()
+const { t } = useI18n()
 
 // Wrapper for fetchBuilds to avoid hoisting issues
 const refreshBuilds = () => fetchBuilds()
@@ -285,7 +286,7 @@ const canViewBuilds = computed(() => useCan('view_builds'))
 // one data source (backend list/approve/reject already enforce per-DS access).
 const canApproveSuggestions = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canModifySettings = computed(() => useCan('modify_settings'))
-const addButtonLabel = computed(() => canCreate.value ? 'Add Instruction' : 'Suggest')
+const addButtonLabel = computed(() => canCreate.value ? t('consoleInstructions.addInstruction') : t('consoleInstructions.suggest'))
 
 const hasGitConnections = computed(() => gitConnectedCount.value > 0)
 
@@ -424,10 +425,11 @@ const handleLabelsChanged = () => {
 const handleBulkDelete = async () => {
     // Show confirmation before deleting
     const count = inst.selectedCount.value
-    const confirmed = window.confirm(
-        `Are you sure you want to delete ${count} instruction${count !== 1 ? 's' : ''}? This action cannot be undone.`
-    )
-    
+    const msg = count === 1
+        ? t('consoleInstructions.confirmDeleteOne')
+        : t('consoleInstructions.confirmDeleteMany', { count })
+    const confirmed = window.confirm(msg)
+
     if (confirmed) {
         await inst.bulkDelete()
     }

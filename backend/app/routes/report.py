@@ -266,6 +266,7 @@ async def notify_report(
     # Build share_url for schedule type if not provided
     share_url = payload.share_url or f"{app_settings.bow_config.base_url}/r/{report.id}"
 
+    from app.dependencies import _locale_from_org
     response = await notification_service.dispatch(
         notification_type=payload.type,
         channels=payload.channels,
@@ -275,6 +276,7 @@ async def notify_report(
         sender_name=current_user.name or current_user.email,
         message=payload.message,
         report_id=str(report.id),
+        locale=_locale_from_org(organization),
     )
 
     # Audit log

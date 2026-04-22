@@ -2,13 +2,13 @@
 
     <header class="sticky top-0 bg-white z-10 flex flex-col border-gray-200">
         <!-- Top row: back, title, share, dashboard toggle -->
-        <div class="flex flex-row pt-1 h-[40px] pb-1 pr-2 items-center">
+        <div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
             <GoBackChevron />
-            <h1 class="text-sm md:text-left text-center w-[500px]">
+            <h1 class="text-sm md:text-start text-center w-[500px]">
                 <span class="font-semibold text-sm">
                     <input
                         type="text"
-                        class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-left w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]"
+                        class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-start w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]"
                         v-if="report"
                         v-model="localTitle"
                         :disabled="isSaving"
@@ -19,12 +19,12 @@
                     <span v-else></span>
                 </span>
             </h1>
-            <div class="ml-auto flex items-center gap-2">
+            <div class="ms-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" title="Share Conversation" />
-                <UTooltip :text="isSplitScreen ? 'Close Sidebar' : 'Open Sidebar'">
+                <UTooltip :text="isSplitScreen ? t('reportView.closeSidebar') : t('reportView.openSidebar')">
                     <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 items-center gap-1.5">
                         <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500" />
-                        <span v-if="!isSplitScreen" class="text-xs text-gray-500">Sidebar</span>
+                        <span v-if="!isSplitScreen" class="text-xs text-gray-500">{{ t('reportView.sidebar') }}</span>
                     </button>
                 </UTooltip>
             </div>
@@ -46,7 +46,7 @@
             <button
                 v-if="mobileView !== 'chat'"
                 @click="$emit('update:mobileView', 'chat')"
-                class="ml-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                class="ms-auto p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:x-mark" class="w-4 h-4" />
             </button>
@@ -69,13 +69,14 @@ const props = defineProps<{
 
 defineEmits(['toggleSplitScreen', 'stop', 'update:mobileView'])
 
-const mobileTabs = [
-    { value: 'chat', label: 'Chat', icon: 'heroicons:chat-bubble-left-right' },
-    { value: 'summary', label: 'Summary', icon: 'heroicons:queue-list' },
-    { value: 'dashboard', label: 'Dashboard', icon: 'heroicons:chart-bar-square' },
-    { value: 'agent', label: 'Agent', icon: 'heroicons:cog-6-tooth' },
-]
+const mobileTabs = computed(() => [
+    { value: 'chat', label: t('reportView.tabChat'), icon: 'heroicons:chat-bubble-left-right' },
+    { value: 'summary', label: t('reportView.tabSummary'), icon: 'heroicons:queue-list' },
+    { value: 'dashboard', label: t('reportView.tabDashboard'), icon: 'heroicons:chart-bar-square' },
+    { value: 'agent', label: t('reportView.tabAgent'), icon: 'heroicons:cog-6-tooth' },
+])
 
+const { t } = useI18n()
 const route = useRoute()
 const report_id = route.params.id
 const reportTitleInput = ref<HTMLInputElement | null>(null)

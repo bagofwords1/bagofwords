@@ -28,7 +28,7 @@
             <!-- Left: Back to app (absolute) -->
             <a
                 href="/"
-                class="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                class="absolute start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5" />
                 <span>Back to app</span>
@@ -71,7 +71,7 @@
             </div>
 
             <!-- Right: Fork + Edit Report + Close (absolute) -->
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            <div class="absolute end-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <!-- Fork button -->
                 <button
                     v-if="forkEligibility?.can_fork"
@@ -110,7 +110,7 @@
         <a v-if="report.general?.bow_credit !== false"
            href="https://bagofwords.com"
            target="_blank"
-           class="fixed z-[1000] bottom-5 right-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs hover:bg-gray-800 transition-colors">
+           class="fixed z-[1000] bottom-5 end-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs hover:bg-gray-800 transition-colors">
             Made with <span class="font-bold text-white">Bag of words</span>
         </a>
 

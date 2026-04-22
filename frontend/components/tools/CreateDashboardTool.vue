@@ -3,16 +3,16 @@
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
 
       <!-- Status icon -->
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
+      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
       
       <!-- Action label with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer inline-flex items-center">
-        <Spinner class="w-3 h-3 mr-1.5 text-gray-400" />
-        Creating dashboard
+        <Spinner class="w-3 h-3 me-1.5 text-gray-400" />
+        {{ $t('tools.createDashboard.creating') }}
       </span>
-      <span v-else-if="status === 'success'" class="text-gray-700">Dashboard created</span>
-      <span v-else class="text-gray-700">Create dashboard</span>
+      <span v-else-if="status === 'success'" class="text-gray-700">{{ $t('tools.createDashboard.created') }}</span>
+      <span v-else class="text-gray-700">{{ $t('tools.createDashboard.create') }}</span>
   </div>
 </div>
 </template>

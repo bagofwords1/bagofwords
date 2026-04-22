@@ -1,19 +1,19 @@
 <template>
   <UModal v-model="open" :ui="{ width: 'sm:max-w-lg' }">
     <div class="p-5 relative">
-      <button @click="emit('update:modelValue', false)" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
+      <button @click="emit('update:modelValue', false)" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
         <Icon name="heroicons:x-mark" class="w-5 h-5" />
       </button>
 
       <div class="mb-4">
         <h1 class="text-base font-semibold flex items-center">
-            <DataSourceIcon :type="connectionType" class="h-4 mr-2" />
-            Connect {{ ds?.name }}</h1>
-        <p class="mt-1 text-xs text-gray-500">Provide your credentials to enable access for you.</p>
+            <DataSourceIcon :type="connectionType" class="h-4 me-2" />
+            {{ $t('data.connectNamed', { name: ds?.name }) }}</h1>
+        <p class="mt-1 text-xs text-gray-500">{{ $t('data.provideCredentials') }}</p>
       </div>
 
       <div v-if="authOptions.length > 1" class="mb-3">
-        <label class="text-xs text-gray-600">Authentication Method</label>
+        <label class="text-xs text-gray-600">{{ $t('data.authMethod') }}</label>
         <USelectMenu v-model="authMode" :options="authOptions" option-attribute="label" value-attribute="value" />
       </div>
 
@@ -27,7 +27,7 @@
           :loading="oauthLoading"
           @click="onOAuthSignIn"
         >
-          {{ currentAuthTitle || 'Sign in' }}
+          {{ currentAuthTitle || $t('data.signIn') }}
         </UButton>
       </div>
 
@@ -45,17 +45,17 @@
         </div>
 
         <div class="flex justify-between mt-5">
-          <UButton size="xs" color="gray" variant="soft" :loading="testing" @click="onTest">Test connection</UButton>
+          <UButton size="xs" color="gray" variant="soft" :loading="testing" @click="onTest">{{ $t('data.testConnection') }}</UButton>
           <div class="space-x-2">
-            <UButton size="xs" color="gray" variant="soft" @click="emit('update:modelValue', false)">Cancel</UButton>
-            <UButton size="xs" color="blue" variant="solid" :loading="saving" @click="onSave">Save</UButton>
+            <UButton size="xs" color="gray" variant="soft" @click="emit('update:modelValue', false)">{{ $t('data.cancel') }}</UButton>
+            <UButton size="xs" color="blue" variant="solid" :loading="saving" @click="onSave">{{ $t('data.save') }}</UButton>
           </div>
         </div>
       </template>
 
       <div v-if="testResult" class="mt-3 text-xs">
         <span :class="testResult.success ? 'text-green-600' : 'text-red-600'">
-          {{ testResult.success ? 'Connection successful' : 'Connection failed' }}
+          {{ testResult.success ? $t('data.connectedSuccess') : $t('data.connectionFailed') }}
         </span>
         <span v-if="testResult.message" class="text-gray-500"> - {{ testResult.message }}</span>
       </div>
@@ -69,6 +69,8 @@ import { computed, watch, ref } from 'vue'
 
 const props = defineProps<{ modelValue: boolean, dataSource: any }>()
 const emit = defineEmits(['update:modelValue', 'saved'])
+
+const { t } = useI18n()
 
 const open = computed({
   get: () => props.modelValue,
@@ -128,13 +130,13 @@ watch(authMode, (v) => {
 const isOAuthMode = computed(() => authMode.value === 'oauth')
 const currentAuthTitle = computed(() => {
   const opt = authOptions.value.find(o => o.value === authMode.value)
-  return opt?.label || 'Sign in'
+  return opt?.label || t('data.signIn')
 })
 const oauthLoading = ref(false)
 
 async function onOAuthSignIn() {
   if (!connectionId.value) {
-    testResult.value = { success: false, message: 'No connection found for this data source' }
+    testResult.value = { success: false, message: t('data.noConnectionForSource') }
     return
   }
   try {
@@ -146,7 +148,7 @@ async function onOAuthSignIn() {
       window.location.href = result.authorization_url
     }
   } catch (e: any) {
-    testResult.value = { success: false, message: e?.message || 'Failed to start OAuth' }
+    testResult.value = { success: false, message: e?.message || t('data.oauthStartFailed') }
   } finally {
     oauthLoading.value = false
   }
@@ -177,7 +179,7 @@ async function onTest() {
     if (error.value) throw error.value
     testResult.value = data.value as any
   } catch (e: any) {
-    testResult.value = { success: false, message: e?.message || 'Failed' }
+    testResult.value = { success: false, message: e?.message || t('data.failed') }
   } finally {
     testing.value = false
   }

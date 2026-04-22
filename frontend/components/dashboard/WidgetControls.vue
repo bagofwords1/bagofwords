@@ -1,5 +1,5 @@
 <template>
-  <div v-if="edit" class="absolute right-1 top-1 z-20 flex gap-1 p-1 rounded ">
+  <div v-if="edit" class="absolute end-1 top-1 z-20 flex gap-1 p-1 rounded ">
     <button v-if="!isText" title="Remove Widget" class="text-xs items-center flex gap-0.5 hover:bg-red-100 text-red-400 px-1 py-0.5 rounded " @click="$emit('remove')">
       <Icon name="heroicons:trash" class="w-3 h-3"/>
     </button>

@@ -1,8 +1,8 @@
 <template>
     <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900">AI Settings
+        <h2 class="text-lg font-medium text-gray-900">{{ $t('settings.aiSettingsPage.title') }}
             <p class="text-sm text-gray-500 font-normal mb-8">
-                Configure AI capabilities and general configuration settings for your organization.
+                {{ $t('settings.aiSettingsPage.subtitle') }}
             </p>
         </h2>
 
@@ -27,11 +27,11 @@
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
                                 {{ feature.name }}
-                                <UTooltip v-if="feature.is_lab" text="Beta feature">
-                                    <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
+                                <UTooltip v-if="feature.is_lab" :text="$t('settings.aiSettingsPage.beta')">
+                                    <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
-                                <UTooltip v-if="feature.state === 'locked'" text="This setting is locked and cannot be changed.">
-                                    <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                                <UTooltip v-if="feature.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -57,7 +57,7 @@
                                 @keyup.enter="updateConfigFeature(key, feature)"
                             />
                             <span v-else class="text-sm text-gray-600">
-                                {{ feature.value }} (Not directly editable)
+                                {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
                             </span>
                         </div>
                         <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
@@ -67,10 +67,10 @@
                     <div v-if="configFeatures.allow_llm_see_data" class="flex flex-col md:w-2/3 mt-8 p-4 border-2 border-amber-300 bg-amber-50 rounded-lg">
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
-                                <Icon name="heroicons:shield-exclamation" class="mr-2 w-5 h-5 text-amber-600" />
+                                <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
                                 {{ configFeatures.allow_llm_see_data.name }}
-                                <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" text="This setting is locked and cannot be changed.">
-                                    <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                                <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -81,8 +81,8 @@
                         </div>
                         <p class="text-sm text-amber-700 mt-2.5">{{ configFeatures.allow_llm_see_data.description }}</p>
                         <p class="text-xs text-amber-600 mt-1 font-medium">
-                            <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 mr-1" />
-                            Changing this setting affects data privacy. A confirmation will be required.
+                            <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 me-1" />
+                            {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
                         </p>
                     </div>
                 </div>
@@ -90,19 +90,19 @@
             <hr />
             <!-- AI Agents Section -->
             <div v-if="Object.keys(aiFeatures).length > 0" class="hidden">
-                <h3 class="text-base font-semibold text-gray-900 mb-4">AI Agents</h3>
-                <p class="text-sm text-gray-500 mb-6">Configure AI agents and capabilities available to your organization's members.</p>
+                <h3 class="text-base font-semibold text-gray-900 mb-4">{{ $t('settings.aiSettingsPage.aiAgentsTitle') }}</h3>
+                <p class="text-sm text-gray-500 mb-6">{{ $t('settings.aiSettingsPage.aiAgentsSubtitle') }}</p>
                 
                 <div class="space-y-5">
                     <div v-for="(feature, key) in aiFeatures" :key="`ai_${key}`" class="flex flex-col md:w-2/3">
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
                                 {{ feature.name }}
-                                <UTooltip v-if="feature.is_lab" text="Beta feature">
-                                    <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
+                                <UTooltip v-if="feature.is_lab" :text="$t('settings.aiSettingsPage.beta')">
+                                    <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
-                                <UTooltip v-if="feature.state === 'locked'" text="This setting is locked and cannot be changed.">
-                                    <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                                <UTooltip v-if="feature.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
+                                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400" />
                                 </UTooltip>
                             </div>
                             <UToggle
@@ -128,7 +128,7 @@
                                 @keyup.enter="updateAIFeature(key, feature)"
                             />
                             <span v-else class="text-sm text-gray-600">
-                                {{ feature.value }} (Not directly editable)
+                                {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
                             </span>
                         </div>
                         <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
@@ -140,7 +140,7 @@
 
             <!-- No settings message -->
             <div v-if="Object.keys(aiFeatures).length === 0 && Object.keys(configFeatures).length === 0" class="text-center py-8">
-                <p class="text-gray-500">No AI settings available.</p>
+                <p class="text-gray-500">{{ $t('settings.aiSettingsPage.noSettings') }}</p>
             </div>
         </div>
 
@@ -149,47 +149,49 @@
             <UCard :ui="{ body: { padding: 'p-6' }, header: { padding: 'px-6 py-4' }, footer: { padding: 'px-6 py-4' } }">
                 <template #header>
                     <h3 class="text-lg font-semibold text-gray-900">
-                        {{ pendingLlmValue ? 'Enable' : 'Disable' }} LLM Data Access
+                        {{ pendingLlmValue ? $t('settings.aiSettingsPage.llmModalTitleEnable') : $t('settings.aiSettingsPage.llmModalTitleDisable') }}
                     </h3>
                 </template>
 
                 <div class="space-y-4">
                     <!-- Enable message -->
                     <p v-if="pendingLlmValue" class="text-sm text-gray-600">
-                        The AI will be able to see sample rows from your data for better analysis.
+                        {{ $t('settings.aiSettingsPage.llmEnableMessage') }}
                     </p>
 
                     <!-- Disable message with impact list -->
                     <template v-else>
                         <p class="text-sm text-gray-600">
-                            Disabling this setting will have the following impact:
+                            {{ $t('settings.aiSettingsPage.llmDisableIntro') }}
                         </p>
-                        <ul class="text-sm text-gray-600 space-y-2 ml-1">
+                        <ul class="text-sm text-gray-600 space-y-2 ms-1">
                             <li class="flex items-start gap-2">
                                 <Icon name="heroicons:x-circle" class="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                                <span><strong>Inspect Data</strong> tool will be disabled</span>
+                                <i18n-t keypath="settings.aiSettingsPage.llmImpactInspect" tag="span">
+                                    <template #tool><strong>{{ $t('settings.aiSettingsPage.llmImpactInspectTool') }}</strong></template>
+                                </i18n-t>
                             </li>
                             <li class="flex items-start gap-2">
                                 <Icon name="heroicons:arrow-trending-down" class="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                                <span>Reduced analysis accuracy and performance</span>
+                                <span>{{ $t('settings.aiSettingsPage.llmImpactAccuracy') }}</span>
                             </li>
                             <li class="flex items-start gap-2">
                                 <Icon name="heroicons:eye-slash" class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                                <span>AI will only see column names and statistics, not actual values</span>
+                                <span>{{ $t('settings.aiSettingsPage.llmImpactColumns') }}</span>
                             </li>
                             <li class="mt-2 text-xs">
-                            <UAlert description="File uploads are unaffected by this setting and will still be visible to the AI (you can disable file uploads separately)." class="text-xs" />
+                            <UAlert :description="$t('settings.aiSettingsPage.llmFileUploadsNote')" class="text-xs" />
                         </li>
                         </ul>
                     </template>
 
                     <div class="pt-2">
-                        <label class="block text-sm text-gray-600 mb-2">
-                            Type <span class="font-mono bg-gray-100 px-1.5 py-0.5 rounded">I AM SURE</span> to confirm
-                        </label>
+                        <i18n-t keypath="settings.aiSettingsPage.llmConfirmLabel" tag="label" class="block text-sm text-gray-600 mb-2">
+                            <template #phrase><span class="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('settings.aiSettingsPage.llmConfirmPhrase') }}</span></template>
+                        </i18n-t>
                         <UInput
                             v-model="llmConfirmText"
-                            placeholder="I AM SURE"
+                            :placeholder="$t('settings.aiSettingsPage.llmConfirmPlaceholder')"
                             color="blue"
                             class="w-full"
                             @keyup.enter="confirmLlmChange"
@@ -200,14 +202,14 @@
                 <template #footer>
                     <div class="flex justify-end gap-3">
                         <UButton color="gray" variant="ghost" @click="cancelLlmChange">
-                            Cancel
+                            {{ $t('settings.aiSettingsPage.cancel') }}
                         </UButton>
                         <UButton
                             :color="pendingLlmValue ? 'blue' : 'red'"
-                            :disabled="llmConfirmText !== 'I AM SURE'"
+                            :disabled="llmConfirmText !== $t('settings.aiSettingsPage.llmConfirmPhrase')"
                             @click="confirmLlmChange"
                         >
-                            Confirm
+                            {{ $t('settings.aiSettingsPage.confirm') }}
                         </UButton>
                     </div>
                 </template>
@@ -240,6 +242,7 @@ interface SettingsResponse {
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
+const { t } = useI18n()
 const loading = ref(true)
 const error = ref('')
 
@@ -271,8 +274,8 @@ const fetchSettings = async () => {
         const response = await useMyFetch('/api/organization/settings')
         
         if (response.status.value !== 'success') {
-            const errorData = response.error?.value?.data || { message: 'Failed to fetch settings' }
-            throw new Error(errorData.message || errorData.detail || 'Failed to fetch settings')
+            const errorData = response.error?.value?.data || { message: t('settings.aiSettingsPage.fetchError') }
+            throw new Error(errorData.message || errorData.detail || t('settings.aiSettingsPage.fetchError'))
         }
         
         const data = response.data.value as SettingsResponse
@@ -292,9 +295,9 @@ const fetchSettings = async () => {
         configFeatures.value = generalConfig
 
     } catch (err: any) {
-        error.value = err.message || 'An error occurred while fetching settings'
+        error.value = err.message || t('settings.aiSettingsPage.fetchErrorGeneric')
         toast.add({
-            title: 'Error Fetching Settings',
+            title: t('settings.aiSettingsPage.toastFetchTitle'),
             description: error.value,
             color: 'red',
             timeout: 5000,
@@ -328,8 +331,8 @@ const updateAIFeature = async (featureKey: string, feature: Feature) => {
         })
 
         if (response.status.value !== 'success') {
-            const errorData = response.error?.value?.data || { message: 'Failed to update setting' }
-            throw new Error(errorData.message || errorData.detail || 'Failed to update setting')
+            const errorData = response.error?.value?.data || { message: t('settings.aiSettingsPage.updateError') }
+            throw new Error(errorData.message || errorData.detail || t('settings.aiSettingsPage.updateError'))
         }
 
         // Update the local state from response
@@ -342,8 +345,11 @@ const updateAIFeature = async (featureKey: string, feature: Feature) => {
         }
 
         toast.add({
-            title: 'Success',
-            description: `${feature.name} has been set to ${feature.value ? 'enabled' : 'disabled'}`,
+            title: t('settings.aiSettingsPage.toastSuccessTitle'),
+            description: t('settings.aiSettingsPage.toastSuccessBody', {
+                name: feature.name,
+                state: feature.value ? t('settings.aiSettingsPage.stateEnabled') : t('settings.aiSettingsPage.stateDisabled')
+            }),
             color: 'green',
             timeout: 3000
         })
@@ -352,9 +358,9 @@ const updateAIFeature = async (featureKey: string, feature: Feature) => {
         aiFeatures.value[featureKey].value = originalValue
         aiFeatures.value[featureKey].state = originalValue ? 'enabled' : 'disabled'
 
-        error.value = err.message || 'An error occurred while updating settings'
+        error.value = err.message || t('settings.aiSettingsPage.updateErrorGeneric')
         toast.add({
-            title: 'Error Updating Setting',
+            title: t('settings.aiSettingsPage.toastUpdateTitle'),
             description: error.value,
             color: 'red',
             timeout: 5000,
@@ -384,8 +390,8 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
         })
 
         if (response.status.value !== 'success') {
-            const errorData = response.error?.value?.data || { message: 'Failed to update setting' }
-            throw new Error(errorData.message || errorData.detail || 'Failed to update setting')
+            const errorData = response.error?.value?.data || { message: t('settings.aiSettingsPage.updateError') }
+            throw new Error(errorData.message || errorData.detail || t('settings.aiSettingsPage.updateError'))
         }
 
         // Update the local state from response
@@ -398,8 +404,11 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
         }
 
         toast.add({
-            title: 'Success',
-            description: `${feature.name} has been set to ${feature.value ? 'enabled' : 'disabled'}`,
+            title: t('settings.aiSettingsPage.toastSuccessTitle'),
+            description: t('settings.aiSettingsPage.toastSuccessBody', {
+                name: feature.name,
+                state: feature.value ? t('settings.aiSettingsPage.stateEnabled') : t('settings.aiSettingsPage.stateDisabled')
+            }),
             color: 'green',
             timeout: 3000
         })
@@ -408,9 +417,9 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
         configFeatures.value[featureKey].value = originalValue
         configFeatures.value[featureKey].state = originalValue ? 'enabled' : 'disabled'
 
-        error.value = err.message || 'An error occurred while updating settings'
+        error.value = err.message || t('settings.aiSettingsPage.updateErrorGeneric')
         toast.add({
-            title: 'Error Updating Setting',
+            title: t('settings.aiSettingsPage.toastUpdateTitle'),
             description: error.value,
             color: 'red',
             timeout: 5000,
@@ -431,10 +440,10 @@ const handleAllowLlmSeeDataChange = () => {
 
 // Confirm the allow_llm_see_data change
 const confirmLlmChange = async () => {
-    if (llmConfirmText.value !== 'I AM SURE') {
+    if (llmConfirmText.value !== t('settings.aiSettingsPage.llmConfirmPhrase')) {
         toast.add({
-            title: 'Confirmation Required',
-            description: 'Please type "I AM SURE" to confirm this change.',
+            title: t('settings.aiSettingsPage.toastConfirmRequiredTitle'),
+            description: t('settings.aiSettingsPage.toastConfirmRequiredBody'),
             color: 'amber',
             timeout: 3000,
             icon: 'i-heroicons-exclamation-triangle'

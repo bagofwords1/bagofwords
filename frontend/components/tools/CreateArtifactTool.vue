@@ -2,51 +2,51 @@
   <div class="mb-2">
     <!-- Main Header -->
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700">{{ successLabel }}</span>
       <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ runningLabel }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700">{{ errorLabel }}</span>
-      <span v-else class="text-gray-700">Create Artifact</span>
+      <span v-else class="text-gray-700">{{ $t('tools.createArtifact.create') }}</span>
 
       <!-- Mode Badge -->
       <span
         v-if="artifactMode"
         :class="[
-          'ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
+          'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
           artifactMode === 'slides'
             ? 'bg-purple-100 text-purple-700'
             : 'bg-blue-100 text-blue-700'
         ]"
       >
-        {{ artifactMode === 'slides' ? 'Slides' : 'Dashboard' }}
+        {{ artifactMode === 'slides' ? $t('tools.createArtifact.slides') : $t('tools.createArtifact.dashboard') }}
       </span>
 
-      <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
     <!-- Expanded content -->
     <template v-if="!isCollapsed">
       <!-- Plan prompt -->
-      <div v-if="artifactPrompt" class="mt-0.5 ml-[18px] text-xs text-gray-400 max-w-lg">
-        <span>Plan: </span>
+      <div v-if="artifactPrompt" class="mt-0.5 ms-[18px] text-xs text-gray-400 max-w-lg">
+        <span>{{ $t('tools.createArtifact.plan') }}</span>
         <span :class="{ 'line-clamp-1': !promptExpanded }">{{ artifactPrompt }}</span>
         <button
           v-if="artifactPrompt.length > 80"
-          class="ml-1 text-blue-400 hover:text-blue-600 text-[11px]"
+          class="ms-1 text-blue-400 hover:text-blue-600 text-[11px]"
           @click="promptExpanded = !promptExpanded"
         >
-          {{ promptExpanded ? 'less' : 'more' }}
+          {{ promptExpanded ? $t('tools.createArtifact.less') : $t('tools.createArtifact.more') }}
         </button>
       </div>
 
       <!-- Resolved viz badges -->
-      <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ml-[18px] flex flex-wrap gap-1">
+      <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ms-[18px] flex flex-wrap gap-1">
         <span
           v-for="viz in resolvedVisualizations"
           :key="viz.id"
@@ -57,16 +57,16 @@
       </div>
 
       <!-- Stopped/Error message -->
-      <div v-if="status === 'stopped'" class="mt-1 ml-[18px] text-xs text-gray-400 italic">Generation stopped</div>
-      <div v-else-if="status === 'error' && errorMessage" class="mt-1 ml-[18px] text-xs text-gray-500">
+      <div v-if="status === 'stopped'" class="mt-1 ms-[18px] text-xs text-gray-400 italic">{{ $t('tools.createArtifact.generationStopped') }}</div>
+      <div v-else-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500">
         {{ errorMessage }}
       </div>
 
       <!-- Progress stages -->
-      <div v-if="status === 'running'" class="mt-1 ml-[18px]">
+      <div v-if="status === 'running'" class="mt-1 ms-[18px]">
         <!-- Slides mode -->
         <div v-if="artifactMode === 'slides' && slideProgress.length > 0" class="space-y-1">
-          <div class="text-xs text-gray-400 mb-1">Slides:</div>
+          <div class="text-xs text-gray-400 mb-1">{{ $t('tools.createArtifact.slidesLabel') }}</div>
           <div class="flex flex-wrap gap-1">
             <div
               v-for="(slide, idx) in slideProgress"
@@ -87,31 +87,31 @@
         <!-- Page mode progress -->
         <div v-else class="text-xs text-gray-400">
           <div v-if="progressStage === 'generating' || progressStage === 'generating_code'">
-            <span>Generating code...</span>
-            <span v-if="progressChars" class="ml-1 text-gray-300">({{ progressChars }} chars)</span>
+            <span>{{ $t('tools.createArtifact.generatingCode') }}</span>
+            <span v-if="progressChars" class="ms-1 text-gray-300">{{ $t('tools.createArtifact.charsCount', { n: progressChars }) }}</span>
           </div>
           <div v-else-if="progressStage === 'validating'" class="flex items-center gap-1.5">
-            <span>Validating</span>
-            <span v-if="validationAttempt" class="text-gray-300">(attempt {{ validationAttempt }}/{{ validationMaxAttempts }})</span>
+            <span>{{ $t('tools.createArtifact.validating') }}</span>
+            <span v-if="validationAttempt" class="text-gray-300">{{ $t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
           </div>
           <div v-else-if="progressStage === 'fixing_errors'" class="space-y-1">
             <div class="flex items-center gap-1.5 text-amber-500">
               <Icon name="heroicons:wrench-screwdriver" class="w-3 h-3" />
-              <span>Fixing errors</span>
-              <span class="text-gray-300">(attempt {{ validationAttempt }}/{{ validationMaxAttempts }})</span>
+              <span>{{ $t('tools.createArtifact.fixingErrors') }}</span>
+              <span class="text-gray-300">{{ $t('tools.createArtifact.attempt', { n: validationAttempt, max: validationMaxAttempts }) }}</span>
             </div>
-            <div v-if="fixingErrors.length > 0" class="ml-4 text-[10px] text-gray-400 space-y-0.5">
+            <div v-if="fixingErrors.length > 0" class="ms-4 text-[10px] text-gray-400 space-y-0.5">
               <div v-for="(err, idx) in fixingErrors.slice(0, 2)" :key="idx" class="truncate max-w-xs">{{ err }}</div>
             </div>
           </div>
-          <div v-else-if="progressStage === 'saving_artifact'"><span>Saving artifact...</span></div>
-          <div v-else><span>Processing...</span></div>
+          <div v-else-if="progressStage === 'saving_artifact'"><span>{{ $t('tools.createArtifact.savingArtifact') }}</span></div>
+          <div v-else><span>{{ $t('tools.createArtifact.processing') }}</span></div>
         </div>
       </div>
 
       <!-- Confirmation card -->
-      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ml-[18px] rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
-        <div class="text-xs font-medium text-gray-700">Confirm artifact creation</div>
+      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 p-2.5 space-y-2">
+        <div class="text-xs font-medium text-gray-700">{{ $t('tools.createArtifact.confirm') }}</div>
         <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
           <span
             v-for="viz in confirmation.visualizations"
@@ -124,18 +124,18 @@
         <input
           v-model="editableTitle"
           class="w-full px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:border-blue-400"
-          placeholder="Artifact title"
+          :placeholder="$t('tools.createArtifact.titlePlaceholder')"
         />
         <div class="flex items-center gap-2">
-          <button class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors" @click="approveConfirmation">Approve</button>
-          <button class="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors" @click="rejectConfirmation">Cancel</button>
-          <span class="text-[10px] text-gray-400">Auto-approving in {{ confirmationCountdown }}s</span>
+          <button class="px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors" @click="approveConfirmation">{{ $t('tools.createArtifact.approve') }}</button>
+          <button class="px-2.5 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors" @click="rejectConfirmation">{{ $t('tools.createArtifact.cancel') }}</button>
+          <span class="text-[10px] text-gray-400">{{ $t('tools.createArtifact.autoApprovingIn', { n: confirmationCountdown }) }}</span>
         </div>
       </div>
       <!-- Preview Card -->
       <div
         v-if="(status === 'success' && createdArtifact) || status === 'running'"
-        class="mt-1.5 ml-[18px] cursor-pointer group"
+        class="mt-1.5 ms-[18px] cursor-pointer group"
         @click="openArtifact"
       >
       <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all max-w-xs">
@@ -164,16 +164,16 @@
         </div>
         <!-- Title and info -->
         <div class="flex-1 min-w-0">
-          <div class="text-xs font-medium text-gray-700 truncate">{{ artifactTitle || 'Untitled' }}</div>
+          <div class="text-xs font-medium text-gray-700 truncate">{{ artifactTitle || $t('tools.createArtifact.untitled') }}</div>
           <div class="text-[10px] text-gray-400">
-            <span v-if="status === 'running'">Generating...</span>
-            <span v-else>{{ artifactMode === 'slides' ? 'Presentation' : 'Dashboard' }}</span>
+            <span v-if="status === 'running'">{{ $t('tools.createArtifact.generating') }}</span>
+            <span v-else>{{ artifactMode === 'slides' ? $t('tools.createArtifact.presentation') : $t('tools.createArtifact.dashboard') }}</span>
           </div>
           <button
             v-if="createdArtifact && !isCollapsed"
             @click.stop="copyArtifactId"
             class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 font-mono mt-0.5"
-            title="Click to copy ID"
+            :title="$t('tools.createArtifact.copyIdTooltip')"
           >
             <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
             {{ createdArtifact.slice(0, 8) }}
@@ -188,7 +188,10 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
+
+const { t } = useI18n()
 
 interface Props {
   toolExecution: {
@@ -308,9 +311,9 @@ async function rejectConfirmation() {
 }
 
 // Labels
-const runningLabel = computed(() => artifactMode.value === 'slides' ? 'Creating Presentation' : 'Creating Dashboard')
-const successLabel = computed(() => artifactMode.value === 'slides' ? 'Presentation Created' : 'Dashboard Created')
-const errorLabel = computed(() => artifactMode.value === 'slides' ? 'Failed to Create Presentation' : 'Failed to Create Dashboard')
+const runningLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.creatingPresentation') : t('tools.createArtifact.creatingDashboard'))
+const successLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.presentationCreated') : t('tools.createArtifact.dashboardCreated'))
+const errorLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.failedPresentation') : t('tools.createArtifact.failedDashboard'))
 const errorMessage = computed(() => props.toolExecution.result_json?.error || '')
 
 const formatDuration = computed(() => {
@@ -338,9 +341,9 @@ async function copyArtifactId() {
   if (!createdArtifact.value) return
   try {
     await navigator.clipboard.writeText(createdArtifact.value)
-    toast.add({ title: 'Copied', description: 'Artifact ID copied to clipboard', color: 'green' })
+    toast.add({ title: t('tools.createArtifact.copied'), description: t('tools.createArtifact.copiedDesc'), color: 'green' })
   } catch {
-    toast.add({ title: 'Failed to copy', color: 'red' })
+    toast.add({ title: t('tools.createArtifact.copyFailed'), color: 'red' })
   }
 }
 </script>

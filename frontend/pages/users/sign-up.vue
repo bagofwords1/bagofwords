@@ -4,26 +4,26 @@
       <div>
         <img src="/assets/logo-128.png" alt="Bag of Words" class="h-10 w-10 mx-auto" />
       </div>
-      <h1 class="font-medium text-3xl mt-4 mb-5">Sign up</h1>
+      <h1 class="font-medium text-3xl mt-4 mb-5">{{ $t('auth.signUp') }}</h1>
       <div class="px-10 py-6  border border-gray-200 rounded-xl shadow-sm bg-white">
         <form @submit.prevent='submit' v-if="authMode !== 'sso_only'">
           <div class="field block mt-3">
-            <input placeholder="Name" id='name' v-model='name' class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"/>
+            <input :placeholder="$t('auth.name')" id='name' v-model='name' class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"/>
           </div>
           <div class="field mt-3">
-            <input placeholder="Email" id='email' v-model='email' class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"/>
+            <input :placeholder="$t('auth.email')" id='email' v-model='email' class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"/>
           </div>
           <div class="field mt-3">
-            <input type='password' placeholder="Password" id='password' v-model='password' class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"/>
+            <input type='password' :placeholder="$t('auth.password')" id='password' v-model='password' class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"/>
           </div>
           <p v-if="error_message" v-html="error_message" class="mt-1 text-red-500 text-sm whitespace-pre-line"></p>
           <div class="field mt-3">
             <button type='submit' :disabled="isSubmitting" class="px-3 py-2.5 mb-4 text-sm font-medium text-white rounded-lg text-center w-full flex items-center justify-center disabled:bg-gray-400 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
               <template v-if="isSubmitting">
-                <Spinner class="h-5 w-5 mr-2" />
-                Signing up...
+                <Spinner class="h-5 w-5 me-2" />
+                {{ $t('auth.signingUp') }}
               </template>
-              <template v-else>Sign up</template>
+              <template v-else>{{ $t('auth.signUp') }}</template>
             </button>
           </div>
         </form>
@@ -34,18 +34,18 @@
               <div class="w-full border-t border-gray-300"></div>
             </div>
             <div class="relative flex justify-center text-sm">
-              <span class="px-2 bg-gray-50 text-gray-500">Or continue with</span>
+              <span class="px-2 bg-gray-50 text-gray-500">{{ $t('auth.orContinueWith') }}</span>
             </div>
           </div>
           <div class="mt-3" v-if="googleSignIn">
             <button @click="signInWithGoogle" :disabled="loadingProvider !== null" class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
               <template v-if="loadingProvider === 'google'">
-                <Spinner class="h-5 w-5 mr-2" />
-                Redirecting...
+                <Spinner class="h-5 w-5 me-2" />
+                {{ $t('auth.redirecting') }}
               </template>
               <template v-else>
-                <img src="/llm_providers_icons/google-icon.png" alt="Google logo" class="h-5 w-5 mr-2" />
-                Sign up with Google
+                <img src="/llm_providers_icons/google-icon.png" alt="Google logo" class="h-5 w-5 me-2" />
+                {{ $t('auth.signUpWithGoogle') }}
               </template>
             </button>
           </div>
@@ -59,28 +59,28 @@
               class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <template v-if="loadingProvider === p.name">
-                <Spinner class="h-5 w-5 mr-2" />
-                Redirecting...
+                <Spinner class="h-5 w-5 me-2" />
+                {{ $t('auth.redirecting') }}
               </template>
               <template v-else>
-                Continue with {{ p.name }}
+                {{ $t('auth.continueWithProvider', { provider: p.name }) }}
               </template>
             </button>
           </div>
         </div>
       <div class="mt-3 block text-sm" v-if="authMode !== 'sso_only'">
-        Already have an account?
+        {{ $t('auth.alreadyHaveAccount') }}
         <NuxtLink to="/users/sign-in" class="text-blue-400 hover:text-blue-600">
-          Login
+          {{ $t('auth.signIn') }}
         </NuxtLink>
       </div>
       </div>
 
 
       <div class="mt-3 block text-xs border-t border-gray-100 pt-3">
-        By signing up, you agree to our 
-        <a href="https://bagofwords.com/terms" target="_blank" class="text-blue-400">Terms of Service</a> and 
-        <a href="https://bagofwords.com/privacy" target="_blank" class="text-blue-400">Privacy Policy</a>
+        {{ $t('auth.termsPrefix') }}
+        <a href="https://bagofwords.com/terms" target="_blank" class="text-blue-400">{{ $t('auth.termsOfService') }}</a> {{ $t('common.and') }}
+        <a href="https://bagofwords.com/privacy" target="_blank" class="text-blue-400">{{ $t('auth.privacyPolicy') }}</a>
       </div>
     </div>
   </div>
@@ -92,6 +92,7 @@ import qs from 'qs'
 import { ref, onMounted } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import { definePageMeta, useAuth, useRuntimeConfig, useRoute } from '#imports'
+const { t } = useI18n()
 const { rawToken } = useAuthState()
 const toast = useToast()
 const route = useRoute()
@@ -125,7 +126,7 @@ const { ensureOrganization, fetchOrganization } = useOrganization()
 function extractErrorMessage(error: any, fallback: string): string {
   const data = error?.data
   if (!data) return fallback
-  
+
   // Handle FastAPI validation errors (detail array)
   if (Array.isArray(data.detail)) {
     return data.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('\n')
@@ -185,7 +186,7 @@ async function signInWithCredentials(email: string, password: string) {
     }
     rawToken.value = response.access_token
     await getSession({ force: true })
-    
+
     // Check if the user has an organization (same as sign-in flow)
     const org = await fetchOrganization();
     if (!org || !org.id) {
@@ -193,7 +194,7 @@ async function signInWithCredentials(email: string, password: string) {
     } else {
       navigateTo('/');
     }
-    
+
   } catch (error) {
     console.error('Error during authentication:', error);
   }
@@ -217,8 +218,8 @@ try {
     body: JSON.stringify(payload),
   });
 
-  if (!response) { 
-    error_message.value = 'An error occurred during registration.'
+  if (!response) {
+    error_message.value = t('auth.registrationError')
     isSubmitting.value = false
     return
   }
@@ -228,7 +229,7 @@ try {
 
 } catch (error: any) {
   console.error('Error fetching data:', error);
-  error_message.value = extractErrorMessage(error, 'An error occurred during registration.')
+  error_message.value = extractErrorMessage(error, t('auth.registrationError'))
   isSubmitting.value = false
 }
 }
@@ -239,12 +240,12 @@ try {
   const response = await $fetch('/api/auth/google/authorize', {
     method: 'GET',
   });
-  
+
   if (response.authorization_url) {
     window.location.href = response.authorization_url;
   }
 } catch (error) {
-  error_message.value = 'Failed to initialize Google sign-in';
+  error_message.value = t('auth.googleInitError')
   loadingProvider.value = null
 }
 }
@@ -257,7 +258,7 @@ async function signInWithProvider(name: string) {
       window.location.href = (response as any).authorization_url
     }
   } catch (error) {
-    error_message.value = `Failed to initialize ${name} sign-in`
+    error_message.value = t('auth.providerInitError', { provider: name })
     loadingProvider.value = null
   }
 }

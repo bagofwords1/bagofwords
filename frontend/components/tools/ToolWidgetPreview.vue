@@ -4,24 +4,24 @@
     <div class="widget-header" @click="toggleCollapsed">
       <div class="flex items-center justify-between w-full">
         <div class="flex items-center">
-          <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 mr-1.5 text-gray-500" />
+          <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 rtl-flip" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
             v-if="queryId && canEditCode && !readonly"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
-            title="Edit query code"
+            :title="$t('tools.widgetPreview.editQueryCode')"
           >
-            <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 mr-1" />
-            Edit
+            <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 me-1" />
+            {{ $t('tools.widgetPreview.edit') }}
           </button>
         </div>
         <div class="flex items-center gap-3">
           <div v-if="rowCount" class="text-[11px] text-gray-400 leading-none">
-            {{ activeFilterCount > 0 ? `${filteredRowCount}/` : '' }}{{ rowCount }} rows
+            {{ activeFilterCount > 0 ? $t('tools.widgetPreview.rowsFiltered', { filtered: filteredRowCount, total: rowCount }) : $t('tools.widgetPreview.rows', { count: rowCount }) }}
           </div>
 
-          <UTooltip v-if="hasChartForDownload" text="Download as PNG">
+          <UTooltip v-if="hasChartForDownload" :text="$t('tools.widgetPreview.downloadPng')">
             <button
               @click.stop="downloadChartPNG"
               class="text-gray-400 hover:text-gray-600 transition-colors flex items-center"
@@ -29,7 +29,7 @@
               <Icon name="heroicons:photo" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
-          <UTooltip v-if="hasDataForDownload" text="Download as CSV">
+          <UTooltip v-if="hasDataForDownload" :text="$t('tools.widgetPreview.downloadCsv')">
             <button
               @click.stop="downloadCSV"
               class="text-gray-400 hover:text-gray-600 transition-colors flex items-center"
@@ -47,7 +47,7 @@
         <!-- Error / empty state when step has an error -->
         <template v-if="hasStepError">
           <div class="min-h-[80px] flex items-center text-xs text-gray-400">
-            No data is available.
+            {{ $t('tools.widgetPreview.noData') }}
           </div>
         </template>
         <template v-else>
@@ -63,7 +63,7 @@
                   : 'border-transparent text-gray-400 hover:text-gray-600'
               ]"
             >
-              Chart
+              {{ $t('tools.widgetPreview.tabChart') }}
             </button>
             <button 
               v-if="hasData"
@@ -75,7 +75,7 @@
                   : 'border-transparent text-gray-400 hover:text-gray-600'
               ]"
             >
-              Data
+              {{ $t('tools.widgetPreview.tabData') }}
             </button>
             <button 
               v-if="hasCode"
@@ -87,7 +87,7 @@
                   : 'border-transparent text-gray-400 hover:text-gray-600'
               ]"
             >
-              Code
+              {{ $t('tools.widgetPreview.tabCode') }}
             </button>
           </div>
 
@@ -151,7 +151,7 @@
                           !showFullCode ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                         ]"
                       >
-                        Queries
+                        {{ $t('tools.widgetPreview.toggleQueries') }}
                       </button>
                       <button
                         @click="showFullCode = true"
@@ -160,7 +160,7 @@
                           showFullCode ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                         ]"
                       >
-                        Full Code
+                        {{ $t('tools.widgetPreview.toggleFullCode') }}
                       </button>
                     </div>
                     <div v-else></div>
@@ -170,10 +170,10 @@
                       v-if="queryId && canEditCode && !readonly"
                       @click="onEditClick"
                       class="text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
-                      title="Edit code"
+                      :title="$t('tools.widgetPreview.editCode')"
                     >
-                      <Icon name="heroicons-pencil-square" class="w-3 h-3 mr-1" />
-                      Edit
+                      <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1" />
+                      {{ $t('tools.widgetPreview.edit') }}
                     </button>
                   </div>
 
@@ -207,12 +207,12 @@
                 <!-- Execution details -->
                 <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
                   <span v-if="executionDuration">
-                    <Icon name="heroicons-clock" class="w-3 h-3 inline-block mr-1" />
+                    <Icon name="heroicons-clock" class="w-3 h-3 inline-block me-1" />
                     {{ executionDuration }}
                   </span>
                   <span v-if="rowCount">
-                    <Icon name="heroicons-table-cells" class="w-3 h-3 inline-block mr-1" />
-                    {{ rowCount }} rows
+                    <Icon name="heroicons-table-cells" class="w-3 h-3 inline-block me-1" />
+                    {{ $t('tools.widgetPreview.rows', { count: rowCount }) }}
                   </span>
                 </div>
                 
@@ -222,14 +222,14 @@
                     class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
                     @click="attemptsExpanded = !attemptsExpanded"
                   >
-                    <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1.5" />
-                    <span>Attempts ({{ attempts.length }})</span>
+                    <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1.5 rtl-flip" />
+                    <span>{{ $t('tools.widgetPreview.attempts', { count: attempts.length }) }}</span>
                   </div>
                   <Transition name="fade">
-                    <div v-if="attemptsExpanded" class="mt-2 ml-4">
+                    <div v-if="attemptsExpanded" class="mt-2 ms-4">
                       <ul class="text-xs text-gray-600 space-y-1.5">
                         <li v-for="(att, idx) in attempts" :key="idx" class="flex items-start">
-                          <span class="text-gray-400 mr-2 flex-shrink-0">{{ idx + 1 }}.</span>
+                          <span class="text-gray-400 me-2 flex-shrink-0">{{ idx + 1 }}.</span>
                           <span class="text-red-500">{{ att }}</span>
                         </li>
                       </ul>
@@ -248,17 +248,17 @@
               v-if="isExcel && hasDataForDownload"
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-green-600 hover:text-green-700"
               @click.stop="addToSpreadsheet"
-              title="Add data to Excel spreadsheet"
+              :title="$t('tools.widgetPreview.addToSpreadsheetTitle')"
             >
-              <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 mr-1" />
-              Add to Spreadsheet
+              <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 me-1" />
+              {{ $t('tools.widgetPreview.addToSpreadsheet') }}
             </button>
             <span
               v-else-if="canAddToDashboard && isAlreadyInDashboard"
               class="text-xs px-2 py-0.5 rounded flex items-center text-green-600"
             >
-              <Icon name="heroicons:check-circle-solid" class="w-3.5 h-3.5 mr-1" />
-              Added to Dashboard
+              <Icon name="heroicons:check-circle-solid" class="w-3.5 h-3.5 me-1" />
+              {{ $t('tools.widgetPreview.addedToDashboard') }}
             </span>
             <button
               v-else-if="canAddToDashboard"
@@ -266,9 +266,9 @@
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 text-blue-500 hover:text-blue-600 disabled:opacity-40"
               @click.stop="addToDashboard"
             >
-              <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5 mr-1" />
-              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 mr-1 animate-spin" />
-              Add to Dashboard
+              <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5 me-1" />
+              <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 me-1 animate-spin" />
+              {{ $t('tools.widgetPreview.addToDashboard') }}
             </button>
           </div>
           <div class="flex items-center space-x-2">
@@ -277,12 +277,12 @@
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50"
               @click.stop="openEntityModal = true"
             >
-              <Icon name="heroicons-bookmark" class="w-3.5 h-3.5 text-blue-500 mr-1" />
-              Save Query
+              <Icon name="heroicons-bookmark" class="w-3.5 h-3.5 text-blue-500 me-1" />
+              {{ $t('tools.widgetPreview.saveQuery') }}
             </button>
             <span v-else class="text-xs flex items-center">
-              <Icon name="heroicons-check-badge" class="w-3.5 h-3.5 mr-1 text-green-500" />
-              Saved Query
+              <Icon name="heroicons-check-badge" class="w-3.5 h-3.5 me-1 text-green-500" />
+              {{ $t('tools.widgetPreview.savedQuery') }}
             </span>
           </div>
         </div>
@@ -445,11 +445,94 @@ const filteredRows = computed(() => {
   const rows = effectiveStep.value?.data?.rows
   if (!Array.isArray(rows)) return []
   if (sharedFilters.value.length === 0 || !visualizationId.value) return rows
-  
-  return rows.filter((row: any) => 
+
+  return rows.filter((row: any) =>
     sharedEvaluateFilters(row, sharedFilters.value, visualizationId.value)
   )
 })
+
+// Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
+const normalizedView = computed(() => {
+  const v = visualization.value?.view || (step.value as any)?.view
+  if (!v) return null
+  // Already in v2 format (has .view.type)
+  if (v.view?.type) return v
+  // Flat format - wrap it
+  if (v.type) return { view: v, version: 'v2' }
+  return v
+})
+
+// ------------------------------------------------------------------
+// Default-filter seeding
+// When a visualization declares `view.defaultFilters`, push them into the
+// shared-filter runtime on first paint so the viz opens filtered. We only
+// seed once per viz id so clearing filters doesn't re-seed.
+// ------------------------------------------------------------------
+const seededDefaultsFor = ref<Set<string>>(new Set())
+
+function seedDefaultFiltersFromView() {
+  const vizId = visualizationId.value
+  if (!vizId || seededDefaultsFor.value.has(vizId)) return
+
+  const v = normalizedView.value as any
+  const viewInner = v?.view || v
+  const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
+  if (!defaults.length) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  // Respect existing user-authored filters for this viz
+  const alreadyHasConditions = sharedFilters.value.some(g =>
+    g.conditions.some(c => parseColumnKey(c.column).vizId === vizId)
+  )
+  if (alreadyHasConditions) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  const conditions = defaults
+    .filter((d: any) => d && typeof d.column === 'string' && d.column.length > 0)
+    .map((d: any, i: number) => ({
+      id: `default-${vizId}-${i}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      column: `${vizId}:${d.column}`,
+      operator: String(d.operator || 'equals'),
+      value: d.value
+    }))
+
+  if (!conditions.length) {
+    seededDefaultsFor.value.add(vizId)
+    return
+  }
+
+  const group: FilterGroup = {
+    id: `default-group-${vizId}-${Date.now()}`,
+    conditions
+  }
+  const next = [...sharedFilters.value, group]
+  sharedFilters.value = next
+  seededDefaultsFor.value.add(vizId)
+
+  // Broadcast so VisualizationFilter/FilterBuilder receive the seeded state
+  try {
+    window.dispatchEvent(new CustomEvent('filter:updated', {
+      detail: { reportId: reportId.value, filters: next, source: filterInstanceId }
+    }))
+  } catch {}
+}
+
+watch(
+  () => {
+    const v = normalizedView.value as any
+    const viewInner = v?.view || v
+    const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
+    // Stringify so the watcher only fires when the seed-relevant fields change,
+    // avoiding deep traversal of the full normalized view.
+    return [visualizationId.value, JSON.stringify(defaults)]
+  },
+  () => { seedDefaultFiltersFromView() },
+  { immediate: true }
+)
 
 const filteredRowCount = computed(() => filteredRows.value.length)
 
@@ -471,17 +554,6 @@ const filteredStep = computed(() => {
   }
 })
 // ============ END SHARED FILTER LOGIC ============
-
-// Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
-const normalizedView = computed(() => {
-  const v = visualization.value?.view || (step.value as any)?.view
-  if (!v) return null
-  // Already in v2 format (has .view.type)
-  if (v.view?.type) return v
-  // Flat format - wrap it
-  if (v.type) return { view: v, version: 'v2' }
-  return v
-})
 
 // Provide a stable widget object for children even if upstream is null
 const effectiveWidget = computed(() => {

@@ -7,12 +7,12 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="Search roles..."
-                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        :placeholder="$t('rolesManager.searchPlaceholder')"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
                     />
                 </div>
             </div>
@@ -25,7 +25,7 @@
                     icon="i-heroicons-plus"
                     @click="openCreateModal"
                 >
-                    New Role
+                    {{ $t('rolesManager.newRole') }}
                 </UButton>
             </div>
         </div>
@@ -34,15 +34,15 @@
         <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
             <div v-if="isLoading" class="px-6 py-12 text-center">
                 <div class="flex items-center justify-center text-gray-500">
-                    <Spinner class="w-4 h-4 mr-2" />
-                    <span class="text-sm">Loading...</span>
+                    <Spinner class="w-4 h-4 me-2" />
+                    <span class="text-sm">{{ $t('rolesManager.loading') }}</span>
                 </div>
             </div>
             <div v-else-if="filteredRoles.length === 0" class="px-6 py-12 text-center">
                 <div class="flex flex-col items-center">
                     <Icon name="heroicons:shield-check" class="mx-auto h-12 w-12 text-gray-400" />
-                    <h3 class="mt-2 text-sm font-medium text-gray-900">No roles found</h3>
-                    <p class="mt-1 text-sm text-gray-500">Create a role to manage permissions.</p>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('rolesManager.noRolesFound') }}</h3>
+                    <p class="mt-1 text-sm text-gray-500">{{ $t('rolesManager.noRolesHint') }}</p>
                 </div>
             </div>
             <div
@@ -54,17 +54,17 @@
                 <div>
                     <div class="flex items-center gap-2">
                         <span class="font-medium">{{ role.name }}</span>
-                        <UBadge v-if="role.is_system" size="xs" color="gray">system</UBadge>
+                        <UBadge v-if="role.is_system" size="xs" color="gray">{{ $t('rolesManager.system') }}</UBadge>
                         <UBadge
                             v-if="role.permissions?.includes('full_admin_access')"
                             size="xs"
                             color="blue"
                         >
-                            Full Admin
+                            {{ $t('rolesManager.fullAdmin') }}
                         </UBadge>
                     </div>
                     <p class="text-sm text-gray-500 mt-1">
-                        {{ role.description || `${role.permissions?.length || 0} permissions` }}
+                        {{ role.description || $t('rolesManager.permissionsCount', { n: role.permissions?.length || 0 }) }}
                     </p>
                 </div>
                 <div class="flex gap-2">
@@ -91,26 +91,26 @@
         <UModal v-model="showModal" :ui="{ width: 'sm:max-w-xl' }">
             <div class="p-6">
                 <h3 class="text-lg font-medium mb-4">
-                    {{ editingRole ? 'Edit Role' : 'Create Role' }}
+                    {{ editingRole ? $t('rolesManager.editRole') : $t('rolesManager.createRole') }}
                 </h3>
 
                 <!-- Name + Description -->
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">Name</label>
-                        <UInput v-model="form.name" placeholder="e.g. Analyst" size="sm" />
+                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('rolesManager.nameLabel') }}</label>
+                        <UInput v-model="form.name" :placeholder="$t('rolesManager.namePlaceholder')" size="sm" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">Description</label>
-                        <UInput v-model="form.description" placeholder="Optional" size="sm" />
+                        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
+                        <UInput v-model="form.description" :placeholder="$t('rolesManager.descriptionPlaceholder')" size="sm" />
                     </div>
                 </div>
 
                 <!-- Full Admin Toggle -->
                 <div class="mb-5 px-3 py-2.5 bg-gray-50 rounded-lg flex items-center justify-between">
                     <div>
-                        <span class="text-sm font-medium">Full Admin Access</span>
-                        <p class="text-xs text-gray-500">Bypasses all checks</p>
+                        <span class="text-sm font-medium">{{ $t('rolesManager.fullAdminAccess') }}</span>
+                        <p class="text-xs text-gray-500">{{ $t('rolesManager.fullAdminBypass') }}</p>
                     </div>
                     <UToggle v-model="isFullAdmin" />
                 </div>
@@ -123,9 +123,9 @@
                         <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
                                 <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500" />
-                                <span class="text-sm font-medium">All resources</span>
+                                <span class="text-sm font-medium">{{ $t('rolesManager.allResources') }}</span>
                             </div>
-                            <span class="text-xs text-gray-400">Org-wide permissions</span>
+                            <span class="text-xs text-gray-400">{{ $t('rolesManager.orgWidePermissions') }}</span>
                         </div>
                         <div class="p-3">
                             <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
@@ -153,7 +153,7 @@
                     >
                         <div class="px-3 py-2 bg-gray-50 border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <UBadge size="xs" color="blue">DS</UBadge>
+                                <UBadge size="xs" color="blue">{{ $t('rolesManager.ds') }}</UBadge>
                                 <span class="text-sm font-medium">{{ grant.resource_name }}</span>
                             </div>
                             <UButton
@@ -190,7 +190,7 @@
                         option-attribute="label"
                         value-attribute="value"
                         searchable
-                        placeholder="+ Add data source..."
+                        :placeholder="$t('rolesManager.addDataSource')"
                         @update:model-value="addResource"
                         size="sm"
                     />
@@ -198,9 +198,9 @@
 
                 <!-- Actions -->
                 <div class="flex justify-end gap-2 mt-6">
-                    <UButton variant="ghost" @click="showModal = false">Cancel</UButton>
+                    <UButton variant="ghost" @click="showModal = false">{{ $t('rolesManager.cancel') }}</UButton>
                     <UButton color="blue" @click="saveRole" :loading="saving" :disabled="!form.name.trim()">
-                        {{ editingRole ? 'Save' : 'Create' }}
+                        {{ editingRole ? $t('rolesManager.save') : $t('rolesManager.create') }}
                     </UButton>
                 </div>
             </div>
@@ -211,6 +211,9 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface RoleData {
     id: string
@@ -452,29 +455,27 @@ function togglePermission(perm: string, checked: boolean) {
     }
 }
 
-const PERMISSION_LABELS: Record<string, string> = {
-    // Org-level
-    manage_files: 'Manage files',
-    create_data_source: 'Create data source',
-    manage_connections: 'Manage connections',
-    manage_instructions: 'Manage instructions',
-    manage_entities: 'Manage entities',
-    manage_evals: 'Manage evals',
-    view_members: 'View members',
-    manage_members: 'Manage members',
-    manage_settings: 'Manage settings',
-    manage_llm: 'Manage LLM',
-    view_audit_logs: 'View audit logs',
-    manage_identity_providers: 'Manage identity providers',
-    // Per-resource (data source)
-    view: 'View',
-    view_schema: 'View schema',
-    create_entities: 'Create entities',
-    manage: 'Manage settings',
-}
+const KNOWN_PERMISSION_KEYS = new Set([
+    'manage_files',
+    'create_data_source',
+    'manage_connections',
+    'manage_instructions',
+    'manage_entities',
+    'manage_evals',
+    'view_members',
+    'manage_members',
+    'manage_settings',
+    'manage_llm',
+    'view_audit_logs',
+    'manage_identity_providers',
+    'view',
+    'view_schema',
+    'create_entities',
+    'manage',
+])
 
 function formatPermission(perm: string) {
-    if (PERMISSION_LABELS[perm]) return PERMISSION_LABELS[perm]
+    if (KNOWN_PERMISSION_KEYS.has(perm)) return t(`rolesManager.permissions.${perm}`)
     // Fallback: snake_case → Title Case
     return perm.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
@@ -495,7 +496,7 @@ async function loadRoles() {
     try {
         const { data, error } = await useMyFetch(`/organizations/${props.organization.id}/roles`)
         if (error.value) {
-            const detail = (error.value as any)?.data?.detail || 'Failed to load roles'
+            const detail = (error.value as any)?.data?.detail || t('rolesManager.failedToLoad')
             toast.add({ title: detail, color: 'red' })
         } else if (data.value) {
             roles.value = data.value as RoleData[]
@@ -558,28 +559,28 @@ async function saveRole() {
                 body,
             })
             if (error.value) {
-                const detail = error.value.data?.detail || 'Failed to update role'
+                const detail = error.value.data?.detail || t('rolesManager.failedToUpdate')
                 toast.add({ title: detail, color: 'red' })
                 return
             }
-            toast.add({ title: 'Role updated' })
+            toast.add({ title: t('rolesManager.toastUpdated') })
         } else {
             const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles`, {
                 method: 'POST',
                 body,
             })
             if (error.value) {
-                const detail = error.value.data?.detail || 'Failed to create role'
+                const detail = error.value.data?.detail || t('rolesManager.failedToCreate')
                 toast.add({ title: detail, color: 'red' })
                 return
             }
-            toast.add({ title: 'Role created' })
+            toast.add({ title: t('rolesManager.toastCreated') })
         }
 
         showModal.value = false
         await loadRoles()
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || 'Failed to save role'
+        const detail = e?.data?.detail || e?.message || t('rolesManager.failedToSave')
         toast.add({ title: detail, color: 'red' })
     } finally {
         saving.value = false
@@ -587,20 +588,20 @@ async function saveRole() {
 }
 
 async function deleteRole(role: RoleData) {
-    if (!confirm(`Delete role "${role.name}"?`)) return
+    if (!confirm(t('rolesManager.confirmDelete', { name: role.name }))) return
     try {
         const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles/${role.id}`, {
             method: 'DELETE',
         })
         if (error.value) {
-            const detail = error.value.data?.detail || 'Failed to delete role'
+            const detail = error.value.data?.detail || t('rolesManager.failedToDelete')
             toast.add({ title: detail, color: 'red' })
             return
         }
-        toast.add({ title: 'Role deleted' })
+        toast.add({ title: t('rolesManager.toastDeleted') })
         await loadRoles()
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || 'Failed to delete role'
+        const detail = e?.data?.detail || e?.message || t('rolesManager.failedToDelete')
         toast.add({ title: detail, color: 'red' })
     }
 }

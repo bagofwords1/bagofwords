@@ -196,21 +196,21 @@ class EditInstructionTool(Tool):
             from app.models.instruction import Instruction
             from app.models.datasource_table import DataSourceTable
             from app.models.data_source import DataSource
-            from app.services.instruction_service import InstructionService
             from app.services.build_service import BuildService
             from app.services.instruction_version_service import InstructionVersionService
-            from app.schemas.instruction_schema import InstructionUpdate
             from app.schemas.instruction_reference_schema import InstructionReferenceCreate
 
-            instruction_service = InstructionService()
             build_service = BuildService()
             version_service = InstructionVersionService()
 
-            # Fetch the instruction
+            # Fetch the instruction (read-only — we do NOT mutate the live row).
+            # Edits are staged as a new InstructionVersion attached to the draft
+            # build. Live row is updated only when the build is promoted.
             stmt = (
                 select(Instruction)
                 .options(
                     selectinload(Instruction.data_sources),
+                    selectinload(Instruction.labels),
                     selectinload(Instruction.references),
                 )
                 .where(
@@ -239,37 +239,25 @@ class EditInstructionTool(Tool):
                 )
                 return
 
-            # Capture previous text before we mutate, so the tool result can
-            # expose a before/after pair for diff rendering in the UI.
             previous_text = instruction.text if data.text is not None else None
 
-            # Build update data
-            update_fields = {}
-
-            if data.text is not None:
-                update_fields["text"] = data.text
-
-            if data.title is not None:
-                update_fields["title"] = data.title
-
-            if data.category is not None:
-                update_fields["category"] = data.category
-
+            # Start from the current live row state, overlay only the fields
+            # the caller wants to change. These values become the new version.
+            new_text = data.text if data.text is not None else instruction.text
+            new_title = data.title if data.title is not None else instruction.title
+            new_category = data.category if data.category is not None else instruction.category
             if data.load_mode is not None:
                 valid_load_modes = {"always", "intelligent"}
-                update_fields["load_mode"] = data.load_mode if data.load_mode in valid_load_modes else "intelligent"
+                new_load_mode = data.load_mode if data.load_mode in valid_load_modes else "intelligent"
+            else:
+                new_load_mode = instruction.load_mode or "always"
 
-            # Handle table_names -> references and data_source_ids
-            data_source_ids = None
-            references = None
             matched_table_names = []
-
             if data.table_names is not None:
-                data_source_ids = set()
-                references = []
-
-                if data.table_names:  # Non-empty list
-                    # Build conditions to match table names
+                # Resolve the requested table list to ds_ids + references.
+                resolved_ds_ids = set()
+                resolved_refs = []
+                if data.table_names:
                     conditions = []
                     for name in data.table_names:
                         name_lower = name.lower()
@@ -278,7 +266,6 @@ class EditInstructionTool(Tool):
                         else:
                             conditions.append(func.lower(DataSourceTable.name) == name_lower)
                             conditions.append(func.lower(DataSourceTable.name).like(f'%.{name_lower}'))
-
                     if conditions:
                         table_stmt = (
                             select(DataSourceTable)
@@ -290,82 +277,67 @@ class EditInstructionTool(Tool):
                         )
                         table_result = await db.execute(table_stmt)
                         tables = table_result.scalars().all()
-
                         for table in tables:
                             if table.datasource_id:
-                                data_source_ids.add(table.datasource_id)
-                            references.append(InstructionReferenceCreate(
-                                object_type="datasource_table",
-                                object_id=str(table.id),
-                                relation_type="scope",
-                                display_text=table.name,
-                            ))
+                                resolved_ds_ids.add(table.datasource_id)
+                            resolved_refs.append({
+                                "object_type": "datasource_table",
+                                "object_id": str(table.id),
+                                "column_name": None,
+                                "display_text": table.name,
+                            })
                             matched_table_names.append(table.name)
+                new_data_source_ids = list(resolved_ds_ids)
+                new_references_json = resolved_refs
+            else:
+                new_data_source_ids = [ds.id for ds in (instruction.data_sources or [])] or None
+                new_references_json = [
+                    {
+                        "object_type": ref.object_type,
+                        "object_id": ref.object_id,
+                        "column_name": ref.column_name,
+                        "display_text": ref.display_text,
+                    }
+                    for ref in (instruction.references or [])
+                ] or None
 
-                update_fields["data_source_ids"] = list(data_source_ids) if data_source_ids else []
-                update_fields["references"] = references if references else []
+            label_ids = [label.id for label in (instruction.labels or [])] or None
+            category_ids = None
+            if new_category:
+                category_ids = new_category if isinstance(new_category, list) else [new_category]
 
-            # Apply updates directly to the instruction model
-            for field, value in update_fields.items():
-                if field not in ("data_source_ids", "references"):
-                    setattr(instruction, field, value)
-
-            # Handle data source associations if provided
-            if data_source_ids is not None:
-                await instruction_service._update_data_source_associations(db, instruction, list(data_source_ids) if data_source_ids else [])
-
-            # Handle references if provided
-            if references is not None:
-                ds_ids = list(data_source_ids) if data_source_ids else None
-                await instruction_service.reference_service.replace_for_instruction(
-                    db, instruction.id, references, organization, ds_ids
-                )
-
-            await db.commit()
-
-            # Create new version if content changed
             version_number = None
             try:
-                # Re-fetch instruction with relationships for version creation
-                fresh_stmt = (
-                    select(Instruction)
-                    .options(
-                        selectinload(Instruction.data_sources),
-                        selectinload(Instruction.labels),
-                        selectinload(Instruction.references),
-                    )
-                    .where(Instruction.id == instruction.id)
+                version = await version_service.create_version_from_data(
+                    db=db,
+                    instruction_id=str(instruction.id),
+                    text=new_text,
+                    title=new_title,
+                    structured_data=instruction.structured_data,
+                    formatted_content=instruction.formatted_content,
+                    status=instruction.status or "published",
+                    load_mode=new_load_mode,
+                    references_json=new_references_json,
+                    data_source_ids=new_data_source_ids,
+                    label_ids=label_ids,
+                    category_ids=category_ids,
+                    user_id=user.id if user else None,
                 )
-                fresh_result = await db.execute(fresh_stmt)
-                instruction_with_rels = fresh_result.scalar_one()
+                version_number = version.version_number
 
-                # Check if content has changed
-                if await version_service.has_content_changed(db, instruction_with_rels):
-                    # Create new version
-                    version = await version_service.create_version(
-                        db, instruction_with_rels, user_id=user.id if user else None
-                    )
-                    version_number = version.version_number
+                if training_build_id:
+                    build = await build_service.get_build(db, training_build_id)
+                    if build and build.can_be_edited:
+                        await build_service.add_to_build(
+                            db, build.id, str(instruction.id), version.id
+                        )
 
-                    # Update instruction's current version
-                    instruction_with_rels.current_version_id = version.id
-
-                    # Add to training build
-                    if training_build_id:
-                        build = await build_service.get_build(db, training_build_id)
-                        if build and build.can_be_edited:
-                            await build_service.add_to_build(
-                                db, build.id, instruction_with_rels.id, version.id
-                            )
-
-                    await db.commit()
-                    logger.info(
-                        f"Created version {version.id} (v{version_number}) for edited instruction {instruction.id}"
-                    )
-
+                await db.commit()
+                logger.info(
+                    f"Staged edit as version {version.id} (v{version_number}) for instruction {instruction.id} in build {training_build_id}"
+                )
             except Exception as e:
-                logger.warning(f"Failed to create version for edited instruction {instruction.id}: {e}")
-                # Don't fail the edit if versioning fails
+                logger.warning(f"Failed to stage edit for instruction {instruction.id}: {e}")
 
             # Build summary of changes
             changes = []

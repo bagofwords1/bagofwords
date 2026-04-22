@@ -889,17 +889,60 @@ class BuildService:
         # Keep the in-memory object consistent for any caller that reads it.
         build.is_main = True
 
-        # Update Instruction.current_version_id for all instructions in this build
-        # Query only IDs — no need to load full Instruction/BuildContent objects
-        content_rows = await db.execute(
-            select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+        # Update Instruction.current_version_id AND sync the versioned fields
+        # onto the live row. Training/knowledge tools stage edits as versions
+        # without mutating the row, so the row's text/title/category stay on
+        # the previous version until promotion. Loaders that read inst.text
+        # directly (legacy fallback, ReportAgentPanel fetch) require this sync.
+        from app.models.instruction_version import InstructionVersion
+        rows = await db.execute(
+            select(
+                BuildContent.instruction_id,
+                BuildContent.instruction_version_id,
+                InstructionVersion.text,
+                InstructionVersion.title,
+                InstructionVersion.load_mode,
+                InstructionVersion.category_ids,
+                InstructionVersion.status,
+            )
+            .join(
+                InstructionVersion,
+                InstructionVersion.id == BuildContent.instruction_version_id,
+            )
             .where(BuildContent.build_id == build_id)
         )
-        for instruction_id, version_id in content_rows.all():
+        for instruction_id, version_id, v_text, v_title, v_load_mode, v_category_ids, v_status in rows.all():
+            category = None
+            if v_category_ids:
+                category = v_category_ids[0] if isinstance(v_category_ids, list) else v_category_ids
+            values = {"current_version_id": version_id}
+            if v_text is not None:
+                values["text"] = v_text
+            if v_title is not None:
+                values["title"] = v_title
+            if v_load_mode is not None:
+                values["load_mode"] = v_load_mode
+            if category is not None:
+                values["category"] = category
+            # Flip drafts to published on promotion; leave other statuses alone.
+            if v_status == "published":
+                values["status"] = "published"
             await db.execute(
                 sql_update(Instruction)
                 .where(Instruction.id == instruction_id)
-                .values(current_version_id=version_id)
+                .values(**values)
+            )
+            # Ensure instructions created as drafts in this build become visible
+            # to legacy loaders after promotion.
+            await db.execute(
+                sql_update(Instruction)
+                .where(
+                    and_(
+                        Instruction.id == instruction_id,
+                        Instruction.status == "draft",
+                    )
+                )
+                .values(status="published")
             )
 
         await db.commit()

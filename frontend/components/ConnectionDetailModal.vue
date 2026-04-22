@@ -19,29 +19,29 @@
       <div class="space-y-3 py-4 border-t border-gray-100">
         <!-- Status -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">Status</span>
+          <span class="text-xs text-gray-500">{{ $t('data.status') }}</span>
           <div class="flex items-center gap-2">
             <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
-            <span class="text-xs text-gray-700">{{ isConnected ? 'Connected' : 'Disconnected' }}</span>
+            <span class="text-xs text-gray-700">{{ isConnected ? $t('data.connected') : $t('data.disconnected') }}</span>
           </div>
         </div>
 
         <!-- Tables -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">Tables</span>
+          <span class="text-xs text-gray-500">{{ $t('data.tablesLabel') }}</span>
           <span class="text-xs text-gray-700">{{ tableCount }}</span>
         </div>
 
         <!-- Data Agents -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">Data Agents</span>
+          <span class="text-xs text-gray-500">{{ $t('data.agentsLabel') }}</span>
           <span class="text-xs text-gray-700">{{ domainCount }}</span>
         </div>
 
         <!-- Last Checked -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">Last checked</span>
-          <span class="text-xs text-gray-700">{{ lastCheckedDisplay || 'Never' }}</span>
+          <span class="text-xs text-gray-500">{{ $t('data.lastChecked') }}</span>
+          <span class="text-xs text-gray-700">{{ lastCheckedDisplay || $t('data.never') }}</span>
         </div>
       </div>
 
@@ -55,26 +55,26 @@
         >
           <Spinner v-if="testing" class="w-3.5 h-3.5" />
           <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
-          {{ testing ? 'Testing...' : 'Test' }}
+          {{ testing ? $t('data.testing') : $t('data.test') }}
         </button>
         <!-- Full Edit button (admin with update_data_source permission) -->
-        <button 
+        <button
           v-if="canUpdateDataSource"
           @click="openEdit"
           class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
         >
           <UIcon name="heroicons-pencil" class="w-3.5 h-3.5" />
-          Edit
+          {{ $t('data.edit') }}
         </button>
-        
+
         <!-- Connect button (user auth required, no admin permission) -->
-        <button 
+        <button
           v-else-if="requiresUserAuth"
           @click="openCredentialsModal"
           class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
         >
           <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
-          Connect
+          {{ $t('data.connect') }}
         </button>
       </div>
 
@@ -91,7 +91,7 @@
             class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer"
           >
             <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
-            Delete Connection
+            {{ $t('data.deleteConnection') }}
           </button>
         </div>
 
@@ -102,23 +102,23 @@
             <div class="flex items-start gap-2">
               <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
               <div class="text-xs">
-                <p class="font-medium text-amber-800">This will impact {{ domainCount }} domain{{ domainCount > 1 ? 's' : '' }}</p>
+                <p class="font-medium text-amber-800">{{ domainCount === 1 ? $t('data.impactDomainsOne', { count: domainCount }) : $t('data.impactDomainsMany', { count: domainCount }) }}</p>
                 <p class="text-amber-700 mt-1">
-                  {{ domainNames.slice(0, 3).join(', ') }}{{ domainNames.length > 3 ? ` and ${domainNames.length - 3} more` : '' }}
+                  {{ domainNames.slice(0, 3).join(', ') }}{{ domainNames.length > 3 ? ' ' + $t('data.andMore', { n: domainNames.length - 3 }) : '' }}
                 </p>
-                <p class="text-amber-600 mt-1">All tables from this connection will be removed from these domains.</p>
+                <p class="text-amber-600 mt-1">{{ $t('data.tablesRemovedNote') }}</p>
               </div>
             </div>
           </div>
 
-          <p class="text-xs text-gray-600 text-center">Are you sure? This cannot be undone.</p>
+          <p class="text-xs text-gray-600 text-center">{{ $t('data.deleteConfirm') }}</p>
           <div class="flex gap-2">
             <button
               @click="confirmingDelete = false"
               :disabled="deleting"
               class="flex-1 px-3 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
             >
-              Cancel
+              {{ $t('data.cancel') }}
             </button>
             <button
               @click="deleteConnection"
@@ -126,7 +126,7 @@
               class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
             >
               <Spinner v-if="deleting" class="w-3.5 h-3.5" />
-              {{ deleting ? 'Deleting...' : 'Delete' }}
+              {{ deleting ? $t('data.deleting') : $t('data.delete') }}
             </button>
           </div>
         </div>
@@ -141,7 +141,7 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <DataSourceIcon :type="connection?.type" class="h-5" />
-            <h3 class="text-lg font-semibold">Edit Connection</h3>
+            <h3 class="text-lg font-semibold">{{ $t('data.editConnection') }}</h3>
           </div>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />
         </div>
@@ -149,7 +149,7 @@
 
       <div v-if="loadingDetails" class="py-8 text-center">
         <Spinner class="h-5 w-5 mx-auto text-gray-400" />
-        <p class="text-sm text-gray-500 mt-2">Loading...</p>
+        <p class="text-sm text-gray-500 mt-2">{{ $t('common.loading') }}</p>
       </div>
 
       <ConnectForm
@@ -192,6 +192,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
   (e: 'updated'): void
 }>()
+
+const { t } = useI18n()
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -237,10 +239,10 @@ const lastCheckedDisplay = computed(() => {
   const lastChecked = props.connection?.last_checked_at || props.connection?.user_status?.last_checked_at
   if (!lastChecked) return null
   const seconds = Math.floor((Date.now() - new Date(lastChecked).getTime()) / 1000)
-  if (seconds < 60) return 'just now'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
-  return `${Math.floor(seconds / 86400)}d ago`
+  if (seconds < 60) return t('data.justNow')
+  if (seconds < 3600) return t('data.minutesAgo', { n: Math.floor(seconds / 60) })
+  if (seconds < 86400) return t('data.hoursAgo', { n: Math.floor(seconds / 3600) })
+  return t('data.daysAgo', { n: Math.floor(seconds / 86400) })
 })
 
 const editFormValues = computed(() => {
@@ -261,17 +263,17 @@ async function testConnection() {
   try {
     const { data, error } = await useMyFetch(`/connections/${props.connection.id}/test`, { method: 'POST' })
     if (error.value) {
-      testResult.value = { success: false, message: error.value.message || 'Test failed' }
+      testResult.value = { success: false, message: error.value.message || t('data.testFailed') }
     } else {
       const result = data.value as any
-      testResult.value = { 
-        success: result.success, 
-        message: result.success ? 'Connection successful!' : (result.message || 'Connection failed')
+      testResult.value = {
+        success: result.success,
+        message: result.success ? t('data.connectionSuccessful') : (result.message || t('data.connectionFailed'))
       }
     }
     emit('updated')
   } catch (e: any) {
-    testResult.value = { success: false, message: e.message || 'Test failed' }
+    testResult.value = { success: false, message: e.message || t('data.testFailed') }
   } finally {
     testing.value = false
   }
@@ -315,14 +317,14 @@ async function deleteConnection() {
   try {
     const { error } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'DELETE' })
     if (error.value) {
-      testResult.value = { success: false, message: error.value.message || 'Delete failed' }
+      testResult.value = { success: false, message: error.value.message || t('data.deleteFailed') }
       confirmingDelete.value = false
     } else {
       isOpen.value = false
       emit('updated')
     }
   } catch (e: any) {
-    testResult.value = { success: false, message: e.message || 'Delete failed' }
+    testResult.value = { success: false, message: e.message || t('data.deleteFailed') }
     confirmingDelete.value = false
   } finally {
     deleting.value = false

@@ -11,26 +11,26 @@
               >{{ (detail?.type || '').toUpperCase() }}</span>
               
               <!-- Green check badge for approved/published entities -->
-              <Icon 
-                v-if="entityType === 'global'" 
-                name="heroicons:check-badge" 
-                class="w-4 h-4 text-green-600" 
-                title="Approved" 
+              <Icon
+                v-if="entityType === 'global'"
+                name="heroicons:check-badge"
+                class="w-4 h-4 text-green-600"
+                :title="$t('queries.detail.approvedTitle')"
               />
-              
+
               <!-- Entity workflow status badge -->
-              <span 
+              <span
                 v-if="entityType === 'draft'"
                 class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
-              >DRAFT</span>
-              <span 
+              >{{ $t('queries.draftBadge') }}</span>
+              <span
                 v-else-if="entityType === 'private'"
                 class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 border-gray-200 bg-gray-50"
-              >DRAFT</span>
-              <span 
+              >{{ $t('queries.draftBadge') }}</span>
+              <span
                 v-else-if="entityType === 'suggested'"
                 class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50"
-              >SUGGESTED</span>
+              >{{ $t('queries.suggestedBadge') }}</span>
             </div>
             <h1 class="text-lg font-semibold text-gray-900">{{ detail?.title || detail?.slug }}</h1>
             <div class="text-[12px] text-gray-600 mt-1">{{ detail?.description || '—' }}</div>
@@ -46,48 +46,48 @@
               />
             </div>
           </div>
-          <div class="flex-shrink-0 ml-auto flex items-center gap-2">
+          <div class="flex-shrink-0 ms-auto flex items-center gap-2">
             <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100" @click="deleteEntity" :disabled="deleting">
-              <span v-if="deleting">Deleting…</span>
-              <span v-else>Delete</span>
+              <span v-if="deleting">{{ $t('queries.detail.deletingInProgress') }}</span>
+              <span v-else>{{ $t('queries.detail.deleteAction') }}</span>
             </button>
             <button v-if="canUpdateEntities" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" @click="openEdit = true">
-              Edit
+              {{ $t('queries.detail.editAction') }}
             </button>
           </div>
         </div>
 
         <div class="mt-3 flex items-center gap-2 flex-wrap">
           <div v-if="viewType" class="text-[11px] text-gray-500 px-1.5 py-0.5 bg-gray-50 border border-gray-100 rounded">{{ viewType }}</div>
-          <div v-if="detail?.data?.info?.total_rows !== undefined" class="text-[11px] text-gray-400">{{ formatCount(detail?.data?.info?.total_rows) }} rows</div>
-          <div v-if="detail?.data?.info?.total_columns !== undefined" class="text-[11px] text-gray-400">{{ formatCount(detail?.data?.info?.total_columns) }} columns</div>
-          <div v-if="detail?.last_refreshed_at" class="text-[11px] text-gray-400">Refreshed {{ timeAgo(detail?.last_refreshed_at as any) }}</div>
-          
+          <div v-if="detail?.data?.info?.total_rows !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.rowsLabel', { n: formatCount(detail?.data?.info?.total_rows) }) }}</div>
+          <div v-if="detail?.data?.info?.total_columns !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.columnsLabel', { n: formatCount(detail?.data?.info?.total_columns) }) }}</div>
+          <div v-if="detail?.last_refreshed_at" class="text-[11px] text-gray-400">{{ $t('queries.detail.refreshedLabel', { when: timeAgo(detail?.last_refreshed_at as any) }) }}</div>
+
           <!-- Workflow actions -->
-          <button v-if="canSuggest" class="ml-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" @click="suggestEntity" :disabled="suggesting">
-            <span v-if="suggesting">Suggesting…</span>
-            <span v-else>Suggest for Approval</span>
+          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" @click="suggestEntity" :disabled="suggesting">
+            <span v-if="suggesting">{{ $t('queries.detail.suggestingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.suggestAction') }}</span>
           </button>
-          
-          <button v-if="canWithdraw" class="ml-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" @click="withdrawSuggestion" :disabled="withdrawing">
-            <span v-if="withdrawing">Withdrawing…</span>
-            <span v-else>Withdraw Suggestion</span>
+
+          <button v-if="canWithdraw" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" @click="withdrawSuggestion" :disabled="withdrawing">
+            <span v-if="withdrawing">{{ $t('queries.detail.withdrawingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.withdrawAction') }}</span>
           </button>
-          
-          <button v-if="canApprove" class="ml-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 text-green-700 hover:bg-green-100" @click="approveSuggestion" :disabled="approving">
-            <span v-if="approving">Approving…</span>
-            <span v-else>Approve</span>
+
+          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 text-green-700 hover:bg-green-100" @click="approveSuggestion" :disabled="approving">
+            <span v-if="approving">{{ $t('queries.detail.approvingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.approveAction') }}</span>
           </button>
-          
+
           <button v-if="canApprove" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 text-red-700 hover:bg-red-100" @click="rejectSuggestion" :disabled="rejecting">
-            <span v-if="rejecting">Rejecting…</span>
-            <span v-else>Reject</span>
+            <span v-if="rejecting">{{ $t('queries.detail.rejectingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.rejectAction') }}</span>
           </button>
-          
-          
-          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" :class="{ 'ml-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
-            <span v-if="refreshing">Refreshing…</span>
-            <span v-else>Refresh Data</span>
+
+
+          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50" :class="{ 'ms-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
+            <span v-if="refreshing">{{ $t('queries.detail.refreshingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.refreshAction') }}</span>
           </button>
         </div>
 
@@ -95,40 +95,40 @@
           <div class="border border-gray-100 rounded bg-white">
             <!-- Tab Navigation -->
             <div class="flex border-b border-gray-100">
-              <button 
+              <button
                 v-if="showVisual"
                 @click="activeTab = 'visual'"
                 :class="[
                   'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-                  activeTab === 'visual' 
-                    ? 'border-blue-500 text-blue-600' 
+                  activeTab === 'visual'
+                    ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 ]"
               >
-                Visual
+                {{ $t('queries.detail.tabVisual') }}
               </button>
-              <button 
+              <button
                 @click="activeTab = 'data'"
                 :class="[
                   'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-                  activeTab === 'data' 
-                    ? 'border-blue-500 text-blue-600' 
+                  activeTab === 'data'
+                    ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 ]"
               >
-                <span>Data</span>
-                <span v-if="rowCount" class="ml-1.5 text-[11px] text-gray-400">({{ rowCount }})</span>
+                <span>{{ $t('queries.detail.tabData') }}</span>
+                <span v-if="rowCount" class="ms-1.5 text-[11px] text-gray-400">({{ rowCount }})</span>
               </button>
-              <button 
+              <button
                 @click="activeTab = 'code'"
                 :class="[
                   'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
-                  activeTab === 'code' 
-                    ? 'border-blue-500 text-blue-600' 
+                  activeTab === 'code'
+                    ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 ]"
               >
-                Code
+                {{ $t('queries.detail.tabCode') }}
               </button>
             </div>
 
@@ -164,9 +164,9 @@
                 <div v-if="activeTab === 'code'" class="bg-gray-50 rounded p-3 overflow-auto" style="max-height: 400px;">
                   <div class="flex items-center justify-between mb-2">
                     <span class="text-[11px] text-gray-500">&nbsp;</span>
-                    <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-white" @click="copyCode">Copy</button>
+                    <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-white" @click="copyCode">{{ $t('queries.detail.copyAction') }}</button>
                   </div>
-                  <pre class="text-[11px] text-gray-800"><code>{{ detail?.code || '// No code available' }}</code></pre>
+                  <pre class="text-[11px] text-gray-800"><code>{{ detail?.code || $t('queries.detail.noCode') }}</code></pre>
                 </div>
               </Transition>
             </div>
@@ -198,6 +198,7 @@ import EntityForm from '~/components/entity/EntityForm.vue'
 import EntityEditModal from '~/components/entity/EntityEditModal.vue'
 
 const toast = useToast()
+const { t } = useI18n()
 
 type MinimalDS = { id: string; name?: string; type?: string }
 type EntityDetail = { 
@@ -428,16 +429,16 @@ async function refreshEntity() {
 const deleting = ref(false)
 async function deleteEntity() {
   if (deleting.value) return
-  const confirmed = window.confirm('Are you sure you want to delete this entity? This action cannot be undone.')
+  const confirmed = window.confirm(t('queries.detail.deleteConfirm'))
   if (!confirmed) return
   deleting.value = true
   try {
     const { error } = await useMyFetch(`/api/entities/${id.value}`, { method: 'DELETE' })
     if (error.value) throw error.value
-    toast.add({ title: 'Deleted', description: 'Entity deleted successfully', color: 'green' })
+    toast.add({ title: t('queries.detail.toastDeletedTitle'), description: t('queries.detail.toastDeletedBody'), color: 'green' })
     router.push('/queries')
   } catch (e: any) {
-    toast.add({ title: 'Error', description: e?.data?.detail || e?.message || 'Failed to delete entity', color: 'red' })
+    toast.add({ title: t('queries.detail.toastErrorTitle'), description: e?.data?.detail || e?.message || t('queries.detail.errDeleteEntity'), color: 'red' })
   } finally {
     deleting.value = false
   }
@@ -453,15 +454,15 @@ async function suggestEntity() {
     if (error.value) throw error.value
     detail.value = data.value as any
     toast.add({
-      title: 'Success',
-      description: 'Entity suggested for approval',
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.suggestSuccessBody'),
       color: 'green'
     })
   } catch (e: any) {
     console.error('Failed to suggest entity:', e)
     toast.add({
-      title: 'Error',
-      description: 'Failed to suggest entity',
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errSuggestEntity'),
       color: 'red'
     })
   }
@@ -477,15 +478,15 @@ async function withdrawSuggestion() {
     if (error.value) throw error.value
     detail.value = data.value as any
     toast.add({
-      title: 'Success',
-      description: 'Suggestion withdrawn',
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.withdrawSuccessBody'),
       color: 'green'
     })
   } catch (e: any) {
     console.error('Failed to withdraw suggestion:', e)
     toast.add({
-      title: 'Error',
-      description: 'Failed to withdraw suggestion',
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errWithdrawSuggestion'),
       color: 'red'
     })
   }
@@ -501,15 +502,15 @@ async function approveSuggestion() {
     if (error.value) throw error.value
     detail.value = data.value as any
     toast.add({
-      title: 'Success',
-      description: 'Entity approved and published',
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.approveSuccessBody'),
       color: 'green'
     })
   } catch (e: any) {
     console.error('Failed to approve suggestion:', e)
     toast.add({
-      title: 'Error',
-      description: 'Failed to approve entity',
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errApproveEntity'),
       color: 'red'
     })
   }
@@ -525,15 +526,15 @@ async function rejectSuggestion() {
     if (error.value) throw error.value
     detail.value = data.value as any
     toast.add({
-      title: 'Success',
-      description: 'Entity rejected',
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.rejectSuccessBody'),
       color: 'green'
     })
   } catch (e: any) {
     console.error('Failed to reject suggestion:', e)
     toast.add({
-      title: 'Error',
-      description: 'Failed to reject entity',
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errRejectEntity'),
       color: 'red'
     })
   }
@@ -569,11 +570,11 @@ function timeAgo(iso: string | Date | null | undefined) {
   const d = typeof iso === 'string' ? parseAsUTCIfNaive(iso) : iso
   const diff = Math.max(0, Date.now() - (d?.getTime?.() || 0))
   const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 60) return t('queries.timeMinutesAgo', { n: mins })
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
+  if (hrs < 24) return t('queries.timeHoursAgo', { n: hrs })
   const days = Math.floor(hrs / 24)
-  return `${days}d ago`
+  return t('queries.timeDaysAgo', { n: days })
 }
 
 function dataSourceIcon(type?: string) {
@@ -598,7 +599,7 @@ function formatCount(num?: number): string {
 
 function onModalSaved() {
   load()
-  toast.add({ title: 'Success', description: 'Entity saved successfully', color: 'green' })
+  toast.add({ title: t('queries.detail.toastSuccessTitle'), description: t('queries.detail.savedSuccessBody'), color: 'green' })
 }
 </script>
 

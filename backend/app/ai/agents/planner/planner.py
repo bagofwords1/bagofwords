@@ -5,6 +5,7 @@ import tiktoken
 import json
 from partialjson.json_parser import JSONParser
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+from app.ai.prompt_language import build_language_directive
 from datetime import datetime
 import re
 
@@ -167,7 +168,7 @@ class Planner:
 
         Metadata about the user:
         - external_platform: {external_platform}
-
+        {build_language_directive(self.organization_settings)}
         **General Organization Instructions**:
         **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
         {instructions_context}

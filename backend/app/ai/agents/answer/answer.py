@@ -2,6 +2,7 @@ from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+from app.ai.prompt_language import build_language_directive
 from datetime import datetime
 
 class Answer:
@@ -82,7 +83,7 @@ You are a data analyst. Your general capabilities are:
 
 Metadata about the user:
 - The user sent a message via {external_platform} platform. Make sure to format the output and style based on the platform -- use `mrkdwn` formatting ONLY, no HTML.
-
+{build_language_directive(self.organization_settings)}
 The planner agent decided that you should answer the question below with the data and schemas provided.
 
 Instructions:

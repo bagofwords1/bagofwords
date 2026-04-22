@@ -11,15 +11,15 @@
       </p>
       <div v-if="loading" class="text-blue-500 font-medium">Verifying...</div>
       <div v-else-if="success && alreadyVerified" class="text-blue-600 font-medium text-center">
-        <Icon name="heroicons:information-circle" class="inline w-6 h-6 mr-1" />
+        <Icon name="heroicons:information-circle" class="inline w-6 h-6 me-1" />
         {{ message || 'Your account is already verified.' }}
       </div>
       <div v-else-if="success" class="text-green-600 font-medium text-center">
-        <Icon name="heroicons:check-circle" class="inline w-6 h-6 mr-1" />
+        <Icon name="heroicons:check-circle" class="inline w-6 h-6 me-1" />
         Your account has been verified! You can now use {{ platformLabel }} integration.
       </div>
       <div v-else-if="error" class="text-red-600 font-medium text-center">
-        <Icon name="heroicons:x-circle" class="inline w-6 h-6 mr-1" />
+        <Icon name="heroicons:x-circle" class="inline w-6 h-6 me-1" />
         Verification failed: {{ error }}
       </div>
     </div>

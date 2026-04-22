@@ -1,7 +1,7 @@
 <template>
     <UModal v-model="providerModalOpen" :ui="{ width: 'sm:max-w-xl' }">
         <div class="p-4 relative">
-            <button @click="providerModalOpen = false" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700">
+            <button @click="providerModalOpen = false" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Integrate Models</h1>
@@ -354,13 +354,13 @@
                             <UButton 
                                 variant="soft" 
                                 color="gray"
-                                class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 mr-2"
+                                class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 me-2"
                                 :disabled="isTestingConnection || !canTestConnection"
                                 @click="testConnection"
                                 title="Regular charges may occur"
                             >
                                 <template v-if="isTestingConnection">
-                                    <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
+                                    <Spinner class="w-4 h-4 me-2 inline-block align-[-0.125em]" />
                                     Testing...
                                 </template>
                                 <template v-else>
@@ -369,7 +369,7 @@
                             </UButton>
                         </UTooltip>
                     </div>
-                    <div class="ml-auto space-x-2">
+                    <div class="ms-auto space-x-2">
                         <UButton label="Cancel" color="gray" variant="soft" @click="providerModalOpen = false" />
                         <UButton 
                             type="submit" 

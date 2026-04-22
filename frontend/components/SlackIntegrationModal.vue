@@ -68,7 +68,7 @@
           <button type="submit" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md">Connect</button>
         </form>
       </div>
-      <button class="absolute top-2 right-2 text-gray-400 hover:text-gray-600" @click="$emit('close')">✕</button>
+      <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600" @click="$emit('close')">✕</button>
     </div>
   </template>
   

@@ -101,21 +101,70 @@ const comparisonColumn = computed(() => {
   return c ? c.toLowerCase() : null
 })
 
+// Optional aggregation function from view schema. When absent the metric is
+// read from the first row (legacy behaviour). When set, aggregate across all
+// rows so granular source data renders a correct card value.
+type MetricAggregationFn = 'sum' | 'avg' | 'count' | 'min' | 'max'
+const aggregationFn = computed<MetricAggregationFn | null>(() => {
+  const fn = viewConfig.value?.aggregation
+  return (fn as MetricAggregationFn) || null
+})
+
+function aggregateNumbers(values: number[], fn?: MetricAggregationFn | null): number | null {
+  if (!values.length) return null
+  if (!fn) return values[0]
+  switch (fn) {
+    case 'sum': return values.reduce((a, b) => a + b, 0)
+    case 'avg': return values.reduce((a, b) => a + b, 0) / values.length
+    case 'count': return values.length
+    case 'min': return values.reduce((a, b) => (a < b ? a : b))
+    case 'max': return values.reduce((a, b) => (a > b ? a : b))
+    default: return values[0]
+  }
+}
+
 // Extract raw values
 const rawValue = computed(() => {
   const rows = props.data?.rows
   if (!Array.isArray(rows) || rows.length === 0) return null
-  
+
+  const col = valueColumn.value
+  const fn = aggregationFn.value
+
+  if (col && fn) {
+    // `count` is row-cardinality, not a numeric reduction. Counting only
+    // parseable numbers would undercount string/boolean columns, so special-
+    // case it to non-null occurrences of the selected column.
+    if (fn === 'count') {
+      let n = 0
+      for (const row of rows) {
+        if (!row) continue
+        const key = Object.keys(row).find(k => k.toLowerCase() === col)
+        if (!key) continue
+        const v = row[key]
+        if (v !== null && v !== undefined && v !== '') n += 1
+      }
+      return n
+    }
+    const values: number[] = []
+    for (const row of rows) {
+      if (!row) continue
+      const key = Object.keys(row).find(k => k.toLowerCase() === col)
+      if (!key) continue
+      const num = Number(row[key])
+      if (!Number.isNaN(num)) values.push(num)
+    }
+    return aggregateNumbers(values, fn)
+  }
+
   const firstRow = rows[0]
   if (!firstRow) return null
-  
-  if (valueColumn.value) {
-    // Case-insensitive lookup
-    const key = Object.keys(firstRow).find(k => k.toLowerCase() === valueColumn.value)
+
+  if (col) {
+    const key = Object.keys(firstRow).find(k => k.toLowerCase() === col)
     if (key) return firstRow[key]
   }
-  
-  // Fallback to first value
+
   return Object.values(firstRow)[0]
 })
 

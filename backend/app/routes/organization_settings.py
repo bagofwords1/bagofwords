@@ -70,6 +70,29 @@ async def delete_general_icon(
     return await settings_service.remove_general_icon(db, organization, current_user)
 
 
+@router.get("/organization/locale")
+async def get_organization_locale(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Effective locale for this org + enabled list + system default."""
+    return await settings_service.get_locale(db, organization, current_user)
+
+
+@router.put("/organization/locale")
+@requires_permission('manage_settings')
+async def update_organization_locale(
+    payload: dict,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Set the org's locale override. Pass {"locale": "en|es|he"} or {"locale": null} to clear."""
+    locale = payload.get("locale")
+    return await settings_service.update_locale(db, organization, current_user, locale)
+
+
 @router.get("/organization/signup-policy", response_model=SignupPolicySchema)
 @requires_permission('full_admin_access')
 async def get_signup_policy(

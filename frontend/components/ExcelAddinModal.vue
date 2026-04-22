@@ -47,7 +47,7 @@
                             color="blue"
                             @click="downloadManifest"
                         >
-                            <UIcon name="heroicons-arrow-down-tray" class="w-3.5 h-3.5 mr-1" />
+                            <UIcon name="heroicons-arrow-down-tray" class="w-3.5 h-3.5 me-1" />
                             Download manifest.xml
                         </UButton>
                         <button
@@ -64,7 +64,7 @@
                     >
                         <UIcon
                             :name="showManifest ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-                            class="w-3 h-3"
+                            class="w-3 h-3 rtl-flip"
                         />
                         {{ showManifest ? 'Hide XML' : 'Show XML' }}
                     </button>

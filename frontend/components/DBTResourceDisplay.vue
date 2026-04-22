@@ -30,9 +30,9 @@
             <table class="min-w-full text-xs border border-gray-200 rounded">
               <thead class="bg-gray-50">
                 <tr>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Name</th>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Type</th>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Description</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Name</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Type</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Description</th>
                 </tr>
               </thead>
               <tbody>
@@ -51,7 +51,7 @@
       <template v-if="resource.resource_type === 'source' || resource.resource_type === 'dbt_source'">
         <div class="text-gray-500">
           <span v-if="rawData?.database">Database: {{ rawData.database }}</span>
-          <span v-if="rawData?.schema" class="ml-2">Schema: {{ rawData.schema }}</span>
+          <span v-if="rawData?.schema" class="ms-2">Schema: {{ rawData.schema }}</span>
         </div>
         <!-- Source Columns Table -->
         <div v-if="resource.columns && resource.columns.length > 0" class="mt-2">
@@ -60,9 +60,9 @@
             <table class="min-w-full text-xs border border-gray-200 rounded">
               <thead class="bg-gray-50">
                 <tr>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Name</th>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Type</th>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Description</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Name</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Type</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Description</th>
                 </tr>
               </thead>
               <tbody>
@@ -81,7 +81,7 @@
       <template v-if="resource.resource_type === 'metric' || resource.resource_type === 'dbt_metric'">
         <div class="text-gray-500">
           <span v-if="rawData?.calculation_method">Method: {{ rawData.calculation_method }}</span>
-          <span v-if="rawData?.expression" class="ml-2">Expression: {{ rawData.expression }}</span>
+          <span v-if="rawData?.expression" class="ms-2">Expression: {{ rawData.expression }}</span>
         </div>
       </template>
 
@@ -89,8 +89,8 @@
       <template v-if="resource.resource_type === 'exposure' || resource.resource_type === 'dbt_exposure'">
         <div class="text-gray-500">
           <span v-if="rawData?.type">Type: {{ rawData.type }}</span>
-          <span v-if="rawData?.maturity" class="ml-2">Maturity: {{ rawData.maturity }}</span>
-          <a v-if="rawData?.url" :href="rawData.url" target="_blank" class="ml-2 text-blue-600 hover:underline">
+          <span v-if="rawData?.maturity" class="ms-2">Maturity: {{ rawData.maturity }}</span>
+          <a v-if="rawData?.url" :href="rawData.url" target="_blank" class="ms-2 text-blue-600 hover:underline">
             View Exposure
           </a>
         </div>
@@ -99,8 +99,8 @@
       <!-- Dependencies -->
       <div v-if="resource.depends_on && resource.depends_on.length > 0" class="text-gray-500">
         <span class="font-medium">Depends on:</span>
-        <span class="ml-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
-        <span v-if="resource.depends_on.length > 3" class="ml-1">+{{ resource.depends_on.length - 3 }} more</span>
+        <span class="ms-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
+        <span v-if="resource.depends_on.length > 3" class="ms-1">+{{ resource.depends_on.length - 3 }} more</span>
       </div>
 
       <!-- Generic Columns Table (for resource types not handled above) -->
@@ -110,9 +110,9 @@
           <table class="min-w-full text-xs border border-gray-200 rounded">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Name</th>
-                <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Type</th>
-                <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Description</th>
+                <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Name</th>
+                <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Type</th>
+                <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Description</th>
               </tr>
             </thead>
             <tbody>

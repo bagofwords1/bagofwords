@@ -47,18 +47,18 @@
                 </div>
 
                 <!-- Test result (inline) -->
-                <div v-if="testConnectionStatus !== null" class="mt-2 ml-11 text-xs">
+                <div v-if="testConnectionStatus !== null" class="mt-2 ms-11 text-xs">
                     <span :class="testConnectionStatus?.success ? 'text-green-600' : 'text-red-600'">
                         {{ testConnectionStatus?.success ? 'Connection successful' : (testConnectionStatus?.message || 'Connection failed') }}
                     </span>
                 </div>
 
                 <!-- User Connection (only for user_required auth, non-admin) -->
-                <div class="mt-4 ml-11" v-if="connectionAuthPolicy === 'user_required' && !isAdmin">
+                <div class="mt-4 ms-11" v-if="connectionAuthPolicy === 'user_required' && !isAdmin">
                     <div class="text-sm text-gray-800 flex items-center space-x-3">
                         <template v-if="connectionUserStatus?.has_user_credentials">
                             <span class="inline-flex items-center text-green-700 text-xs">
-                                <UIcon name="heroicons-check-circle" class="w-3 h-3 mr-1" />
+                                <UIcon name="heroicons-check-circle" class="w-3 h-3 me-1" />
                                 Connected as {{ connectedUserDisplay }}
                             </span>
                             <UButton size="xs" color="gray" variant="ghost" :loading="isTestingUser" @click="testUserConnection">
@@ -68,7 +68,7 @@
                         </template>
                         <template v-else>
                             <span class="inline-flex items-center text-gray-500 text-xs">
-                                <UIcon name="heroicons-exclamation-circle" class="w-3 h-3 mr-1" />
+                                <UIcon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
                                 User credentials required
                             </span>
                             <UButton size="xs" color="blue" variant="soft" @click="openAddCredentials">Connect</UButton>

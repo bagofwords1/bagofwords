@@ -724,6 +724,41 @@ class QVDConfig(BaseModel):
     )
 
 
+# Qlik Sense (live connector — Qlik Cloud)
+class QlikSenseApiKeyCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="Qlik Cloud API key (bearer token). Generate at 'Settings > API keys' on the tenant.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class QlikSenseConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Base URL",
+        description=(
+            "Qlik Cloud tenant base URL. "
+            "Example: https://tenant.us.qlikcloud.com. "
+            "(On-prem Qlik Sense Enterprise on Windows is not supported in v1.)"
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify TLS certificate when calling Qlik REST and WebSocket endpoints.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    space_filter: Optional[str] = Field(
+        None,
+        title="Space Filter",
+        description="Optional comma-separated list of space IDs or names. If empty, all visible spaces are crawled.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
 # Timbr Semantic Layer
 class TimbrTokenCredentials(BaseModel):
     api_key: str = Field(
@@ -1021,6 +1056,9 @@ __all__ = [
     # QVD Files
     "QVDCredentials",
     "QVDConfig",
+    # Qlik Sense (live connector)
+    "QlikSenseApiKeyCredentials",
+    "QlikSenseConfig",
     # Microsoft Fabric
     "MSFabricCredentials",
     "MSFabricConfig",

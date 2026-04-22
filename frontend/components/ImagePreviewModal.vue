@@ -5,7 +5,7 @@
          @click.self="close">
       <div class="relative max-w-4xl max-h-[90vh]">
         <button @click="close"
-                class="absolute -top-10 right-0 text-white hover:text-gray-300 p-2">
+                class="absolute -top-10 end-0 text-white hover:text-gray-300 p-2">
           <Icon name="heroicons-x-mark" class="w-6 h-6" />
         </button>
         <img v-if="imageUrl"

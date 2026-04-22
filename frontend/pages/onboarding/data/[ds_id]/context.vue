@@ -15,7 +15,7 @@
             <div class="space-y-4">
               <div v-if="isLoadingInstructions" class="text-xs text-gray-500 flex items-center gap-2">
                 <Spinner class="w-4 h-4" />
-                Loading instructions...
+                {{ $t('onboarding.context.loadingInstructions') }}
               </div>
               <div v-else class="space-y-2">
                 <div 
@@ -26,7 +26,7 @@
                 >
                   <!-- Git and type icons for git-sourced instructions -->
                   <div v-if="instruction.source_type === 'git'" class="flex items-center gap-1 mb-1">
-                    <UTooltip text="Git-sourced">
+                    <UTooltip :text="$t('onboarding.context.gitSourced')">
                       <img src="/icons/git-branch.svg" alt="Git" class="h-3 w-3 opacity-60" />
                     </UTooltip>
                     <UTooltip v-if="getResourceTypeIcon(instruction)" :text="getResourceTypeTooltip(instruction)">
@@ -37,17 +37,17 @@
                     </UTooltip>
                   </div>
                   
-                  <div class="text-[12px] text-gray-800 leading-relaxed pr-24 whitespace-normal break-words max-w-full">
+                  <div class="text-[12px] text-gray-800 leading-relaxed pe-24 whitespace-normal break-words max-w-full">
                     {{ truncateText(instruction.text, 100) }}
                   </div>
                   
-                  <div class="absolute top-2 right-2 flex items-center gap-2">
+                  <div class="absolute top-2 end-2 flex items-center gap-2">
                     <template v-if="instructionAction[instruction.id]">
                       <span 
                         class="px-2 py-0.5 text-[11px] rounded-full border"
                         :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'"
                       >
-                        {{ instructionAction[instruction.id] === 'approved' ? 'Approved' : 'Removed' }}
+                        {{ instructionAction[instruction.id] === 'approved' ? $t('onboarding.context.approved') : $t('onboarding.context.removed') }}
                       </span>
                     </template>
                     <template v-else>
@@ -89,15 +89,15 @@
                       @click="openInstructionModal"
                       icon="heroicons:plus"
                     >
-                      Add Instruction
+                      {{ $t('onboarding.context.addInstruction') }}
                     </UButton>
-                    <button 
+                    <button
                       v-if="allInstructions.length === 0 && hasAttemptedLLMSync"
                       class="text-xs text-gray-500 hover:text-gray-600 p-2 rounded-md"
                       :disabled="isLLMSyncInProgress"
                       @click="runLLMSync"
                     >
-                      {{ isLLMSyncInProgress ? 'Generating...' : 'Generate AI Suggestions' }}
+                      {{ isLLMSyncInProgress ? $t('onboarding.context.generating') : $t('onboarding.context.generateAI') }}
                     </button>
                   </div>
                   <!-- Build Version Selector - only show if user can view builds -->
@@ -115,7 +115,7 @@
                 <GitBranchIcon class="w-5 h-5 text-blue-500 shrink-0" />
                 <div class="flex-1">
                   <div class="flex items-center gap-2">
-                    <h3 class="text-sm font-semibold text-gray-900">Integrate Git</h3>
+                    <h3 class="text-sm font-semibold text-gray-900">{{ $t('onboarding.context.integrateGit') }}</h3>
                     <div class="flex items-center gap-1">
                       <UTooltip text="Tableau">
                         <img src="/icons/tableau.png" alt="Tableau" class="h-2.5 inline opacity-60" />
@@ -135,15 +135,15 @@
                     <template v-if="integration?.git_repository">
                       <span class="flex items-center gap-1.5">
                         <UIcon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-                        Connected to {{ repoDisplayName }}
+                        {{ $t('onboarding.context.connectedTo', { repo: repoDisplayName }) }}
                         <span v-if="isIndexingGit" class="text-amber-500 flex items-center gap-1">
                           <UIcon name="heroicons:arrow-path" class="w-3 h-3 animate-spin" />
-                          Indexing...
+                          {{ $t('onboarding.context.indexing') }}
                         </span>
                       </span>
                     </template>
                     <template v-else>
-                      Connect a Git repo to load dbt models, markdown docs, and other resources.
+                      {{ $t('onboarding.context.gitBlurb') }}
                     </template>
                   </p>
                 </div>
@@ -157,15 +157,15 @@
                 :disabled="saving"
                 class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
               >
-                <span v-if="saving">Saving...</span>
-                <span v-else>Save & Continue</span>
+                <span v-if="saving">{{ $t('onboarding.context.saving') }}</span>
+                <span v-else>{{ $t('onboarding.context.save') }}</span>
               </button>
             </div>
           </div>
         </template>
       </OnboardingView>
       <div class="text-center mt-6">
-        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">Skip onboarding</button>
+        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">{{ $t('onboarding.skip') }}</button>
       </div>
 
       <!-- Git Modal -->
@@ -215,6 +215,7 @@ const currentPage = ref(1)
 const route = useRoute()
 const { updateOnboarding } = useOnboarding()
 const router = useRouter()
+const { t } = useI18n()
 
 const dsId = computed(() => String(route.params.ds_id || ''))
 const saving = ref(false)
@@ -275,12 +276,12 @@ const integration = ref<any>(null)
 const repoDisplayName = computed(() => {
   const url = integration.value?.git_repository?.repo_url || ''
   const tail = String(url).split('/')?.pop() || ''
-  return tail.replace(/\.git$/, '') || 'Repository'
+  return tail.replace(/\.git$/, '') || t('onboarding.context.repositoryFallback')
 })
 
 // Global loading gate for the instructions section
 const isLoading = computed(() => isLLMSyncInProgress.value || isLoadingInstructions.value)
-const loadingText = computed(() => isLLMSyncInProgress.value ? 'Thinking...' : 'Loading instructions...')
+const loadingText = computed(() => isLLMSyncInProgress.value ? t('onboarding.context.thinking') : t('onboarding.context.loadingInstructions'))
 
 // Suggested instructions fetched from API (published, filtered to this data source)
 const suggestedInstructions = ref<any[]>([])

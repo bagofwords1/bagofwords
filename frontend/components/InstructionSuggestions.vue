@@ -4,8 +4,8 @@
     <!-- Title section -->
     <div class="flex items-center text-xs text-gray-500 mb-3">
       <!-- Status icon -->
-      <Spinner v-if="isLoading" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else name="heroicons-light-bulb" class="w-3 h-3 mr-1.5 text-green-500" />
+      <Spinner v-if="isLoading" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else name="heroicons-light-bulb" class="w-3 h-3 me-1.5 text-green-500" />
 
       <!-- Title with shimmer for loading -->
       <span v-if="isLoading" class="tool-shimmer">
@@ -58,7 +58,7 @@
             @click="handleEdit(d, i)"
             class="flex items-center text-[9px] text-gray-500 hover:text-gray-700 transition-colors"
           >
-            <Icon name="heroicons:pencil" class="w-2.5 h-2.5 mr-0.5" />
+            <Icon name="heroicons:pencil" class="w-2.5 h-2.5 me-0.5" />
             <span>Edit</span>
           </button>
         </div>
@@ -84,9 +84,9 @@
 
     <!-- Published status (shown in place of button after publishing) -->
     <div v-if="drafts.length > 0 && !isLoading && isBuildPublished" class="mt-2 flex items-center text-xs text-green-600">
-      <Icon name="heroicons:check-circle-solid" class="w-4 h-4 mr-1.5" />
+      <Icon name="heroicons:check-circle-solid" class="w-4 h-4 me-1.5" />
       <span class="font-medium">Published</span>
-      <span v-if="publishedAtFormatted" class="text-gray-500 ml-1">
+      <span v-if="publishedAtFormatted" class="text-gray-500 ms-1">
         at {{ publishedAtFormatted }}
       </span>
     </div>

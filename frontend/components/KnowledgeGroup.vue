@@ -6,7 +6,7 @@
       @click="toggleExpanded"
     >
       <span v-if="isLoading" class="flex items-center flex-wrap gap-1">
-        <Spinner class="w-3 h-3 mr-1 text-gray-400 shrink-0" />
+        <Spinner class="w-3 h-3 me-1 text-gray-400 shrink-0" />
         <span class="knowledge-shimmer">Reviewing Knowledge</span>
         <template v-if="currentActivity">
           <span class="text-gray-300">·</span>
@@ -18,7 +18,7 @@
       <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
         <Icon
           :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-          class="w-3 h-3 mr-1 text-gray-400"
+          class="w-3 h-3 me-1 text-gray-400 rtl-flip"
         />
         <span>Knowledge</span>
         <span class="text-gray-300">·</span>
@@ -27,14 +27,14 @@
         <span v-if="totalAdded > 0" class="text-[10px] font-mono text-green-600">+{{ totalAdded }}</span>
         <span v-if="totalRemoved > 0" class="text-[10px] font-mono text-red-500">−{{ totalRemoved }}</span>
         <span v-if="isBuildPublished" class="text-[10px] text-green-600 flex items-center">
-          <Icon name="heroicons:check-circle-solid" class="w-3 h-3 mr-0.5" />Published
+          <Icon name="heroicons:check-circle-solid" class="w-3 h-3 me-0.5" />Published
         </span>
       </span>
     </div>
 
     <!-- Expanded body -->
     <Transition name="slide">
-      <div v-if="isExpanded && !isLoading" class="mt-2 ml-5 space-y-1.5">
+      <div v-if="isExpanded && !isLoading" class="mt-2 ms-5 space-y-1.5">
         <div v-if="steps.length > 0" class="space-y-0.5 mb-2">
           <div
             v-for="s in steps"
@@ -96,8 +96,8 @@
             :disabled="isPublishingBuild || selectedIds.size === 0"
             @click="handlePublishBuild"
           >
-            <Spinner v-if="isPublishingBuild" class="w-3 h-3 text-green-600 mr-1" />
-            <Icon v-else name="heroicons:check" class="w-3 h-3 text-green-600 mr-1" />
+            <Spinner v-if="isPublishingBuild" class="w-3 h-3 text-green-600 me-1" />
+            <Icon v-else name="heroicons:check" class="w-3 h-3 text-green-600 me-1" />
             <span>{{ publishButtonText }}</span>
           </button>
         </div>

@@ -16,36 +16,36 @@
                 <div class="text-2xl font-bold text-gray-900">
                     {{ dashboardMetrics?.failed_queries || 0 }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">Failed Queries</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.diagnosis.cardFailedQueries') }}</div>
             </div>
-            
+
             <!-- Negative Feedback -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
                     {{ dashboardMetrics?.negative_feedback || 0 }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">Negative Feedback</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.diagnosis.cardNegativeFeedback') }}</div>
             </div>
-            
+
             <!-- Instruction Coverage -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ isJudgeEnabled ? (getInstructionsEffectiveness() + '%') : 'N/A' }}
+                    {{ isJudgeEnabled ? (getInstructionsEffectiveness() + '%') : $t('monitoring.diagnosis.naAbbr') }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                    Instruction Coverage
-                    <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions cover responses (20-100 scale, average for period)' : 'LLM Judge agent is turned off'">
-                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                    {{ $t('monitoring.diagnosis.cardInstructionCoverage') }}
+                    <UTooltip :text="isJudgeEnabled ? $t('monitoring.diagnosis.judgeEnabledTooltip') : $t('monitoring.diagnosis.judgeDisabledTooltip')">
+                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                     </UTooltip>
                 </div>
             </div>
-            
+
             <!-- Total Items -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
                     {{ dashboardMetrics?.total_items || 0 }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">Total Agent Runs</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.diagnosis.cardTotalAgentRuns') }}</div>
             </div>
         </div>
 
@@ -71,7 +71,7 @@
                                 selectedFilter.value === filter.value
                                     ? 'bg-blue-100 text-blue-600'
                                     : 'bg-gray-100 text-gray-600',
-                                'ml-2 py-0.5 px-2 rounded-full text-xs font-medium'
+                                'ms-2 py-0.5 px-2 rounded-full text-xs font-medium'
                             ]"
                         >
                             {{ filter.count }}
@@ -85,7 +85,7 @@
         <div v-if="isLoading" class="flex items-center justify-center py-12">
             <div class="flex items-center space-x-2">
                 <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                <span class="text-gray-600">Loading diagnosis data...</span>
+                <span class="text-gray-600">{{ $t('monitoring.diagnosis.loading') }}</span>
             </div>
         </div>
 
@@ -95,14 +95,14 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[320px] w-[320px]">Prompt</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tools</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Report</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[320px] w-[320px]">{{ $t('monitoring.diagnosis.colPrompt') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colStatus') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colData') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colFeedback') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colReport') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colDate') }}</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-xs">
@@ -111,7 +111,7 @@
                                 <div class="text-xs text-gray-900">
                                     <div class="relative group max-w-[320px] w-[320px]">
                                         <p class="truncate">{{ truncate(item.prompt || '', 40) }}</p>
-                                        <div class="pointer-events-none absolute left-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                        <div class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
                                             {{ item.prompt || '—' }}
                                         </div>
                                     </div>
@@ -121,9 +121,9 @@
                                 <div class="relative inline-block group">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
                                           :class="item.agent_execution_status === 'error' ? 'bg-red-100 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'">
-                                        {{ item.agent_execution_status === 'error' ? 'error' : 'success' }}
+                                        {{ item.agent_execution_status === 'error' ? $t('monitoring.diagnosis.statusError') : $t('monitoring.diagnosis.statusSuccess') }}
                                     </span>
-                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute left-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
                                         {{ item.error_json.message }}
                                     </div>
                                 </div>
@@ -134,11 +134,11 @@
                                           @click.stop="openTraceFromAE(item)">
                                         {{ title }}
                                     </span>
-                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400">None</span>
+                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400">{{ $t('monitoring.diagnosis.none') }}</span>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
-                                <div class="text-xs text-gray-900">Total: {{ item.total_tools }}</div>
+                                <div class="text-xs text-gray-900">{{ $t('monitoring.diagnosis.totalPrefix', { n: item.total_tools }) }}</div>
                                 <div class="flex items-center space-x-4 mt-1">
                                     <div class="flex items-center space-x-1 text-green-600">
                                         <UIcon name="i-heroicons-check-circle" class="w-4 h-4" />
@@ -154,7 +154,7 @@
                                 <div class="flex flex-col">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full self-start"
                                           :class="item.feedback_direction > 0 ? 'bg-green-100 text-green-800' : item.feedback_direction < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
-                                        {{ item.feedback_direction > 0 ? 'Positive' : (item.feedback_direction < 0 ? 'Negative' : 'No Feedback') }}
+                                        {{ item.feedback_direction > 0 ? $t('monitoring.diagnosis.feedbackPositive') : (item.feedback_direction < 0 ? $t('monitoring.diagnosis.feedbackNegative') : $t('monitoring.diagnosis.feedbackNone')) }}
                                     </span>
                                     <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-600 max-w-sm">
                                         <UTooltip :text="item.feedback_message">
@@ -183,12 +183,12 @@
             <!-- Empty state -->
             <div v-if="executionItems.length === 0 && !isLoading" class="text-center py-12">
                 <UIcon name="i-heroicons-clipboard-document-check" class="mx-auto h-12 w-12 text-gray-400" />
-                <h3 class="mt-2 text-sm font-medium text-gray-900">No data found</h3>
+                <h3 class="mt-2 text-sm font-medium text-gray-900">{{ $t('monitoring.diagnosis.emptyTitle') }}</h3>
                 <p class="mt-1 text-sm text-gray-500">
-                    No agent executions found for the selected period.
+                    {{ $t('monitoring.diagnosis.emptySubtitle') }}
                 </p>
                 <div class="mt-2 text-xs text-gray-400">
-                    Debug: {{ debugInfo }}
+                    {{ $t('monitoring.diagnosis.debugPrefix', { info: debugInfo }) }}
                 </div>
             </div>
         </div>
@@ -196,9 +196,9 @@
         <!-- Pagination -->
         <div v-if="executionItems.length > 0" class="mt-6 flex items-center justify-between">
             <div class="text-sm text-gray-700">
-                Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }} results
+                {{ $t('monitoring.diagnosis.paginationRange', { start: (currentPage - 1) * pageSize + 1, end: Math.min(currentPage * pageSize, totalItems), total: totalItems }) }}
             </div>
-            
+
             <div class="flex items-center space-x-2">
                 <UButton
                     icon="i-heroicons-chevron-left"
@@ -208,7 +208,7 @@
                     @click="currentPage--"
                     :disabled="currentPage === 1"
                 >
-                    Previous
+                    {{ $t('monitoring.diagnosis.previous') }}
                 </UButton>
                 
                 <div class="flex items-center space-x-1">
@@ -233,7 +233,7 @@
                     @click="currentPage++"
                     :disabled="currentPage === totalPages"
                 >
-                    Next
+                    {{ $t('monitoring.diagnosis.next') }}
                 </UButton>
             </div>
         </div>
@@ -253,6 +253,7 @@ import TraceModal from '~/components/console/TraceModal.vue'
 import DomainSelector from '~/components/DomainSelector.vue'
 const { isJudgeEnabled } = useOrgSettings()
 const { selectedDomains, initDomain } = useDomain()
+const { t } = useI18n()
 
 definePageMeta({
     auth: true,
@@ -305,13 +306,23 @@ const executionItems = ref<any[]>([])
 const dashboardMetrics = ref<any>(null)
 
 // Filter state
-const selectedFilter = ref({ label: 'All Agent Runs', value: 'all' })
+const filterLabelFor = (value: string): string => {
+    switch (value) {
+        case 'all': return t('monitoring.diagnosis.filterAll')
+        case 'negative_feedback': return t('monitoring.diagnosis.filterNegative')
+        case 'failed_queries': return t('monitoring.diagnosis.filterFailed')
+        case 'low_confidence': return t('monitoring.diagnosis.filterLowConfidence')
+        case 'low_instruction_coverage': return t('monitoring.diagnosis.filterLowCoverage')
+        default: return value
+    }
+}
+const selectedFilter = ref({ label: filterLabelFor('all'), value: 'all' })
 const filterOptions = ref([
-    { label: 'All Agent Runs', value: 'all', count: 0 },
-    { label: 'Negative Feedback', value: 'negative_feedback', count: 0 },
-    { label: 'Failed Queries', value: 'failed_queries', count: 0 },
-    { label: 'Low Confidence', value: 'low_confidence', count: 0 },
-    { label: 'Low Instruction Coverage', value: 'low_instruction_coverage', count: 0 }
+    { label: filterLabelFor('all'), value: 'all', count: 0 },
+    { label: filterLabelFor('negative_feedback'), value: 'negative_feedback', count: 0 },
+    { label: filterLabelFor('failed_queries'), value: 'failed_queries', count: 0 },
+    { label: filterLabelFor('low_confidence'), value: 'low_confidence', count: 0 },
+    { label: filterLabelFor('low_instruction_coverage'), value: 'low_instruction_coverage', count: 0 }
 ])
 
 // Add these to the state section
@@ -319,7 +330,7 @@ const showTraceModal = ref(false)
 const selectedTraceItem = ref<any | null>(null)
 
 // Date range state (same as ConsoleOverview)
-const selectedPeriod = ref({ label: 'All Time', value: 'all_time' })
+const selectedPeriod = ref({ label: t('monitoring.diagnosis.periodAllTime'), value: 'all_time' })
 const dateRange = ref<DateRange>({
     start: '',
     end: ''
@@ -352,7 +363,7 @@ const visiblePages = computed(() => {
 // Methods (same pattern as ConsoleOverview)
 const initializeDateRange = () => {
     // Default to all time
-    selectedPeriod.value = { label: 'All Time', value: 'all_time' }
+    selectedPeriod.value = { label: t('monitoring.diagnosis.periodAllTime'), value: 'all_time' }
     dateRange.value = {
         start: '',
         end: new Date().toISOString().split('T')[0]
@@ -513,11 +524,11 @@ const fetchOverallMetrics = async () => {
 
             // Update filter counts
             filterOptions.value = [
-                { label: 'All Agent Runs', value: 'all', count: dashboardResponse.data.value.total_items },
-                { label: 'Negative Feedback', value: 'negative_feedback', count: dashboardResponse.data.value.negative_feedback },
-                { label: 'Failed Queries', value: 'failed_queries', count: dashboardResponse.data.value.failed_queries },
-                { label: 'Low Confidence', value: 'low_confidence', count: dashboardResponse.data.value.low_confidence || 0 },
-                { label: 'Low Instruction Coverage', value: 'low_instruction_coverage', count: dashboardResponse.data.value.low_instruction_coverage || 0 }
+                { label: filterLabelFor('all'), value: 'all', count: dashboardResponse.data.value.total_items },
+                { label: filterLabelFor('negative_feedback'), value: 'negative_feedback', count: dashboardResponse.data.value.negative_feedback },
+                { label: filterLabelFor('failed_queries'), value: 'failed_queries', count: dashboardResponse.data.value.failed_queries },
+                { label: filterLabelFor('low_confidence'), value: 'low_confidence', count: dashboardResponse.data.value.low_confidence || 0 },
+                { label: filterLabelFor('low_instruction_coverage'), value: 'low_instruction_coverage', count: dashboardResponse.data.value.low_instruction_coverage || 0 }
             ]
         }
         
@@ -531,7 +542,7 @@ const fetchOverallMetrics = async () => {
 
 const getInstructionsEffectiveness = () => {
     if (instructionsEffectiveness.value === null || instructionsEffectiveness.value === undefined) {
-        return 'N/A'
+        return t('monitoring.diagnosis.naAbbr')
     }
     return Math.round(instructionsEffectiveness.value)
 }

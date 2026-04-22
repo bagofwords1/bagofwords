@@ -1,6 +1,6 @@
 <template>
-  <div class="flex pl-2 md:pl-4 text-sm mx-auto md:w-1/2 md:pt-10">
-    <div class="w-full px-4 pl-0 py-4">
+  <div class="flex ps-2 md:ps-4 text-sm mx-auto md:w-1/2 md:pt-10">
+    <div class="w-full px-4 ps-0 py-4">
       <div>
         <h1 class="text-lg font-semibold text-center">Create Data Agent</h1>
         <p class="mt-2 text-gray-500 text-center">Set data source, select tables, and define additional context</p>

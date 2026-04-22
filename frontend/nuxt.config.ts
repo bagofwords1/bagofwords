@@ -65,10 +65,18 @@ export default defineNuxtConfig({
   plugins: [
     '~/plugins/vue-draggable-resizable.client.js',
     '~/plugins/vue-flow.client.js',
+    '~/plugins/i18n.ts',
+  ],
+
+  css: [
+    '~/assets/css/rtl.css',
   ],
 
   imports: {
     dirs: ['ee/composables'],
+    presets: [
+      { from: 'vue-i18n', imports: ['useI18n'] },
+    ],
   },
 
   icon: {

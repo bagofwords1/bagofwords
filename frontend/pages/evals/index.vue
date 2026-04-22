@@ -1,22 +1,22 @@
 <template>
-    <div class="flex justify-center pl-2 md:pl-4 text-sm">
-        <div class="w-full max-w-7xl px-4 pl-0 py-2">
+    <div class="flex justify-center ps-2 md:ps-4 text-sm">
+        <div class="w-full max-w-7xl px-4 ps-0 py-2">
             <div class="mt-6">
                 <!-- Top metrics -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                        <div class="text-sm font-medium text-gray-600">Total Test Cases</div>
+                        <div class="text-sm font-medium text-gray-600">{{ $t('evals.totalTestCases') }}</div>
                         <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_cases ?? 0 }}</div>
                     </div>
                     <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                        <div class="text-sm font-medium text-gray-600">Total Test Runs</div>
+                        <div class="text-sm font-medium text-gray-600">{{ $t('evals.totalTestRuns') }}</div>
                         <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_runs ?? 0 }}</div>
                     </div>
                     <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                        <div class="text-sm font-medium text-gray-600">Last Test Result</div>
+                        <div class="text-sm font-medium text-gray-600">{{ $t('evals.lastTestResult') }}</div>
                         <div class="mt-1">
                             <span v-if="metrics?.last_result_status" :class="['inline-flex items-center px-2 py-1 rounded-full text-xs font-medium', statusClass(derivedStatus(metrics?.last_result_status))]">
-                                {{ derivedStatus(metrics?.last_result_status) }}
+                                {{ localizedStatus(derivedStatus(metrics?.last_result_status)) }}
                             </span>
                             <span v-else class="text-gray-500 text-sm">—</span>
                         </div>
@@ -34,14 +34,14 @@
                             @click="activeTab = 'tests'"
                             :class="tabClass('tests')"
                         >
-                            Tests
+                            {{ $t('evals.tabs.tests') }}
                         </button>
                         <button
                             type="button"
                             @click="activeTab = 'runs'"
                             :class="tabClass('runs')"
                         >
-                            Test Runs
+                            {{ $t('evals.tabs.runs') }}
                         </button>
                     </nav>
                 </div>
@@ -51,7 +51,7 @@
                     <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
                         <div class="px-6 py-4 border-b border-gray-200">
                             <div class="flex flex-col md:flex-row md:items-center gap-3">
-                                <div class="text-sm font-medium text-gray-700 mr-auto">Tests</div>
+                                <div class="text-sm font-medium text-gray-700 me-auto">{{ $t('evals.tests.title') }}</div>
                                 <div class="flex items-center gap-2 w-full md:w-auto">
                                     <!-- Suite filter -->
                                     <USelectMenu
@@ -75,12 +75,12 @@
                                     <input
                                         v-model="searchTerm"
                                         type="text"
-                                        placeholder="Search tests..."
+                                        :placeholder="$t('evals.tests.search')"
                                         class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
                                     />
                                     <!-- Actions -->
-                                    <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">Run Selected</UButton>
-                                    <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addNewTest">Add New Test</UButton>
+                                    <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">{{ $t('evals.tests.runSelected') }}</UButton>
+                                    <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addNewTest">{{ $t('evals.tests.addNew') }}</UButton>
                                 </div>
                             </div>
                         </div>
@@ -91,10 +91,10 @@
                                         <th class="px-4 py-3 w-10 text-center">
                                             <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
                                         </th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rules</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suite</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Options</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colPrompt') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colRules') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colSuite') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.tests.colOptions') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200 text-xs">
@@ -111,29 +111,29 @@
                                             <div class="flex flex-wrap gap-1 max-w-[620px]">
                                                 <span
                                                   v-for="cat in categoriesForCase(c)"
-                                                  :key="cat"
-                                                  :class="['inline-flex items-center rounded-full border text-[11px] px-2 py-0.5', badgeClassesFor(cat)]"
-                                                  :title="cat"
-                                                >{{ cat }}</span>
+                                                  :key="cat.key"
+                                                  :class="['inline-flex items-center rounded-full border text-[11px] px-2 py-0.5', badgeClassesFor(cat.key)]"
+                                                  :title="cat.label"
+                                                >{{ cat.label }}</span>
                                             </div>
                                         </td>
                                         <td class="px-6 py-3">{{ c.suite_name }}</td>
                                         <td class="px-6 py-3">
                                             <div class="flex items-center gap-2">
-                                                <UButton color="gray" size="xs" variant="soft" icon="i-heroicons-pencil-square" @click="editCase(c)">Edit</UButton>
-                                                <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-play" @click="runCase(c)">Run Test</UButton>
-                                                <UButton color="red" size="xs" variant="soft" icon="i-heroicons-trash" @click="deleteCase(c)">Delete</UButton>
+                                                <UButton color="gray" size="xs" variant="soft" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
+                                                <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
+                                                <UButton color="red" size="xs" variant="soft" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
                                             </div>
                                         </td>
                                     </tr>
                                     <tr v-if="filteredTests.length === 0">
-                                        <td colspan="5" class="px-6 py-6 text-center text-gray-500">No tests found</td>
+                                        <td colspan="5" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.tests.empty') }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
                         <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
-                            <div class="text-xs text-gray-500">Page {{ testsPage }} • Showing {{ filteredTests.length }} items</div>
+                            <div class="text-xs text-gray-500">{{ $t('evals.pagination.showing', { page: testsPage, n: filteredTests.length }) }}</div>
                             <div class="flex items-center gap-2">
                                 <USelectMenu
                                   v-model="testsLimit"
@@ -143,8 +143,8 @@
                                   size="xs"
                                   class="text-xs w-24"
                                 />
-                                <UButton size="xs" variant="soft" :disabled="testsPage <= 1" @click="prevTestsPage">Prev</UButton>
-                                <UButton size="xs" variant="soft" :disabled="!testsHasNext" @click="nextTestsPage">Next</UButton>
+                                <UButton size="xs" variant="soft" :disabled="testsPage <= 1" @click="prevTestsPage">{{ $t('evals.pagination.prev') }}</UButton>
+                                <UButton size="xs" variant="soft" :disabled="!testsHasNext" @click="nextTestsPage">{{ $t('evals.pagination.next') }}</UButton>
                             </div>
                         </div>
                     </div>
@@ -155,7 +155,7 @@
                     <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
                         <div class="px-6 py-4 border-b border-gray-200">
                             <div class="flex flex-col md:flex-row md:items-center gap-3">
-                                <div class="text-sm font-medium text-gray-700 mr-auto">Recent Test Runs</div>
+                                <div class="text-sm font-medium text-gray-700 me-auto">{{ $t('evals.runs.title') }}</div>
                                 <div class="flex items-center gap-2 w-full md:w-auto">
                                     <USelectMenu
                                       v-model="runSuiteFilter"
@@ -185,7 +185,7 @@
                                     <input
                                       v-model="runSearchTerm"
                                       type="text"
-                                      placeholder="Search runs..."
+                                      :placeholder="$t('evals.filter.searchRuns')"
                                       class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
                                     />
                                 </div>
@@ -195,24 +195,24 @@
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trigger</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Build</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colTitle') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colStarted') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colTrigger') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colBuild') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colStatus') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colResults') }}</th>
+                                        <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('evals.runs.colDuration') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200 text-xs">
                                     <tr v-for="r in filteredRuns" :key="r.id" class="hover:bg-gray-50">
                                         <td class="px-6 py-3 text-gray-900">
                                             <a :href="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
-                                                {{ r.title || 'Test Run' }}
+                                                {{ r.title || $t('evals.runs.fallbackTitle') }}
                                             </a>
                                         </td>
                                         <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
-                                        <td class="px-6 py-3 capitalize">{{ r.trigger_reason || 'manual' }}</td>
+                                        <td class="px-6 py-3 capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</td>
                                         <td class="px-6 py-3">
                                             <span v-if="r.build_number" class="inline-flex items-center gap-1 text-gray-600">
                                                 <Icon name="heroicons:cube" class="w-3 h-3" />
@@ -222,7 +222,7 @@
                                         </td>
                                         <td class="px-6 py-3">
                                             <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(r)">
-                                                {{ derivedRunStatus(r) || '—' }}
+                                                {{ localizedStatus(derivedRunStatus(r)) || '—' }}
                                             </span>
                                         </td>
                                         <td class="px-6 py-3">
@@ -231,13 +231,13 @@
                                         <td class="px-6 py-3">{{ formatDuration(r.started_at, r.finished_at) }}</td>
                                     </tr>
                                     <tr v-if="filteredRuns.length === 0">
-                                        <td colspan="7" class="px-6 py-6 text-center text-gray-500">No test runs yet</td>
+                                        <td colspan="7" class="px-6 py-6 text-center text-gray-500">{{ $t('evals.runs.empty') }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
                         <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
-                            <div class="text-xs text-gray-500">Page {{ runsPage }} • Showing {{ filteredRuns.length }} items</div>
+                            <div class="text-xs text-gray-500">{{ $t('evals.pagination.showing', { page: runsPage, n: filteredRuns.length }) }}</div>
                             <div class="flex items-center gap-2">
                                 <USelectMenu
                                   v-model="runsLimit"
@@ -247,8 +247,8 @@
                                   size="xs"
                                   class="text-xs w-24"
                                 />
-                                <UButton size="xs" variant="soft" :disabled="runsPage <= 1" @click="prevRunsPage">Prev</UButton>
-                                <UButton size="xs" variant="soft" :disabled="!runsHasNext" @click="nextRunsPage">Next</UButton>
+                                <UButton size="xs" variant="soft" :disabled="runsPage <= 1" @click="prevRunsPage">{{ $t('evals.pagination.prev') }}</UButton>
+                                <UButton size="xs" variant="soft" :disabled="!runsHasNext" @click="nextRunsPage">{{ $t('evals.pagination.next') }}</UButton>
                             </div>
                         </div>
                     </div>
@@ -276,6 +276,7 @@ interface TestMetrics {
     last_result_at?: string | null
 }
 
+const { t } = useI18n()
 const metrics = ref<TestMetrics | null>(null)
 const tests = ref<TestCaseRow[]>([])
 const searchTerm = ref('')
@@ -284,19 +285,19 @@ const selectedIds = ref<Set<string>>(new Set())
 const testsPage = ref<number>(1)
 const testsLimit = ref<number>(20)
 const testsHasNext = computed(() => filteredTests.value.length >= testsLimit.value)
-const pageSizeOptions = [
-    { label: '10 / page', value: 10 },
-    { label: '20 / page', value: 20 },
-    { label: '50 / page', value: 50 },
-]
+const pageSizeOptions = computed(() => [
+    { label: t('evals.pagination.pageSize', { n: 10 }), value: 10 },
+    { label: t('evals.pagination.pageSize', { n: 20 }), value: 20 },
+    { label: t('evals.pagination.pageSize', { n: 50 }), value: 50 },
+])
 // Server-side filtering; no client text filter needed beyond displaying returned results
 const filteredTests = computed(() => tests.value)
 const allVisibleSelected = computed(() => filteredTests.value.length > 0 && filteredTests.value.every(t => selectedIds.value.has(t.id)))
 const suitesOrdered = ref<TestSuiteItem[]>([])
 const suiteFilterOptions = computed(() => {
-    const opts = [{ label: 'All suites', value: 'all' }]
+    const opts = [{ label: t('evals.filter.allSuites'), value: 'all' }]
     const entries = (suitesOrdered.value || []).map(s => ({ label: s.name, value: s.id }))
-    return [...opts, ...entries, { label: 'Manage Test Suites…', value: '__manage__' }]
+    return [...opts, ...entries, { label: t('evals.filter.manageSuites'), value: '__manage__' }]
 })
 
 const showAddCase = ref(false)
@@ -331,6 +332,20 @@ const formatDate = (iso?: string | null) => {
     } catch {
         return '—'
     }
+}
+
+const localizedStatus = (status?: string) => {
+    if (!status) return ''
+    const keyMap: Record<string, string> = {
+        'success': 'evals.run.statusSuccess',
+        'fail': 'evals.run.statusFailed',
+        'error': 'evals.run.statusError',
+        'in_progress': 'evals.run.statusInProgress',
+        'pass': 'evals.run.rulePass',
+        'stopped': 'evals.run.completionFinished',
+    }
+    const k = keyMap[status]
+    return k ? t(k) : status
 }
 
 const statusClass = (status?: string) => {
@@ -373,7 +388,7 @@ const runsPage = ref<number>(1)
 const runsLimit = ref<number>(20)
 const runsHasNext = computed(() => runs.value.length >= runsLimit.value)
 const runCaseOptions = computed(() => {
-    const base = [{ label: 'All cases', value: 'all' }]
+    const base = [{ label: t('evals.filter.allCases'), value: 'all' }]
     // If a suite is chosen, list cases for that suite; otherwise list all known tests
     const chosenSuite = runSuiteFilter.value !== 'all' ? runSuiteFilter.value : null
     const source = (tests.value || []).filter(t => (chosenSuite ? t.suite_id === chosenSuite : true))
@@ -406,18 +421,18 @@ const filteredRuns = computed(() => {
     })
 })
 
-const CATEGORY_LABELS: Record<string, string> = {
-    'tool:create_data': 'Create Data',
-    'tool:clarify': 'Clarify',
-    'tool:describe_table': 'Describe Table',
-    'metadata': 'Metadata',
-    'completion': 'Completion',
-    'judge': 'Judge',
-}
+const CATEGORY_LABELS = computed<Record<string, string>>(() => ({
+    'tool:create_data': t('evals.category.createData'),
+    'tool:clarify': t('evals.category.clarify'),
+    'tool:describe_table': t('evals.category.describeTable'),
+    'metadata': t('evals.category.metadata'),
+    'completion': t('evals.category.completion'),
+    'judge': t('evals.category.judge'),
+}))
 
 function categoryName(cat: string): string {
     if (!cat) return ''
-    const known = CATEGORY_LABELS[cat]
+    const known = CATEGORY_LABELS.value[cat]
     if (known) return known
     if (cat.startsWith('tool:')) {
         const raw = cat.split(':')[1] || ''
@@ -427,39 +442,34 @@ function categoryName(cat: string): string {
     return cat
 }
 
-function summaryForCase(c: TestCaseRow): string {
+function categoryKeysForCase(c: TestCaseRow): string[] {
     const rules = (c as any)?.expectations_json?.rules || []
-    if (!Array.isArray(rules) || rules.length === 0) return '—'
+    if (!Array.isArray(rules) || rules.length === 0) return []
     const seen = new Set<string>()
     for (const r of rules) {
         if (r?.type === 'field' && r?.target?.category) {
-            const cat = String(r.target.category)
-            seen.add(categoryName(cat))
+            seen.add(String(r.target.category))
         } else if (r?.type === 'tool.calls' && r?.tool) {
-            seen.add(categoryName(`tool:${r.tool}`))
-        } else {
-            // ignore ordering or unknown types for the summary
+            seen.add(`tool:${r.tool}`)
         }
     }
-    return Array.from(seen).join(' · ')
+    return Array.from(seen)
 }
 
-function categoriesForCase(c: TestCaseRow): string[] {
-    const text = summaryForCase(c)
-    if (text === '—') return []
-    return text.split(' · ').filter(Boolean)
+function categoriesForCase(c: TestCaseRow): { key: string; label: string }[] {
+    return categoryKeysForCase(c).map(key => ({ key, label: categoryName(key) }))
 }
 
-function badgeClassesFor(catLabel: string): string {
+function badgeClassesFor(catKey: string): string {
     const map: Record<string, string> = {
-        'Create Data': 'bg-blue-50 text-blue-700 border-blue-100',
-        'Clarify': 'bg-amber-50 text-amber-700 border-amber-100',
-        'Describe Table': 'bg-teal-50 text-teal-700 border-teal-100',
-        'Metadata': 'bg-slate-50 text-slate-700 border-slate-100',
-        'Completion': 'bg-purple-50 text-purple-700 border-purple-100',
-        'Judge': 'bg-gray-100 text-gray-700 border-gray-200',
+        'tool:create_data': 'bg-blue-50 text-blue-700 border-blue-100',
+        'tool:clarify': 'bg-amber-50 text-amber-700 border-amber-100',
+        'tool:describe_table': 'bg-teal-50 text-teal-700 border-teal-100',
+        'metadata': 'bg-slate-50 text-slate-700 border-slate-100',
+        'completion': 'bg-purple-50 text-purple-700 border-purple-100',
+        'judge': 'bg-gray-100 text-gray-700 border-gray-200',
     }
-    return map[catLabel] || 'bg-zinc-50 text-zinc-700 border-zinc-100'
+    return map[catKey] || 'bg-zinc-50 text-zinc-700 border-zinc-100'
 }
 
 async function loadSuites() {
@@ -630,7 +640,7 @@ async function runCase(c: TestCaseRow) {
 
 async function deleteCase(c: TestCaseRow) {
     try {
-        const ok = window.confirm('Delete this test case? This cannot be undone.')
+        const ok = window.confirm(t('evals.tests.deleteConfirm'))
         if (!ok) return
         const res: any = await useMyFetch(`/api/tests/cases/${c.id}`, { method: 'DELETE' })
         if (res?.error?.value) throw res.error.value
@@ -639,13 +649,13 @@ async function deleteCase(c: TestCaseRow) {
         const s = new Set(selectedIds.value)
         s.delete(c.id)
         selectedIds.value = s
-        toast.add({ title: 'Test case deleted', icon: 'i-heroicons-check-circle', color: 'green' })
+        toast.add({ title: t('evals.tests.toastDeleted'), icon: 'i-heroicons-check-circle', color: 'green' })
     } catch (e) {
         console.error('Failed to delete test case', e)
         try {
             const err: any = (e as any) || {}
-            const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to delete test case'
-            toast.add({ title: 'Failed to delete test case', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+            const detail = err?.data?.detail || err?.data?.message || err?.message || t('evals.tests.toastDeleteFailed')
+            toast.add({ title: t('evals.tests.toastDeleteFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
         } catch {}
     }
 }
@@ -676,11 +686,11 @@ function onCaseCreated(c: any) {
                 insertRow('—')
             }
         }).catch(() => insertRow('—')).finally(() => {
-            toast.add({ title: 'Test case created', icon: 'i-heroicons-check-circle', color: 'green' })
+            toast.add({ title: t('evals.tests.toastCreated'), icon: 'i-heroicons-check-circle', color: 'green' })
         })
     } else {
         insertRow(suitesById.value[c.suite_id])
-        toast.add({ title: 'Test case created', icon: 'i-heroicons-check-circle', color: 'green' })
+        toast.add({ title: t('evals.tests.toastCreated'), icon: 'i-heroicons-check-circle', color: 'green' })
     }
     selectedCaseId.value = ''
 }

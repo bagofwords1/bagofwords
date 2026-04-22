@@ -7,7 +7,7 @@
     <!-- Filter button (absolute top-right, same level as title) -->
     <div
       v-if="showFilter"
-      class="absolute top-0 right-0 z-10 p-4"
+      class="absolute top-0 end-0 z-10 p-4"
     >
       <VisualizationFilter
         :report-id="reportId!"
@@ -23,7 +23,7 @@
       class="card-header flex-shrink-0 px-6 pt-5 pb-1"
     >
       <div class="flex items-center justify-between">
-        <div class="flex-1 min-w-0 pr-8">
+        <div class="flex-1 min-w-0 pe-8">
           <h3 v-if="chrome?.title" class="text-base font-semibold text-gray-900 truncate">
             {{ chrome.title }}
           </h3>

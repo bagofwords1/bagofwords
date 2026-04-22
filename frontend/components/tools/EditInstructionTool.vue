@@ -7,35 +7,35 @@
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-gray-400" />
-          Editing instruction...
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400" />
+          {{ $t('tools.editInstruction.editing') }}
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 mr-1.5 text-blue-500" />
-          <span class="truncate max-w-[300px]">Edited: {{ truncatedText }}</span>
-          <span v-if="versionNumber" class="ml-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
-          <span v-if="linesAdded > 0" class="ml-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
-          <span v-if="linesRemoved > 0" class="ml-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-blue-500" />
+          <span class="truncate max-w-[300px]">{{ $t('tools.editInstruction.editedPrefix', { text: truncatedText }) }}</span>
+          <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
+          <span v-if="linesAdded > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
+          <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400 shrink-0"
+            class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip"
           />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 mr-1.5 text-orange-500" />
-          <span>Edit rejected</span>
-          <span v-if="rejectedReason" class="ml-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
+          <span>{{ $t('tools.editInstruction.rejected') }}</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
           />
         </span>
         <span v-else class="text-gray-600 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 mr-1.5 text-red-500" />
-          <span>Failed to edit instruction</span>
+          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
+          <span>{{ $t('tools.editInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ml-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
           />
         </span>
       </div>
@@ -46,14 +46,14 @@
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
         <!-- Loading state while fetching versions -->
         <div v-if="isLoadingVersions" class="flex items-center justify-center py-4">
-          <Spinner class="w-4 h-4 mr-2" />
-          <span class="text-[11px] text-gray-500">Loading diff...</span>
+          <Spinner class="w-4 h-4 me-2" />
+          <span class="text-[11px] text-gray-500">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
 
         <!-- Diff view when text was changed -->
         <div v-else-if="hasTextDiff && previousText !== null" class="border border-gray-150 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 border-b border-gray-150 flex items-center justify-between">
-            <span class="text-[10px] text-gray-600 font-medium">Text changes</span>
+            <span class="text-[10px] text-gray-600 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
             <span v-if="versionNumber" class="text-[10px] text-gray-500">v{{ versionNumber - 1 }} → v{{ versionNumber }}</span>
           </div>
           <ClientOnly>
@@ -80,7 +80,7 @@
 
         <!-- Metadata changes summary -->
         <div v-if="metadataChanges.length > 0" class="text-[10px] text-gray-500 px-1">
-          <span class="font-medium">Other changes:</span>
+          <span class="font-medium">{{ $t('tools.editInstruction.otherChanges') }}</span>
           {{ metadataChanges.join(', ') }}
         </div>
 
@@ -93,7 +93,7 @@
 
           <!-- Confidence -->
           <div v-if="displayConfidence" class="flex items-center gap-1">
-            <span class="text-gray-500">Confidence:</span>
+            <span class="text-gray-500">{{ $t('tools.editInstruction.confidence') }}</span>
             <span
               class="font-medium"
               :class="displayConfidence >= 0.9 ? 'text-green-600' : displayConfidence >= 0.7 ? 'text-yellow-600' : 'text-red-600'"
@@ -104,7 +104,7 @@
 
           <!-- Load mode -->
           <div v-if="displayLoadMode" class="flex items-center gap-1">
-            <span class="text-gray-500">Load:</span>
+            <span class="text-gray-500">{{ $t('tools.editInstruction.load') }}</span>
             <span class="px-1.5 py-0.5 rounded text-[9px] font-medium"
               :class="displayLoadMode === 'always' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'"
             >
@@ -115,61 +115,27 @@
           <!-- Tables scoped -->
           <div v-if="displayTableCount > 0" class="flex items-center gap-1">
             <Icon name="heroicons-table-cells" class="w-3 h-3 text-gray-400" />
-            <span class="text-gray-600">{{ displayTableCount }} table{{ displayTableCount > 1 ? 's' : '' }}</span>
+            <span class="text-gray-600">{{ displayTableCount === 1 ? $t('tools.editInstruction.tableSingular', { n: displayTableCount }) : $t('tools.editInstruction.tablePlural', { n: displayTableCount }) }}</span>
           </div>
         </div>
 
-        <!-- Action buttons / Status display -->
-        <div v-if="isSuccess && instructionId" class="flex justify-start gap-2 pt-2 border-t border-gray-100 px-1">
-          <!-- Show status for published instructions -->
-          <div v-if="currentGlobalStatus === 'approved'" class="flex items-center">
-            <Icon name="heroicons:check-circle" class="w-3 h-3 text-gray-500 mr-1" />
-            <span class="text-[10px] font-medium text-gray-500">Published</span>
-          </div>
-
-          <!-- Show action buttons for draft/suggested instructions -->
-          <template v-else>
-            <button
-              v-if="canCreateInstructions"
-              @click.stop="handlePublish"
-              class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-              :disabled="isPublishing"
-            >
-              <Spinner
-                v-if="isPublishing"
-                class="w-3 h-3 text-green-600 mr-1"
-              />
-              <Icon
-                v-else
-                name="heroicons:check"
-                class="w-3 h-3 text-green-600 mr-1"
-              />
-              <span>{{ isPublishing ? 'Publishing...' : 'Publish' }}</span>
-            </button>
-            <button
-              @click.stop="handleEdit"
-              class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-            >
-              <Icon name="heroicons:pencil" class="w-3 h-3 text-blue-600 mr-1" />
-              <span>Edit</span>
-            </button>
-            <button
-              @click.stop="handleDelete"
-              class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-              :disabled="isDeleting"
-            >
-              <Spinner
-                v-if="isDeleting"
-                class="w-3 h-3 text-red-600 mr-1"
-              />
-              <Icon
-                v-else
-                name="heroicons:trash"
-                class="w-3 h-3 text-red-600 mr-1"
-              />
-              <span>{{ isDeleting ? 'Deleting...' : 'Delete' }}</span>
-            </button>
-          </template>
+        <!-- Status display — staged in draft build; approved via session pill -->
+        <div v-if="isSuccess && instructionId" class="flex items-center gap-1 pt-2 border-t border-gray-100 px-1">
+          <Icon
+            v-if="currentGlobalStatus === 'approved'"
+            name="heroicons:check-circle"
+            class="w-3 h-3 text-gray-500"
+          />
+          <Icon
+            v-else
+            name="heroicons:clock"
+            class="w-3 h-3 text-gray-400"
+          />
+          <span class="text-[10px] font-medium text-gray-500">
+            {{ currentGlobalStatus === 'approved'
+              ? $t('tools.editInstruction.published')
+              : $t('tools.editInstruction.stagedInBuild', 'Staged in draft build') }}
+          </span>
         </div>
 
         <!-- Error message -->
@@ -191,9 +157,12 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
+
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -349,28 +318,28 @@ const displayTableCount = computed(() => {
 // Metadata changes (non-text changes)
 const metadataChanges = computed(() => {
   const changes: string[] = []
-  if (updatedCategory.value) changes.push(`category → ${updatedCategory.value}`)
-  if (updatedConfidence.value !== null) changes.push(`confidence → ${Math.round(updatedConfidence.value * 100)}%`)
-  if (updatedLoadMode.value) changes.push(`load mode → ${updatedLoadMode.value}`)
-  if (updatedTableNames.value) changes.push(`tables updated`)
-  if (updatedEvidence.value) changes.push(`evidence updated`)
+  if (updatedCategory.value) changes.push(t('tools.editInstruction.changeCategory', { value: updatedCategory.value }))
+  if (updatedConfidence.value !== null) changes.push(t('tools.editInstruction.changeConfidence', { value: Math.round(updatedConfidence.value * 100) }))
+  if (updatedLoadMode.value) changes.push(t('tools.editInstruction.changeLoadMode', { value: updatedLoadMode.value }))
+  if (updatedTableNames.value) changes.push(t('tools.editInstruction.changeTables'))
+  if (updatedEvidence.value) changes.push(t('tools.editInstruction.changeEvidence'))
   return changes
 })
 
 const truncatedText = computed(() => {
   const text = displayText.value
-  if (!text) return 'Edited instruction'
+  if (!text) return t('tools.editInstruction.editedFallback')
   const firstLine = text.split('\n')[0].replace(/^#+\s*/, '').trim()
   if (firstLine.length > 60) {
     return firstLine.substring(0, 57) + '...'
   }
-  return firstLine || 'Edited instruction'
+  return firstLine || t('tools.editInstruction.editedFallback')
 })
 
 const errorMessage = computed(() => {
   if (status.value === 'error') {
     const rj = props.toolExecution?.result_json || {}
-    return rj.error || rj.message || 'An error occurred'
+    return rj.error || rj.message || t('tools.editInstruction.errorOccurred')
   }
   if (isRejected.value) {
     const rj = props.toolExecution?.result_json || {}
@@ -468,14 +437,14 @@ async function handlePublish() {
     })
     if (!error.value) {
       localGlobalStatus.value = 'approved'
-      toast.add({ title: 'Success', description: 'Instruction published', color: 'green' })
+      toast.add({ title: t('tools.editInstruction.toastSuccess'), description: t('tools.editInstruction.toastPublished'), color: 'green' })
       emit('instruction-updated')
     } else {
       throw new Error('Failed to publish')
     }
   } catch (e) {
     console.error('Failed to publish instruction:', e)
-    toast.add({ title: 'Error', description: 'Failed to publish instruction', color: 'red' })
+    toast.add({ title: t('tools.editInstruction.toastError'), description: t('tools.editInstruction.toastFailedPublish'), color: 'red' })
   } finally {
     isPublishing.value = false
   }
@@ -483,21 +452,21 @@ async function handlePublish() {
 
 async function handleDelete() {
   if (!instructionId.value) return
-  if (!confirm('Delete this instruction?')) return
+  if (!confirm(t('tools.editInstruction.confirmDelete'))) return
 
   isDeleting.value = true
   try {
     const { error } = await useMyFetch(`/instructions/${instructionId.value}`, { method: 'DELETE' })
     if (!error.value) {
       localGlobalStatus.value = 'deleted'
-      toast.add({ title: 'Deleted', description: 'Instruction deleted', color: 'orange' })
+      toast.add({ title: t('tools.editInstruction.toastDeleted'), description: t('tools.editInstruction.toastDeletedDesc'), color: 'orange' })
       emit('instruction-updated')
     } else {
       throw new Error('Failed to delete')
     }
   } catch (e) {
     console.error('Failed to delete instruction:', e)
-    toast.add({ title: 'Error', description: 'Failed to delete instruction', color: 'red' })
+    toast.add({ title: t('tools.editInstruction.toastError'), description: t('tools.editInstruction.toastFailedDelete'), color: 'red' })
   } finally {
     isDeleting.value = false
   }
@@ -512,7 +481,7 @@ function handleInstructionSaved(data: any) {
     }
   }
   showInstructionModal.value = false
-  toast.add({ title: 'Success', description: 'Instruction saved', color: 'green' })
+  toast.add({ title: t('tools.editInstruction.toastSuccess'), description: t('tools.editInstruction.toastSaved'), color: 'green' })
   emit('instruction-updated')
 }
 </script>

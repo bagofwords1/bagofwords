@@ -1,8 +1,8 @@
 <template>
     <div class="flex-shrink-0 p-4 pb-8 bg-white">
         <!-- Query pills + Excel hint (above container) — hidden for now -->
-        <div v-if="false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed))" class="mb-2 flex items-center justify-between">
-            <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.trainingInstructions.length > 0" class="flex items-center gap-2">
+        <div v-if="props.pendingTrainingBuild || (false && (props.queryList.length > 0 || props.scheduledPrompts.length > 0 || (isExcel && excelSelection && !excelSelectionDismissed)))" class="mb-2 flex items-center justify-between">
+            <div v-if="props.queryList.length > 0 || props.scheduledPrompts.length > 0 || props.pendingTrainingBuild" class="flex items-center gap-2">
                 <!-- Query pill with hover dropdown -->
                 <div
                     v-if="props.queryList.length > 0"
@@ -14,12 +14,12 @@
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                         <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />
-                        {{ props.queryList.length }} {{ props.queryList.length === 1 ? 'Query' : 'Queries' }}
+                        {{ props.queryList.length }} {{ props.queryList.length === 1 ? $t('prompt.query') : $t('prompt.queries') }}
                     </button>
                     <!-- Query dropdown on hover — pad-bridge eliminates the gap -->
                     <div
                         v-if="showQueryDropdown"
-                        class="absolute left-0 bottom-full w-72 z-20"
+                        class="absolute start-0 bottom-full w-72 z-20"
                     >
                         <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
                             <div
@@ -29,7 +29,7 @@
                                 @click="q.messageId && emit('scrollToMessage', q.messageId, q.stepId); showQueryDropdown = false"
                             >
                                 <div class="text-xs text-gray-700 truncate">{{ q.label }}</div>
-                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 mt-0.5">{{ q.rowCount.toLocaleString() }} rows</div>
+                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 mt-0.5">{{ q.rowCount.toLocaleString() }} {{ $t('prompt.rows') }}</div>
                             </div>
                         </div>
                         <!-- Invisible bridge to cover gap between dropdown and pill -->
@@ -47,11 +47,11 @@
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                         <Icon name="heroicons-clock" class="w-3.5 h-3.5 text-gray-400" />
-                        {{ props.scheduledPrompts.length }} Scheduled
+                        {{ props.scheduledPrompts.length }} {{ $t('prompt.scheduled') }}
                     </button>
                     <div
                         v-if="showScheduledDropdown"
-                        class="absolute left-0 bottom-full w-80 z-20"
+                        class="absolute start-0 bottom-full w-80 z-20"
                     >
                         <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
                             <div
@@ -67,7 +67,7 @@
                                     />
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <div class="text-xs text-gray-700 truncate" :class="{ 'text-gray-400': !sp.is_active }">{{ sp.prompt?.content || 'Untitled' }}</div>
+                                    <div class="text-xs text-gray-700 truncate" :class="{ 'text-gray-400': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
                                     <div class="text-[10px] text-gray-400 mt-0.5">{{ getCronLabel(sp.cron_schedule) }}</div>
                                 </div>
                             </div>
@@ -77,40 +77,92 @@
                 </div>
                 <!-- Training instructions pill with hover dropdown -->
                 <div
-                    v-if="props.trainingInstructions.length > 0"
+                    v-if="props.pendingTrainingBuild"
                     class="relative"
                     @mouseenter="showTrainingDropdown = true"
                     @mouseleave="showTrainingDropdown = false"
                 >
-                    <button
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 transition-colors"
-                    >
+                    <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-gray-600">
                         <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400" />
-                        {{ props.trainingInstructions.length }} Instruction{{ props.trainingInstructions.length === 1 ? '' : 's' }}
-                    </button>
+                        {{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.instruction') : $t('prompt.instructionsPlural') }}
+                        <span v-if="props.pendingTrainingBuildDiff?.added_lines" class="font-mono text-green-600 ms-1">+{{ props.pendingTrainingBuildDiff.added_lines }}</span>
+                        <span v-if="props.pendingTrainingBuildDiff?.removed_lines" class="font-mono text-red-500">-{{ props.pendingTrainingBuildDiff.removed_lines }}</span>
+                        <span v-if="props.pendingTrainingBuild" class="text-gray-200">|</span>
+                        <button
+                            v-if="props.pendingTrainingBuild"
+                            class="inline-flex items-center gap-1 text-[11px] text-sky-600 hover:text-sky-700 transition-colors disabled:opacity-60"
+                            :disabled="isApprovingBuild || selectedInstructionIds.size === 0"
+                            @click.stop="handleApproveTrainingBuild"
+                        >
+                            <Spinner v-if="isApprovingBuild" class="w-3 h-3 text-sky-600" />
+                            {{ isApprovingBuild ? $t('prompt.approving', 'Publishing…') : $t('prompt.saveChanges', 'Save changes') }}
+                        </button>
+                    </div>
                     <div
                         v-if="showTrainingDropdown"
-                        class="absolute left-0 bottom-full w-80 z-20"
+                        class="absolute start-0 bottom-full w-96 z-20"
                     >
-                        <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
-                            <div
-                                v-for="inst in props.trainingInstructions"
-                                :key="inst.instructionId"
-                                class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
-                                @click="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
-                            >
-                                <div class="flex items-center gap-1.5">
-                                    <Icon
-                                        :name="inst.isEdit ? 'heroicons-pencil' : 'heroicons-plus-circle'"
-                                        class="w-3 h-3 shrink-0"
-                                        :class="inst.isEdit ? 'text-blue-500' : 'text-green-500'"
+                        <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-2 mb-0">
+                            <div class="px-3 pb-1.5 flex items-center gap-1.5 text-[11px] text-gray-500">
+                                <span class="font-medium text-gray-700">{{ $t('prompt.pendingChanges', 'Pending changes') }}</span>
+                                <span class="text-gray-300">·</span>
+                                <span>{{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.changeSingular', 'change') : $t('prompt.changePlural', 'changes') }}</span>
+                            </div>
+                            <div class="max-h-64 overflow-y-auto">
+                                <div
+                                    v-for="inst in props.trainingInstructions"
+                                    :key="inst.instructionId"
+                                    :class="[
+                                        'flex items-start gap-2 px-3 py-1.5 mx-1 rounded border border-gray-150 bg-gray-50 hover:bg-gray-100 cursor-pointer mb-1',
+                                        !selectedInstructionIds.has(inst.instructionId) ? 'opacity-60' : ''
+                                    ]"
+                                    @click="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
+                                >
+                                    <UCheckbox
+                                        :model-value="selectedInstructionIds.has(inst.instructionId)"
+                                        color="blue"
+                                        @update:model-value="toggleInstructionSelection(inst.instructionId, $event)"
+                                        @click.stop
+                                        class="mt-0.5"
                                     />
-                                    <span class="text-xs text-gray-700 truncate">{{ inst.title }}</span>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-1.5">
+                                            <span
+                                                :class="[
+                                                    'text-[9px] font-mono font-semibold uppercase tracking-wide',
+                                                    inst.isEdit ? 'text-blue-600' : 'text-green-600'
+                                                ]"
+                                            >
+                                                {{ inst.isEdit ? $t('prompt.changeEdit', 'edit') : $t('prompt.changeNew', 'new') }}
+                                            </span>
+                                            <span class="text-[12px] text-gray-700 truncate hover:text-gray-900">{{ inst.title }}</span>
+                                            <span v-if="inst.lineCount > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ inst.lineCount }}</span>
+                                        </div>
+                                        <div v-if="inst.category" class="text-[10px] text-gray-400 mt-0.5">{{ inst.category }}</div>
+                                    </div>
                                 </div>
-                                <div class="flex items-center gap-2 mt-0.5 ml-[18px]">
-                                    <span v-if="inst.category" class="text-[10px] text-gray-400">{{ inst.category }}</span>
-                                    <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
-                                </div>
+                            </div>
+                            <div
+                                v-if="props.pendingTrainingBuild"
+                                class="flex items-center gap-2 px-3 pt-2 border-t border-gray-100 mt-1"
+                            >
+                                <button
+                                    class="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium text-white bg-sky-600 hover:bg-sky-700 rounded transition-colors disabled:opacity-60"
+                                    :disabled="isApprovingBuild || selectedInstructionIds.size === 0"
+                                    @click.stop="handleApproveTrainingBuild"
+                                >
+                                    <Spinner v-if="isApprovingBuild" class="w-3 h-3 text-white me-1" />
+                                    <Icon v-else name="heroicons-check" class="w-3 h-3" />
+                                    {{ approveButtonText }}
+                                </button>
+                                <button
+                                    class="inline-flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors disabled:opacity-60"
+                                    :disabled="isDiscardingBuild"
+                                    @click.stop="handleDiscardTrainingBuild"
+                                >
+                                    <Icon name="heroicons-x-mark" class="w-3 h-3" />
+                                    {{ isDiscardingBuild ? $t('prompt.rejecting', 'Rejecting…') : $t('prompt.rejectBuild', 'Reject') }}
+                                </button>
                             </div>
                         </div>
                         <div class="h-1"></div>
@@ -122,8 +174,8 @@
                     class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-xs text-blue-600 hover:bg-blue-50 transition-colors"
                     @click="emit('viewDashboard')"
                 >
-                    View dashboard
-                    <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
+                    {{ $t('prompt.viewDashboard') }}
+                    <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5 rtl-flip" />
                 </button>
             </div>
             <div v-else></div>
@@ -135,7 +187,7 @@
             >
                 <span class="text-green-500">●</span>
                 <span class="truncate max-w-[160px]">{{ excelSelectionLabel }}</span>
-                <span class="text-gray-300 hover:text-gray-500 ml-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
+                <span class="text-gray-300 hover:text-gray-500 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
 
@@ -156,7 +208,7 @@
             >
                 <div class="flex flex-col items-center text-blue-600">
                     <Icon name="heroicons-cloud-arrow-up" class="w-8 h-8 mb-2" />
-                    <span class="text-sm font-medium">Drop files to upload</span>
+                    <span class="text-sm font-medium">{{ $t('prompt.dropFilesToUpload') }}</span>
                 </div>
             </div>
 
@@ -169,15 +221,15 @@
                         : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
                     @click="openInstructions"
                 >
-                    <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 mr-1.5' : 'w-4 h-4 mr-1.5'" />
-                    Instructions
+                    <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 me-1.5' : 'w-4 h-4 me-1.5'" />
+                    {{ $t('prompt.instructions') }}
                 </button>
                 <div
                     v-if="isHydratingDataSources"
                     class="flex items-center justify-center py-6 space-x-2 text-xs text-gray-500"
                 >
                     <Spinner class="w-4 h-4 text-gray-400" />
-                    <span>Loading report context…</span>
+                    <span>{{ $t('prompt.loadingReportContext') }}</span>
                 </div>
                 <MentionInput
                     v-else
@@ -231,7 +283,7 @@
                     <!-- Remove button -->
                     <button
                         @click="removeInlineFile(file)"
-                        class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gray-700 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-900"
+                        class="absolute -top-1.5 -end-1.5 w-5 h-5 rounded-full bg-gray-700 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-900"
                         :disabled="file.status === 'processing'"
                     >
                         <Icon name="heroicons-x-mark" class="w-3 h-3" />
@@ -250,7 +302,7 @@
                     <span class="truncate max-w-[150px]">{{ file.filename }}</span>
                     <button
                         @click="removeInlineFile(file)"
-                        class="ml-0.5 p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="ms-0.5 p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
                         :disabled="file.status === 'processing'"
                     >
                         <Icon name="heroicons-x-mark" class="w-3 h-3" />
@@ -274,29 +326,29 @@
                                 :class="mode === 'training' ? 'text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'"
                             >
                                 <Icon :name="modeIcon" class="w-4 h-4" />
-                                <span v-if="!isCompactPrompt" class="ml-1">{{ modeLabel }}</span>
+                                <span v-if="!isCompactPrompt" class="ms-1">{{ modeLabel }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
                             <div class="p-2 text-xs">
                                 <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between w-[180px]" @click="() => { selectMode('chat'); close(); }">
                                     <div class="flex items-center">
-                                        <Icon name="heroicons-chat-bubble-left-right" class="w-4 h-4 mr-2" />
-                                        Chat
+                                        <Icon name="heroicons-chat-bubble-left-right" class="w-4 h-4 me-2" />
+                                        {{ $t('prompt.chat') }}
                                     </div>
                                     <Icon v-if="mode === 'chat'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
                                 <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('deep'); close(); }">
                                     <div class="flex items-center">
-                                        <Icon name="heroicons-light-bulb" class="w-4 h-4 mr-2" />
-                                        Deep Analytics
+                                        <Icon name="heroicons-light-bulb" class="w-4 h-4 me-2" />
+                                        {{ $t('prompt.deepAnalytics') }}
                                     </div>
                                     <Icon v-if="mode === 'deep'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
                                 <div v-if="canUseTrainingMode" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('training'); close(); }">
                                     <div class="flex items-center">
-                                        <Icon name="heroicons-academic-cap" class="w-4 h-4 mr-2" />
-                                        Training
+                                        <Icon name="heroicons-academic-cap" class="w-4 h-4 me-2" />
+                                        {{ $t('prompt.training') }}
                                     </div>
                                     <Icon v-if="mode === 'training'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
@@ -307,8 +359,8 @@
 
                 <div class="flex items-center space-x-0.5">
                     <div v-if="props.showContextIndicator" class="flex items-center">
-                        <UTooltip :text="contextEstimateTooltip || (isLoadingContextEstimate ? 'Estimating...' : 'Estimate unavailable')" :popper="{ placement: 'top', strategy: 'fixed' }">
-                            <button class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors mr-0.5"
+                        <UTooltip :text="contextEstimateTooltip || (isLoadingContextEstimate ? $t('prompt.estimating') : $t('prompt.estimateUnavailable'))" :popper="{ placement: 'top', strategy: 'fixed' }">
+                            <button class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
                                 :disabled="isLoadingContextEstimate">
                                 <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-gray-400" />
                                 <UIcon
@@ -324,7 +376,7 @@
                     <FileUploadComponent ref="fileUploadRef" :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
 
                     <!-- Schedule a prompt -->
-                    <UTooltip v-if="!props.hideScheduleButton" text="Schedule a prompt" :popper="{ strategy: 'fixed', placement: 'top' }">
+                    <UTooltip v-if="!props.hideScheduleButton" :text="$t('prompt.schedulePrompt')" :popper="{ strategy: 'fixed', placement: 'top' }">
                         <button
                             class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center"
                             @click="openScheduleModal"
@@ -338,20 +390,20 @@
                         <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
                             <button class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
                                 <Icon name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
-                                <span v-if="!isCompactPrompt" class="ml-1 truncate">{{ selectedModelLabel }}</span>
+                                <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
                             <div class="p-2 text-xs max-h-64 overflow-y-auto w-[200px]">
                                 <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
-                                    <div class="mr-2">
+                                    <div class="me-2">
                                         <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                                     </div>
-                                    <div class="flex flex-col flex-1 text-left min-w-0">
+                                    <div class="flex flex-col flex-1 text-start min-w-0">
                                         <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
                                         <span class="text-gray-500 text-[10px] truncate">{{ m.provider?.name }}</span>
                                     </div>
-                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ml-2 flex-shrink-0" />
+                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                                 </div>
                             </div>
                         </template>
@@ -360,7 +412,7 @@
                     <!-- Send / Stop -->
                     <button
                         v-if="latestInProgressCompletion"
-                        class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
+                        class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
                         :disabled="isStopping"
                         @click="$emit('stopGeneration')"
                     >
@@ -368,12 +420,12 @@
                     </button>
                     <UTooltip v-else-if="!props.hideSubmitButton" :text="submitTooltip" :popper="{ strategy: 'fixed', placement: 'top' }" :disabled="canSubmit">
                         <button
-                            class="text-white w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
+                            class="text-white w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
                             :class="canSubmit ? (mode === 'training' ? 'bg-sky-500 hover:cursor-pointer hover:bg-sky-600' : 'bg-gray-700 hover:cursor-pointer hover:bg-black') : 'bg-gray-300 cursor-not-allowed'"
                             :disabled="!canSubmit"
                             @click="submit"
                         >
-                            <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
+                            <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5 rtl-flip" />
                         </button>
                     </UTooltip>
                 </div>
@@ -442,6 +494,16 @@ const props = defineProps({
         type: Array as () => { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number }[],
         default: () => []
     },
+    // Pending draft build (if any) to expose Approve / Discard actions in the pill
+    pendingTrainingBuild: {
+        type: Object as () => { id: string; status: string; total_instructions: number } | null,
+        default: null
+    },
+    // Aggregate line diff for pendingTrainingBuild vs main build (loaded by parent)
+    pendingTrainingBuildDiff: {
+        type: Object as () => { added_lines: number; removed_lines: number } | null,
+        default: null
+    },
     // Whether the report has artifacts (for "View dashboard" pill)
     hasArtifacts: { type: Boolean, default: false },
     // Hide the schedule button (when embedded inside ScheduledPromptModal)
@@ -452,10 +514,73 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','openInstructions','update:selectedDataSources'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','openInstructions','update:selectedDataSources'])
 
+const isApprovingBuild = ref(false)
+const isDiscardingBuild = ref(false)
+const selectedInstructionIds = ref<Set<string>>(new Set())
+
+// Select all changes by default; preserve user selections across list updates.
+watch(
+    () => props.trainingInstructions,
+    (next, prev) => {
+        const prevIds = new Set((prev || []).map((i: any) => i.instructionId))
+        const sel = new Set(selectedInstructionIds.value)
+        for (const inst of next || []) {
+            if (!prevIds.has(inst.instructionId)) sel.add(inst.instructionId)
+        }
+        const currentIds = new Set((next || []).map((i: any) => i.instructionId))
+        for (const id of sel) {
+            if (!currentIds.has(id)) sel.delete(id)
+        }
+        selectedInstructionIds.value = sel
+    },
+    { immediate: true, deep: true }
+)
+
+function toggleInstructionSelection(id: string, checked: boolean) {
+    const next = new Set(selectedInstructionIds.value)
+    if (checked) next.add(id)
+    else next.delete(id)
+    selectedInstructionIds.value = next
+}
+
+const approveButtonText = computed(() => {
+    if (isApprovingBuild.value) return t('prompt.approving', 'Approving…')
+    const n = selectedInstructionIds.value.size
+    if (n === 0) return t('prompt.approveBuild', 'Approve & publish')
+    if (n === 1) return t('prompt.approveOne', 'Publish 1 change')
+    return t('prompt.approveMany', { n, default: `Publish ${n} changes` })
+})
+
+async function handleApproveTrainingBuild() {
+    if (!props.pendingTrainingBuild || isApprovingBuild.value) return
+    if (selectedInstructionIds.value.size === 0) return
+    isApprovingBuild.value = true
+    try {
+        await Promise.resolve(emit('approveTrainingBuild', {
+            buildId: props.pendingTrainingBuild.id,
+            instructionIds: Array.from(selectedInstructionIds.value),
+        }))
+    } finally {
+        isApprovingBuild.value = false
+        showTrainingDropdown.value = false
+    }
+}
+async function handleDiscardTrainingBuild() {
+    if (!props.pendingTrainingBuild || isDiscardingBuild.value) return
+    isDiscardingBuild.value = true
+    try {
+        await Promise.resolve(emit('discardTrainingBuild', props.pendingTrainingBuild.id))
+    } finally {
+        isDiscardingBuild.value = false
+        showTrainingDropdown.value = false
+    }
+}
+
+const { t } = useI18n()
 const text = ref('')
-const placeholder = computed(() => props.compact ? 'Ask for any data' : 'Ask for data, dashboard or a deep analysis')
+const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
 
@@ -621,19 +746,19 @@ const contextUsagePercent = computed(() => {
 
 const contextEstimateTooltip = computed(() => {
     if (!props.showContextIndicator) return ''
-    if (isLoadingContextEstimate.value) return 'Estimating context used...'
+    if (isLoadingContextEstimate.value) return t('prompt.estimatingContext')
     if (contextEstimateError.value) return contextEstimateError.value
     if (!contextEstimate.value) return ''
     const pct = contextUsagePercent.value
     const promptShort = contextEstimateShort.value
     if (pct && promptShort) {
-        return `${pct} ${promptShort} tokens context size`
+        return t('prompt.contextSizeTokens', { pct, tokens: promptShort })
     }
     if (pct) {
-        return `${pct} context size`
+        return t('prompt.contextSizePct', { pct })
     }
-    if (promptShort) return `${promptShort} tokens context size`
-    return 'Context size unavailable'
+    if (promptShort) return t('prompt.contextSizeShort', { tokens: promptShort })
+    return t('prompt.contextSizeUnavailable')
 })
 
 const contextIndicatorIcon = computed(() => {
@@ -649,10 +774,10 @@ const showModelMenu = ref(false)
 // Mode computed properties
 const modeLabel = computed(() => {
     switch (mode.value) {
-        case 'chat': return 'Chat'
-        case 'deep': return 'Deep Analytics'
-        case 'training': return 'Training'
-        default: return 'Chat'
+        case 'chat': return t('prompt.chat')
+        case 'deep': return t('prompt.deepAnalytics')
+        case 'training': return t('prompt.training')
+        default: return t('prompt.chat')
     }
 })
 
@@ -674,7 +799,7 @@ const models = ref<any[]>([])
 const selectedModel = ref<string>('')
 const selectedModelLabel = computed(() => {
     const model = models.value.find(m => m.id === selectedModel.value)
-    return model?.name || 'Select Model'
+    return model?.name || t('prompt.selectModel')
 })
 
 // Legacy popper (for current Nuxt UI stable)
@@ -769,7 +894,7 @@ async function refreshContextEstimate(force = false) {
         contextEstimate.value = estimate
     } catch (err) {
         console.error('Failed to fetch context estimate:', err)
-        contextEstimateError.value = 'Estimate unavailable'
+        contextEstimateError.value = t('prompt.estimateUnavailable')
     } finally {
         isLoadingContextEstimate.value = false
     }
@@ -841,19 +966,19 @@ const canSubmit = computed(() => {
 
 const submitTooltip = computed(() => {
     if (!selectedModel.value && !hasDataSourceOrFile.value) {
-        return 'First connect LLM and data'
+        return t('prompt.connectLLMAndData')
     }
     if (!selectedModel.value) {
-        return 'First connect LLM'
+        return t('prompt.connectLLM')
     }
     if (!hasDataSourceOrFile.value) {
-        return 'Connect data or upload a file'
+        return t('prompt.connectDataOrFile')
     }
     if (hasFilesUploading.value) {
-        return 'Waiting for files to upload...'
+        return t('prompt.waitingForFiles')
     }
     if (!text.value.trim()) {
-        return 'Enter a message'
+        return t('prompt.enterMessage')
     }
     return ''
 })
@@ -1005,6 +1130,14 @@ function openImagePreview(file: any) {
     }
 }
 
+function handleEscKey(e: KeyboardEvent) {
+    if (e.key !== 'Escape') return
+    if (props.latestInProgressCompletion && !props.isStopping) {
+        e.preventDefault()
+        emit('stopGeneration')
+    }
+}
+
 // Handle prompt prefill event from other components (e.g., ArtifactFrame)
 function handlePromptPrefill(event: Event) {
     const detail = (event as CustomEvent).detail
@@ -1024,6 +1157,7 @@ function handlePromptPrefill(event: Event) {
 onMounted(async () => {
     // Listen for prompt prefill events
     window.addEventListener('prompt:prefill', handlePromptPrefill)
+    window.addEventListener('keydown', handleEscKey)
 
     await loadModels()
     await refreshContextEstimate(false)
@@ -1047,6 +1181,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('prompt:prefill', handlePromptPrefill)
+    window.removeEventListener('keydown', handleEscKey)
 })
 
 watch(() => props.report_id, async (newId, oldId) => {

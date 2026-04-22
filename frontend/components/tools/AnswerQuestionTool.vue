@@ -3,10 +3,10 @@
     <!-- Status header -->
     <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Spinner class="w-3 h-3 mr-1.5 text-gray-400" />
-        Thinking...
+        <Spinner class="w-3 h-3 me-1.5 text-gray-400" />
+        {{ $t('reportView.thinking') }}...
       </span>
-      <span v-else class="text-gray-700">Thought about answer</span>
+      <span v-else class="text-gray-700">{{ $t('tools.answerQuestion.thought') }}</span>
     </div>
 
     <div class="markdown-wrapper">
@@ -64,7 +64,7 @@ const answerText = computed<string>(() => {
 	h2 { @apply text-lg; }
 	h3 { @apply text-lg; }
 
-	ul, ol { @apply pl-6 mb-4; }
+	ul, ol { @apply ps-6 mb-4; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
 	li { @apply mb-1.5; }

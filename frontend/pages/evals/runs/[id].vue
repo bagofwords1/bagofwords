@@ -1,47 +1,47 @@
 <template>
-  <div class="flex justify-center pl-2 md:pl-4 text-sm">
-    <div class="w-full max-w-7xl px-4 pl-0 py-2">
+  <div class="flex justify-center ps-2 md:ps-4 text-sm">
+    <div class="w-full max-w-7xl px-4 ps-0 py-2">
       <div class="mt-6">
 
         <!-- Run header -->
-         <NuxtLink :to="'/evals'" class="text-blue-600 text-sm hover:underline ml-2 mt-2" >
+         <NuxtLink :to="'/evals'" class="text-blue-600 text-sm hover:underline ms-2 mt-2" >
           <Icon name="heroicons-arrow-left" class="w-4 h-4" />
-          Back to Evals
+          {{ $t('evals.run.back') }}
         </NuxtLink>
         <div class="bg-white border border-gray-200 rounded-xl p-5 mb-6">
           <div class="flex flex-wrap items-start gap-3">
             <div class="min-w-0 flex-1">
               <div class="text-lg font-semibold text-gray-900 truncate">
-                {{ run?.title || 'Test Run' }}
+                {{ run?.title || $t('evals.runs.fallbackTitle') }}
               </div>
               <div class="mt-1 text-xs text-gray-500 truncate">
-                <span>Suite {{ suiteName || '—' }}</span>
+                <span>{{ $t('evals.run.suite', { name: suiteName || '—' }) }}</span>
                 <span class="mx-1">|</span>
-                <span>Triggered {{ timeAgo(run?.started_at) }} {{ prettyTriggerAdverb(run?.trigger_reason) }}</span>
+                <span>{{ $t('evals.run.triggered', { when: timeAgo(run?.started_at), adverb: prettyTriggerAdverb(run?.trigger_reason) }) }}</span>
                 <span class="mx-1">|</span>
-                <span>Total duration: {{ formatDuration(run?.started_at, run?.finished_at) }}</span>
+                <span>{{ $t('evals.run.totalDuration', { duration: formatDuration(run?.started_at, run?.finished_at) }) }}</span>
                 <template v-if="run?.build_id">
                   <span class="mx-1">|</span>
                   <span class="inline-flex items-center gap-1">
                     <Icon name="heroicons:cube" class="w-3 h-3" />
-                    Build #{{ run?.build_number || '—' }}
+                    {{ $t('evals.run.build', { n: run?.build_number || '—' }) }}
                   </span>
                 </template>
               </div>
             </div>
-            <div class="ml-auto flex items-center gap-2">
+            <div class="ms-auto flex items-center gap-2">
               <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(derivedRunStatus)">
                 <Spinner v-if="derivedRunStatus === 'in_progress'" class="w-3 h-3" />
                 {{ prettyStatus(derivedRunStatus) }}
               </span>
-              <UButton v-if="run?.status === 'in_progress'" color="red" size="xs" variant="soft" icon="i-heroicons-stop" @click="stopRun">Stop</UButton>
+              <UButton v-if="run?.status === 'in_progress'" color="red" size="xs" variant="soft" icon="i-heroicons-stop" @click="stopRun">{{ $t('evals.run.stop') }}</UButton>
             </div>
           </div>
           <div class="mt-3 text-xs text-gray-600 flex flex-wrap items-center gap-2">
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-slate-50 text-slate-700 border-slate-200">Cases: {{ results.length }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 text-green-700 border-green-200">Pass: {{ passCount }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200">Fail: {{ failCount }}</span>
-            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 text-gray-700 border-gray-200">Error: {{ errorCount }}</span>
+            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-slate-50 text-slate-700 border-slate-200">{{ $t('evals.run.cases', { n: results.length }) }}</span>
+            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-green-50 text-green-700 border-green-200">{{ $t('evals.run.pass', { n: passCount }) }}</span>
+            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-red-50 text-red-700 border-red-200">{{ $t('evals.run.fail', { n: failCount }) }}</span>
+            <span class="inline-flex items-center px-2 py-1 rounded-full border bg-gray-50 text-gray-700 border-gray-200">{{ $t('evals.run.error', { n: errorCount }) }}</span>
           </div>
         </div>
 
@@ -49,7 +49,7 @@
         <div class="space-y-4">
           <div v-for="row in caseRows" :key="row.result.id" class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
             <!-- Collapsed header -->
-            <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50" @click="toggleRow(row.result.id)">
+            <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-start hover:bg-gray-50" @click="toggleRow(row.result.id)">
               <div class="flex items-center gap-1 min-w-0">
                 <!-- Pass/Fail icon -->
                 <template v-if="row.result.status === 'in_progress'">
@@ -82,7 +82,7 @@
                 <!-- Left: Prompt and metadata -->
                 <div class="p-4 space-y-3 text-xs text-gray-800">
                   <div class="flex items-center justify-between">
-                    <div class="text-[11px] text-gray-500">Prompt</div>
+                    <div class="text-[11px] text-gray-500">{{ $t('evals.run.prompt') }}</div>
                   </div>
                   <pre class="whitespace-pre-wrap break-words bg-gray-50 rounded p-3 text-xs">{{ row.case.prompt_json?.content || '—' }}</pre>
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -90,18 +90,18 @@
                     <div class="sm:col-span-2">
                       <div class="flex items-center justify-between">
                         <div class="text-[11px] text-gray-500">
-                          Logs
+                          {{ $t('evals.run.logs') }}
                           <NuxtLink
                             v-if="row.result.report_id"
                             :to="`/reports/${row.result.report_id}`"
                             target="_blank"
-                            class="ml-2 text-blue-600 hover:underline text-[10px]"
+                            class="ms-2 text-blue-600 hover:underline text-[10px]"
                           >
-                            Open report
+                            {{ $t('evals.run.openReport') }}
                           </NuxtLink>
                         </div>
                         <span class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-full" :class="completionStatus(row.result.id).className">
-                          <Spinner v-if="completionStatus(row.result.id).text === 'Running'" class="w-3 h-3" />
+                          <Spinner v-if="completionStatus(row.result.id).key === 'running'" class="w-3 h-3" />
                           {{ completionStatus(row.result.id).text }}
                         </span>
                       </div>
@@ -118,7 +118,7 @@
                     </div>
                     <!-- Model -->
                     <div class="min-w-0">
-                      <div class="text-[11px] text-gray-500 mb-1">Model</div>
+                      <div class="text-[11px] text-gray-500 mb-1">{{ $t('evals.run.model') }}</div>
                       <div class="flex items-center gap-2">
                         <LLMProviderIcon :provider="modelProviderType(row.case.prompt_json?.model_id, row.case)" :icon="true" class="w-4 h-4" />
                         <div class="min-w-0">
@@ -129,12 +129,12 @@
                     </div>
                     <!-- Data sources -->
                     <div class="min-w-0">
-                      <div class="text-[11px] text-gray-500 mb-1">Data Sources</div>
+                      <div class="text-[11px] text-gray-500 mb-1">{{ $t('evals.run.dataSources') }}</div>
                       <div class="flex flex-wrap gap-2">
                         <template v-for="dsId in (row.case.data_source_ids_json || [])" :key="dsId">
                           <div class="inline-flex items-center px-2 py-1 rounded border text-[11px]" v-if="dataSourceById[dsId]" :title="dataSourceById[dsId].name">
                             <DataSourceIcon :type="dataSourceById[dsId].type" class="h-3.5" />
-                            <span class="ml-1 truncate max-w-[120px]">{{ dataSourceById[dsId].name }}</span>
+                            <span class="ms-1 truncate max-w-[120px]">{{ dataSourceById[dsId].name }}</span>
                           </div>
                         </template>
                         <span v-if="!(row.case.data_source_ids_json || []).length" class="text-xs text-gray-500">—</span>
@@ -142,11 +142,11 @@
                     </div>
                     <!-- Files -->
                     <div class="sm:col-span-2 min-w-0" v-if="(row.case.prompt_json?.files || []).length">
-                      <div class="text-[11px] text-gray-500 mb-1">Files</div>
+                      <div class="text-[11px] text-gray-500 mb-1">{{ $t('evals.run.files') }}</div>
                       <div class="flex flex-wrap gap-2">
                         <div v-for="fid in (row.case.prompt_json?.files || [])" :key="fid" class="inline-flex items-center px-2 py-1 rounded border text-[11px]">
                           <Icon name="heroicons-document" class="w-3.5 h-3.5 text-gray-500" />
-                          <span class="ml-1 truncate max-w-[200px]">{{ fileNameById[fid] || fid }}</span>
+                          <span class="ms-1 truncate max-w-[200px]">{{ fileNameById[fid] || fid }}</span>
                         </div>
                       </div>
                     </div>
@@ -154,48 +154,48 @@
                 </div>
                 <!-- Right: Assertions -->
                 <div class="p-4">
-                  <div class="text-xs text-gray-700 mb-2">Expectations</div>
+                  <div class="text-xs text-gray-700 mb-2">{{ $t('evals.run.expectations') }}</div>
                   <div class="space-y-2">
                     <div v-for="it in displayRules(row)" :key="it.originalIdx" class="border border-gray-200 rounded-md p-3">
                       <!-- Type -->
-                      <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(categoryName(it.rule?.target?.category || ''))">
+                      <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(it.rule?.target?.category || '')">
                         {{ categoryName(it.rule?.target?.category || '') }}
                       </div>
                       <!-- Assertion / Actual / Reasoning -->
                       <div class="text-xs text-gray-900">
-                        <span class="text-[11px] text-gray-500">Assertion:</span>
+                        <span class="text-[11px] text-gray-500">{{ $t('evals.run.assertion') }}</span>
                         {{ ruleSummaryText(it.rule) }}
                       </div>
                       <div class="text-xs text-gray-900 mt-0.5">
-                        <span class="text-[11px] text-gray-500">Actual:</span>
+                        <span class="text-[11px] text-gray-500">{{ $t('evals.run.actual') }}</span>
                         {{ ruleActualText(row, it.originalIdx) || '—' }}
                       </div>
                       <div v-if="isJudgeRule(it.rule) && ruleReasoningText(row, it.originalIdx)" class="text-xs text-gray-900 mt-0.5">
-                        <span class="text-[11px] text-gray-500">Reasoning:</span>
+                        <span class="text-[11px] text-gray-500">{{ $t('evals.run.reasoning') }}</span>
                         {{ ruleReasoningText(row, it.originalIdx) }}
                       </div>
                       <!-- Status line -->
                       <div class="flex items-center gap-2 mt-1">
                         <template v-if="ruleStatus(row, it.originalIdx) === 'pending'">
                           <Spinner class="w-3 h-3 text-gray-600" />
-                          <span class="text-[11px] text-gray-600">Pending…</span>
+                          <span class="text-[11px] text-gray-600">{{ $t('evals.run.rulePending') }}</span>
                         </template>
                         <template v-else-if="ruleStatus(row, it.originalIdx) === 'skipped'">
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-gray-500" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a7 7 0 100 14 7 7 0 000-14zM8 9h4v2H8V9z"/></svg>
-                          <span class="text-[11px] text-gray-600">Skipped</span>
+                          <span class="text-[11px] text-gray-600">{{ $t('evals.run.ruleSkipped') }}</span>
                         </template>
                         <template v-else-if="ruleStatus(row, it.originalIdx) === 'pass'">
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L7 12.172 4.707 9.879a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l8-8z" clip-rule="evenodd"/></svg>
-                          <span class="text-[11px] text-green-700">Pass</span>
+                          <span class="text-[11px] text-green-700">{{ $t('evals.run.rulePass') }}</span>
                         </template>
                         <template v-else>
                           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-red-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-10.293a1 1 0 00-1.414-1.414L10 8.586 7.707 6.293a1 1 0 00-1.414 1.414L8.586 10l-2.293 2.293a1 1 0 101.414 1.414L10 11.414l2.293 2.293a1 1 0 001.414-1.414L11.414 10l2.293-2.293z" clip-rule="evenodd"/></svg>
-                          <span class="text-[11px] text-red-700">Fail</span>
+                          <span class="text-[11px] text-red-700">{{ $t('evals.run.ruleFail') }}</span>
                           <span v-if="ruleMessage(row, it.originalIdx)" class="text-[11px] text-red-700">· {{ ruleMessage(row, it.originalIdx) }}</span>
                         </template>
                       </div>
                     </div>
-                    <div v-if="assertionCount(row) === 0" class="text-xs text-gray-500">No rules configured for this case.</div>
+                    <div v-if="assertionCount(row) === 0" class="text-xs text-gray-500">{{ $t('evals.run.noRules') }}</div>
                   </div>
                 </div>
               </div>
@@ -218,6 +218,7 @@ import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const runId = computed(() => String(route.params.id || ''))
 
@@ -603,10 +604,10 @@ const ruleIconClass = (status?: string) => {
 
 const prettyStatus = (status?: string) => {
   if (!status) return '—'
-  if (status === 'in_progress') return 'In progress'
-  if (status === 'success') return 'Success'
-  if (status === 'fail') return 'Failed'
-  if (status === 'error') return 'Error'
+  if (status === 'in_progress') return t('evals.run.statusInProgress')
+  if (status === 'success') return t('evals.run.statusSuccess')
+  if (status === 'fail') return t('evals.run.statusFailed')
+  if (status === 'error') return t('evals.run.statusError')
   return status.replace('_', ' ')
 }
 
@@ -643,13 +644,13 @@ const timeAgo = (iso?: string | null) => {
     const then = new Date(iso).getTime()
     const now = Date.now()
     const diffSec = Math.max(0, Math.floor((now - then) / 1000))
-    if (diffSec < 60) return `${diffSec}s ago`
+    if (diffSec < 60) return t('evals.run.agoSeconds', { n: diffSec })
     const mins = Math.floor(diffSec / 60)
-    if (mins < 60) return `${mins}m ago`
+    if (mins < 60) return t('evals.run.agoMinutes', { n: mins })
     const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
+    if (hours < 24) return t('evals.run.agoHours', { n: hours })
     const days = Math.floor(hours / 24)
-    return `${days}d ago`
+    return t('evals.run.agoDays', { n: days })
   } catch {
     return '—'
   }
@@ -657,7 +658,7 @@ const timeAgo = (iso?: string | null) => {
 
 const prettyTriggerAdverb = (reason?: string | null) => {
   const r = String(reason || 'manual').toLowerCase()
-  if (r === 'manual') return 'manually'
+  if (r === 'manual') return t('evals.run.triggerManually')
   return r
 }
 
@@ -703,9 +704,9 @@ const modelProviderType = (modelId?: string, caseObj?: TestCase) => {
 }
 const modelDisplayName = (modelId?: string, caseObj?: TestCase) => {
   const m = modelById.value[String(modelId || '')]
-  if (m) return m?.name || m?.model_id || modelId || 'default'
+  if (m) return m?.name || m?.model_id || modelId || t('evals.run.defaultModel')
   const ms: any = (caseObj as any)?.model_summary
-  return ms?.name || ms?.model_id || modelId || 'default'
+  return ms?.name || ms?.model_id || modelId || t('evals.run.defaultModel')
 }
 const modelProviderName = (modelId?: string, caseObj?: TestCase) => {
   const m = modelById.value[String(modelId || '')]
@@ -756,18 +757,18 @@ const toPrettyJSON = (v: any) => {
 }
 
 // ---- Read-only expectations helpers ----
-const CATEGORY_LABELS: Record<string, string> = {
-  'tool:create_data': 'Create Data',
-  'tool:clarify': 'Clarify',
-  'tool:describe_table': 'Describe Table',
-  'metadata': 'Metadata',
-  'completion': 'Completion',
-  'judge': 'Judge',
-}
+const CATEGORY_LABELS = computed<Record<string, string>>(() => ({
+  'tool:create_data': t('evals.category.createData'),
+  'tool:clarify': t('evals.category.clarify'),
+  'tool:describe_table': t('evals.category.describeTable'),
+  'metadata': t('evals.category.metadata'),
+  'completion': t('evals.category.completion'),
+  'judge': t('evals.category.judge'),
+}))
 const categoryName = (cat?: string) => {
   const c = String(cat || '')
   if (!c) return ''
-  if (CATEGORY_LABELS[c]) return CATEGORY_LABELS[c]
+  if (CATEGORY_LABELS.value[c]) return CATEGORY_LABELS.value[c]
   if (c.startsWith('tool:')) {
     const raw = c.split(':')[1] || ''
     const spaced = raw.replace(/_/g, ' ')
@@ -776,20 +777,20 @@ const categoryName = (cat?: string) => {
   return c
 }
 const humanize = (s?: string) => {
-  const t = String(s || '')
-  return t.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
+  const txt = String(s || '')
+  return txt.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
 }
 const opLabel = (op?: string) => {
   switch (op) {
-    case 'text.contains': return 'text contains'
-    case 'text.not_contains': return 'text not contains'
-    case 'text.equals': return 'text equals'
-    case 'text.regex': return 'text matches regex'
-    case 'number.cmp': return 'number compare'
-    case 'length.cmp': return 'length compare'
-    case 'list.contains': return 'list contains value'
-    case 'list.contains_any': return 'list contains any'
-    case 'list.contains_all': return 'list contains all'
+    case 'text.contains': return t('evals.op.textContains')
+    case 'text.not_contains': return t('evals.op.textNotContains')
+    case 'text.equals': return t('evals.op.textEquals')
+    case 'text.regex': return t('evals.op.textRegex')
+    case 'number.cmp': return t('evals.op.numberCmp')
+    case 'length.cmp': return t('evals.op.lengthCmp')
+    case 'list.contains': return t('evals.op.listContains')
+    case 'list.contains_any': return t('evals.op.listContainsAny')
+    case 'list.contains_all': return t('evals.op.listContainsAll')
     default: return String(op || '')
   }
 }
@@ -804,16 +805,16 @@ const cmpSymbol = (op?: string) => {
     default: return String(op || '')
   }
 }
-const badgeClassesFor = (catLabel: string): string => {
+const badgeClassesFor = (catKey: string): string => {
   const map: Record<string, string> = {
-    'Create Data': 'bg-blue-50 text-blue-700 border-blue-100',
-    'Clarify': 'bg-amber-50 text-amber-700 border-amber-100',
-    'Describe Table': 'bg-teal-50 text-teal-700 border-teal-100',
-    'Metadata': 'bg-slate-50 text-slate-700 border-slate-100',
-    'Completion': 'bg-purple-50 text-purple-700 border-purple-100',
-    'Judge': 'bg-gray-100 text-gray-700 border-gray-200',
+    'tool:create_data': 'bg-blue-50 text-blue-700 border-blue-100',
+    'tool:clarify': 'bg-amber-50 text-amber-700 border-amber-100',
+    'tool:describe_table': 'bg-teal-50 text-teal-700 border-teal-100',
+    'metadata': 'bg-slate-50 text-slate-700 border-slate-100',
+    'completion': 'bg-purple-50 text-purple-700 border-purple-100',
+    'judge': 'bg-gray-100 text-gray-700 border-gray-200',
   }
-  return map[catLabel] || 'bg-zinc-50 text-zinc-700 border-zinc-100'
+  return map[catKey] || 'bg-zinc-50 text-zinc-700 border-zinc-100'
 }
 
 // ---- Expectation summary and status helpers ----
@@ -865,22 +866,28 @@ const ruleMessage = (row: { result: TestResult }, idx: number): string => {
 }
 
 // Completion status (from streaming events) for the logs badge
-const completionStatus = (resultId: string): { text: string, className: string } => {
+const completionStatus = (resultId: string): { key: string, text: string, className: string } => {
   try {
     const logs = getLogs(resultId)
-    let text = '—'
-    if (logs.some(l => l.event === 'completion.error')) text = 'Error'
-    else if (logs.some(l => l.event === 'completion.finished')) text = 'Finished'
-    else if (logs.some(l => l.event === 'completion.started')) text = 'Running'
+    let key: 'none' | 'error' | 'finished' | 'running' = 'none'
+    if (logs.some(l => l.event === 'completion.error')) key = 'error'
+    else if (logs.some(l => l.event === 'completion.finished')) key = 'finished'
+    else if (logs.some(l => l.event === 'completion.started')) key = 'running'
     const classMap: Record<string, string> = {
-      'Running': 'bg-blue-100 text-blue-800',
-      'Finished': 'bg-green-100 text-green-800',
-      'Error': 'bg-red-100 text-red-800',
-      '—': 'bg-gray-100 text-gray-800'
+      running: 'bg-blue-100 text-blue-800',
+      finished: 'bg-green-100 text-green-800',
+      error: 'bg-red-100 text-red-800',
+      none: 'bg-gray-100 text-gray-800',
     }
-    return { text, className: classMap[text] || classMap['—'] }
+    const textMap: Record<string, string> = {
+      running: t('evals.run.completionRunning'),
+      finished: t('evals.run.completionFinished'),
+      error: t('evals.run.completionError'),
+      none: '—',
+    }
+    return { key, text: textMap[key], className: classMap[key] }
   } catch {
-    return { text: '—', className: 'bg-gray-100 text-gray-800' }
+    return { key: 'none', text: '—', className: 'bg-gray-100 text-gray-800' }
   }
 }
 

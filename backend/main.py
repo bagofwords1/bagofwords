@@ -134,6 +134,10 @@ app = FastAPI(
 instrument_app(app, settings.bow_config.otel)
 init_cors(app)
 
+# Register typed-error handlers so AppError instances become localized responses.
+from app.errors import register_exception_handlers  # noqa: E402
+register_exception_handlers(app)
+
 oauth_providers = []
 google_oauth_client = None
 

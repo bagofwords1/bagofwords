@@ -45,7 +45,7 @@
 
     <!-- Loading -->
     <div v-else-if="loading" class="text-sm text-gray-500 py-10 flex items-center justify-center">
-      <Spinner class="w-4 h-4 mr-2" />
+      <Spinner class="w-4 h-4 me-2" />
       Loading tools...
     </div>
 
@@ -59,7 +59,7 @@
             <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600 uppercase font-medium tracking-wide">{{ conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
           </div>
           <div class="flex items-center gap-1.5">
-            <span class="text-[10px] text-gray-400 mr-1">
+            <span class="text-[10px] text-gray-400 me-1">
               {{ getEnabledCount(conn.id) }}/{{ getToolCount(conn.id) }} enabled
             </span>
             <UTooltip text="Refresh tools">
@@ -120,12 +120,12 @@
               />
               <button
                 type="button"
-                class="flex items-center gap-1.5 text-left flex-shrink-0"
+                class="flex items-center gap-1.5 text-start flex-shrink-0"
                 @click="toggleExpand(tool.id)"
               >
                 <UIcon
                   :name="expandedTools[tool.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-                  class="w-3 h-3 text-gray-400 flex-shrink-0"
+                  class="w-3 h-3 text-gray-400 flex-shrink-0 rtl-flip"
                 />
                 <code class="text-[13px] text-gray-800 font-medium whitespace-nowrap">{{ tool.name }}</code>
                 <span v-if="!tool.is_enabled" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-400">off</span>
@@ -134,7 +134,7 @@
             </div>
 
             <!-- Expanded -->
-            <div v-if="expandedTools[tool.id]" class="mt-2 ml-9 space-y-2">
+            <div v-if="expandedTools[tool.id]" class="mt-2 ms-9 space-y-2">
               <p v-if="tool.description" class="text-xs text-gray-500">{{ tool.description }}</p>
               <div v-if="tool.input_schema?.properties" class="text-xs">
                 <div class="text-[10px] text-gray-400 uppercase font-medium mb-1">Parameters</div>
@@ -162,7 +162,7 @@
         <!-- Empty tools -->
         <div v-else class="px-4 py-6 text-xs text-gray-400 text-center">
           {{ searchQuery ? 'No matching tools' : 'No tools discovered yet.' }}
-          <button v-if="!searchQuery && canUpdate" @click="refreshTools(conn.id)" class="text-blue-500 hover:underline ml-1">Refresh</button>
+          <button v-if="!searchQuery && canUpdate" @click="refreshTools(conn.id)" class="text-blue-500 hover:underline ms-1">Refresh</button>
         </div>
       </div>
     </div>

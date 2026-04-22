@@ -10,7 +10,7 @@
     <UModal v-model="cronModalOpen">
         <div class="p-4 relative">
             <button @click="cronModalOpen = false"
-                class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
+                class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
             <h1 class="text-lg font-semibold">Schedule and rerun report</h1>
@@ -60,9 +60,9 @@
                             @blur="onBlur" />
                         <!-- Autocomplete dropdown -->
                         <div v-if="showDropdown && filteredMembers.length > 0"
-                            class="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto">
+                            class="absolute start-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-40 overflow-y-auto">
                             <button v-for="member in filteredMembers" :key="member.id"
-                                class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex flex-col"
+                                class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 flex flex-col"
                                 @mousedown.prevent="addMember(member)">
                                 <span class="text-gray-900">{{ member.name || member.email }}</span>
                                 <span v-if="member.name" class="text-xs text-gray-400">{{ member.email }}</span>

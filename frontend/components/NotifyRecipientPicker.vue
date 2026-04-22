@@ -23,9 +23,9 @@
                     @blur="onBlur" />
                 <!-- Autocomplete dropdown -->
                 <div v-if="showDropdown && filteredMembers.length > 0"
-                    class="absolute left-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
+                    class="absolute start-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-36 overflow-y-auto">
                     <button v-for="member in filteredMembers" :key="member.email"
-                        class="w-full text-left px-2.5 py-1.5 text-xs hover:bg-gray-50 flex flex-col"
+                        class="w-full text-start px-2.5 py-1.5 text-xs hover:bg-gray-50 flex flex-col"
                         @mousedown.prevent="addMember(member)">
                         <span class="text-gray-900">{{ member.name || member.email }}</span>
                         <span v-if="member.name" class="text-[11px] text-gray-400">{{ member.email }}</span>

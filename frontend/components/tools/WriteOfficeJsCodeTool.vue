@@ -8,27 +8,27 @@
       <Icon
         v-if="hasDetail"
         :name="collapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-        class="w-3 h-3 mr-1 text-gray-400"
+        class="w-3 h-3 me-1 text-gray-400 rtl-flip"
       />
       <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500">
-        <Icon name="heroicons-code-bracket" class="w-3 h-3 mr-1 text-gray-400" />
+        <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1 text-gray-400" />
         Running Excel code…{{ description ? ' ' + description : '' }}
       </span>
       <span v-else-if="succeeded" class="text-gray-700 flex items-center">
-        <Icon name="heroicons-check" class="w-3 h-3 mr-1 text-green-500" />
-        <span class="align-middle">Ran Excel code</span>
-        <span v-if="description" class="ml-1.5 text-[10px] text-gray-400 truncate max-w-[320px]">· {{ description }}</span>
+        <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
+        <span class="align-middle">{{ $t('tools.writeOfficeJs.ran') }}</span>
+        <span v-if="description" class="ms-1.5 text-[10px] text-gray-400 truncate max-w-[320px]">· {{ description }}</span>
       </span>
       <span v-else class="text-red-500 flex items-center">
-        <Icon name="heroicons-exclamation-circle" class="w-3 h-3 mr-1" />
-        <span class="align-middle">Excel code failed</span>
-        <span v-if="isSyntaxError" class="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 flex-shrink-0">syntax</span>
-        <span v-if="errorMessage" class="ml-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
+        <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
+        <span class="align-middle">{{ $t('tools.writeOfficeJs.failed') }}</span>
+        <span v-if="isSyntaxError" class="ms-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 flex-shrink-0">syntax</span>
+        <span v-if="errorMessage" class="ms-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
     </div>
 
     <Transition name="fade">
-      <div v-if="!collapsed && hasDetail" class="mt-2 ml-4 text-xs text-gray-600">
+      <div v-if="!collapsed && hasDetail" class="mt-2 ms-4 text-xs text-gray-600">
         <pre v-if="code" class="code-block text-[11px] text-gray-800 bg-gray-50 border border-gray-100 rounded p-2 overflow-x-auto"><code>{{ code }}</code></pre>
         <div v-if="logs && logs.length" class="mt-2">
           <div class="text-[10px] text-gray-400 mb-0.5">Logs ({{ logs.length }})</div>

@@ -1,9 +1,9 @@
 <template>
   <div class="mt-6">
     <h2 class="text-lg font-medium text-gray-900">
-      Integrations
+      {{ $t('settings.integrations.title') }}
       <p class="text-sm text-gray-500 font-normal mb-8">
-        Configure external platforms like Slack and Microsoft Teams for your organization.
+        {{ $t('settings.integrations.subtitle') }}
       </p>
     </h2>
   </div>
@@ -14,20 +14,20 @@
       @click="showSlackModal = true"
     >
       <div class="flex items-center">
-        <img src="/icons/slack.png" alt="Slack" class="w-8 h-8 mr-4" />
+        <img src="/icons/slack.png" alt="Slack" class="w-8 h-8 me-4" />
         <div>
           <div class="font-medium">Slack</div>
           <div class="text-sm text-gray-500">
             <span v-if="slackIntegrated">
-                <span class="text-green-600">Connected</span>
+                <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
             </span>
             <span v-else>
-                <span class="text-gray-400">Not connected</span>
+                <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
             </span>
           </div>
           <div v-if="slackConfig && slackIntegrated" class="text-xs text-gray-400 mt-1">
-            <span>Workspace: {{ slackConfig.team_name }}</span>
-            <span class="ml-2">ID: {{ slackConfig.team_id }}</span>
+            <span>{{ $t('settings.integrations.workspace', { name: slackConfig.team_name }) }}</span>
+            <span class="ms-2">{{ $t('settings.integrations.id', { id: slackConfig.team_id }) }}</span>
           </div>
         </div>
       </div>
@@ -35,7 +35,7 @@
         class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
         @click.stop="showSlackModal = true"
       >
-        {{ slackIntegrated ? 'Settings' : 'Integrate' }}
+        {{ slackIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
       </button>
     </div>
 
@@ -45,19 +45,19 @@
       @click="showTeamsModal = true"
     >
       <div class="flex items-center">
-        <img src="/icons/teams.png" alt="Teams" class="w-8 h-8 mr-4" />
+        <img src="/icons/teams.png" alt="Teams" class="w-8 h-8 me-4" />
         <div>
           <div class="font-medium">Microsoft Teams</div>
           <div class="text-sm text-gray-500">
             <span v-if="teamsIntegrated">
-                <span class="text-green-600">Connected</span>
+                <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
             </span>
             <span v-else>
-                <span class="text-gray-400">Not connected</span>
+                <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
             </span>
           </div>
           <div v-if="teamsConfig && teamsIntegrated" class="text-xs text-gray-400 mt-1">
-            <span>Tenant: {{ teamsConfig.tenant_id }}</span>
+            <span>{{ $t('settings.integrations.tenant', { id: teamsConfig.tenant_id }) }}</span>
           </div>
         </div>
       </div>
@@ -65,7 +65,7 @@
         class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
         @click.stop="showTeamsModal = true"
       >
-        {{ teamsIntegrated ? 'Settings' : 'Integrate' }}
+        {{ teamsIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
       </button>
     </div>
 
@@ -75,20 +75,20 @@
       @click="showWhatsAppModal = true"
     >
       <div class="flex items-center">
-        <img src="/icons/whatsapp.png" alt="WhatsApp" class="w-8 h-8 mr-4" />
+        <img src="/icons/whatsapp.png" alt="WhatsApp" class="w-8 h-8 me-4" />
         <div>
           <div class="font-medium">WhatsApp</div>
           <div class="text-sm text-gray-500">
             <span v-if="whatsappIntegrated">
-                <span class="text-green-600">Connected</span>
+                <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
             </span>
             <span v-else>
-                <span class="text-gray-400">Not connected</span>
+                <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
             </span>
           </div>
           <div v-if="whatsappConfig && whatsappIntegrated" class="text-xs text-gray-400 mt-1">
-            <span>{{ whatsappConfig.verified_name || 'Business' }}</span>
-            <span class="ml-2">{{ whatsappConfig.display_phone_number }}</span>
+            <span>{{ whatsappConfig.verified_name || $t('settings.integrations.business') }}</span>
+            <span class="ms-2">{{ whatsappConfig.display_phone_number }}</span>
           </div>
         </div>
       </div>
@@ -96,7 +96,7 @@
         class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
         @click.stop="showWhatsAppModal = true"
       >
-        {{ whatsappIntegrated ? 'Settings' : 'Integrate' }}
+        {{ whatsappIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
       </button>
     </div>
 
@@ -107,11 +107,11 @@
       @click="showExcelModal = true"
     >
       <div class="flex items-center">
-        <img src="/data_sources_icons/excel.png" alt="Excel" class="w-8 h-8 mr-4" />
+        <img src="/data_sources_icons/excel.png" alt="Excel" class="w-8 h-8 me-4" />
         <div>
-          <div class="font-medium">Excel Add-in</div>
+          <div class="font-medium">{{ $t('settings.integrations.excelAddinName') }}</div>
           <div class="text-sm text-gray-500">
-            Sideload the Bag of Words add-in directly from this instance
+            {{ $t('settings.integrations.excelAddinDescription') }}
           </div>
         </div>
       </div>
@@ -119,7 +119,7 @@
         class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
         @click.stop="showExcelModal = true"
       >
-        Setup
+        {{ $t('settings.integrations.setup') }}
       </button>
     </div>
 
@@ -128,12 +128,12 @@
       class="flex items-center justify-between p-4 border rounded-lg"
     >
       <div class="flex items-center">
-        <McpIcon class="w-8 h-8 mr-4 text-gray-700" />
+        <McpIcon class="w-8 h-8 me-4 text-gray-700" />
         <div>
-          <div class="font-medium">BOW MCP Server</div>
+          <div class="font-medium">{{ $t('settings.integrations.mcpName') }}</div>
           <div class="text-sm text-gray-500">
             <span>
-              Enable MCP endpoint for integration with AI assistants like Cursor, Claude, or others
+              {{ $t('settings.integrations.mcpDescription') }}
             </span>
           </div>
         </div>
@@ -143,6 +143,36 @@
         :loading="mcpUpdating"
         @update:model-value="toggleMcp"
       />
+    </div>
+
+    <!-- OAuth Clients Row -->
+    <div
+      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+      @click="showOAuthModal = true"
+    >
+      <div class="flex items-center">
+        <div class="w-8 h-8 mr-4 flex items-center justify-center rounded bg-gray-100">
+          <UIcon name="heroicons-key" class="w-5 h-5 text-gray-700" />
+        </div>
+        <div>
+          <div class="font-medium">OAuth Clients</div>
+          <div class="text-sm text-gray-500">
+            <span v-if="oauthClientCount > 0">
+              <span class="text-green-600">{{ oauthClientCount }} connected</span>
+            </span>
+            <span v-else>
+              <span class="text-gray-400">Not connected</span>
+            </span>
+            <span class="ml-2">— register external apps that access this workspace via OAuth 2.1 (e.g. Claude Web)</span>
+          </div>
+        </div>
+      </div>
+      <button
+        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+        @click.stop="showOAuthModal = true"
+      >
+        {{ oauthClientCount > 0 ? 'Manage' : 'Add' }}
+      </button>
     </div>
 
     <!-- Slack Integration Modal -->
@@ -181,6 +211,15 @@
         @close="showExcelModal = false"
       />
     </UModal>
+
+    <!-- OAuth Clients Modal -->
+    <UModal v-model="showOAuthModal" :ui="{ width: 'sm:max-w-2xl' }">
+      <OAuthClientsModal
+        v-if="showOAuthModal"
+        @close="showOAuthModal = false"
+        @updated="fetchOAuthClientCount"
+      />
+    </UModal>
   </div>
 </template>
 
@@ -190,6 +229,7 @@ import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
 import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
+import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
@@ -215,6 +255,10 @@ const whatsappIntegrationData = ref<any>(null)
 // MCP state
 const mcpEnabled = ref(false)
 const mcpUpdating = ref(false)
+
+// OAuth clients
+const showOAuthModal = ref(false)
+const oauthClientCount = ref(0)
 
 const { settings, fetchSettings } = useOrgSettings()
 
@@ -275,8 +319,19 @@ async function toggleMcp(value: boolean) {
   }
 }
 
+async function fetchOAuthClientCount() {
+  try {
+    const res = await useMyFetch('/api/oauth/clients')
+    const clients = (res.data.value as any[]) || []
+    oauthClientCount.value = clients.length
+  } catch (e) {
+    oauthClientCount.value = 0
+  }
+}
+
 onMounted(() => {
   fetchIntegrations()
   loadMcpState()
+  fetchOAuthClientCount()
 })
 </script>

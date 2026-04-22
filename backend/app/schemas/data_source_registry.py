@@ -49,6 +49,9 @@ from app.schemas.data_sources.configs import (
     # QVD Files
     QVDConfig,
     QVDCredentials,
+    # Qlik Sense (live connector)
+    QlikSenseConfig,
+    QlikSenseApiKeyCredentials,
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
@@ -486,8 +489,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",
-        title="Qlik Data",
-        description="Query Qlik Data (.qvd) files.",
+        title="Qlik (QVD)",
+        description="Query Qlik (.qvd) files.",
         config_schema=QVDConfig,
         credentials_auth=AuthOptions(
             default="none",
@@ -500,6 +503,27 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.qvd_client.QVDClient",
+        requires_license="enterprise",
+    ),
+    "qlik_sense": DataSourceRegistryEntry(
+        type="qlik_sense",
+        title="Qlik Sense",
+        description=(
+            "Live Qlik Sense Cloud connector: discover apps (models) via REST and "
+            "run hypercube queries against them via the Qlik Engine API (QIX) over WebSocket."
+        ),
+        config_schema=QlikSenseConfig,
+        credentials_auth=AuthOptions(
+            default="api_key",
+            by_auth={
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=QlikSenseApiKeyCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.qlik_sense_client.QlikSenseClient",
         requires_license="enterprise",
     ),
     "ms_fabric": DataSourceRegistryEntry(

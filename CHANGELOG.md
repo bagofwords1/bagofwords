@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.363 (April 22, 2026)
+- Improve prompting for Azure default guardrails
+- Put oauth in the admin settings
+- Improve infer widget visualizations to include filter and agg
+
 ## Version 0.0.362 (April 20, 2026)
 - PBI on-prem server improvements
 

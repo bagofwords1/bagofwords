@@ -516,6 +516,77 @@ class OrganizationSettingsService:
             auto_invite_role=role_name,
         )
 
+    async def get_locale(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Return the org's locale override + system default + enabled list."""
+        from app.settings.config import settings as app_settings
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get("locale")
+        i18n = app_settings.bow_config.i18n
+        return {
+            "org_locale": raw if raw in i18n.enabled_locales else None,
+            "default_locale": i18n.default_locale,
+            "enabled_locales": list(i18n.enabled_locales),
+            "effective_locale": raw if raw in i18n.enabled_locales else i18n.default_locale,
+        }
+
+    async def update_locale(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        locale: str | None,
+    ) -> dict:
+        """Set or clear the org locale override. None/empty clears to system default."""
+        from app.settings.config import settings as app_settings
+        i18n = app_settings.bow_config.i18n
+
+        new_locale: str | None
+        if locale in (None, ""):
+            new_locale = None
+        elif locale in i18n.enabled_locales:
+            new_locale = locale
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Locale '{locale}' is not enabled. Enabled: {i18n.enabled_locales}",
+            )
+
+        settings = await self.get_settings(db, organization, current_user)
+        current_config = dict(settings.config or {})
+        if current_config.get("locale") != new_locale:
+            current_config["locale"] = new_locale
+            settings.config = current_config
+            settings.updated_at = datetime.utcnow()
+            flag_modified(settings, "config")
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="settings.locale_updated",
+                    user_id=str(current_user.id),
+                    resource_type="organization_settings",
+                    resource_id=str(settings.id),
+                    details={"locale": new_locale},
+                )
+            except Exception:
+                pass
+
+        return {
+            "org_locale": new_locale,
+            "default_locale": i18n.default_locale,
+            "enabled_locales": list(i18n.enabled_locales),
+            "effective_locale": new_locale or i18n.default_locale,
+        }
+
     async def update_ai_feature(
         self,
         db: AsyncSession,

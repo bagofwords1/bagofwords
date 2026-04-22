@@ -15,12 +15,12 @@
     <!-- Dropdown -->
     <div
       v-if="showDropdown"
-      class="absolute left-0 top-full mt-1 w-80 z-20"
+      class="absolute start-0 top-full mt-1 w-80 z-20"
     >
       <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-1 mb-0">
         <!-- Loading -->
         <div v-if="isLoading" class="flex items-center justify-center px-3 py-2">
-          <Spinner class="w-3 h-3 mr-1.5" />
+          <Spinner class="w-3 h-3 me-1.5" />
           <span class="text-[11px] text-gray-500">Loading...</span>
         </div>
 
@@ -40,7 +40,7 @@
               />
               <span class="text-xs text-gray-700 truncate">{{ inst.title }}</span>
             </div>
-            <div class="flex items-center gap-2 mt-0.5 ml-[18px]">
+            <div class="flex items-center gap-2 mt-0.5 ms-[18px]">
               <span v-if="inst.category" class="text-[10px] text-gray-400">{{ inst.category }}</span>
               <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
             </div>

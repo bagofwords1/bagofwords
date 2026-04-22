@@ -1,9 +1,9 @@
 <template>
   <div class="mt-6">
     <h2 class="text-lg font-medium text-gray-900">
-      License
+      {{ $t('settings.licensePage.title') }}
       <p class="text-sm text-gray-500 font-normal mb-8">
-        View your license status.
+        {{ $t('settings.licensePage.subtitle') }}
       </p>
     </h2>
 
@@ -45,17 +45,17 @@
             </div>
             <div>
               <p class="text-sm font-medium text-gray-900">
-                {{ isLicensed ? 'Enterprise' : 'Community Edition' }}
+                {{ isLicensed ? $t('settings.licensePage.enterprise') : $t('settings.licensePage.community') }}
               </p>
               <p class="text-xs text-gray-500">
                 <template v-if="isLicensed && license?.org_name">
                   {{ license.org_name }}
                 </template>
                 <template v-else-if="isExpired">
-                  License expired
+                  {{ $t('settings.licensePage.expired') }}
                 </template>
                 <template v-else>
-                  Free and open source
+                  {{ $t('settings.licensePage.free') }}
                 </template>
               </p>
             </div>
@@ -65,22 +65,22 @@
             variant="subtle"
             size="xs"
           >
-            {{ isLicensed ? 'Active' : isExpired ? 'Expired' : 'Community' }}
+            {{ isLicensed ? $t('settings.licensePage.badgeActive') : isExpired ? $t('settings.licensePage.badgeExpired') : $t('settings.licensePage.badgeCommunity') }}
           </UBadge>
         </div>
 
         <!-- License Details (if licensed) -->
         <div v-if="isLicensed || isExpired" class="mt-4 pt-4 border-t border-gray-100 space-y-2">
           <div class="flex justify-between text-xs">
-            <span class="text-gray-500">License ID</span>
+            <span class="text-gray-500">{{ $t('settings.licensePage.fieldLicenseId') }}</span>
             <span class="font-mono text-gray-700">{{ license?.license_id || '-' }}</span>
           </div>
           <div v-if="expiresAt" class="flex justify-between text-xs">
-            <span class="text-gray-500">Expires</span>
+            <span class="text-gray-500">{{ $t('settings.licensePage.fieldExpires') }}</span>
             <span :class="isExpiringSoon ? 'text-amber-600' : 'text-gray-700'">
               {{ formatDate(expiresAt) }}
               <template v-if="daysUntilExpiry && daysUntilExpiry > 0">
-                ({{ daysUntilExpiry }} days)
+                ({{ daysUntilExpiry }} {{ $t('common.days') }})
               </template>
             </span>
           </div>
@@ -94,17 +94,21 @@
           variant="subtle"
           icon="i-heroicons-exclamation-triangle"
         >
-          Your license expires in {{ daysUntilExpiry }} days. Contact us to renew.
+          {{ $t('settings.licensePage.expiresSoon', { days: daysUntilExpiry }) }}
         </UAlert>
       </div>
 
       <!-- Enterprise Info (only show when not licensed) -->
       <div v-if="!isLicensed" class="rounded-lg border border-gray-200 p-5">
         <p class="text-sm text-gray-600 mb-3">
-          Unlock audit logs, advanced role-based access control, and data retention policies with an enterprise license.
+          {{ $t('settings.licensePage.enterpriseInfo') }}
         </p>
         <p class="text-xs text-gray-500 mb-3">
-          Set <code class="bg-gray-100 px-1 py-0.5 rounded text-xs">BOW_LICENSE_KEY</code> and restart to activate.
+          <i18n-t keypath="settings.licensePage.activateHint" tag="span">
+            <template #envvar>
+              <code class="bg-gray-100 px-1 py-0.5 rounded text-xs">BOW_LICENSE_KEY</code>
+            </template>
+          </i18n-t>
         </p>
         <a
           href="https://docs.bagofwords/enterprise"
@@ -112,7 +116,7 @@
           rel="noopener noreferrer"
           class="text-xs text-blue-600 hover:text-blue-700"
         >
-          Learn more →
+          {{ $t('settings.licensePage.learnMore') }}
         </a>
       </div>
     </div>

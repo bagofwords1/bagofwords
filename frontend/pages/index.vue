@@ -10,10 +10,10 @@
       </UDropdown>
     </div>
     <div class="flex-1 flex flex-col justify-center px-3">
-      <div class="pl-4">
-        <h2 class="text-3xl font-bold text-gray-900 text-left">{{ orgAIAnalystName || 'AI Analyst' }}</h2>
-        <p class="text-base text-gray-500 text-left mt-1">
-          Create reports, dashboards, and simply get the data you need
+      <div class="ps-4">
+        <h2 class="text-3xl font-bold text-gray-900 text-start">{{ orgAIAnalystName || $t('home.title') }}</h2>
+        <p class="text-base text-gray-500 text-start mt-1">
+          {{ $t('home.subtitle') }}
         </p>
       </div>
       <div class="mt-4">
@@ -43,7 +43,7 @@
         <div class="logo md:hidden">
             <img src="/assets/logo-128.png" alt="Bag of words" class="h-7" />
         </div>
-        <div class="flex items-center gap-4 ml-auto">
+        <div class="flex items-center gap-4 ms-auto">
             <div class="hamburger md:hidden">
                 <UDropdown :items="menuItems" :popper="{ placement: 'bottom-start' }">
                     <UButton color="white" label="" trailing-icon="i-heroicons-bars-3" />
@@ -54,26 +54,26 @@
 
     <div v-if="isLoading" class="flex flex-col items-center justify-center flex-grow py-20">
       <Spinner class="h-4 w-4 text-gray-400" />
-      <p class="text-sm text-gray-500 mt-2">Loading...</p>
+      <p class="text-sm text-gray-500 mt-2">{{ $t('common.loading') }}</p>
     </div>
 
     <div v-else class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-14">
       <div v-if="showSetupComplete" class="mb-10">
         <div class="mx-auto max-w-xl bg-green-50 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
-          <span class="mr-2 flex items-center">
+          <span class="me-2 flex items-center">
             <Icon name="heroicons-check" />
           </span>
-          <span class="flex items-center">Setup complete — you can now start asking questions in natural language.</span>
+          <span class="flex items-center">{{ $t('home.setupComplete') }}</span>
         </div>
       </div>
       <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-12 max-w-[180px] object-contain mx-auto" />
       <h1 class="text-5xl mt-5 font-bold">
-        {{ orgAIAnalystName || 'AI Analyst' }}
+        {{ orgAIAnalystName || $t('home.title') }}
       </h1>
       <div class="w-full mx-auto mt-2 space-x-3 space-y-3 bg-red-100">
       </div>
       <p class="text-lg mt-5 font-light text-gray-500">
-          Create reports, dashboards, and simply get the data you need
+          {{ $t('home.subtitle') }}
       </p>
       <div class="w-full md:w-4/5 mx-auto mt-10 rounded-lg relative z-10">
           <PromptBoxV2
@@ -98,19 +98,19 @@
     <!-- Existing content -->
     <div v-if="!isLoading" class="flex flex-col p-4 flex-grow md:w-1/3 md:mx-auto relative z-10">
 
-      <div class="flex cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300"
+      <div class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300"
         v-if="models.length === 0"
         @click="router.push('/settings/models')"
       >
         <div class="flex">
-          <div class="w-4/5 pr-4">
+          <div class="w-4/5 pe-4">
             <p class="text-sm text-black flex ">
               <LLMProviderIcon provider="openai" class="h-3 inline-block " />
-              <LLMProviderIcon provider="anthropic" class="h-2 inline-block ml-2" />
-              <span class="inline-block ml-2">Connect your LLM</span>
+              <LLMProviderIcon provider="anthropic" class="h-2 inline-block ms-2" />
+              <span class="inline-block ms-2">{{ $t('home.connectYourLLM') }}</span>
             </p>
           </div>
-          <div class="w-1/5 text-right">
+          <div class="w-1/5 text-end">
             <button class="">
               <UIcon name="i-heroicons-arrow-right" />
             </button>
@@ -120,23 +120,23 @@
 
         <div
         @click="router.push('/data')"
-        class="flex hidden cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
+        class="flex hidden cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
             <div class="flex">
 
-                <div class="w-4/5 pr-4">
+                <div class="w-4/5 pe-4">
                     <p class="text-sm text-black">
-                        <DataSourceIcon type="snowflake" class="h-5 inline mr-2" />
-                        <DataSourceIcon type="salesforce" class="h-5 inline mr-2" />
+                        <DataSourceIcon type="snowflake" class="h-5 inline me-2" />
+                        <DataSourceIcon type="salesforce" class="h-5 inline me-2" />
                         <span v-if="useCan('create_data_source')">
-                          Manage integrations
+                          {{ $t('home.manageIntegrations') }}
                       </span>
                       <span v-else>
-                          View integrations
+                          {{ $t('home.viewIntegrations') }}
                       </span>
                     </p>
                     <!-- Existing reports list can go here -->
                 </div>
-                <div class="w-1/5 text-right">
+                <div class="w-1/5 text-end">
                     <button class="">
                         <UIcon name="i-heroicons-arrow-right" />
                     </button>
@@ -234,13 +234,14 @@ const showOnboardingBanner = computed(() => {
 })
 
 
-const menuItems = ref([
-  [{ label: 'Reports', icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
-  [{ label: 'Data', icon: 'i-heroicons-circle-stack', to: '/data' }],
+const { t } = useI18n()
+const menuItems = computed(() => [
+  [{ label: t('nav.reports'), icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
+  [{ label: t('nav.data'), icon: 'i-heroicons-circle-stack', to: '/data' }],
   [{ label: (currentUser.value as any)?.name, icon: 'i-heroicons-user'},
   { label: organization.value.name, icon: 'i-heroicons-building-office'  }
   ],
-  [{ label: 'Logout', icon: 'i-heroicons-arrow-right-on-rectangle', click: 
+  [{ label: t('auth.logout'), icon: 'i-heroicons-arrow-right-on-rectangle', click:
   () => {
     signOff()
   } }],

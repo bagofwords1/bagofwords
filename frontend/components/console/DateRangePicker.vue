@@ -1,11 +1,11 @@
 <template>
     <div class="mb-6 flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
         <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-700">Time Period:</span>
+            <span class="text-sm font-medium text-gray-700">{{ $t('monitoring.overview.timePeriod') }}:</span>
         </div>
         <div class="flex items-center gap-3">
             <USelectMenu
-                :model-value="selectedPeriod"
+                :model-value="localizedSelectedPeriod"
                 :options="periodOptions"
                 @update:model-value="$emit('periodChange', $event)"
                 size="sm"
@@ -43,11 +43,19 @@ const emit = defineEmits<{
     periodChange: [period: Period]
 }>()
 
-const periodOptions = [
-    { label: 'All Time', value: 'all_time' },
-    { label: 'Last 30 Days', value: '30_days' },
-    { label: 'Last 90 Days', value: '90_days' }
-]
+const { t } = useI18n()
+
+// Options & the currently-selected period label are computed so they
+// relocalize when the user switches languages without reloading.
+const periodOptions = computed(() => [
+    { label: t('monitoring.overview.allTime'), value: 'all_time' },
+    { label: t('monitoring.overview.last30d'), value: '30_days' },
+    { label: t('monitoring.overview.last90d'), value: '90_days' },
+])
+
+const localizedSelectedPeriod = computed(() =>
+    periodOptions.value.find(o => o.value === props.selectedPeriod.value) || props.selectedPeriod
+)
 
 
 

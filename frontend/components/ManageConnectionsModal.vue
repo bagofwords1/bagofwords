@@ -81,7 +81,7 @@
       <template #footer>
         <div class="flex justify-between">
           <UButton color="primary" variant="soft" @click="navigateTo('/data/new'); isOpen = false">
-            <UIcon name="heroicons-plus" class="mr-1" />
+            <UIcon name="heroicons-plus" class="me-1" />
             Add Connection
           </UButton>
           <UButton color="gray" variant="ghost" @click="isOpen = false">Close</UButton>
@@ -141,7 +141,7 @@
         <div class="flex justify-end gap-2">
           <UButton color="gray" variant="ghost" @click="showDeleteConfirm = false">Cancel</UButton>
           <UButton color="red" :disabled="deleting" @click="executeDelete">
-            <Spinner v-if="deleting" class="h-4 w-4 mr-1" />
+            <Spinner v-if="deleting" class="h-4 w-4 me-1" />
             Delete
           </UButton>
         </div>

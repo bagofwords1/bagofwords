@@ -7,7 +7,7 @@
             ]">
             <div class="relative">
                 <Icon :name="buttonIcon" :class="compact ? 'w-4 h-4' : 'w-3.5 h-3.5'" />
-                <span v-if="isShared" class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                <span v-if="isShared" class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 bg-green-500 rounded-full"></span>
             </div>
             <span v-if="!compact" class="text-xs whitespace-nowrap">{{ buttonLabel }}</span>
         </button>
@@ -26,7 +26,7 @@
             <p class="text-sm text-gray-400 mb-6">{{ shareDescription }}</p>
 
             <!-- Visibility dropdown -->
-            <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">Access</label>
+            <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">{{ $t('share.access') }}</label>
             <USelectMenu
                 v-model="currentVisibility"
                 :options="visibilityOptions"
@@ -61,13 +61,13 @@
                     readonly />
                 <button @click="copyLink"
                     class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
-                    <Icon :name="copyLabel === 'Copied!' ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
+                    <Icon :name="copied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
                 </button>
             </div>
 
             <!-- Share with people (only when 'shared' selected) -->
             <div v-if="currentVisibility === 'shared'">
-                <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">Share with</label>
+                <label class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 block">{{ $t('share.shareWith') }}</label>
                 <div class="flex items-start gap-2 mb-4">
                     <div class="flex-1 flex flex-wrap items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5 min-h-[32px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white">
                         <span v-for="(user, idx) in pendingUsers" :key="user.id || user.email"
@@ -80,7 +80,7 @@
                         <div class="relative flex-1 min-w-[120px]">
                             <input ref="inputRef" v-model="inputValue" type="text"
                                 class="w-full border-none outline-none text-xs bg-transparent p-0"
-                                placeholder="Name or email..."
+                                :placeholder="$t('share.nameOrEmail')"
                                 @keydown.enter.prevent="handleEnter"
                                 @keydown.,.prevent="handleComma"
                                 @keydown.backspace="handleBackspace"
@@ -88,9 +88,9 @@
                                 @focus="showDropdown = true"
                                 @blur="onBlur" />
                             <div v-if="showDropdown && filteredMembers.length > 0"
-                                class="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
+                                class="absolute start-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-40 overflow-y-auto">
                                 <button v-for="member in filteredMembers" :key="member.id"
-                                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2.5"
+                                    class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2.5"
                                     @mousedown.prevent="addMember(member)">
                                     <div class="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 flex-shrink-0">
                                         {{ (member.name || member.email).charAt(0).toUpperCase() }}
@@ -105,7 +105,7 @@
                     </div>
                     <button @click="inviteUsers" :disabled="pendingUsers.length === 0 || isSaving"
                         class="flex-shrink-0 px-3 h-[32px] text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
-                        Share
+                        {{ $t('share.share') }}
                     </button>
                 </div>
 
@@ -153,6 +153,7 @@ const props = withDefaults(defineProps<{
 })
 
 const toast = useToast()
+const { t } = useI18n()
 const { smtpEnabled } = useAppSettings()
 const modalOpen = ref(false)
 const isSaving = ref(false)
@@ -161,17 +162,17 @@ const inputValue = ref('')
 const showDropdown = ref(false)
 const pendingUsers = ref<{ id?: string; name?: string; email: string }[]>([])
 const sharedUsers = ref<any[]>([])
-const copyLabel = ref('Copy link')
+const copied = ref(false)
 
 const currentVisibility = ref('none')
 const conversationShareToken = ref<string | null>(null)
 
-const visibilityOptions = [
-    { value: 'none', label: 'Private', description: 'Only you can access', icon: 'heroicons:lock-closed' },
-    { value: 'shared', label: 'Specific people', description: 'Only invited people can access', icon: 'heroicons:user-group' },
-    { value: 'internal', label: 'Organization', description: 'All org members can access', icon: 'heroicons:building-office' },
-    { value: 'public', label: 'Anyone with link', description: 'Anyone can view', icon: 'heroicons:globe-alt' },
-]
+const visibilityOptions = computed(() => [
+    { value: 'none', label: t('share.visibilityPrivate'), description: t('share.visibilityPrivateDesc'), icon: 'heroicons:lock-closed' },
+    { value: 'shared', label: t('share.visibilityShared'), description: t('share.visibilitySharedDesc'), icon: 'heroicons:user-group' },
+    { value: 'internal', label: t('share.visibilityInternal'), description: t('share.visibilityInternalDesc'), icon: 'heroicons:building-office' },
+    { value: 'public', label: t('share.visibilityPublic'), description: t('share.visibilityPublicDesc'), icon: 'heroicons:globe-alt' },
+])
 
 const visibilityField = computed(() =>
     props.shareType === 'artifact' ? 'artifact_visibility' : 'conversation_visibility'
@@ -181,16 +182,16 @@ const isShared = computed(() => currentVisibility.value !== 'none')
 
 const shareDescription = computed(() =>
     props.shareType === 'artifact'
-        ? 'Control who can view this dashboard.'
-        : 'Control who can view this conversation and its messages.'
+        ? t('share.shareDashboardDesc')
+        : t('share.shareConversationDesc')
 )
 
 const selectedOption = computed(() =>
-    visibilityOptions.find(o => o.value === currentVisibility.value) || visibilityOptions[0]
+    visibilityOptions.value.find(o => o.value === currentVisibility.value) || visibilityOptions.value[0]
 )
 
 const buttonLabel = computed(() => {
-    if (!isShared.value) return props.shareType === 'artifact' ? 'Share Dashboard' : 'Share'
+    if (!isShared.value) return props.shareType === 'artifact' ? t('share.shareDashboard') : t('share.share')
     return selectedOption.value.label
 })
 
@@ -250,7 +251,7 @@ const addEmailAsPending = (email: string) => {
     if (member) {
         addMember(member)
     } else {
-        toast.add({ title: 'User not found in organization', color: 'orange' })
+        toast.add({ title: t('share.userNotFound'), color: 'orange' })
     }
 }
 
@@ -326,11 +327,11 @@ const saveVisibility = async (visibility: string, userIds?: string[]) => {
         }
 
         toast.add({
-            title: visibility === 'none' ? 'Sharing disabled' : 'Sharing updated',
+            title: visibility === 'none' ? t('share.sharingDisabled') : t('share.sharingUpdated'),
             color: 'green',
         })
     } catch {
-        toast.add({ title: 'Failed to update sharing', color: 'red' })
+        toast.add({ title: t('share.sharingFailed'), color: 'red' })
     } finally {
         isSaving.value = false
     }
@@ -381,10 +382,10 @@ const removeSharedUser = async (user: any) => {
 const copyLink = async () => {
     try {
         await navigator.clipboard.writeText(shareUrl.value)
-        copyLabel.value = 'Copied!'
-        setTimeout(() => { copyLabel.value = 'Copy link' }, 2000)
+        copied.value = true
+        setTimeout(() => { copied.value = false }, 2000)
     } catch {
-        toast.add({ title: 'Failed to copy', color: 'red' })
+        toast.add({ title: t('share.copyFailed'), color: 'red' })
     }
 }
 

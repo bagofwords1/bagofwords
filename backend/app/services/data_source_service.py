@@ -499,8 +499,10 @@ class DataSourceService:
         result: dict = {}
 
         from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
+        from app.services.organization_settings_service import OrganizationSettingsService
         model = await organization.get_default_llm_model(db)
-        suggest_instructions = SuggestInstructions(model=model)
+        org_settings = await OrganizationSettingsService().get_settings(db, organization, current_user)
+        suggest_instructions = SuggestInstructions(model=model, organization_settings=org_settings)
 
         # Load the data source model instance for context and schema sync
         ds_q = await db.execute(

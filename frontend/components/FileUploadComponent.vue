@@ -3,7 +3,7 @@
       <button @click="isFilesOpen = true"
        class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 flex items-center">
         <UIcon name="i-heroicons-paper-clip" />
-        <span v-if="allFiles.length > 0" class="truncate max-w-[200px] text-xs ml-1 text-gray-500">
+        <span v-if="allFiles.length > 0" class="truncate max-w-[200px] text-xs ms-1 text-gray-500">
           <UTooltip :text="allFiles.map(file => file.filename).join(', ')">
           {{ allFiles.length }}
         </UTooltip>
@@ -60,7 +60,7 @@
                 <span class="truncate">{{ file.filename }}</span>
               </div>
               <div>
-              <button @click="removeFile(file)" class="text-gray-500 hover:bg-gray-100 rounded-full ml-auto items-center justify-center"> 
+              <button @click="removeFile(file)" class="text-gray-500 hover:bg-gray-100 rounded-full ms-auto items-center justify-center"> 
                 <Icon name="heroicons-x-mark" class="w-4 h-4" />
               </button>
             </div>

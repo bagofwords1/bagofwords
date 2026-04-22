@@ -4,7 +4,7 @@
         <div v-if="injectedFetchError" />
         <div v-else class="border border-gray-200 rounded-xl p-6 bg-white">
             <div v-if="!ready" class="inline-flex items-center text-gray-500 text-xs">
-                <Spinner class="w-4 h-4 mr-2" />
+                <Spinner class="w-4 h-4 me-2" />
                 Loading settings...
             </div>
 
@@ -62,9 +62,9 @@
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">User / Group</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Permissions</th>
-                                    <th v-if="canManageDsMembers" class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">User / Group</th>
+                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">Permissions</th>
+                                    <th v-if="canManageDsMembers" class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
@@ -90,7 +90,7 @@
                                                 </div>
                                                 <div class="text-xs text-gray-500" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
                                                 <!-- Expanded group members -->
-                                                <div v-if="m.principal_type === 'group' && expandedGroups.has(m.principal_id)" class="mt-1.5 pl-1 space-y-1">
+                                                <div v-if="m.principal_type === 'group' && expandedGroups.has(m.principal_id)" class="mt-1.5 ps-1 space-y-1">
                                                     <div
                                                         v-for="gm in (groupMembers[m.principal_id] || [])"
                                                         :key="gm.user_id"
