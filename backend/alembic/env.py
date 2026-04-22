@@ -76,7 +76,7 @@ from app.models.llm_usage_record import LLMUsageRecord
 from app.models.api_key import ApiKey
 from app.models.scheduled_prompt import ScheduledPrompt
 from app.models.instruction_build import InstructionBuild
-from app.models.oauth_server import OAuthMCPClient, OAuthMCPAuthorizationCode, OAuthMCPAccessToken
+from app.models.oauth_server import OAuthClient, OAuthAuthorizationCode, OAuthAccessToken
 from app.ee.scim.models import ScimToken
 from app.models.role import Role
 from app.models.group import Group

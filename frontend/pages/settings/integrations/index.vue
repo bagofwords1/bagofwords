@@ -145,6 +145,36 @@
       />
     </div>
 
+    <!-- OAuth Clients Row -->
+    <div
+      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+      @click="showOAuthModal = true"
+    >
+      <div class="flex items-center">
+        <div class="w-8 h-8 mr-4 flex items-center justify-center rounded bg-gray-100">
+          <UIcon name="heroicons-key" class="w-5 h-5 text-gray-700" />
+        </div>
+        <div>
+          <div class="font-medium">OAuth Clients</div>
+          <div class="text-sm text-gray-500">
+            <span v-if="oauthClientCount > 0">
+              <span class="text-green-600">{{ oauthClientCount }} connected</span>
+            </span>
+            <span v-else>
+              <span class="text-gray-400">Not connected</span>
+            </span>
+            <span class="ml-2">— register external apps that access this workspace via OAuth 2.1 (e.g. Claude Web)</span>
+          </div>
+        </div>
+      </div>
+      <button
+        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+        @click.stop="showOAuthModal = true"
+      >
+        {{ oauthClientCount > 0 ? 'Manage' : 'Add' }}
+      </button>
+    </div>
+
     <!-- Slack Integration Modal -->
     <UModal v-model="showSlackModal" :ui="{ width: 'max-w-lg' }">
       <SlackIntegrationModal
@@ -181,6 +211,15 @@
         @close="showExcelModal = false"
       />
     </UModal>
+
+    <!-- OAuth Clients Modal -->
+    <UModal v-model="showOAuthModal" :ui="{ width: 'sm:max-w-2xl' }">
+      <OAuthClientsModal
+        v-if="showOAuthModal"
+        @close="showOAuthModal = false"
+        @updated="fetchOAuthClientCount"
+      />
+    </UModal>
   </div>
 </template>
 
@@ -190,6 +229,7 @@ import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
 import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
+import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
@@ -215,6 +255,10 @@ const whatsappIntegrationData = ref<any>(null)
 // MCP state
 const mcpEnabled = ref(false)
 const mcpUpdating = ref(false)
+
+// OAuth clients
+const showOAuthModal = ref(false)
+const oauthClientCount = ref(0)
 
 const { settings, fetchSettings } = useOrgSettings()
 
@@ -275,8 +319,19 @@ async function toggleMcp(value: boolean) {
   }
 }
 
+async function fetchOAuthClientCount() {
+  try {
+    const res = await useMyFetch('/api/oauth/clients')
+    const clients = (res.data.value as any[]) || []
+    oauthClientCount.value = clients.length
+  } catch (e) {
+    oauthClientCount.value = 0
+  }
+}
+
 onMounted(() => {
   fetchIntegrations()
   loadMcpState()
+  fetchOAuthClientCount()
 })
 </script>

@@ -91,6 +91,36 @@ function getSafeValue(row: any, key: string | undefined, type: 'string' | 'numbe
   return val
 }
 
+// ---------------------------------------------------------------------------
+// Aggregation helpers
+// Applied when view.seriesStyles[i].aggregation, view.aggregation or
+// dm.series[i].aggregation is set. When absent, callers preserve the legacy
+// first-row-wins behavior (no silent default).
+// ---------------------------------------------------------------------------
+type AggregationFn = 'sum' | 'avg' | 'count' | 'min' | 'max'
+
+function aggregateValues(values: number[], fn?: AggregationFn | null | undefined): number | null {
+  if (!values.length) return null
+  if (!fn) return values[0]
+  switch (fn) {
+    case 'sum': return values.reduce((a, b) => a + b, 0)
+    case 'avg': return values.reduce((a, b) => a + b, 0) / values.length
+    case 'count': return values.length
+    case 'min': return values.reduce((a, b) => (a < b ? a : b))
+    case 'max': return values.reduce((a, b) => (a > b ? a : b))
+    default: return values[0]
+  }
+}
+
+function resolveSeriesAggregation(viewV2: any, dm: any, seriesKey: string, seriesIdx: number): AggregationFn | undefined {
+  const style = viewV2?.seriesStyles?.find((s: any) => s.key === seriesKey)
+  if (style?.aggregation) return style.aggregation as AggregationFn
+  if (viewV2?.aggregation) return viewV2.aggregation as AggregationFn
+  const dmSeries = Array.isArray(dm?.series) ? dm.series[seriesIdx] : null
+  if (dmSeries?.aggregation) return dmSeries.aggregation as AggregationFn
+  return undefined
+}
+
 // Get colors from view, theme, or fallback
 function getColors(): any[] {
   // Check view.view (new v2 schema)
@@ -202,16 +232,42 @@ function getBaseOptions(): EChartsOption {
 function buildPieOptions(rows: any[], dm: any): EChartsOption {
   const cfg = dm?.series?.[0] || {}
   if (!cfg?.key || !cfg?.value) return {}
-  
+
+  const viewV2 = props.view?.view
+  const aggFn = (viewV2?.aggregation || cfg?.aggregation) as AggregationFn | undefined
+  const keyLower = String(cfg.key).toLowerCase()
+  const valLower = String(cfg.value).toLowerCase()
   const colors = getColors()
-  const data = rows
-    .map((r: any, i: number) => ({
-      name: r[cfg.key.toLowerCase()],
-      value: Number(r[cfg.value.toLowerCase()]),
-      itemStyle: { color: resolveColorInput(colors[i % colors.length]) }
-    }))
-    .filter((d: any) => d.name != null && !Number.isNaN(d.value))
-  
+
+  let data: any[]
+  if (aggFn) {
+    const grouped = new Map<string, number[]>()
+    rows.forEach((r: any) => {
+      const rawName = r[keyLower]
+      if (rawName == null) return
+      const val = Number(r[valLower])
+      if (Number.isNaN(val)) return
+      const k = String(rawName)
+      if (!grouped.has(k)) grouped.set(k, [])
+      grouped.get(k)!.push(val)
+    })
+    data = Array.from(grouped.entries())
+      .map(([name, vals], i: number) => ({
+        name,
+        value: aggregateValues(vals, aggFn),
+        itemStyle: { color: resolveColorInput(colors[i % colors.length]) }
+      }))
+      .filter((d: any) => d.name != null && d.value != null && !Number.isNaN(d.value))
+  } else {
+    data = rows
+      .map((r: any, i: number) => ({
+        name: r[keyLower],
+        value: Number(r[valLower]),
+        itemStyle: { color: resolveColorInput(colors[i % colors.length]) }
+      }))
+      .filter((d: any) => d.name != null && !Number.isNaN(d.value))
+  }
+
   return {
     tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
     series: [{ name: cfg.name, type: 'pie', radius: ['40%', '70%'], center: ['50%', '60%'], data }]
@@ -258,21 +314,34 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
   if (groupByKey) {
     // GroupBy mode: create one series per unique group value
     const groups = Array.from(new Set(rows.map((r: any) => String(r[groupByKey] ?? '')))).filter(Boolean)
-    
-    const valueKey = (viewV2?.y 
+
+    const valueKey = (viewV2?.y
       ? (Array.isArray(viewV2.y) ? viewV2.y[0] : viewV2.y)
       : dm?.series?.[0]?.value
     )?.toLowerCase()
 
     if (!valueKey) return {}
 
+    // Pre-index rows into a Map<`${cat}::${group}`, number[]> in one pass so the
+    // per-cell lookup is O(1) instead of scanning all rows for each bucket.
+    const bucketed = new Map<string, number[]>()
+    for (const r of rows) {
+      const cat = String(r[categoryKey] ?? '')
+      const grp = String(r[groupByKey] ?? '')
+      const v = Number(r[valueKey])
+      if (Number.isNaN(v)) continue
+      const k = `${cat}::${grp}`
+      const arr = bucketed.get(k)
+      if (arr) arr.push(v)
+      else bucketed.set(k, [v])
+    }
+
     series = groups.map((group: string, i: number) => {
+      const aggFn = resolveSeriesAggregation(viewV2, dm, group, i)
       const data = categories.map(cat => {
-        const row = rows.find((r: any) => 
-          String(r[categoryKey] ?? '') === cat && String(r[groupByKey] ?? '') === group
-        )
-        const v = row ? Number(row[valueKey]) : null
-        return Number.isNaN(v as number) ? null : v
+        const values = bucketed.get(`${cat}::${group}`)
+        if (!values || !values.length) return null
+        return aggregateValues(values, aggFn)
       })
 
       // Find series style override from v2 schema
@@ -302,19 +371,37 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
       return base
     })
   } else {
-    // Traditional mode: each series config is a series
+    // Traditional mode: each series config is a series.
+    // Pre-index rows by category once so every series reuses the same buckets.
+    const rowsByCategory = new Map<string, any[]>()
+    for (const r of rows) {
+      const cat = String(r[categoryKey] ?? '')
+      const arr = rowsByCategory.get(cat)
+      if (arr) arr.push(r)
+      else rowsByCategory.set(cat, [r])
+    }
+
     series = (dm?.series || [])
       .map((s: any, i: number) => {
         const valueKey = s?.value?.toLowerCase()
         if (!valueKey) return null
-        
+
+        // Match the key used by the editor when writing seriesStyles so blank
+        // names still resolve aggregation/color overrides.
+        const seriesKey = s?.name || s?.value
+        const aggFn = resolveSeriesAggregation(viewV2, dm, seriesKey, i)
         const data = categories.map(cat => {
-          const row = rows.find((r: any) => String(r[categoryKey] ?? '') === cat)
-          const v = row ? Number(row[valueKey]) : null
-          return Number.isNaN(v as number) ? null : v
+          const matching = rowsByCategory.get(cat)
+          if (!matching || !matching.length) return null
+          const values: number[] = []
+          for (const r of matching) {
+            const v = Number(r[valueKey])
+            if (!Number.isNaN(v)) values.push(v)
+          }
+          return aggregateValues(values, aggFn)
         })
-        
-        const styleOverride = viewV2?.seriesStyles?.find((st: any) => st.key === s.name)
+
+        const styleOverride = viewV2?.seriesStyles?.find((st: any) => st.key === seriesKey)
         const color = resolveColorInput(styleOverride?.color || colors[i % colors.length])
         
         const base: any = {
@@ -399,11 +486,31 @@ function buildScatterOptions(rows: any[], dm: any): EChartsOption {
   const xKey = (viewV2?.x || s?.x || s?.key || '').toLowerCase()
   const yKey = (viewV2?.y || s?.y || s?.value || '').toLowerCase()
   if (!xKey || !yKey) return {}
-  
+
   const colors = getColors()
-  const data = rows
-    .map((r: any) => [Number(r[xKey]), Number(r[yKey])])
-    .filter((d: any[]) => !d.some(v => Number.isNaN(v)))
+  const aggFn = (viewV2?.aggregation || s?.aggregation) as AggregationFn | undefined
+  let data: number[][]
+  if (aggFn) {
+    const grouped = new Map<string, { x: number; ys: number[] }>()
+    rows.forEach((r: any) => {
+      const x = Number(r[xKey])
+      const y = Number(r[yKey])
+      if (Number.isNaN(x) || Number.isNaN(y)) return
+      const k = String(x)
+      if (!grouped.has(k)) grouped.set(k, { x, ys: [] })
+      grouped.get(k)!.ys.push(y)
+    })
+    data = Array.from(grouped.values())
+      .map(g => {
+        const agg = aggregateValues(g.ys, aggFn)
+        return agg == null ? null : [g.x, agg]
+      })
+      .filter(Boolean) as number[][]
+  } else {
+    data = rows
+      .map((r: any) => [Number(r[xKey]), Number(r[yKey])])
+      .filter((d: any[]) => !d.some(v => Number.isNaN(v)))
+  }
 
   const axisColors = props.view?.style?.axis || tokens.value?.axis || {}
   const xVisible = props.view?.xAxisVisible ?? viewV2?.axisX?.show ?? true
@@ -435,15 +542,36 @@ function buildHeatmapOptions(rows: any[], dm: any): EChartsOption {
   const yAxisConfig = viewV2?.axisY
   const { interval: defaultInterval, rotate: defaultRotate, hideOverlap } = getAxisLabelConfig(xCats.length)
 
-  const seriesData = rows
-    .map((r: any) => {
+  const aggFn = (viewV2?.aggregation || cfg?.aggregation) as AggregationFn | undefined
+  let seriesData: any[]
+  if (aggFn) {
+    const grouped = new Map<string, { xi: number; yi: number; vals: number[] }>()
+    rows.forEach((r: any) => {
       const xi = xCats.indexOf(String(r[xKey] ?? ''))
       const yi = yCats.indexOf(String(r[yKey] ?? ''))
       const val = Number(r[vKey])
-      if (xi === -1 || yi === -1 || Number.isNaN(val)) return null
-      return [xi, yi, val]
+      if (xi === -1 || yi === -1 || Number.isNaN(val)) return
+      const k = `${xi}:${yi}`
+      if (!grouped.has(k)) grouped.set(k, { xi, yi, vals: [] })
+      grouped.get(k)!.vals.push(val)
     })
-    .filter(Boolean)
+    seriesData = Array.from(grouped.values())
+      .map(g => {
+        const v = aggregateValues(g.vals, aggFn)
+        return v == null ? null : [g.xi, g.yi, v]
+      })
+      .filter(Boolean)
+  } else {
+    seriesData = rows
+      .map((r: any) => {
+        const xi = xCats.indexOf(String(r[xKey] ?? ''))
+        const yi = yCats.indexOf(String(r[yKey] ?? ''))
+        const val = Number(r[vKey])
+        if (xi === -1 || yi === -1 || Number.isNaN(val)) return null
+        return [xi, yi, val]
+      })
+      .filter(Boolean)
+  }
 
   const maxVal = seriesData.reduce((m: number, d: any) => Math.max(m, d![2]), 0)
   const minVal = seriesData.reduce((m: number, d: any) => Math.min(m, d![2]), maxVal)

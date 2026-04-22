@@ -58,13 +58,13 @@
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
               <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
-                <span class="flex items-center justify-center w-[18px] h-[18px]">
+                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
                 </span>
               </UTooltip>
               <template v-else>
-                <span class="flex items-center justify-center w-[18px] h-[18px]">
+                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
                   <Spinner v-if="creatingReport" class="animate-spin" />
                   <UIcon v-else name="heroicons-plus-circle" />
                 </span>
@@ -84,13 +84,13 @@
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span class="flex items-center justify-center w-[18px] h-[18px]">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" />
               </span>
             </UTooltip>
             <template v-else>
-              <span class="flex items-center justify-center w-[18px] h-[18px]">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" />
               </span>
@@ -108,12 +108,12 @@
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span class="flex items-center justify-center w-[18px] h-[18px]">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
                 <UIcon :name="item.icon" />
               </span>
             </UTooltip>
             <template v-else>
-              <span class="flex items-center justify-center w-[18px] h-[18px]">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
                 <UIcon :name="item.icon" />
               </span>
               <span v-if="showText">{{ $t(item.label) }}</span>
@@ -129,20 +129,20 @@
             ]"
           >
             <UTooltip v-if="isCollapsed" :text="$t('mcp.tooltipCollapsed')" :popper="{ placement: tooltipPlacement }">
-              <span class="flex items-center justify-center w-[18px] h-[18px]">
-                <McpIcon class="w-[18px] h-[18px]" />
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
+                <McpIcon :class="isCollapsed ? 'w-5 h-5' : 'w-[18px] h-[18px]'" />
               </span>
             </UTooltip>
             <template v-else>
-              <span class="flex items-center justify-center w-[18px] h-[18px]">
-                <McpIcon class="w-[18px] h-[18px]" />
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
+                <McpIcon :class="isCollapsed ? 'w-5 h-5' : 'w-[18px] h-[18px]'" />
               </span>
               <span v-if="showText">{{ $t('nav.mcpServer') }}</span>
             </template>
           </button>
         </li>
         <li>
-          <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }">
+          <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full">
              <button :class="[
                'flex items-center px-3 py-1.5 w-full rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100',
                isCollapsed ? 'justify-center' : 'gap-2.5'
@@ -237,7 +237,7 @@
     return org?.icon_url || null
   })
   const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
-  const { organization } = useOrganization()
+  const { organization, setOrganization } = useOrganization()
   const { onboarding, fetchOnboarding } = useOnboarding()
   const { useCan } = await import('~/composables/usePermissions')
   const canModifySettings = computed(() => useCan('manage_settings'))
@@ -326,13 +326,30 @@
   })
 
   const { t } = useI18n()
-  const userDropdownItems = computed(() => [
-    [{
+  const userOrganizations = computed<any[]>(() => {
+    return ((currentUser.value as any)?.organizations || []) as any[]
+  })
+
+  const userDropdownItems = computed(() => {
+    const groups: any[] = []
+    const orgs = userOrganizations.value
+    if (orgs.length > 1) {
+      groups.push(
+        orgs.map((org: any) => ({
+          label: org.name,
+          icon: org.id === organization.value?.id ? 'heroicons-check' : undefined,
+          disabled: org.id === organization.value?.id,
+          click: () => setOrganization(org.id),
+        }))
+      )
+    }
+    groups.push([{
       label: t('auth.logout'),
       icon: 'heroicons-arrow-left',
       click: signOff
-    }]
-  ])
+    }])
+    return groups
+  })
 
   const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
  

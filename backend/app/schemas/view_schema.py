@@ -103,12 +103,27 @@ class LegendOptions(BaseModel):
     position: Literal["top", "bottom", "left", "right"] = "bottom"
 
 
+AggregationFn = Literal["sum", "avg", "count", "min", "max"]
+
+
+class DefaultFilterCondition(BaseModel):
+    """A single filter condition applied by default when rendering a view.
+
+    Column is a plain column name (no 'vizId:' prefix). Runtime seeding is
+    responsible for wrapping these into the shared-filter format.
+    """
+    column: str
+    operator: str
+    value: Any = None
+
+
 class SeriesStyle(BaseModel):
     key: str
     label: Optional[str] = None
     color: Optional[str] = None
     gradient: Optional[GradientConfig] = None
     showValues: Optional[bool] = None
+    aggregation: Optional[AggregationFn] = None
 
 
 class BaseView(BaseModel):
@@ -116,6 +131,7 @@ class BaseView(BaseModel):
     title: Optional[str] = None
     subtitle: Optional[str] = None
     description: Optional[str] = None
+    defaultFilters: List[DefaultFilterCondition] = Field(default_factory=list)
 
 
 class CartesianView(BaseView):
@@ -164,6 +180,7 @@ class PieChartView(BaseView):
     palette: Palette = Field(default_factory=Palette)
     showLabels: bool = True
     legend: LegendOptions = Field(default_factory=lambda: LegendOptions(position="right"))
+    aggregation: Optional[AggregationFn] = None
 
 
 class ScatterPlotView(BaseView):
@@ -175,6 +192,7 @@ class ScatterPlotView(BaseView):
     palette: Palette = Field(default_factory=Palette)
     axisX: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0))
     axisY: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0))
+    aggregation: Optional[AggregationFn] = None
 
 
 class HeatmapView(BaseView):
@@ -186,6 +204,7 @@ class HeatmapView(BaseView):
     showValues: bool = True
     axisX: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=45))
     axisY: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0))
+    aggregation: Optional[AggregationFn] = None
 
 
 class CountView(BaseView):
@@ -195,6 +214,7 @@ class CountView(BaseView):
     prefix: Optional[str] = None
     suffix: Optional[str] = None
     palette: Palette = Field(default_factory=Palette)
+    aggregation: Optional[AggregationFn] = None
 
 
 class SparklineConfig(BaseModel):
@@ -223,6 +243,7 @@ class MetricCardView(BaseView):
     # Sparkline configuration
     sparkline: Optional[SparklineConfig] = None
     palette: Palette = Field(default_factory=Palette)
+    aggregation: Optional[AggregationFn] = None
 
 
 class TableView(BaseView):
