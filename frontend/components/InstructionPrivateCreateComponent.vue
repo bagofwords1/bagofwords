@@ -984,7 +984,7 @@ watch(() => props.selectedDataSources, () => {
         text-decoration: none !important;
     }
 
-    ul, ol { @apply pl-5 mb-3; }
+    ul, ol { @apply ps-5 mb-3; }
     ul { @apply list-disc; }
     ol { @apply list-decimal; }
     li { @apply mb-1; }

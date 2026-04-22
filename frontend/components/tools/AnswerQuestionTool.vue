@@ -64,7 +64,7 @@ const answerText = computed<string>(() => {
 	h2 { @apply text-lg; }
 	h3 { @apply text-lg; }
 
-	ul, ol { @apply pl-6 mb-4; }
+	ul, ol { @apply ps-6 mb-4; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
 	li { @apply mb-1.5; }

@@ -599,7 +599,7 @@ ul {
     /* Lists */
     ul,
     ol {
-        @apply pl-6 mb-4;
+        @apply ps-6 mb-4;
     }
 
     ul {

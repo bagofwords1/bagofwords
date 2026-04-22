@@ -604,7 +604,7 @@ watch(flyoutTab, async (tab) => {
   h2 { @apply text-sm; }
   h3 { @apply text-xs; }
 
-  ul, ol { @apply pl-4 mb-2; }
+  ul, ol { @apply ps-4 mb-2; }
   ul { @apply list-disc; }
   ol { @apply list-decimal; }
   li { @apply mb-1; }
