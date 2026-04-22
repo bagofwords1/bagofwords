@@ -6,7 +6,7 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <McpIcon class="w-6 h-6" />
-                        <h3 class="text-lg font-semibold text-gray-900">Bag of words MCP Server</h3>
+                        <h3 class="text-lg font-semibold text-gray-900">{{ $t('mcpServerModal.title') }}</h3>
                     </div>
                     <UButton
                         color="gray"
@@ -16,7 +16,7 @@
                     />
                 </div>
                 <p class="text-sm text-gray-500 mt-2">
-                    Connect Claude, Cursor, or any MCP client to query your data via the Bag of words MCP Server.
+                    {{ $t('mcpServerModal.subtitle') }}
                 </p>
             </template>
 
@@ -24,7 +24,7 @@
             <div v-if="loading" class="py-12 flex items-center justify-center">
                 <div class="text-center">
                     <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
-                    <p class="text-sm text-gray-500">Loading...</p>
+                    <p class="text-sm text-gray-500">{{ $t('mcpServerModal.loading') }}</p>
                 </div>
             </div>
 
@@ -40,7 +40,7 @@
                                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                         ]"
                     >
-                        MCP Clients
+                        {{ $t('mcpServerModal.tabMcpClients') }}
                     </button>
                     <button
                         @click="activeTab = 'claude-web'"
@@ -51,7 +51,7 @@
                                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                         ]"
                     >
-                        OAuth
+                        {{ $t('mcpServerModal.tabOauth') }}
                     </button>
                 </div>
 
@@ -70,18 +70,18 @@
                             :loading="creating"
                         >
                             <UIcon :name="apiKeys.length === 0 ? 'heroicons-plus' : 'heroicons-arrow-path'" class="w-3.5 h-3.5 me-1" />
-                            {{ apiKeys.length === 0 ? 'Generate Token' : 'Regenerate Token' }}
+                            {{ apiKeys.length === 0 ? $t('mcpServerModal.generateToken') : $t('mcpServerModal.regenerateToken') }}
                         </UButton>
                     </div>
 
                     <!-- Configuration -->
                     <div>
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Configuration</div>
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('mcpServerModal.configuration') }}</div>
                         <div class="relative bg-gray-50 rounded-lg border border-gray-200">
                             <pre class="px-3 py-2.5 pe-20 font-mono text-xs text-gray-700 overflow-x-auto">{{ mcpConfig }}</pre>
                             <div class="absolute top-2 end-2">
                                 <UTooltip
-                                    :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')"
+                                    :text="currentToken ? '' : (apiKeys.length === 0 ? $t('mcpServerModal.generateTokenToCopy') : $t('mcpServerModal.regenerateTokenToCopy'))"
                                     :popper="{ placement: 'top' }"
                                 >
                                     <button
@@ -95,7 +95,7 @@
                                         :disabled="!currentToken"
                                     >
                                         <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
-                                        Copy
+                                        {{ $t('mcpServerModal.copy') }}
                                     </button>
                                 </UTooltip>
                             </div>
@@ -104,10 +104,10 @@
 
                     <!-- Token display -->
                     <div>
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Access Token</div>
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('mcpServerModal.accessToken') }}</div>
                         <!-- No tokens exist yet -->
                         <div v-if="apiKeys.length === 0 && !currentToken" class="bg-gray-50 rounded-lg border border-gray-200 border-dashed px-4 py-6 text-center">
-                            <p class="text-sm text-gray-500 mb-3">No access token generated yet</p>
+                            <p class="text-sm text-gray-500 mb-3">{{ $t('mcpServerModal.noTokenYet') }}</p>
                             <UButton
                                 size="sm"
                                 color="blue"
@@ -115,7 +115,7 @@
                                 :loading="creating"
                             >
                                 <UIcon name="heroicons-plus" class="w-4 h-4 me-1" />
-                                Generate Token
+                                {{ $t('mcpServerModal.generateToken') }}
                             </UButton>
                         </div>
                         <!-- Token exists -->
@@ -126,7 +126,7 @@
                             </div>
                             <div class="absolute top-1/2 -translate-y-1/2 end-2">
                                 <UTooltip
-                                    :text="currentToken ? '' : 'Regenerate token to copy'"
+                                    :text="currentToken ? '' : $t('mcpServerModal.regenerateTokenToCopy')"
                                     :popper="{ placement: 'top' }"
                                 >
                                     <button
@@ -140,7 +140,7 @@
                                         :disabled="!currentToken"
                                     >
                                         <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
-                                        Copy
+                                        {{ $t('mcpServerModal.copy') }}
                                     </button>
                                 </UTooltip>
                             </div>
@@ -157,7 +157,7 @@
                                 :name="showTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
                                 class="w-3 h-3"
                             />
-                            Manage tokens ({{ apiKeys.length }})
+                            {{ $t('mcpServerModal.manageTokens', { n: apiKeys.length }) }}
                         </button>
 
                         <div v-if="showTokens" class="mt-3 border border-gray-200 rounded-lg divide-y divide-gray-200">
@@ -173,7 +173,7 @@
                                 <button
                                     @click="deleteApiKey(key)"
                                     class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                                    title="Delete token"
+                                    :title="$t('mcpServerModal.deleteTokenTitle')"
                                 >
                                     <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
                                 </button>
@@ -193,7 +193,7 @@
                     <!-- OAuth Credentials -->
                     <div>
                         <div class="flex items-center justify-between mb-2">
-                            <div class="text-[11px] uppercase tracking-wide text-gray-500">OAuth Credentials</div>
+                            <div class="text-[11px] uppercase tracking-wide text-gray-500">{{ $t('mcpServerModal.oauthCredentials') }}</div>
                             <UButton
                                 v-if="oauthClients.length > 0"
                                 size="xs"
@@ -202,13 +202,13 @@
                                 :loading="oauthCreating"
                             >
                                 <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5 me-1" />
-                                Regenerate Secret
+                                {{ $t('mcpServerModal.regenerateSecret') }}
                             </UButton>
                         </div>
 
                         <!-- No credentials yet -->
                         <div v-if="oauthClients.length === 0 && !oauthCurrentSecret" class="bg-gray-50 rounded-lg border border-gray-200 border-dashed px-4 py-6 text-center">
-                            <p class="text-sm text-gray-500 mb-3">No OAuth credentials generated yet</p>
+                            <p class="text-sm text-gray-500 mb-3">{{ $t('mcpServerModal.noOauthYet') }}</p>
                             <UButton
                                 size="sm"
                                 color="blue"
@@ -216,7 +216,7 @@
                                 :loading="oauthCreating"
                             >
                                 <UIcon name="heroicons-plus" class="w-4 h-4 me-1" />
-                                Generate Credentials
+                                {{ $t('mcpServerModal.generateCredentials') }}
                             </UButton>
                         </div>
 
@@ -225,7 +225,7 @@
                             <!-- Client ID -->
                             <div class="relative bg-gray-50 rounded-lg border border-gray-200">
                                 <div class="px-3 py-2 pe-20">
-                                    <div class="text-[10px] text-gray-400 mb-0.5">Client ID</div>
+                                    <div class="text-[10px] text-gray-400 mb-0.5">{{ $t('mcpServerModal.clientId') }}</div>
                                     <code class="font-mono text-xs text-gray-700">{{ oauthClients[0]?.client_id || '' }}</code>
                                 </div>
                                 <div class="absolute top-1/2 -translate-y-1/2 end-2">
@@ -234,7 +234,7 @@
                                         class="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors"
                                     >
                                         <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
-                                        Copy
+                                        {{ $t('mcpServerModal.copy') }}
                                     </button>
                                 </div>
                             </div>
@@ -242,12 +242,12 @@
                             <!-- Client Secret -->
                             <div class="relative bg-gray-50 rounded-lg border border-gray-200">
                                 <div class="px-3 py-2 pe-20">
-                                    <div class="text-[10px] text-gray-400 mb-0.5">Client Secret</div>
+                                    <div class="text-[10px] text-gray-400 mb-0.5">{{ $t('mcpServerModal.clientSecret') }}</div>
                                     <code class="font-mono text-xs text-gray-700">{{ oauthCurrentSecret || '••••••••••••••••••••••••••••••••••••••••' }}</code>
                                 </div>
                                 <div class="absolute top-1/2 -translate-y-1/2 end-2">
                                     <UTooltip
-                                        :text="oauthCurrentSecret ? '' : 'Regenerate secret to copy'"
+                                        :text="oauthCurrentSecret ? '' : $t('mcpServerModal.regenerateSecretToCopy')"
                                         :popper="{ placement: 'top' }"
                                     >
                                         <button
@@ -261,27 +261,27 @@
                                             :disabled="!oauthCurrentSecret"
                                         >
                                             <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
-                                            Copy
+                                            {{ $t('mcpServerModal.copy') }}
                                         </button>
                                     </UTooltip>
                                 </div>
                             </div>
 
                             <p v-if="oauthCurrentSecret" class="text-xs text-amber-600">
-                                Save the Client Secret now — it won't be shown again.
+                                {{ $t('mcpServerModal.saveSecretWarning') }}
                             </p>
                         </div>
                     </div>
 
                     <!-- Setup Instructions -->
                     <div class="pt-2 border-t border-gray-100">
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Setup Instructions</div>
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('mcpServerModal.setupInstructions') }}</div>
                         <ol class="text-sm text-gray-600 space-y-1.5 list-decimal list-inside">
-                            <li>In Claude Web, go to <strong>Settings → Connectors → Add</strong></li>
-                            <li>Enter the MCP server URL: <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">{{ mcpServerUrl }}</code></li>
-                            <li>Click <strong>Advanced Settings</strong></li>
-                            <li>Enter the <strong>Client ID</strong> and <strong>Client Secret</strong> from above</li>
-                            <li>Click <strong>Connect</strong> — you'll be redirected to approve access</li>
+                            <li>{{ $t('mcpServerModal.setupStep1Prefix') }} <strong>{{ $t('mcpServerModal.setupStep1Bold') }}</strong></li>
+                            <li>{{ $t('mcpServerModal.setupStep2Prefix') }} <code class="text-xs bg-gray-100 px-1 py-0.5 rounded">{{ mcpServerUrl }}</code></li>
+                            <li>{{ $t('mcpServerModal.setupStep3Prefix') }} <strong>{{ $t('mcpServerModal.setupStep3Bold') }}</strong></li>
+                            <li>{{ $t('mcpServerModal.setupStep4Prefix') }} <strong>{{ $t('mcpServerModal.setupStep4BoldA') }}</strong> {{ $t('mcpServerModal.setupStep4Middle') }} <strong>{{ $t('mcpServerModal.setupStep4BoldB') }}</strong> {{ $t('mcpServerModal.setupStep4Suffix') }}</li>
+                            <li>{{ $t('mcpServerModal.setupStep5Prefix') }} <strong>{{ $t('mcpServerModal.setupStep5Bold') }}</strong> {{ $t('mcpServerModal.setupStep5Suffix') }}</li>
                         </ol>
                     </div>
                 </div>
@@ -293,6 +293,8 @@
 <script setup lang="ts">
 import McpIcon from '~/components/icons/McpIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{
     modelValue: boolean
@@ -364,7 +366,7 @@ const mcpConfig = computed(() => {
 async function copy(text: string | undefined) {
     if (!text) return
     await navigator.clipboard.writeText(text)
-    toast.add({ title: 'Copied', icon: 'i-heroicons-check-circle', color: 'green' })
+    toast.add({ title: t('mcpServerModal.toastCopied'), icon: 'i-heroicons-check-circle', color: 'green' })
 }
 
 function formatDate(dateStr: string) {
@@ -405,11 +407,11 @@ async function createApiKey() {
             apiKeys.value = [newKey, ...apiKeys.value]
             if (newKey.key) {
                 currentToken.value = newKey.key
-                toast.add({ title: 'Token generated', icon: 'i-heroicons-check-circle', color: 'green' })
+                toast.add({ title: t('mcpServerModal.toastTokenGenerated'), icon: 'i-heroicons-check-circle', color: 'green' })
             }
         }
     } catch (e) {
-        toast.add({ title: 'Failed to create token', icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: t('mcpServerModal.toastTokenFailed'), icon: 'i-heroicons-x-circle', color: 'red' })
     } finally {
         creating.value = false
     }

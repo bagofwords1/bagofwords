@@ -3,7 +3,7 @@
     <div
       ref="inputRef"
       contenteditable="true"
-      dir="auto"
+      :dir="editorDir"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 text-start',
         props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
@@ -236,6 +236,15 @@ const resourcePermsState = useResourcePermissions()
 const lineHeightPx = computed(() => props.compact ? 18 : 24)
 const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
 const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
+
+// `dir="auto"` on an empty contenteditable resolves to LTR per spec (not to
+// the document's direction), so the placeholder and the cursor land on the
+// left side even when <html dir="rtl">. Bind to the active locale instead.
+const { locale: i18nLocale } = useI18n()
+const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+const editorDir = computed<'rtl' | 'ltr'>(() =>
+  RTL_LOCALES.has(i18nLocale.value) ? 'rtl' : 'ltr'
+)
 
 const filteredCategories = computed(() => {
   if (currentMentionStartIndex.value === -1) return []

@@ -69,13 +69,63 @@
   padding-inline-end: 0;
 }
 
-/* 6. Chevron-right and arrow-right heroicons embedded via <Icon>: we opt in
- *    per-use with rtl-flip (rule 3). The automatic-flip list below covers
- *    icons that are almost always directional in our codebase. Add new
- *    directional icon classes here rather than per-component.
- *    (Heroicons renders as an <svg> with no intrinsic dir handling.) */
+/* 6. Auto-flip directional heroicons under RTL.
+ *
+ *    Heroicons render as <svg> with no intrinsic direction handling, so
+ *    every chevron-left, chevron-right, arrow-left, arrow-right etc. stays
+ *    pointing the same physical direction regardless of <html dir>. That's
+ *    wrong almost 100% of the time — these icons are used as directional
+ *    affordances (back, forward, expand, pagination). Flipping by default
+ *    and letting non-directional uses opt OUT via `.rtl-no-flip` is far
+ *    cheaper than adding `rtl-flip` to 100+ call sites.
+ *
+ *    The @nuxt/icon module renders each icon as `<span class="iconify
+ *    heroicons--chevron-left">` (or with the `name` passed through), and
+ *    we also see usages of `i-heroicons-chevron-left` / `i-heroicons:…`
+ *    Tailwind-style aliases. Cover all three forms. */
+[dir="rtl"] .iconify.heroicons--chevron-left,
+[dir="rtl"] .iconify.heroicons--chevron-right,
+[dir="rtl"] .iconify.heroicons--chevron-double-left,
+[dir="rtl"] .iconify.heroicons--chevron-double-right,
+[dir="rtl"] .iconify.heroicons--arrow-left,
+[dir="rtl"] .iconify.heroicons--arrow-right,
+[dir="rtl"] .iconify.heroicons--arrow-long-left,
+[dir="rtl"] .iconify.heroicons--arrow-long-right,
+[dir="rtl"] .iconify.heroicons--arrow-small-left,
+[dir="rtl"] .iconify.heroicons--arrow-small-right,
+[dir="rtl"] .iconify.heroicons--arrow-up-left,
+[dir="rtl"] .iconify.heroicons--arrow-up-right,
+[dir="rtl"] .iconify.heroicons--arrow-uturn-left,
+[dir="rtl"] .iconify.heroicons--arrow-uturn-right,
+[dir="rtl"] .i-heroicons-chevron-left,
+[dir="rtl"] .i-heroicons-chevron-right,
+[dir="rtl"] .i-heroicons-arrow-left,
+[dir="rtl"] .i-heroicons-arrow-right,
 [dir="rtl"] .i-heroicons-arrow-long-right,
 [dir="rtl"] .i-heroicons-arrow-small-right,
 [dir="rtl"] .i-heroicons-arrow-up-right {
   transform: scaleX(-1);
 }
+/* Escape hatch: add `rtl-no-flip` to an icon that happens to use one of
+ * the classes above but is NOT directional (e.g. a decorative arrow in a
+ * logo). */
+[dir="rtl"] .rtl-no-flip {
+  transform: none !important;
+}
+
+/* 7. markstream-vue (the chat-message markdown renderer) ships its OWN CSS
+ *    with physical `padding-left` on list elements and `text-left/right`
+ *    utility classes. Under RTL those don't flip, so list markers render
+ *    on the left (wrong edge) and text is force-aligned LTR. Override by
+ *    swapping physical → logical on the library's scope.
+ *    This is why a previous "fix the markdown CSS" pass didn't help: the
+ *    offending rules don't live in our codebase at all. */
+[dir="rtl"] .markstream-vue ol,
+[dir="rtl"] .markstream-vue ul,
+[dir="rtl"] .markstream-vue .list-decimal,
+[dir="rtl"] .markstream-vue .list-disc {
+  padding-left: 0 !important;
+  padding-right: 1.625em !important;
+}
+[dir="rtl"] .markstream-vue .text-left { text-align: start; }
+[dir="rtl"] .markstream-vue .text-right { text-align: end; }

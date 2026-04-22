@@ -5,7 +5,7 @@
             <div class="text-2xl font-bold text-gray-900">
                 {{ metricsComparison?.current.total_messages || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">Messages</div>
+            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.messages') }}</div>
             <div v-if="metricsComparison?.changes.total_messages" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.total_messages.percentage)">
                     {{ formatChange(metricsComparison.changes.total_messages) }}
@@ -18,7 +18,7 @@
             <div class="text-2xl font-bold text-gray-900">
                 {{ metricsComparison?.current.total_queries || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">Queries</div>
+            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.queries') }}</div>
             <div v-if="metricsComparison?.changes.total_queries" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.total_queries.percentage)">
                     {{ formatChange(metricsComparison.changes.total_queries) }}
@@ -29,11 +29,11 @@
         <!-- Accuracy -->
         <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
-                {{ isJudgeEnabled ? (metricsComparison?.current?.accuracy || 'N/A') : 'N/A' }}
+                {{ isJudgeEnabled ? (metricsComparison?.current?.accuracy || $t('monitoring.cards.na')) : $t('monitoring.cards.na') }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                Accuracy
-                <UTooltip :text="isJudgeEnabled ? 'Overall accuracy as judged by the LLM' : 'LLM Judge agent is turned off'">
+                {{ $t('monitoring.cards.accuracy') }}
+                <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.accuracyTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
@@ -47,11 +47,11 @@
         <!-- Instruction Coverage -->
         <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
-               {{ isJudgeEnabled ? (metricsComparison?.current?.instructions_effectiveness != null ? Math.round(metricsComparison.current.instructions_effectiveness) + '%' : 'N/A') : 'N/A' }}
+               {{ isJudgeEnabled ? (metricsComparison?.current?.instructions_effectiveness != null ? Math.round(metricsComparison.current.instructions_effectiveness) + '%' : $t('monitoring.cards.na')) : $t('monitoring.cards.na') }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                Instruction Coverage
-                <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions cover responses (20-100 scale)' : 'LLM Judge agent is turned off'">
+                {{ $t('monitoring.cards.instructionCoverage') }}
+                <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.instructionCoverageTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
@@ -68,8 +68,8 @@
                 {{ formatScore(metricsComparison?.current.context_effectiveness) }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                Context Coverage
-                <UTooltip :text="isJudgeEnabled ? 'AI judge score for context coverage and relevance (0-100)' : 'LLM Judge agent is turned off'">
+                {{ $t('monitoring.cards.contextCoverage') }}
+                <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.contextCoverageTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
@@ -86,8 +86,8 @@
                 {{ formatScore(metricsComparison?.current.response_quality) }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                Response Quality
-                <UTooltip :text="isJudgeEnabled ? 'AI judge score for overall response quality (0-100)' : 'LLM Judge agent is turned off'">
+                {{ $t('monitoring.cards.responseQuality') }}
+                <UTooltip :text="isJudgeEnabled ? $t('monitoring.cards.responseQualityTooltip') : $t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
@@ -103,7 +103,7 @@
             <div class="text-2xl font-bold text-gray-900">
                 {{ metricsComparison?.current.total_feedbacks || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">Feedbacks</div>
+            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.feedbacks') }}</div>
             <div v-if="metricsComparison?.changes.total_feedbacks" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.total_feedbacks.percentage)">
                     {{ formatChange(metricsComparison.changes.total_feedbacks) }}
@@ -116,7 +116,7 @@
             <div class="text-2xl font-bold text-gray-900">
                 {{ metricsComparison?.current.active_users || 0 }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">Active Users</div>
+            <div class="text-sm font-medium text-gray-600 mt-1">{{ $t('monitoring.cards.activeUsers') }}</div>
             <div v-if="metricsComparison?.changes.active_users" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.active_users.percentage)">
                     {{ formatChange(metricsComparison.changes.active_users) }}
@@ -169,8 +169,10 @@ const formatJudgeChange = (change: MetricChange) => {
     return `${sign}${change.percentage.toFixed(1)}% (${sign}${change.absolute.toFixed(1)})`
 }
 
+const { t } = useI18n()
+
 const formatScore = (score: number | undefined) => {
-    if (score === undefined || score === null) return 'N/A'
+    if (score === undefined || score === null) return t('monitoring.cards.na')
     return score.toFixed(1)
 }
 

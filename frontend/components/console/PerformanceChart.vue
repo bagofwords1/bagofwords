@@ -1,10 +1,10 @@
 <template>
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">Performance Metrics</h3>
+            <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.charts.performanceTitle') }}</h3>
             <p class="text-sm text-gray-500 mt-1 flex items-center">
-                <span>Accuracy and efficiency trends</span>
-                <UTooltip v-if="!isJudgeEnabled" text="LLM Judge agent is turned off">
+                <span>{{ $t('monitoring.charts.performanceSubtitle') }}</span>
+                <UTooltip v-if="!isJudgeEnabled" :text="$t('monitoring.cards.judgeDisabled')">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ms-2 text-gray-400 cursor-help" />
                 </UTooltip>
             </p>

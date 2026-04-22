@@ -231,16 +231,21 @@ const dateRange = ref({
 const isLoadingCharts = ref(false)
 const timeSeriesData = ref<TimeSeriesMetrics | null>(null)
 
-// Add these missing state definitions:
-const selectedPeriod = ref({ label: 'All Time', value: 'all_time' })
+const { t } = useI18n()
+
+// Store period as (value, label) — the label is the localized string at
+// the moment of selection. The child DateRangePicker re-derives the
+// current label from its own locale-reactive options, so a late locale
+// flip still shows the right text.
+const selectedPeriod = ref({ label: t('monitoring.overview.allTime'), value: 'all_time' })
 
 const orgSettings = useOrgSettings()
 
-const periodOptions = [
-    { label: 'All Time', value: 'all_time' },
-    { label: 'Last 30 Days', value: '30_days' },
-    { label: 'Last 90 Days', value: '90_days' }
-]
+const periodOptions = computed(() => [
+    { label: t('monitoring.overview.allTime'), value: 'all_time' },
+    { label: t('monitoring.overview.last30d'), value: '30_days' },
+    { label: t('monitoring.overview.last90d'), value: '90_days' },
+])
 
 // Replace the mock data state with real data state
 const tableUsageData = ref<TableUsageMetrics | null>(null)
@@ -322,7 +327,7 @@ const formatDateRange = () => {
 
 const initializeDateRange = () => {
     // Default to all time
-    selectedPeriod.value = { label: 'All Time', value: 'all_time' }
+    selectedPeriod.value = { label: t('monitoring.overview.allTime'), value: 'all_time' }
     dateRange.value = {
         start: '',
         end: new Date().toISOString().split('T')[0]
