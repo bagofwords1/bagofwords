@@ -7,13 +7,13 @@
                 @input="$emit('update:search', ($event.target as HTMLInputElement).value)"
                 type="text"
                 placeholder="Search instructions..."
-                class="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white"
+                class="w-full ps-9 pe-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white"
             />
-            <UIcon name="i-heroicons-magnifying-glass" class="absolute left-3 top-2 h-4 w-4 text-gray-400" />
+            <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2 h-4 w-4 text-gray-400" />
             <button 
                 v-if="search" 
                 @click="$emit('update:search', '')"
-                class="absolute right-3 top-2 text-gray-400 hover:text-gray-600"
+                class="absolute end-3 top-2 text-gray-400 hover:text-gray-600"
             >
                 <UIcon name="i-heroicons-x-mark" class="h-4 w-4" />
             </button>
@@ -134,7 +134,7 @@
                 <span class="flex items-center gap-1">
                     <UIcon name="i-heroicons-funnel" class="w-3 h-3" />
                     More
-                    <span v-if="advancedFilterCount > 0" class="ml-0.5 px-1 py-0.5 text-[9px] bg-gray-200 rounded-full">
+                    <span v-if="advancedFilterCount > 0" class="ms-0.5 px-1 py-0.5 text-[9px] bg-gray-200 rounded-full">
                         {{ advancedFilterCount }}
                     </span>
                 </span>

@@ -10,7 +10,7 @@
               :canUpdate="true"
               :showRefresh="false"
               :showSave="true"
-              saveLabel="Save & Continue"
+              :saveLabel="$t('onboarding.schema.save')"
               maxHeight="50vh"
               :skipRefreshOnSave="true"
               @saved="onSaved"

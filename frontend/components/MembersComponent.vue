@@ -7,12 +7,12 @@
                     <input
                         v-model="searchQuery"
                         type="text"
-                        placeholder="Search members..."
-                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        :placeholder="$t('settings.members.searchPlaceholder')"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
                     />
                 </div>
             </div>
@@ -25,7 +25,7 @@
                     icon="i-heroicons-plus"
                     @click="inviteModalOpen = true"
                 >
-                    Add Member
+                    {{ $t('settings.members.addMember') }}
                 </UButton>
             </div>
         </div>
@@ -76,17 +76,17 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Groups</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">External Platforms</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colUser') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colRole') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colGroups') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colStatus') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colExternalPlatforms') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colLastSeen') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colDate') }}</th>
                             <th
                                 v-if="useCan('remove_organization_members')"
-                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                            >Actions</th>
+                                class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >{{ $t('settings.members.colActions') }}</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
@@ -94,8 +94,8 @@
                         <tr v-if="isLoading">
                             <td :colspan="useCan('remove_organization_members') ? 8 : 7" class="px-6 py-12 text-center">
                                 <div class="flex items-center justify-center text-gray-500">
-                                    <Spinner class="w-4 h-4 mr-2" />
-                                    <span class="text-sm">Loading...</span>
+                                    <Spinner class="w-4 h-4 me-2" />
+                                    <span class="text-sm">{{ $t('common.loading') }}</span>
                                 </div>
                             </td>
                         </tr>
@@ -111,7 +111,7 @@
                                                 </span>
                                             </div>
                                         </div>
-                                        <div class="ml-4">
+                                        <div class="ms-4">
                                             <div class="text-sm font-medium text-gray-900">{{ member.user.name }}</div>
                                             <div class="text-sm text-gray-500">{{ member.user.email }}</div>
                                         </div>
@@ -136,7 +136,7 @@
                                                 <div class="flex gap-1 flex-wrap">
                                                     <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
                                                         {{ r.name }}
-                                                        <span v-if="r.source && r.source !== 'direct'" class="ml-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
+                                                        <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
                                                     </UBadge>
                                                 </div>
                                             </template>
@@ -144,7 +144,7 @@
                                         <div v-else class="flex gap-1 flex-wrap">
                                             <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
                                                 {{ r.name }}
-                                                <span v-if="r.source && r.source !== 'direct'" class="ml-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
+                                                <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
                                             </UBadge>
                                         </div>
                                     </template>
@@ -165,29 +165,29 @@
                                         >
                                             {{ group.name }}
                                         </UBadge>
-                                        <span v-if="getMemberGroups(member).length === 0" class="text-gray-400 text-sm italic">None</span>
+                                        <span v-if="getMemberGroups(member).length === 0" class="text-gray-400 text-sm italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span v-if="member.user"
                                           class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                        Active
+                                        {{ $t('settings.members.statusActive') }}
                                     </span>
                                     <span v-else
                                           class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                                        Pending
+                                        {{ $t('settings.members.statusPending') }}
                                     </span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div v-if="member.user?.external_user_mappings.length > 0">
                                         <div v-for="mapping in member.user?.external_user_mappings" :key="mapping.id">
-                                            <UTooltip :text="mapping.is_verified ? 'Verified' : 'Unverified'">
-                                                <img :src="`/icons/${mapping.platform_type}.png`" class="h-4 inline mr-2" />
+                                            <UTooltip :text="mapping.is_verified ? $t('settings.members.verified') : $t('settings.members.unverified')">
+                                                <img :src="`/icons/${mapping.platform_type}.png`" class="h-4 inline me-2" />
                                             </UTooltip>
                                         </div>
                                     </div>
                                     <div v-else>
-                                        <span class="text-gray-400 italic">None</span>
+                                        <span class="text-gray-400 italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -203,7 +203,7 @@
                                         @click="removeMember(member)"
                                         class="text-red-600 hover:text-red-900 font-medium transition-colors duration-150"
                                     >
-                                        Remove
+                                        {{ $t('settings.members.remove') }}
                                     </button>
                                 </td>
                             </tr>
@@ -219,10 +219,10 @@
                                             class="mx-auto h-12 w-12 text-gray-400"
                                         />
                                         <h3 class="mt-2 text-sm font-medium text-gray-900">
-                                            No members found
+                                            {{ $t('settings.members.noMembers') }}
                                         </h3>
                                         <p class="mt-1 text-sm text-gray-500">
-                                            Try adjusting your filters or search term.
+                                            {{ $t('settings.members.noMembersHint') }}
                                         </p>
                                     </div>
                                 </td>
@@ -237,26 +237,26 @@
     <!-- Invite Modal -->
     <UModal v-model="inviteModalOpen">
         <div class="p-4 relative">
-            <button @click="inviteModalOpen = false" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
+            <button @click="inviteModalOpen = false" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
-            <h1 class="text-lg font-semibold">Invite Member</h1>
-            <p class="text-sm text-gray-500">Add a new member to your organization</p>
+            <h1 class="text-lg font-semibold">{{ $t('settings.members.inviteTitle') }}</h1>
+            <p class="text-sm text-gray-500">{{ $t('settings.members.inviteSubtitle') }}</p>
             <hr class="my-4" />
 
             <form @submit.prevent="inviteMember" class="space-y-4">
                 <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('settings.members.emailLabel') }}</label>
                     <UInput
                         v-model="inviteForm.email"
                         type="email"
                         required
-                        placeholder="member@example.com"
+                        :placeholder="$t('settings.members.emailPlaceholder')"
                     />
                 </div>
 
                 <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">Role</label>
+                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('settings.members.roleLabel') }}</label>
                     <USelectMenu
                         v-model="inviteForm.role"
                         :options="inviteRoleOptions"
@@ -272,13 +272,13 @@
                         variant="ghost"
                         @click="inviteModalOpen = false"
                     >
-                        Cancel
+                        {{ $t('settings.members.cancel') }}
                     </UButton>
                     <UButton
                         type="submit"
                         color="blue"
                     >
-                        Send Invitation
+                        {{ $t('settings.members.sendInvitation') }}
                     </UButton>
                 </div>
             </form>
@@ -289,6 +289,8 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
+
+const { t } = useI18n()
 
 interface MemberUser {
     id: string
@@ -332,20 +334,21 @@ const groupMemberships = ref<Record<string, string[]>>({}) // groupId -> userIds
 const statusFilter = ref<'all' | 'active' | 'pending'>('all')
 const groupFilter = ref<string | null>(null)
 
-const statusFilterOptions = [
-    { value: 'all', label: 'All Status' },
-    { value: 'active', label: 'Active' },
-    { value: 'pending', label: 'Pending' },
-]
+// Filter/role options are computed so their labels re-render when locale flips.
+const statusFilterOptions = computed(() => [
+    { value: 'all', label: t('settings.members.allStatus') },
+    { value: 'active', label: t('settings.members.statusActive') },
+    { value: 'pending', label: t('settings.members.statusPending') },
+])
 
 const selectedStatusLabel = computed(() => {
-    const option = statusFilterOptions.find(o => o.value === statusFilter.value)
-    return option?.label || 'Status'
+    const option = statusFilterOptions.value.find(o => o.value === statusFilter.value)
+    return option?.label || t('settings.members.colStatus')
 })
 
 const groupFilterOptions = computed(() => {
     const options: { value: string | null; label: string }[] = [
-        { value: null, label: 'All Groups' },
+        { value: null, label: t('settings.members.allGroups') },
     ]
     for (const group of groups.value) {
         options.push({ value: group.id, label: group.name })
@@ -354,9 +357,9 @@ const groupFilterOptions = computed(() => {
 })
 
 const selectedGroupLabel = computed(() => {
-    if (!groupFilter.value) return 'All Groups'
+    if (!groupFilter.value) return t('settings.members.allGroups')
     const group = groups.value.find(g => g.id === groupFilter.value)
-    return group?.name || 'All Groups'
+    return group?.name || t('settings.members.allGroups')
 })
 
 const inviteRoleOptions = computed(() => {
@@ -367,7 +370,7 @@ const inviteRoleOptions = computed(() => {
         }))
     }
     return [
-        { value: 'member', label: 'Member' },
+        { value: 'member', label: t('settings.members.roleLabel') },
         { value: 'admin', label: 'Admin' },
     ]
 })
@@ -482,7 +485,7 @@ async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
                             method: 'DELETE',
                         })
                         if (resp.error?.value) {
-                            const detail = resp.error.value.data?.detail || 'Failed to remove role'
+                            const detail = resp.error.value.data?.detail || t('settings.members.failedToRemoveRole')
                             toast.add({ title: detail, color: 'red' })
                             const membersResp = await useMyFetch(`/organizations/${organizationId}/members`)
                             members.value = membersResp.data.value as Member[]
@@ -499,9 +502,9 @@ async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
             .map((r) => ({ id: r.id, name: r.name, source: 'direct' }))
         member.roles = [...newDirectRoles, ...inheritedRoles]
 
-        toast.add({ title: 'Roles updated', color: 'green' })
+        toast.add({ title: t('settings.members.rolesUpdated'), color: 'green' })
     } catch (error: any) {
-        const detail = error?.data?.detail || error?.message || 'Failed to update roles'
+        const detail = error?.data?.detail || error?.message || t('settings.members.failedToUpdateRoles')
         toast.add({ title: detail, color: 'red' })
     }
 }
@@ -525,7 +528,8 @@ const inviteForm = ref({
 })
 
 const removeMember = async (member: Member) => {
-    const confirmed = window.confirm(`Are you sure you want to remove ${member.user?.name || member.email} from this organization?`)
+    const name = member.user?.name || member.email || ''
+    const confirmed = window.confirm(t('settings.members.confirmRemove', { name }))
     if (!confirmed) return
 
     try {
@@ -536,26 +540,26 @@ const removeMember = async (member: Member) => {
         if (response.error.value) {
             const errorDetail = response.error.value.data?.detail
             toast.add({
-                title: 'Error',
-                description: errorDetail || 'Failed to remove member',
+                title: t('common.error'),
+                description: errorDetail || t('settings.members.failedToRemove'),
                 color: 'red'
             })
-            throw new Error(errorDetail || 'Failed to remove member')
+            throw new Error(errorDetail || t('settings.members.failedToRemove'))
         }
 
         const updatedMembers = await useMyFetch(`/organizations/${organizationId}/members`)
         members.value = (updatedMembers.data.value || []) as Member[]
 
         toast.add({
-            title: 'Success',
-            description: `Successfully removed ${member.user?.name || member.email}`,
+            title: t('common.success'),
+            description: t('settings.members.successRemoved', { name }),
             color: 'green'
         })
     } catch (error: any) {
         const errorDetail = error.data?.detail || error.message
         toast.add({
-            title: 'Error',
-            description: errorDetail || 'Failed to remove member',
+            title: t('common.error'),
+            description: errorDetail || t('settings.members.failedToRemove'),
             color: 'red'
         })
     }
@@ -571,19 +575,19 @@ const inviteMember = async () => {
         if (response.error.value) {
             const errorDetail = response.error.value.data?.detail
             toast.add({
-                title: 'Error',
-                description: errorDetail || 'Failed to invite member',
+                title: t('common.error'),
+                description: errorDetail || t('settings.members.failedToInvite'),
                 color: 'red'
             })
-            throw new Error(errorDetail || 'Failed to invite member')
+            throw new Error(errorDetail || t('settings.members.failedToInvite'))
         }
 
         const membersResponse = await useMyFetch(`/organizations/${organizationId}/members`)
         members.value = (membersResponse.data.value || []) as Member[]
 
         toast.add({
-            title: 'Success',
-            description: `Invitation sent to ${inviteForm.value.email}`,
+            title: t('common.success'),
+            description: t('settings.members.successInvited', { email: inviteForm.value.email }),
             color: 'green'
         })
 

@@ -3,7 +3,7 @@
     <!-- Filter button (top-right) - hidden when parent CardBlock shows it -->
     <div
       v-if="hasData && reportId && !hideFilter"
-      class="absolute top-3 right-4 z-10"
+      class="absolute top-3 end-4 z-10"
     >
       <VisualizationFilter
         :report-id="reportId"
@@ -38,7 +38,7 @@
     </div>
     <div v-else-if="widget?.last_step?.type == 'init'" class="flex-1 flex items-center justify-center text-gray-500">
       <SpinnerComponent />
-      <span class="ml-2 text-sm">Loading...</span>
+      <span class="ms-2 text-sm">Loading...</span>
     </div>
     <div v-else class="flex-1 flex items-center justify-center text-gray-400 italic text-sm">
       No data or visualization available.

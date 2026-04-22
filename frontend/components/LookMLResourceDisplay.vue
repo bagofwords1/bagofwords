@@ -18,7 +18,7 @@
       <template v-if="resource.resource_type === 'lookml_model'">
         <div class="text-gray-500">
           <span v-if="rawData?.connection">Connection: {{ rawData.connection }}</span>
-          <span v-if="rawData?.label" class="ml-2">Label: {{ rawData.label }}</span>
+          <span v-if="rawData?.label" class="ms-2">Label: {{ rawData.label }}</span>
         </div>
       </template>
 
@@ -26,7 +26,7 @@
       <template v-if="resource.resource_type === 'lookml_view'">
         <div class="text-gray-500">
           <span v-if="rawData?.sql_table_name">Table: {{ rawData.sql_table_name }}</span>
-          <span v-if="rawData?.label" class="ml-2">Label: {{ rawData.label }}</span>
+          <span v-if="rawData?.label" class="ms-2">Label: {{ rawData.label }}</span>
         </div>
         <div v-if="fieldCount > 0" class="text-gray-500">
           {{ fieldCount }} fields (dimensions/measures)
@@ -38,10 +38,10 @@
             <table class="min-w-full text-xs border border-gray-200 rounded">
               <thead class="bg-gray-50">
                 <tr>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Name</th>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Type</th>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">LookML Type</th>
-                  <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Description</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Name</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Type</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">LookML Type</th>
+                  <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Description</th>
                 </tr>
               </thead>
               <tbody>
@@ -69,15 +69,15 @@
       <template v-if="resource.resource_type === 'lookml_explore'">
         <div class="text-gray-500">
           <span v-if="rawData?.model_name">Model: {{ rawData.model_name }}</span>
-          <span v-if="rawData?.view_name" class="ml-2">Base View: {{ rawData.view_name }}</span>
+          <span v-if="rawData?.view_name" class="ms-2">Base View: {{ rawData.view_name }}</span>
         </div>
       </template>
 
       <!-- Dependencies -->
       <div v-if="resource.depends_on && resource.depends_on.length > 0" class="text-gray-500">
         <span class="font-medium">Depends on:</span>
-        <span class="ml-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
-        <span v-if="resource.depends_on.length > 3" class="ml-1">+{{ resource.depends_on.length - 3 }} more</span>
+        <span class="ms-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
+        <span v-if="resource.depends_on.length > 3" class="ms-1">+{{ resource.depends_on.length - 3 }} more</span>
       </div>
 
       <!-- Generic Fields Table (for other LookML resources with columns) -->
@@ -87,9 +87,9 @@
           <table class="min-w-full text-xs border border-gray-200 rounded">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Name</th>
-                <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Type</th>
-                <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Description</th>
+                <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Name</th>
+                <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Type</th>
+                <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Description</th>
               </tr>
             </thead>
             <tbody>

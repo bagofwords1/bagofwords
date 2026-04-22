@@ -88,7 +88,7 @@
                         >
                             Delete
                         </UButton>
-                        <div class="ml-auto flex items-center gap-2">
+                        <div class="ms-auto flex items-center gap-2">
                             <UButton 
                                 color="gray" 
                                 variant="soft" 

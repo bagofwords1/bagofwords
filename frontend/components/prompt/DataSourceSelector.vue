@@ -24,7 +24,7 @@
                                     class="h-4 ring-1 ring-white rounded flex-shrink-0"
                                 />
                             </div>
-                            <span v-if="internalSelectedDataSources.length > 3" class="ml-1 text-[10px] text-gray-400">
+                            <span v-if="internalSelectedDataSources.length > 3" class="ms-1 text-[10px] text-gray-400">
                                 +{{ internalSelectedDataSources.length - 3 }}
                             </span>
                         </template>
@@ -55,7 +55,7 @@
                         >
                             <div class="flex items-center">
                                 <DataSourceIcon :type="ds.type" class="h-4" />
-                                <span class="ml-2 text-[13px]">{{ ds.name }}</span>
+                                <span class="ms-2 text-[13px]">{{ ds.name }}</span>
                             </div>
                             <Icon v-if="isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                         </div>
@@ -81,7 +81,7 @@ import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
-type DataSource = { id: string; name: string; type?: string; auth_policy?: string; user_status?: { effective_auth?: string; has_user_credentials?: boolean } }
+type DataSource = { id: string; name: string; type?: string; auth_policy?: string; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
 const internalSelectedDataSources = ref<DataSource[]>([])
 const dataSources = ref<DataSource[]>([])
 const isLoading = ref(true)
@@ -204,8 +204,9 @@ async function getDataSources() {
         // Exclude data sources that require user credentials the user hasn't provided
         dataSources.value = allSources.filter((ds: any) => {
             if (ds.auth_policy === 'user_required') {
-                const eff = ds.user_status?.effective_auth
-                return eff === 'user' || eff === 'system'
+                const status = ds.user_status
+                if (status?.has_user_credentials) return true
+                return status?.effective_auth === 'system' && !status?.uses_fallback
             }
             return true
         })

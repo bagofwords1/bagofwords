@@ -1,15 +1,15 @@
 <template>
   <div class="mt-4">
     <div class="mb-4">
-      <h2 class="text-sm font-medium text-gray-900">Audit Logs</h2>
-      <p class="text-xs text-gray-500 mt-0.5">Track user activity across your workspace</p>
+      <h2 class="text-sm font-medium text-gray-900">{{ $t('settings.audit.title') }}</h2>
+      <p class="text-xs text-gray-500 mt-0.5">{{ $t('settings.audit.subtitle') }}</p>
     </div>
 
     <!-- Enterprise Gate -->
     <template v-if="!hasFeature('audit_logs')">
       <div class="rounded border border-gray-200 p-4 bg-gray-50">
         <p class="text-xs text-gray-600 mb-2">
-          Activity logging requires an enterprise license. Track all user actions, changes, and access events for compliance and security monitoring.
+          {{ $t('settings.audit.enterpriseRequired') }}
         </p>
         <a
           href="https://docs.bagofwords.com/enterprise"
@@ -17,7 +17,7 @@
           rel="noopener noreferrer"
           class="text-xs text-blue-600 hover:text-blue-700"
         >
-          Learn more →
+          {{ $t('settings.audit.learnMore') }}
         </a>
       </div>
     </template>
@@ -30,11 +30,11 @@
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="Search..."
-            class="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:border-gray-400 bg-white"
+            :placeholder="$t('settings.audit.search')"
+            class="w-full ps-7 pe-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:border-gray-400 bg-white"
             @input="debouncedSearch"
           />
-          <svg class="absolute left-2 top-1.5 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <svg class="absolute start-2 top-1.5 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
         </div>
@@ -47,7 +47,7 @@
             @click="showActionDropdown = !showActionDropdown"
           >
             <span class="text-gray-600">
-              {{ selectedActions.length === 0 ? 'All actions' : `${selectedActions.length} selected` }}
+              {{ selectedActions.length === 0 ? $t('settings.audit.allActions') : $t('settings.audit.nSelected', { n: selectedActions.length }) }}
             </span>
             <svg class="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -55,7 +55,7 @@
           </button>
           <div
             v-if="showActionDropdown"
-            class="absolute top-full left-0 mt-1 w-44 bg-white border border-gray-200 rounded shadow-sm z-10"
+            class="absolute top-full start-0 mt-1 w-44 bg-white border border-gray-200 rounded shadow-sm z-10"
           >
             <div class="py-1">
               <label
@@ -81,7 +81,7 @@
           class="text-xs text-gray-400 hover:text-gray-600"
           @click="clearFilters"
         >
-          Clear
+          {{ $t('settings.audit.clear') }}
         </button>
       </div>
 
@@ -111,7 +111,7 @@
 
             <!-- User -->
             <span class="w-36 flex-shrink-0 text-gray-700 truncate" :title="log.user_email || undefined">
-              {{ log.user_email || 'System' }}
+              {{ log.user_email || $t('settings.audit.system') }}
             </span>
 
             <!-- Action -->
@@ -130,7 +130,7 @@
             </span>
 
             <!-- IP -->
-            <span class="w-28 flex-shrink-0 text-gray-400 font-mono text-[11px] text-right">
+            <span class="w-28 flex-shrink-0 text-gray-400 font-mono text-[11px] text-end">
               {{ log.ip_address || '' }}
             </span>
           </div>
@@ -138,14 +138,14 @@
 
         <!-- Empty State -->
         <div v-else class="py-8 text-center">
-          <p class="text-xs text-gray-400">No activity found</p>
+          <p class="text-xs text-gray-400">{{ $t('settings.audit.noActivity') }}</p>
         </div>
       </div>
 
       <!-- Pagination -->
       <div v-if="totalPages > 1" class="mt-2 flex items-center justify-between">
         <span class="text-[11px] text-gray-400">
-          {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, total) }} of {{ total }}
+          {{ $t('settings.audit.rangeCount', { start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, total), total }) }}
         </span>
         <div class="flex items-center gap-0.5">
           <button
@@ -153,7 +153,7 @@
             class="px-1.5 py-0.5 text-[11px] text-gray-500 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
             @click="prevPage(buildFilters())"
           >
-            ‹ Prev
+            {{ $t('settings.audit.prev') }}
           </button>
           <span class="px-1.5 text-[11px] text-gray-400">{{ page }}/{{ totalPages }}</span>
           <button
@@ -161,7 +161,7 @@
             class="px-1.5 py-0.5 text-[11px] text-gray-500 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
             @click="nextPage(buildFilters())"
           >
-            Next ›
+            {{ $t('settings.audit.next') }}
           </button>
         </div>
       </div>
@@ -263,6 +263,7 @@ const clearFilters = () => {
   fetchLogs()
 }
 
+const { t, locale } = useI18n()
 const formatTimestamp = (timestamp: string) => {
   // Ensure UTC parsing if no timezone specified
   const isoTimestamp = timestamp.endsWith('Z') ? timestamp : timestamp + 'Z'
@@ -273,12 +274,12 @@ const formatTimestamp = (timestamp: string) => {
   const hours = Math.floor(diff / 3600000)
   const days = Math.floor(diff / 86400000)
 
-  if (minutes < 1) return 'now'
-  if (minutes < 60) return `${minutes}m`
-  if (hours < 24) return `${hours}h`
-  if (days < 7) return `${days}d`
+  if (minutes < 1) return t('settings.audit.now')
+  if (minutes < 60) return t('settings.audit.minutesAbbr', { n: minutes })
+  if (hours < 24) return t('settings.audit.hoursAbbr', { n: hours })
+  if (days < 7) return t('settings.audit.daysAbbr', { n: days })
 
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale.value, { month: 'short', day: 'numeric' })
 }
 
 const formatAction = (action: string) => {

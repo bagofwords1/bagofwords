@@ -8,11 +8,11 @@
                         v-model="searchQuery"
                         type="text"
                         placeholder="Search groups..."
-                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        class="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
                     />
                 </div>
             </div>
@@ -36,12 +36,12 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Roles</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Members</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
-                            <th v-if="useCan('manage_groups')" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Roles</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Members</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                            <th v-if="useCan('manage_groups')" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
@@ -49,7 +49,7 @@
                         <tr v-if="isLoading">
                             <td :colspan="useCan('manage_groups') ? 6 : 5" class="px-6 py-12 text-center">
                                 <div class="flex items-center justify-center text-gray-500">
-                                    <Spinner class="w-4 h-4 mr-2" />
+                                    <Spinner class="w-4 h-4 me-2" />
                                     <span class="text-sm">Loading...</span>
                                 </div>
                             </td>
@@ -157,7 +157,7 @@
         <!-- Create/Edit Modal -->
         <UModal v-model="showFormModal">
             <div class="p-6 relative">
-                <button @click="showFormModal = false" class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 outline-none">
+                <button @click="showFormModal = false" class="absolute top-4 end-4 text-gray-500 hover:text-gray-700 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
                 <h3 class="text-lg font-semibold">
@@ -192,7 +192,7 @@
         <!-- Members Modal -->
         <UModal v-model="showMembersModal" :ui="{ width: 'sm:max-w-lg' }">
             <div class="p-6 relative">
-                <button @click="showMembersModal = false" class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 outline-none">
+                <button @click="showMembersModal = false" class="absolute top-4 end-4 text-gray-500 hover:text-gray-700 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
                 <h3 class="text-lg font-semibold">{{ selectedGroup?.name }} — Members</h3>
@@ -223,7 +223,7 @@
                 <!-- Member list -->
                 <div class="border rounded-lg divide-y divide-gray-200 max-h-80 overflow-y-auto">
                     <div v-if="groupMembersLoading" class="px-4 py-8 text-center text-gray-500 text-sm">
-                        <Spinner class="w-4 h-4 mr-2 inline" />
+                        <Spinner class="w-4 h-4 me-2 inline" />
                         Loading...
                     </div>
                     <div

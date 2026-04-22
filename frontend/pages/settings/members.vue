@@ -30,19 +30,20 @@
 import { useCan } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
+const { t } = useI18n()
 const { organization } = useOrganization()
 const activeTab = ref('members')
 const { hasFeature } = useEnterprise()
 
-const tabs = [
-    { key: 'members', label: 'Members' },
-    { key: 'roles', label: 'Roles', permission: 'manage_roles', feature: 'custom_roles' },
-    { key: 'groups', label: 'Groups', permission: 'manage_groups', feature: 'custom_roles' },
-    { key: 'signup', label: 'Signup', permission: 'full_admin_access', feature: 'domain_signup' },
-]
+const tabs = computed(() => [
+    { key: 'members', label: t('settings.membersTabs.members') },
+    { key: 'roles', label: t('settings.membersTabs.roles'), permission: 'manage_roles', feature: 'custom_roles' },
+    { key: 'groups', label: t('settings.membersTabs.groups'), permission: 'manage_groups', feature: 'custom_roles' },
+    { key: 'signup', label: t('settings.membersTabs.signup'), permission: 'full_admin_access', feature: 'domain_signup' },
+])
 
 const visibleTabs = computed(() =>
-    tabs.filter((tab) => {
+    tabs.value.filter((tab) => {
         if (tab.feature && !hasFeature(tab.feature)) return false
         if (tab.permission && !useCan(tab.permission)) return false
         return true

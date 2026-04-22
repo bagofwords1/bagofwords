@@ -3,7 +3,7 @@
     <div class="h-full flex flex-col" @click.stop>
       <div class="px-4 py-3 flex items-center justify-between flex-shrink-0">
         <div class="text-sm font-medium text-gray-800">Edit query — {{ title }}</div>
-        <div v-if="currentStepId" class="ml-4 text-[11px] text-gray-500">Query ID: {{ queryId }}</div>
+        <div v-if="currentStepId" class="ms-4 text-[11px] text-gray-500">Query ID: {{ queryId }}</div>
         <button class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50" @click.stop="open = false">Close</button>
       </div>
       <div class="flex-1 flex flex-col overflow-hidden min-h-0">
@@ -47,7 +47,7 @@
                 <button class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center" :disabled="running" @click="previewRun">
                   <span v-if="running && runMode === 'preview'">Running…</span>
                   <span v-else class="flex items-center">
-                    <Icon name="heroicons-play" class="w-3 h-3 mr-1.5" />
+                    <Icon name="heroicons-play" class="w-3 h-3 me-1.5" />
                     Run</span>
                 </button>
 
@@ -61,7 +61,7 @@
                   <table class="min-w-full text-xs">
                     <thead class="bg-gray-50 sticky top-0">
                       <tr>
-                        <th v-for="col in preview.columns" :key="col.field" class="px-2 py-1 text-left font-medium text-gray-600">{{ col.headerName || col.field }}</th>
+                        <th v-for="col in preview.columns" :key="col.field" class="px-2 py-1 text-start font-medium text-gray-600">{{ col.headerName || col.field }}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -95,7 +95,7 @@
                   <!-- Content: Visualization (60%) + Config (40%) -->
                   <div class="flex h-[32rem]">
                     <!-- Left: Visualization Rendering (60%) -->
-                    <div class="w-[65%] border-r border-gray-100">
+                    <div class="w-[65%] border-e border-gray-100">
                       <div v-if="shouldShowVisual(viz)" class="h-full bg-gray-50 p-2">
                         <!-- Dynamic component rendering -->
                         <div v-if="getResolvedCompEl(viz) && shouldShowVisual(viz)" class="h-full">

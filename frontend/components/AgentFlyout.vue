@@ -23,7 +23,7 @@
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0 flex-1">
                 <div class="text-sm font-semibold text-gray-900 truncate">
-                  {{ agentDetails?.name || 'Loading...' }}
+                  {{ agentDetails?.name || $t('agentFlyout.loading') }}
                 </div>
                 <!-- Connection info: icons for all connections -->
                 <div class="flex items-center gap-2 mt-1">
@@ -38,22 +38,22 @@
                       />
                     </div>
                     <span class="text-xs text-gray-500 truncate">
-                      {{ agentDetails.connections.length }} connection{{ agentDetails.connections.length > 1 ? 's' : '' }}
+                      {{ $t(agentDetails.connections.length === 1 ? 'agentFlyout.connectionsOne' : 'agentFlyout.connectionsMany', { count: agentDetails.connections.length }) }}
                     </span>
                   </div>
                   <span v-else class="text-xs text-gray-500 truncate">
-                    No connections
+                    {{ $t('agentFlyout.noConnections') }}
                   </span>
                   <!-- Green circle if any connection active -->
                   <span
                     v-if="hasActiveConnection"
                     class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"
-                    title="Connected"
+                    :title="$t('agentFlyout.connected')"
                   ></span>
                   <span
                     v-else-if="agentDetails?.connections?.length"
                     class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"
-                    title="Not connected"
+                    :title="$t('agentFlyout.notConnected')"
                   ></span>
                 </div>
               </div>
@@ -63,7 +63,7 @@
                 :href="`/data/${agentId}`"
                 class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline flex-shrink-0 whitespace-nowrap"
               >
-                Open agent →
+                {{ $t('agentFlyout.openAgent') }}
               </a>
             </div>
           </div>
@@ -80,7 +80,7 @@
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
-                Overview
+                {{ $t('agentFlyout.overview') }}
               </button>
               <button
                 @click="flyoutTab = 'tables'"
@@ -91,8 +91,8 @@
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
-                Tables
-                <span v-if="tablesCount > 0" class="ml-1 text-[10px] text-gray-400">({{ tablesCount }})</span>
+                {{ $t('agentFlyout.tables') }}
+                <span v-if="tablesCount > 0" class="ms-1 text-[10px] text-gray-400">({{ tablesCount }})</span>
               </button>
               <button
                 @click="flyoutTab = 'instructions'"
@@ -103,8 +103,8 @@
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
-                Instructions
-                <span v-if="instructionsCount > 0" class="ml-1 text-[10px] text-gray-400">({{ instructionsCount }})</span>
+                {{ $t('agentFlyout.instructions') }}
+                <span v-if="instructionsCount > 0" class="ms-1 text-[10px] text-gray-400">({{ instructionsCount }})</span>
               </button>
               <button
                 @click="flyoutTab = 'queries'"
@@ -115,8 +115,8 @@
                   'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                 ]"
               >
-                Queries
-                <span v-if="queriesCount > 0" class="ml-1 text-[10px] text-gray-400">({{ queriesCount }})</span>
+                {{ $t('agentFlyout.queries') }}
+                <span v-if="queriesCount > 0" class="ms-1 text-[10px] text-gray-400">({{ queriesCount }})</span>
               </button>
             </nav>
           </div>
@@ -132,14 +132,14 @@
                 <!-- Description rendered as Markdown -->
                 <div
                   v-if="agentDetails?.description"
-                  class="agent-flyout-markdown text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pr-1"
+                  class="agent-flyout-markdown text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pe-1"
                 >
                   <MDC :value="agentDetails.description" class="markdown-content" />
                 </div>
 
                 <!-- Sample Questions -->
                 <div v-if="agentDetails?.conversation_starters?.length">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-2">Sample Questions</div>
+                  <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-2">{{ $t('agentFlyout.sampleQuestions') }}</div>
                   <div class="space-y-1.5">
                     <button
                       v-for="(starter, idx) in agentDetails.conversation_starters.slice(0, 6)"
@@ -147,7 +147,7 @@
                       @click.stop.prevent="startReportWithQuestion(starter, Number(idx))"
                       :disabled="creatingReport"
                       :class="[
-                        'w-full text-left text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-2',
+                        'w-full text-start text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-2',
                         creatingReport && creatingQuestionIdx === idx
                           ? 'bg-indigo-100 border border-indigo-300 text-indigo-700'
                           : 'bg-gray-50 border border-gray-100 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 cursor-pointer',
@@ -161,7 +161,7 @@
                       v-if="agentDetails.conversation_starters.length > 6"
                       class="text-[11px] text-gray-400"
                     >
-                      +{{ agentDetails.conversation_starters.length - 6 }} more
+                      {{ $t('agentFlyout.moreCount', { n: agentDetails.conversation_starters.length - 6 }) }}
                     </div>
                   </div>
                 </div>
@@ -170,7 +170,7 @@
                   v-if="!agentDetails?.description && !agentDetails?.conversation_starters?.length"
                   class="text-xs text-gray-400 italic py-6 text-center"
                 >
-                  No details available
+                  {{ $t('agentFlyout.noDetails') }}
                 </div>
               </div>
 
@@ -186,7 +186,7 @@
 
                 <div v-else>
                   <div v-if="tablesCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
-                    No tables found
+                    {{ $t('agentFlyout.noTables') }}
                   </div>
 
                   <div v-else>
@@ -197,14 +197,14 @@
                           v-for="t in tablesResources"
                           :key="t.id || t.name"
                           @click="selectTable(t)"
-                          class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                          class="w-full px-3 py-2 text-start text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
                         >
                           <DataSourceIcon v-if="hasMultipleConnections" :type="t.connection_type" class="h-3.5 flex-shrink-0" />
                           <span class="truncate flex-1 text-gray-800 font-medium">{{ t.name }}</span>
-                          <span v-if="t.columns?.length" class="text-[11px] text-gray-400 flex-shrink-0">{{ t.columns.length }} cols</span>
+                          <span v-if="t.columns?.length" class="text-[11px] text-gray-400 flex-shrink-0">{{ $t('agentFlyout.colsAbbr', { n: t.columns.length }) }}</span>
                         </button>
                       </div>
-                      <div v-if="tablesResources.length === 0" class="px-3 py-3 text-xs text-gray-400">No tables.</div>
+                      <div v-if="tablesResources.length === 0" class="px-3 py-3 text-xs text-gray-400">{{ $t('agentFlyout.noTablesShort') }}</div>
                     </div>
 
                     <!-- Detail view (columns) -->
@@ -214,9 +214,9 @@
                           @click="selectedTable = null"
                           class="text-[11px] text-gray-500 hover:text-gray-700"
                         >
-                          ← Back
+                          {{ $t('agentFlyout.back') }}
                         </button>
-                        <div class="text-[11px] text-gray-400">Columns</div>
+                        <div class="text-[11px] text-gray-400">{{ $t('agentFlyout.columns') }}</div>
                       </div>
 
                       <div class="text-sm font-semibold text-gray-900 truncate">{{ selectedTable.name }}</div>
@@ -228,9 +228,9 @@
                           class="px-1.5 py-0.5 bg-white rounded border text-[11px] text-gray-700"
                         >
                           {{ typeof col === 'string' ? col : (col as any).name }}
-                          <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ml-1">({{ (col as any).dtype }})</span>
+                          <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
                         </span>
-                        <span v-if="!(selectedTable.columns || []).length" class="text-[12px] text-gray-400">No columns.</span>
+                        <span v-if="!(selectedTable.columns || []).length" class="text-[12px] text-gray-400">{{ $t('agentFlyout.noColumns') }}</span>
                       </div>
                     </div>
                   </div>
@@ -249,7 +249,7 @@
 
                 <div v-else>
                   <div v-if="instructionsCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
-                    No instructions found
+                    {{ $t('agentFlyout.noInstructions') }}
                   </div>
 
                   <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
@@ -258,16 +258,16 @@
                         v-for="inst in instructionsResources"
                         :key="inst.id"
                         :href="`/instructions?search=${encodeURIComponent(inst.title || '')}`"
-                        class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-1.5">
-                            <span class="truncate text-gray-800 font-medium">{{ inst.title || 'Untitled' }}</span>
+                            <span class="truncate text-gray-800 font-medium">{{ inst.title || $t('agentFlyout.untitled') }}</span>
                             <span
                               v-if="!inst.data_sources?.length"
                               class="px-1 py-0.5 text-[9px] rounded bg-purple-50 text-purple-600 flex-shrink-0"
                             >
-                              Global
+                              {{ $t('agentFlyout.global') }}
                             </span>
                           </div>
                           <div class="text-[11px] text-gray-400 truncate mt-0.5">
@@ -292,7 +292,7 @@
 
                 <div v-else>
                   <div v-if="queriesCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
-                    No saved queries found
+                    {{ $t('agentFlyout.noQueries') }}
                   </div>
 
                   <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
@@ -301,7 +301,7 @@
                         v-for="entity in queriesResources"
                         :key="entity.id"
                         :href="`/queries/${entity.id}`"
-                        class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+                        class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-1.5">
@@ -334,6 +334,7 @@ import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 const router = useRouter()
+const { t } = useI18n()
 
 const props = defineProps<{
   agentId: string | null
@@ -444,7 +445,7 @@ const fetchTablesForAgent = async (agentId: string) => {
   try {
     const { data, error } = await useMyFetch(`/data_sources/${agentId}/schema`, { method: 'GET' })
     if (error?.value) {
-      tablesError.value = 'Failed to load tables'
+      tablesError.value = t('agentFlyout.tablesLoadFailed')
       return
     }
     const payload: any = (data as any)?.value
@@ -452,7 +453,7 @@ const fetchTablesForAgent = async (agentId: string) => {
     const filtered = tables.filter((t: any) => t?.is_active !== false)
     tablesCache.value[agentId] = filtered
   } catch (e) {
-    tablesError.value = 'Failed to load tables'
+    tablesError.value = t('agentFlyout.tablesLoadFailed')
   } finally {
     tablesLoading.value = false
   }
@@ -474,14 +475,14 @@ const fetchInstructionsForAgent = async (agentId: string) => {
       }
     })
     if (error?.value) {
-      instructionsError.value = 'Failed to load instructions'
+      instructionsError.value = t('agentFlyout.instructionsLoadFailed')
       return
     }
     const payload: any = (data as any)?.value
     const items = payload?.items || payload || []
     instructionsCache.value[agentId] = items
   } catch (e) {
-    instructionsError.value = 'Failed to load instructions'
+    instructionsError.value = t('agentFlyout.instructionsLoadFailed')
   } finally {
     instructionsLoading.value = false
   }
@@ -499,7 +500,7 @@ const fetchQueriesForAgent = async (agentId: string) => {
       }
     })
     if (error?.value) {
-      queriesError.value = 'Failed to load queries'
+      queriesError.value = t('agentFlyout.queriesLoadFailed')
       return
     }
     const payload: any = (data as any)?.value
@@ -509,7 +510,7 @@ const fetchQueriesForAgent = async (agentId: string) => {
     )
     queriesCache.value[agentId] = filtered
   } catch (e) {
-    queriesError.value = 'Failed to load queries'
+    queriesError.value = t('agentFlyout.queriesLoadFailed')
   } finally {
     queriesLoading.value = false
   }
@@ -603,7 +604,7 @@ watch(flyoutTab, async (tab) => {
   h2 { @apply text-sm; }
   h3 { @apply text-xs; }
 
-  ul, ol { @apply pl-4 mb-2; }
+  ul, ol { @apply ps-4 mb-2; }
   ul { @apply list-disc; }
   ol { @apply list-decimal; }
   li { @apply mb-1; }

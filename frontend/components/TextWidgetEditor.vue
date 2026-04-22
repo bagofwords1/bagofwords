@@ -1,5 +1,5 @@
 <template>
-    <div  class="p-1 pb-10 pl-3 border h-full min-h-[140px] w-full rounded-lg relative" :style="wrapperStyle">
+    <div  class="p-1 pb-10 ps-3 border h-full min-h-[140px] w-full rounded-lg relative" :style="wrapperStyle">
       <div v-if="editor" class="flex items-center gap-1 border-b border-gray-200 mb-2 text-xs">
         <button
           @click="editor.chain().focus().toggleBold().run()"
@@ -40,7 +40,7 @@
       <div class="editor-container">
         <TiptapEditorContent :editor="editor" />
       </div>
-    <div class="absolute bottom-2 left-2">
+    <div class="absolute bottom-2 start-2">
         <button 
           @click="$emit('save', editor.getHTML())"
           class="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded"
@@ -49,7 +49,7 @@
         </button>
         <button 
           @click="$emit('cancel')"
-          class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-500 px-2 py-1 rounded ml-2"
+          class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-500 px-2 py-1 rounded ms-2"
         >
             Cancel
         </button>

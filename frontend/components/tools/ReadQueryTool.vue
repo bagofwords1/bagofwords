@@ -3,14 +3,14 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleDetails">
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1 text-gray-400" />
+        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           Reading {{ queryCount > 1 ? `${queryCount} queries` : `query "${queryTitle}"` }}…
         </span>
         <span v-else class="flex items-center" :class="hasErrors ? 'text-red-600' : 'text-gray-700'">
-          <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 mr-1 text-red-500" />
-          <Icon v-else name="heroicons-document-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
+          <Icon v-else name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">{{ statusLabel }}</span>
         </span>
       </div>
@@ -25,7 +25,7 @@
             :tool-execution="buildEnhancedExecution(result)"
             :readonly="readonly"
           />
-          <div v-else-if="result.error" class="ml-4 text-xs text-red-500">
+          <div v-else-if="result.error" class="ms-4 text-xs text-red-500">
             {{ result.error }}
           </div>
         </div>
@@ -33,7 +33,7 @@
     </Transition>
 
     <!-- Global errors -->
-    <div v-if="hasErrors && !detailsCollapsed" class="ml-4 mt-2 text-xs text-red-500">
+    <div v-if="hasErrors && !detailsCollapsed" class="ms-4 mt-2 text-xs text-red-500">
       <div v-for="(err, idx) in globalErrors" :key="idx">{{ err }}</div>
     </div>
   </div>

@@ -28,15 +28,15 @@
       <!-- Dependencies -->
       <div v-if="resource.depends_on && resource.depends_on.length > 0" class="text-gray-500">
         <span class="font-medium">Depends on:</span>
-        <span class="ml-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
-        <span v-if="resource.depends_on.length > 3" class="ml-1">+{{ resource.depends_on.length - 3 }} more</span>
+        <span class="ms-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
+        <span v-if="resource.depends_on.length > 3" class="ms-1">+{{ resource.depends_on.length - 3 }} more</span>
       </div>
 
       <!-- Key raw data fields -->
       <div v-if="keyRawDataFields.length > 0" class="text-gray-500">
         <div v-for="field in keyRawDataFields" :key="field.key" class="mb-1">
           <span class="font-medium">{{ field.key }}:</span>
-          <span class="ml-1">{{ field.value }}</span>
+          <span class="ms-1">{{ field.value }}</span>
         </div>
       </div>
 

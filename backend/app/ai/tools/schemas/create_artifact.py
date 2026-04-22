@@ -29,7 +29,7 @@ class CreateArtifactInput(BaseModel):
         "Prefer `edit_artifact` for small/additive changes; only use `create_artifact` when the change is structurally too large for surgical diffs — and even then, carry all prior viz_ids forward.\n\n"
         "Do NOT use this tool to modify an existing artifact; use edit_artifact instead."
     ))
-    title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")
+    title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt.")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
     visualization_ids: List[str] = Field(..., min_length=1, description=(
         "Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. "

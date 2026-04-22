@@ -1,8 +1,8 @@
 <template>
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div class="p-6 border-b border-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">Activity Over Time</h3>
-            <p class="text-sm text-gray-500 mt-1">Messages and queries trends</p>
+            <h3 class="text-lg font-semibold text-gray-900">{{ $t('monitoring.charts.activityTitle') }}</h3>
+            <p class="text-sm text-gray-500 mt-1">{{ $t('monitoring.charts.activitySubtitle') }}</p>
         </div>
         <div class="p-6">
             <div class="h-80">

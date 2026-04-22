@@ -14,6 +14,7 @@ from lxml import html as lxml_html
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user as current_user_dep
 from app.core.permissions_decorator import requires_permission
+from app.errors import AppError, ErrorCode
 
 from app.models.user import User
 from app.models.organization import Organization
@@ -244,7 +245,7 @@ async def get_artifact(
     """Get an artifact by ID."""
     artifact = await service.get(db, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
     return ArtifactSchema.model_validate(artifact)
 
 
@@ -288,7 +289,7 @@ async def update_artifact(
     """Update an existing artifact."""
     artifact = await service.update(db, artifact_id, payload)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
     return ArtifactSchema.model_validate(artifact)
 
 
@@ -303,7 +304,7 @@ async def delete_artifact(
     """Delete an artifact (soft delete)."""
     success = await service.delete(db, artifact_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
     return {"status": "deleted"}
 
 
@@ -318,7 +319,7 @@ async def duplicate_artifact(
     """Duplicate an artifact to make it the latest (default) version."""
     artifact = await service.duplicate(db, artifact_id, user_id=current_user.id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
     return ArtifactSchema.model_validate(artifact)
 
 
@@ -338,7 +339,7 @@ async def export_artifact_pptx(
 
     artifact = await service.get(db, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
 
     if artifact.mode != "slides":
         raise HTTPException(status_code=400, detail="Only slides artifacts can be exported to PPTX")
@@ -416,7 +417,7 @@ async def list_slide_previews(
     """List all preview image URLs for a slides artifact."""
     artifact = await service.get(db, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
 
     if artifact.mode != "slides":
         raise HTTPException(status_code=400, detail="Only slides artifacts have previews")
@@ -449,7 +450,7 @@ async def get_slide_preview(
 
     artifact = await service.get(db, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
 
     if artifact.mode != "slides":
         raise HTTPException(status_code=400, detail="Only slides artifacts have previews")

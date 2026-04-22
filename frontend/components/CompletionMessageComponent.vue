@@ -6,16 +6,16 @@
              '-mt-2': localCompletion.role == 'ai_agent',
              'mb-4': localCompletion.role == 'ai_agent' }">
 
-            <div class="w-[28px] mr-2">
+            <div class="w-[28px] me-2">
                 <ChatAvatarComponent :role="localCompletion.role" />
             </div>
-            <div class="w-full ml-4">
+            <div class="w-full ms-4">
                 <!-- User messages -->
                 <div v-if="localCompletion.prompt?.content.length > 0" class="pt-1">
                     <div class="inline float-right" v-if="useCan('view_completion_plan')">
                         <button @click="showPlan(localCompletion)"
                                 class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded flex items-center">
-                            <Icon name="heroicons-eye" class="mr-1" />
+                            <Icon name="heroicons-eye" class="me-1" />
                         </button>
                     </div>
                     <div class="markdown-wrapper">
@@ -31,7 +31,7 @@
                                  :file-id="file.id"
                                  :alt="file.filename"
                                  img-class="max-h-48 w-auto object-contain rounded-lg" />
-                            <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity truncate">
+                            <div class="absolute bottom-0 start-0 end-0 bg-black/50 text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity truncate">
                                 {{ file.filename }}
                             </div>
                         </div>
@@ -52,12 +52,12 @@
                                 <!-- Always show "Thought Process" when content is available -->
                                 <div class="flex items-center">
                                     <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" 
-                                         class="w-4 h-4 text-gray-500" />
-                                    <span v-if="(localCompletion.completion?.content && localCompletion.completion?.content.length > 0) || localCompletion.status === 'stopped' || localCompletion.status === 'error' || localCompletion.sigkill" class="ml-1">
+                                         class="w-4 h-4 text-gray-500 rtl-flip" />
+                                    <span v-if="(localCompletion.completion?.content && localCompletion.completion?.content.length > 0) || localCompletion.status === 'stopped' || localCompletion.status === 'error' || localCompletion.sigkill" class="ms-1">
                                         Thought Process
                                     </span>
                                     <!-- Show "Thinking" when no content is available -->
-                                    <span v-else class="ml-1">
+                                    <span v-else class="ms-1">
                                         <div class="dots" />
                                     </span>
                                 </div>
@@ -93,7 +93,7 @@
                                     <UTooltip text="Download CSV" v-if="localCompletion.step?.id && localCompletion.step?.status === 'success'">
                                     <button @click="downloadStepCSV(localCompletion.step?.id, localCompletion.widget?.title, localCompletion.step?.slug)"
                                         v-if="localCompletion.step?.id && localCompletion.step?.status === 'success'"
-                                        class="cursor-pointer text-xs text-gray-400 hover:text-gray-600 mr-2"
+                                        class="cursor-pointer text-xs text-gray-400 hover:text-gray-600 me-2"
                                         title="Download CSV">
                                         <Icon name="heroicons-arrow-down-tray" />
                                     </button>
@@ -101,7 +101,7 @@
                                     <button @click="localCompletion.isCollapsed = !localCompletion.isCollapsed"
                                         class="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
                                         <Icon
-                                            :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" />
+                                            :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"  class="rtl-flip" />
                                     </button>
                                 </div>
                             </div>
@@ -110,7 +110,7 @@
                                 <WidgetTabsComponent :widget="localCompletion.widget"
                                     :step="localCompletion.step" />
 
-                                <div class="pr-2 pl-2 mt-1.5 pb-1.5 flex justify-between items-center">
+                                <div class="pe-2 ps-2 mt-1.5 pb-1.5 flex justify-between items-center">
                                     <button @click="handleAddClick(localCompletion)"
                                         class="text-xs rounded text-blue-800 hover:text-blue-400"
                                         v-if="localCompletion.step?.status == 'success'">
@@ -132,7 +132,7 @@
                                         Generating
                                     </button>
                                     <div>
-                                        <button class="mr-1.5 text-xs"
+                                        <button class="me-1.5 text-xs"
                                             @click="selectWidget(localCompletion.widget.id, localCompletion.step?.id, localCompletion.widget.title)">
                                             <Icon name="heroicons-arrow-turn-down-right" />
                                             Follow up
@@ -163,10 +163,10 @@
 
                 <!-- AI messages -->
                 <div v-else-if="localCompletion.role == 'ai_agent'">
-                    <span v-if="localCompletion.role == 'ai_agent'" class="text-green-500 text-xs mr-1 inline">
+                    <span v-if="localCompletion.role == 'ai_agent'" class="text-green-500 text-xs me-1 inline">
                         <Icon name="heroicons-cube" 
                             :class="{ 'spin-three-times': true }" />
-                        <span class="text-gray-500 ml-2">
+                        <span class="text-gray-500 ms-2">
                             {{ localCompletion.completion?.content || 'Improving code...' }}
                         </span>
                     </span>
@@ -212,13 +212,13 @@
                 <div v-if="plan">
                     <div class="flex justify-between items-center cursor-pointer" @click="togglePromptCollapsed">
                         <h3 class="text-md font-bold mb-2">Prompt</h3>
-                        <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                        <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
                     <pre v-if="!promptCollapsed" class="text-xs">{{ plan_content.text }}</pre>
                     
                     <div class="flex justify-between items-center cursor-pointer mt-4" @click="togglePlanCollapsed">
                         <h3 class="text-md font-bold mb-2">Plan</h3>
-                        <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                        <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
                     <pre v-if="!planCollapsed" class="text-xs">
                         <div class="text-xs">Analysis Complete: {{ plan_analysis_complete }}</div>
@@ -229,7 +229,7 @@
                     <!-- Add token usage section -->
                     <div class="flex justify-between items-center cursor-pointer mt-4" @click="toggleTokensCollapsed">
                         <h3 class="text-md font-bold mb-2">Token Usage</h3>
-                        <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                        <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
                     <div v-if="!tokensCollapsed" class="text-xs bg-gray-50 p-3 rounded">
                         <div v-if="plan_content.token_usage">
@@ -599,7 +599,7 @@ ul {
     /* Lists */
     ul,
     ol {
-        @apply pl-6 mb-4;
+        @apply ps-6 mb-4;
     }
 
     ul {

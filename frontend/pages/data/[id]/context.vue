@@ -9,7 +9,7 @@
                 <div class="flex items-center border-b border-gray-200 pb-3 w-full">
                     <h3 class="text-lg mt-1 font-semibold text-gray-900">Connect your git repository and load dbt, Dataform, LookML, markdown, and Tableau metadata files</h3>
                 </div>
-                <div class="text-left mb-4 mt-5">
+                <div class="text-start mb-4 mt-5">
                     <p class="text-sm text-gray-500 leading-relaxed">
                         Connect additional context from Tableau, dbt, Dataform, LookML, code, and markdown files to your data sources. It will be used by AI agents throughout data analysis.
                         <br />
@@ -26,7 +26,7 @@
 
                 <div class="mb-4 mt-6">
                     <div v-if="isLoading" class="inline-flex items-center text-gray-500 text-xs">
-                        <Spinner class="w-4 h-4 mr-2" />
+                        <Spinner class="w-4 h-4 me-2" />
                         Loading...
                     </div>
                     <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Connect Git Repository</UButton>

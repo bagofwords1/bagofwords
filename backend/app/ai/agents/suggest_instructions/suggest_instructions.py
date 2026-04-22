@@ -5,7 +5,9 @@ import json
 from partialjson.json_parser import JSONParser
 
 from app.ai.llm import LLM
+from app.ai.prompt_language import build_language_directive
 from app.models.llm_model import LLMModel
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -31,9 +33,11 @@ class SuggestInstructions:
     def __init__(
         self,
         model: LLMModel,
+        organization_settings: Optional[OrganizationSettingsConfig] = None,
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
     ) -> None:
         self.llm = LLM(model, usage_session_maker=usage_session_maker)
+        self.organization_settings = organization_settings
 
     def _build_category_description(self) -> str:
         """Build category descriptions for the prompt."""
@@ -179,6 +183,7 @@ Return a single JSON object matching this schema exactly:
     {{"title": "SHORT_TITLE", "text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
   ]
 }}
+{build_language_directive(self.organization_settings)}
 """
 
         async for item in self._stream_and_parse(header, "suggest_instructions.stream"):
@@ -245,6 +250,7 @@ Return a single JSON object matching this schema exactly:
     {{"title": "SHORT_TITLE", "text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
   ]
 }}
+{build_language_directive(self.organization_settings)}
 """
 
         async for item in self._stream_and_parse(header, "suggest_instructions.onboarding"):
@@ -423,6 +429,7 @@ Return a single JSON object matching this schema exactly:
 }}
 
 Extract the most valuable instructions from the training summary. Each instruction should end with a period and have a short UPPERCASE title.
+{build_language_directive(self.organization_settings)}
 """
 
         async for item in self._stream_and_parse(header, "suggest_instructions.training"):
@@ -456,6 +463,7 @@ Extract the most valuable instructions from the training summary. Each instructi
         {{
           "enhanced_instruction": "..."
         }}
+        {build_language_directive(self.organization_settings)}
         """
 
         parser = JSONParser()

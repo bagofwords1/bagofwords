@@ -24,7 +24,7 @@
       <!-- File info -->
       <div class="text-gray-500">
         <span v-if="fileSize">Size: {{ fileSize }}</span>
-        <span v-if="lastModified" class="ml-2">Modified: {{ lastModified }}</span>
+        <span v-if="lastModified" class="ms-2">Modified: {{ lastModified }}</span>
       </div>
 
       <!-- Path -->

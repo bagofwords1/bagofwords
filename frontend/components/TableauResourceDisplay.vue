@@ -25,12 +25,12 @@
         <table class="min-w-full text-xs border border-gray-200 rounded">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Name</th>
-              <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Type</th>
-              <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Role</th>
-              <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Aggregation</th>
-              <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Calculated</th>
-              <th class="px-2 py-1 text-left font-medium text-gray-700 border-b">Formula / Description</th>
+              <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Name</th>
+              <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Type</th>
+              <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Role</th>
+              <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Aggregation</th>
+              <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Calculated</th>
+              <th class="px-2 py-1 text-start font-medium text-gray-700 border-b">Formula / Description</th>
             </tr>
           </thead>
           <tbody>
@@ -56,8 +56,8 @@
     <!-- Dependencies -->
     <div v-if="resource.depends_on && resource.depends_on.length > 0" class="text-gray-500 text-xs">
       <span class="font-medium">Depends on:</span>
-      <span class="ml-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
-      <span v-if="resource.depends_on.length > 3" class="ml-1">+{{ resource.depends_on.length - 3 }} more</span>
+      <span class="ms-1">{{ resource.depends_on.slice(0, 3).join(', ') }}</span>
+      <span v-if="resource.depends_on.length > 3" class="ms-1">+{{ resource.depends_on.length - 3 }} more</span>
     </div>
 
     <!-- Path -->

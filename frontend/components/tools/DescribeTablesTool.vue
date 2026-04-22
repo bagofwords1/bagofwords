@@ -4,11 +4,11 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           Searching {{ queryLabel }}…
         </span>
         <span v-else class="text-gray-700 flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 mr-1 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           <span class="align-middle">Searched {{ queryLabel }}</span>
         </span>
       </div>
@@ -16,7 +16,7 @@
     <!-- Preview of top tables (click to toggle details) -->
     <Transition name="fade" appear>
       <div v-if="topTables && topTables.length" class="text-xs text-gray-600">
-        <ul class="ml-1 space-y-1 leading-snug">
+        <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(item, idx) in topTables.slice(0, 10)" :key="idx">
             <!-- Header row -->
             <div
@@ -24,28 +24,28 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 mr-1" />
-              <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 mr-1" />
-              <span v-if="item.connection_name" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 mr-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
+              <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" />
+              <span v-if="item.connection_name" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 me-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
               <div class="font-medium text-gray-700 truncate">
                 {{ item.full_name || item.name || 'table' }}
               </div>
             </div>
             <!-- Detail row -->
             <Transition name="fade">
-              <div v-if="isExpanded(idx)" class="pl-6 pr-1 pb-1">
+              <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
                 <!-- Columns -->
                 <div v-if="(item.columns || []).length" class="text-gray-500 mb-1">
                   <table class="min-w-0 text-[11px]">
                     <thead class="text-gray-400">
                       <tr>
-                        <th class="text-left pr-4 font-normal">Column</th>
-                        <th class="text-left font-normal">Type</th>
+                        <th class="text-start pe-4 font-normal">Column</th>
+                        <th class="text-start font-normal">Type</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr v-for="(col, cidx) in columnsHead(item)" :key="cidx">
-                        <td class="pr-4 text-gray-600">{{ col.name }}</td>
+                        <td class="pe-4 text-gray-600">{{ col.name }}</td>
                         <td class="text-gray-400">{{ col.dtype || 'any' }}</td>
                       </tr>
                       <tr v-if="columnsTruncated(item)">
@@ -78,12 +78,12 @@
               class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50"
               @click="showInstructions = !showInstructions"
             >
-              <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 mr-1" />
-              <Icon name="heroicons-cube" class="w-3 h-3 mr-1 text-indigo-400" />
+              <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
+              <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400" />
               <span class="text-gray-600">{{ relatedInstructions.length }} instruction{{ relatedInstructions.length !== 1 ? 's' : '' }} loaded</span>
             </div>
             <Transition name="fade">
-              <div v-if="showInstructions" class="pl-6 pr-1 pb-1 space-y-0.5">
+              <div v-if="showInstructions" class="ps-6 pe-1 pb-1 space-y-0.5">
                 <div v-for="ins in relatedInstructions" :key="ins.id"
                      class="flex items-center gap-2 text-gray-600 py-0.5 cursor-pointer hover:text-gray-900"
                      @click="emit('openInstruction', ins.id)">

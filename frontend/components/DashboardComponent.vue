@@ -36,7 +36,7 @@
         <div class="relative flex-1 overflow-y-auto dashboard-area bg-white" :style="wrapperStyle">
             <!-- Loading overlay during initial fetch -->
             <div v-if="isLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
-                <Spinner class="mr-2 w-4 h-4" />
+                <Spinner class="me-2 w-4 h-4" />
                 <span class="text-sm text-gray-600">Loading dashboard…</span>
             </div>
             <!-- Gridstack Container -->
@@ -172,7 +172,7 @@
                 <div class="h-full flex flex-col">
                     <!-- Modal Header -->
                      <div class="p-2 flex justify-between items-center border-b ">
-                        <span class="text-sm font-medium text-gray-700 pl-2">Fullscreen View</span>
+                        <span class="text-sm font-medium text-gray-700 ps-2">Fullscreen View</span>
                         <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" class="-my-1" @click="closeModal" />
                     </div>
     

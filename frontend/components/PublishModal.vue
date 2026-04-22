@@ -1,5 +1,5 @@
 <template>
-    <UTooltip :text="isPublished ? 'Published' : 'Publish'">
+    <UTooltip :text="isPublished ? $t('publish.published') : $t('publish.publish')">
         <button @click="publishModalOpen = true"
             :class="[
                 'text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border',
@@ -8,7 +8,7 @@
                     : 'border-gray-200 bg-cyan-100 text-cyan-700'
             ]">
             <Icon name="heroicons:globe-alt" class="w-3.5 h-3.5" />
-            <span class="text-xs">{{ isPublished ? 'Published' : 'Publish' }}</span>
+            <span class="text-xs">{{ isPublished ? $t('publish.published') : $t('publish.publish') }}</span>
         </button>
     </UTooltip>
 
@@ -16,34 +16,34 @@
     <UModal v-model="publishModalOpen">
         <div class="p-4 relative">
             <button @click="publishModalOpen = false"
-                class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
+                class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
-            <h1 class="text-lg font-semibold">Publish Dashboard</h1>
-            <p class="text-sm text-gray-500">Make this dashboard publicly accessible</p>
+            <h1 class="text-lg font-semibold">{{ $t('publish.publishDashboard') }}</h1>
+            <p class="text-sm text-gray-500">{{ $t('publish.publishSubtitle') }}</p>
             <hr class="my-4" />
             <div class="flex flex-row items-center text-sm">
-                Allow public access to this dashboard
-                <UToggle color="sky" :model-value="isPublished" class="ml-2" @update:model-value="publishReport" />
+                {{ $t('publish.allowPublicAccess') }}
+                <UToggle color="sky" :model-value="isPublished" class="ms-2" @update:model-value="publishReport" />
             </div>
             <div class="flex flex-col mt-4 text-sm" v-if="isPublished">
-                <div class="my-2 font-semibold">URL</div>
+                <div class="my-2 font-semibold">{{ $t('publish.url') }}</div>
                 <div class="flex">
                     <input :value="reportUrl" type="text" class="py-2 px-2 border border-gray-200 rounded-md w-[95%]"
                         disabled />
                     <button @click="copyReportUrl"
-                        class="ml-2 bg-gray-50 border border-gray-200 rounded-md px-3 text-xs hover:bg-gray-100 relative">
-                        Copy
+                        class="ms-2 bg-gray-50 border border-gray-200 rounded-md px-3 text-xs hover:bg-gray-100 relative">
+                        {{ $t('publish.copy') }}
                         <span v-if="showTooltip"
-                            class="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 bg-black text-white text-xs rounded py-1 px-2">
-                            Copied!
+                            class="absolute top-full start-1/2 transform -translate-x-1/2 mt-1 bg-black text-white text-xs rounded py-1 px-2">
+                            {{ $t('publish.copied') }}
                         </span>
                     </button>
                 </div>
                 <div v-if="isPublished" class="mt-4 font-normal">
                     <a :href="reportUrl" target="_blank" class="text-blue-500 hover:underline">
                         <Icon name="heroicons:arrow-top-right-on-square" />
-                        View dashboard</a>
+                        {{ $t('publish.viewDashboard') }}</a>
                 </div>
             </div>
             <NotifyRecipientPicker v-if="smtpEnabled && isPublished" :report-id="report.id"
@@ -51,7 +51,7 @@
 
             <div class="border-t border-gray-200 pt-4 mt-8">
                 <button @click="publishModalOpen = false"
-                    class="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-xs hover:bg-gray-100">Close</button>
+                    class="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-xs hover:bg-gray-100">{{ $t('publish.close') }}</button>
             </div>
         </div>
     </UModal>
@@ -60,6 +60,7 @@
 <script lang="ts" setup>
 const publishModalOpen = ref(false);
 const toast = useToast();
+const { t } = useI18n();
 const { smtpEnabled } = useAppSettings();
 const props = defineProps<{
     report: any
@@ -77,15 +78,15 @@ const publishReport = async (newValue: boolean) => {
     if (response.status.value === 'success') {
         report.value.status = newValue ? 'published' : 'draft';
         toast.add({
-            title: 'Dashboard published',
-            description: `Your dashboard is now ${newValue ? 'public' : 'private'}`,
+            title: t('publish.dashboardPublished'),
+            description: newValue ? t('publish.nowPublic') : t('publish.nowPrivate'),
             color: 'green',
         })
     }
     else {
         toast.add({
-            title: 'Error',
-            description: 'Failed to publish dashboard',
+            title: t('common.error'),
+            description: t('publish.publishFailed'),
             color: 'red',
         })
     }
@@ -118,8 +119,8 @@ const copyReportUrl = async () => {
             }, 2000);
         } catch {
             toast.add({
-                title: 'Error',
-                description: 'Failed to copy to clipboard',
+                title: t('common.error'),
+                description: t('publish.copyClipboardFailed'),
                 color: 'red',
             });
         }

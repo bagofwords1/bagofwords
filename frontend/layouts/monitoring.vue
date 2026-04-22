@@ -1,12 +1,12 @@
 <template>
     <NuxtLayout name="default">
-        <div class="flex justify-center pl-2 md:pl-4 text-sm">
-            <div class="w-full max-w-7xl px-4 pl-0 py-2">
+        <div class="flex justify-center ps-2 md:ps-4 text-sm">
+            <div class="w-full max-w-7xl px-4 ps-0 py-2">
                 <div>
                     <h1 class="text-lg font-semibold">
-                        Monitoring
+                        {{ $t('monitoring.title') }}
                     </h1>
-                    
+
                     <!-- Tabs navigation -->
                     <div class="border-b border-gray-200 mt-6">
                         <nav class=" flex space-x-8">
@@ -21,8 +21,8 @@
                                     'whitespace-nowrap border-b-2 py-2 px-2 text-sm font-medium flex items-center space-x-2'
                                 ]"
                             >
-                                <Icon :name="tab.icon" class="w-4 mr-1" />
-                                <span>{{ tab.label }}</span>
+                                <Icon :name="tab.icon" class="w-4 me-1" />
+                                <span>{{ $t(tab.label) }}</span>
                             </NuxtLink>
                         </nav>
                     </div>
@@ -44,8 +44,8 @@ const currentPath = computed(() => route.path)
 // All available tabs. Visibility mirrors the page-level gate: anyone with
 // `manage` on at least one data source can see the monitoring tabs.
 const allTabs = [
-    { name: '', label: 'Explore', icon: 'i-heroicons-chart-bar' },
-    { name: 'diagnosis', label: 'Diagnosis', icon: 'i-heroicons-wrench' },
+    { name: '', label: 'monitoring.tabExplore', icon: 'i-heroicons-chart-bar' },
+    { name: 'diagnosis', label: 'monitoring.tabDiagnosis', icon: 'i-heroicons-wrench' },
 ]
 
 const visibleTabs = computed(() => {

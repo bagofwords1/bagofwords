@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions
+from app.errors import AppError, ErrorCode
 
 from app.models.entity import Entity
 from app.schemas.entity_schema import (
@@ -107,7 +108,7 @@ async def get_entity(
 ):
     entity = await service.get_entity(db, entity_id, organization, current_user)
     if not entity:
-        raise HTTPException(status_code=404, detail="Entity not found or access denied")
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found or access denied")
     return EntitySchema.model_validate(entity)
 
 
@@ -124,7 +125,7 @@ async def update_entity(
     per-DS `create_entities` grant on every attached DS (existing + new)."""
     existing = await service.get_entity(db, entity_id, organization, current_user)
     if not existing:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
     if existing_ds_ids:
         await check_resource_permissions(
@@ -138,7 +139,7 @@ async def update_entity(
         )
     entity = await service.update_entity(db, entity_id, payload, organization, current_user)
     if not entity:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     return EntitySchema.model_validate(entity)
 
 
@@ -152,7 +153,7 @@ async def delete_entity(
 ):
     existing = await service.get_entity(db, entity_id, organization, current_user)
     if not existing:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
     if existing_ds_ids:
         await check_resource_permissions(
@@ -161,7 +162,7 @@ async def delete_entity(
         )
     ok = await service.delete_entity(db, entity_id, organization)
     if not ok:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     return {"message": "Entity deleted successfully"}
 
 
@@ -278,7 +279,7 @@ async def approve_suggestion(
         current_user
     )
     if not entity:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     return EntitySchema.model_validate(entity)
 
 
@@ -300,7 +301,7 @@ async def reject_suggestion(
         current_user
     )
     if not entity:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     return EntitySchema.model_validate(entity)
 
 

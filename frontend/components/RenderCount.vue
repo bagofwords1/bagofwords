@@ -1,5 +1,5 @@
 <template>
-    <div class="pt-0 pl-2">
+    <div class="pt-0 ps-2">
         <div v-if="hasRows" class="text-2xl font-bold mt-2">
             {{ formattedValue }}
         </div>

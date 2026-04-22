@@ -2,26 +2,26 @@
   <div class="w-full p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 bg-white">
     <div class="flex items-center gap-2">
       <div class="space-x-0">
-        <UTooltip text="Collapse">
+        <UTooltip :text="$t('toolbar.collapse')">
           <button @click="$emit('toggleSplitScreen')" class="text-xs items-center flex hover:bg-gray-100 px-0 py-1 rounded">
             <Icon name="heroicons:x-mark" class="w-4 h-4" />
           </button>
         </UTooltip>
       </div>
-      <UTooltip v-if="!props.hideArtifactSwitch" text="Switch to Artifact view">
+      <UTooltip v-if="!props.hideArtifactSwitch" :text="$t('toolbar.switchToArtifact')">
         <button @click="$emit('toggleArtifactView')" class="font-medium text-gray-700 hover:text-blue-600 flex items-center gap-1">
-          Dashboard
+          {{ $t('toolbar.dashboard') }}
           <Icon name="heroicons:code-bracket" class="w-3.5 h-3.5 opacity-50" />
         </button>
       </UTooltip>
-      <span v-else class="font-medium text-gray-700">Dashboard</span>
+      <span v-else class="font-medium text-gray-700">{{ $t('toolbar.dashboard') }}</span>
     </div>
 
     <div class="space-x-2 flex items-center">
 
 
       <UPopover v-if="edit" v-model="showAddMenu" :popper="{ placement: 'bottom-start' }">
-        <UTooltip text="Add Component">
+        <UTooltip :text="$t('toolbar.addComponent')">
         <button class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
           <Icon name="heroicons:plus" />
         </button>
@@ -29,7 +29,7 @@
         <template #panel>
           <div class="p-1 min-w-[160px]">
               <UButton size="xs" color="gray" variant="ghost" icon="i-heroicons-plus-circle" class="w-full justify-start" @click="emitAddText">
-                Add Text
+                {{ $t('toolbar.addText') }}
               </UButton>
           </div>
         </template>
@@ -45,7 +45,7 @@
       />
 
       <UPopover v-model="showThemeMenu" :popper="{ placement: 'bottom-start' }">
-        <UTooltip text="Theme">
+        <UTooltip :text="$t('toolbar.theme')">
           <button class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded" type="button">
             <Icon name="heroicons:paint-brush" />
           </button>
@@ -68,7 +68,7 @@
         </template>
       </UPopover>
 
-      <UTooltip text="Rerun report">
+      <UTooltip :text="$t('toolbar.rerun')">
         <button @click="$emit('rerun')" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
           <Icon name="heroicons:play" />
         </button>
@@ -76,19 +76,19 @@
 
       <CronModal :report="report" />
 
-      <UTooltip text="Open dashboard in a new tab" v-if="report?.status === 'published'">
+      <UTooltip :text="$t('toolbar.openInNewTab')" v-if="report?.status === 'published'">
         <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
           <Icon name="heroicons:arrow-top-right-on-square" />
         </a>
       </UTooltip>
 
-      <UTooltip text="Full screen">
+      <UTooltip :text="$t('toolbar.fullscreen')">
         <button @click="$emit('openFullscreen')" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
           <Icon name="heroicons:arrows-pointing-out" />
         </button>
       </UTooltip>
 
-      <ShareModal :report="report" share-type="artifact" title="Share Dashboard" compact />
+      <ShareModal :report="report" share-type="artifact" :title="$t('toolbar.shareDashboard')" compact />
     </div>
   </div>
 </template>

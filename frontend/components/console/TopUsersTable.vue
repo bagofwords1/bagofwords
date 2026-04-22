@@ -15,8 +15,8 @@
                 <table class="min-w-full">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Messages</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Messages</th>
                             <!-- Remove Trend column -->
                         </tr>
                     </thead>
@@ -29,7 +29,7 @@
                                             <span class="text-white text-sm font-medium">{{ user.name.charAt(0) }}</span>
                                         </div>
                                     </div>
-                                    <div class="ml-4">
+                                    <div class="ms-4">
                                         <div class="text-sm font-medium text-gray-900">{{ user.name }}</div>
                                         <div class="text-sm text-gray-500">{{ user.role || 'Member' }}</div>
                                     </div>

@@ -19,8 +19,8 @@
                 <table class="min-w-full table-fixed">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="w-3/4 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Content</th>
-                            <th class="w-1/4 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Issue Type</th>
+                            <th class="w-3/4 px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Content</th>
+                            <th class="w-1/4 px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Issue Type</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">

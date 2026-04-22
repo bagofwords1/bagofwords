@@ -262,6 +262,7 @@ class ScheduledPromptService:
 
             # Send notification
             if sp.notification_subscribers:
+                from app.dependencies import _locale_from_org
                 base_url = getattr(settings.bow_config, 'base_url', 'http://localhost:3000') if settings.bow_config else 'http://localhost:3000'
                 report_url = f"{base_url}/reports/{report.id}"
                 asyncio.create_task(
@@ -271,6 +272,7 @@ class ScheduledPromptService:
                         subscribers=sp.notification_subscribers,
                         report_url=report_url,
                         exec_summary=exec_summary,
+                        locale=_locale_from_org(organization),
                     )
                 )
 

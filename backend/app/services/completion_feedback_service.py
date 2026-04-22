@@ -592,7 +592,7 @@ class CompletionFeedbackService:
             from app.services.llm_service import LLMService
             llm_service = LLMService()
             small_model = await llm_service.get_default_model(db, organization, user, is_small=True)
-            suggest_agent = SuggestInstructions(model=small_model)
+            suggest_agent = SuggestInstructions(model=small_model, organization_settings=org_settings)
             
             # Generate suggestions
             suggestions = []

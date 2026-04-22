@@ -62,3 +62,42 @@ Concise overview of `@frontend/` (Nuxt 3 SPA) with structure, key building block
 3. Apply route guards using `middleware` if the feature requires auth/permissions/onboarding.
 4. Wire WebSocket features to `runtimeConfig.public.wsURL` when needed.
 5. Add/adjust e2e tests under `frontend/tests` and Playwright config as needed.
+
+### Locale / i18n
+
+- **Library**: `vue-i18n@9` in composition mode (`legacy: false`). Plugin at
+  `plugins/i18n.ts` imports the three catalogs at `/locales/{en,es,he}.json`,
+  creates the global instance, and exposes `$setLocale(code)` via
+  `nuxtApp.provide`. It also sets `<html lang>` and `<html dir>` (RTL for
+  `he`/`ar`/`fa`/`ur`).
+- **Catalog authoring**: always add the same key path to en/es/he in one
+  pass. A catalog sync check (`docs/design/i18n.md`) enforces identical
+  shape across locales. Use named interpolation (`t('key', { name })`) —
+  never concatenation.
+- **In templates**: `$t('ns.key')` or `:placeholder="$t(...)"`. For inline
+  markup, use `<i18n-t keypath="..." tag="span">` with named slots.
+- **In `<script setup>`**: `const { t, locale } = useI18n()`. Wrap
+  locale-reactive label/option arrays in `computed(() => [...])` so
+  `USelectMenu` etc. relocalize on language switch.
+- **Hydration flow**: `layouts/default.vue` calls
+  `GET /api/organization/locale` via `useMyFetch` after mount and applies
+  `effective_locale` only when `localStorage.bow.locale` is unset. The
+  picker in `pages/settings/general.vue` PUTs to the same endpoint and
+  calls `$setLocale` so the admin sees the flip immediately.
+- **Error messages**: `composables/useErrorMessage.ts` reads
+  `error_code` / `params` from an `AppError` response and resolves to
+  `t('errors.<error_code>', params)`, falling back to the server-provided
+  `detail` if no catalog entry matches.
+- **RTL**: prefer Tailwind logical properties (`ms-*`, `me-*`, `ps-*`,
+  `pe-*`, `start-*`, `end-*`) over physical (`ml-*`, `pl-*`, `left-*`).
+  Global directional-icon flip and third-party overrides (notably
+  `markstream-vue`'s hard-coded `padding-left` on list markers) live in
+  `assets/css/rtl.css`. Opt out on a specific element with `rtl-no-flip`.
+  Never use `dir="auto"` on empty contenteditable — it resolves to LTR
+  per spec; bind `:dir` to the active locale instead.
+- **Tests**: `tests/i18n/locale-sweep.spec.ts` (run with
+  `playwright.i18n.config.ts`) covers en/es/he on unauthenticated pages
+  (`/i18n-smoke`, `/users/sign-in`) — asserts `html[lang]`/`html[dir]` flip,
+  expected strings render, no `{{…}}` or unresolved key paths leak, no
+  `[intlify]` console warnings. Keep this green when adding locales or
+  catalog entries.

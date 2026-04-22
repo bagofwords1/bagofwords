@@ -1,7 +1,7 @@
 <template>
 
   <div class="min-h-screen py-10 px-4 md:w-1/2 mx-auto text-sm">
-      <div class="w-full px-4 pl-0 py-4">
+      <div class="w-full px-4 ps-0 py-4">
       <div>
         <h1 class="text-lg font-semibold text-center">Select Tables</h1>
         <p class="mt-4 text-gray-500 text-center">Choose 5-20 related tables for this domain. You can always add more later.</p>

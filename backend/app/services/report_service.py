@@ -612,6 +612,7 @@ class ReportService:
         if report_orm and report_orm.notification_subscribers:
             from app.services.notification_service import notification_service
             from app.settings.config import settings as app_settings
+            from app.dependencies import _locale_from_org
             report_url = f"{app_settings.bow_config.base_url}/r/{report_id}"
             asyncio.create_task(
                 notification_service.send_scheduled_report_results(
@@ -619,6 +620,7 @@ class ReportService:
                     report_title=report_orm.title or "Untitled Report",
                     subscribers=report_orm.notification_subscribers,
                     report_url=report_url,
+                    locale=_locale_from_org(organization),
                 )
             )
 

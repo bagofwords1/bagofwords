@@ -4,8 +4,8 @@
     <div class="flex-1 flex items-center justify-center p-4 relative min-h-0">
       <!-- Loading state -->
       <div v-if="loading" class="flex items-center justify-center text-slate-400">
-        <Icon name="heroicons:arrow-path" class="w-6 h-6 animate-spin mr-2" />
-        <span>Loading slides...</span>
+        <Icon name="heroicons:arrow-path" class="w-6 h-6 animate-spin me-2" />
+        <span>{{ $t('slideViewer.loading') }}</span>
       </div>
 
       <!-- Error state -->
@@ -17,14 +17,14 @@
       <!-- No previews state -->
       <div v-else-if="previewUrls.length === 0" class="flex flex-col items-center justify-center text-slate-400">
         <Icon name="heroicons:photo" class="w-12 h-12 mb-3 opacity-50" />
-        <span>No preview images available</span>
+        <span>{{ $t('slideViewer.noPreviews') }}</span>
       </div>
 
       <!-- Slide image -->
       <img
         v-else
         :src="currentSlideUrl"
-        :alt="`Slide ${currentSlide + 1}`"
+        :alt="$t('slideViewer.slideAlt', { n: currentSlide + 1 })"
         class="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
         @load="onImageLoad"
         @error="onImageError"
@@ -35,7 +35,7 @@
         v-if="previewUrls.length > 1"
         @click="prevSlide"
         :disabled="currentSlide === 0"
-        class="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+        class="absolute start-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
       >
         <Icon name="heroicons:chevron-left" class="w-6 h-6" />
       </button>
@@ -43,7 +43,7 @@
         v-if="previewUrls.length > 1"
         @click="nextSlide"
         :disabled="currentSlide >= slideCount - 1"
-        class="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+        class="absolute end-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/30 hover:bg-black/50 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
       >
         <Icon name="heroicons:chevron-right" class="w-6 h-6" />
       </button>
@@ -71,7 +71,7 @@
         >
           <img
             :src="url"
-            :alt="`Thumbnail ${index + 1}`"
+            :alt="$t('slideViewer.thumbAlt', { n: index + 1 })"
             class="w-full h-full object-cover"
           />
         </button>
@@ -84,6 +84,7 @@
 const config = useRuntimeConfig();
 const { token } = useAuth();
 const { organization, ensureOrganization } = useOrganization();
+const { t } = useI18n();
 
 const props = defineProps<{
   artifactId: string;
@@ -128,7 +129,7 @@ async function fetchPreviews() {
     const { data, error: fetchError } = await useMyFetch(`/api/artifacts/${props.artifactId}/previews`);
 
     if (fetchError.value) {
-      throw new Error(fetchError.value.message || 'Failed to fetch previews');
+      throw new Error(fetchError.value.message || t('slideViewer.fetchPreviewsFailed'));
     }
 
     if (data.value && data.value.previews && data.value.previews.length > 0) {
@@ -168,7 +169,7 @@ async function fetchPreviews() {
     }
   } catch (e: any) {
     console.error('Failed to fetch slide previews:', e);
-    error.value = e.message || 'Failed to load previews';
+    error.value = e.message || t('slideViewer.loadFailed');
     previewUrls.value = [];
   } finally {
     loading.value = false;
@@ -196,7 +197,7 @@ function onImageLoad() {
 }
 
 function onImageError() {
-  error.value = 'Failed to load slide image';
+  error.value = t('slideViewer.imageLoadFailed');
 }
 
 // Keyboard navigation

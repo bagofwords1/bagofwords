@@ -1,0 +1,152 @@
+/*
+ * RTL adjustments — sit on top of Tailwind's logical-property utilities.
+ *
+ * 1) space-x-* and divide-x-* use physical X axis; under RTL we reverse the
+ *    gap direction so children visually flow start→end.
+ * 2) Code / data surfaces stay LTR regardless of document direction: Monaco
+ *    (editor), ag-grid cells, and any <pre>/<code> blocks. SQL, identifiers,
+ *    and generated JS/HTML artifacts are always read left-to-right.
+ * 3) Direction-sensitive icons (chevrons/arrows inside buttons) flip under RTL.
+ */
+
+/* 1. Reverse x-axis spacing and dividers in RTL. */
+[dir="rtl"] .space-x-0 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-0\.5 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-1 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-1\.5 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-2 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-2\.5 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-3 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-4 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-5 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-6 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-8 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-10 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .space-x-12 > :not([hidden]) ~ :not([hidden]),
+[dir="rtl"] .divide-x > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 1;
+  --tw-divide-x-reverse: 1;
+}
+
+/* 2. Force LTR for code-shaped surfaces. Artifacts / editors output English
+ *    code whose visual ordering must not flip. */
+[dir="rtl"] .monaco-editor,
+[dir="rtl"] .monaco-editor *,
+[dir="rtl"] .ag-root,
+[dir="rtl"] .ag-root *,
+[dir="rtl"] pre,
+[dir="rtl"] code,
+[dir="rtl"] kbd,
+[dir="rtl"] samp,
+[dir="rtl"] .force-ltr,
+[dir="rtl"] .force-ltr * {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+
+/* 3. Flip chevrons / arrows that belong to directional affordances. Apply by
+ *    adding `rtl-flip` to the icon element. */
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
+/* 4. Bullet / numbered list indentation. Browser default is padding-left,
+ *    which leaves the bullets hanging on the LTR edge under RTL. Use the
+ *    logical property so the markers sit on the start edge regardless. */
+[dir="rtl"] ul,
+[dir="rtl"] ol {
+  padding-inline-start: 2rem;
+  padding-inline-end: 0;
+}
+
+/* 5. ProseMirror / markdown-rendered content: lists inside our prose
+ *    blocks already carry `list-inside` or custom padding. Keep their
+ *    marker on the start edge too. */
+[dir="rtl"] .prose ul,
+[dir="rtl"] .prose ol {
+  padding-inline-start: 1.5rem;
+  padding-inline-end: 0;
+}
+
+/* 6. Auto-flip directional heroicons under RTL.
+ *
+ *    Heroicons render as <svg> with no intrinsic direction handling, so
+ *    every chevron-left, chevron-right, arrow-left, arrow-right etc. stays
+ *    pointing the same physical direction regardless of <html dir>. That's
+ *    wrong almost 100% of the time — these icons are used as directional
+ *    affordances (back, forward, expand, pagination). Flipping by default
+ *    and letting non-directional uses opt OUT via `.rtl-no-flip` is far
+ *    cheaper than adding `rtl-flip` to 100+ call sites.
+ *
+ *    The @nuxt/icon module renders each icon as `<span class="iconify
+ *    heroicons--chevron-left">` (or with the `name` passed through), and
+ *    we also see usages of `i-heroicons-chevron-left` / `i-heroicons:…`
+ *    Tailwind-style aliases. Cover all three forms. */
+[dir="rtl"] .iconify.heroicons--chevron-left,
+[dir="rtl"] .iconify.heroicons--chevron-right,
+[dir="rtl"] .iconify.heroicons--chevron-double-left,
+[dir="rtl"] .iconify.heroicons--chevron-double-right,
+[dir="rtl"] .iconify.heroicons--arrow-left,
+[dir="rtl"] .iconify.heroicons--arrow-right,
+[dir="rtl"] .iconify.heroicons--arrow-long-left,
+[dir="rtl"] .iconify.heroicons--arrow-long-right,
+[dir="rtl"] .iconify.heroicons--arrow-small-left,
+[dir="rtl"] .iconify.heroicons--arrow-small-right,
+[dir="rtl"] .iconify.heroicons--arrow-up-left,
+[dir="rtl"] .iconify.heroicons--arrow-up-right,
+[dir="rtl"] .iconify.heroicons--arrow-uturn-left,
+[dir="rtl"] .iconify.heroicons--arrow-uturn-right,
+[dir="rtl"] .i-heroicons-chevron-left,
+[dir="rtl"] .i-heroicons-chevron-right,
+[dir="rtl"] .i-heroicons-arrow-left,
+[dir="rtl"] .i-heroicons-arrow-right,
+[dir="rtl"] .i-heroicons-arrow-long-right,
+[dir="rtl"] .i-heroicons-arrow-small-right,
+[dir="rtl"] .i-heroicons-arrow-up-right {
+  transform: scaleX(-1);
+}
+/* Escape hatch: add `rtl-no-flip` to an icon that happens to use one of
+ * the classes above but is NOT directional (e.g. a decorative arrow in a
+ * logo). */
+[dir="rtl"] .rtl-no-flip {
+  transform: none !important;
+}
+
+/* 7. markstream-vue (the chat-message markdown renderer) ships its OWN CSS
+ *    with physical `padding-left` on list elements and `text-left/right`
+ *    utility classes. Under RTL those don't flip, so list markers render
+ *    on the left (wrong edge) and text is force-aligned LTR. Override by
+ *    swapping physical → logical on the library's scope.
+ *    This is why a previous "fix the markdown CSS" pass didn't help: the
+ *    offending rules don't live in our codebase at all. */
+[dir="rtl"] .markstream-vue ol,
+[dir="rtl"] .markstream-vue ul,
+[dir="rtl"] .markstream-vue .list-decimal,
+[dir="rtl"] .markstream-vue .list-disc {
+  padding-left: 0 !important;
+  padding-right: 1.625em !important;
+}
+[dir="rtl"] .markstream-vue .text-left { text-align: start; }
+[dir="rtl"] .markstream-vue .text-right { text-align: end; }
+
+/* 7b. Mixed-locale markdown: UI locale is LTR but the assistant answered
+ *     in Hebrew/Arabic (or vice-versa). Text alignment works because each
+ *     innermost <p dir="auto"> resolves independently, but the <li>/<ol>
+ *     around it can't see through nested `dir="auto"` descendants per the
+ *     HTML spec's auto-directionality algorithm — so markers stay on the
+ *     LTR edge. There is no pure-CSS fix (`:dir()` follows the same spec
+ *     rule). The `useMarkdownAutoDir` composable scans textContent itself
+ *     and sets an explicit `dir="rtl"` / `dir="ltr"` on every ol/ul/li
+ *     inside `.markdown-wrapper`; these rules swap padding to the correct
+ *     edge based on that attribute regardless of the document direction. */
+.markdown-wrapper ol[dir="rtl"],
+.markdown-wrapper ul[dir="rtl"] {
+  padding-left: 0 !important;
+  padding-right: 1.625em !important;
+}
+.markdown-wrapper ol[dir="ltr"],
+.markdown-wrapper ul[dir="ltr"] {
+  padding-left: 1.625em !important;
+  padding-right: 0 !important;
+}

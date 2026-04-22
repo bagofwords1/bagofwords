@@ -14,7 +14,7 @@
       >
         <template #default>
           <span class="text-base font-medium text-gray-900">{{ selectedLabel }}</span>
-          <UIcon name="i-heroicons-chevron-down-20-solid" class="w-5 h-5 text-gray-400 ml-1" />
+          <UIcon name="i-heroicons-chevron-down-20-solid" class="w-5 h-5 text-gray-400 ms-1" />
         </template>
       </USelectMenu>
       <NuxtLink to="/reports" class="text-sm text-blue-600 hover:text-blue-800 hover:underline">

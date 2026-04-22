@@ -3,7 +3,7 @@
     <!-- Agent selector dropdown -->
     <div class="px-4 pt-4 pb-2 flex-shrink-0 bg-gradient-to-b from-indigo-50/40 to-transparent">
       <div v-if="agents.length === 0" class="text-xs text-gray-400 italic text-center py-4">
-        No agents attached to this report
+        {{ $t('reportAgent.noAgents') }}
       </div>
       <div v-else-if="agents.length === 1" class="flex items-center gap-2">
         <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 p-1 rounded">
@@ -22,8 +22,8 @@
           class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors bg-white/80"
         >
           <DataSourceIcon v-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" class="h-5 flex-shrink-0" />
-          <span class="truncate flex-1 text-left font-medium text-gray-900">
-            {{ selectedAgent?.name || 'Select agent' }}
+          <span class="truncate flex-1 text-start font-medium text-gray-900">
+            {{ selectedAgent?.name || $t('reportAgent.selectAgent') }}
           </span>
           <Icon name="heroicons:chevron-down" class="w-4 h-4 text-gray-400 flex-shrink-0 transition-transform" :class="{ 'rotate-180': dropdownOpen }" />
         </button>
@@ -44,7 +44,7 @@
               :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'"
             >
               <DataSourceIcon :type="agent.type || agent.connections?.[0]?.type" class="h-4 flex-shrink-0" />
-              <span class="truncate flex-1 text-left font-medium">{{ agent.name }}</span>
+              <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
               <Icon v-if="selectedAgentId === agent.id" name="heroicons:check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             </button>
           </div>
@@ -68,7 +68,7 @@
           ]"
         >
           {{ tab.label }}
-          <span v-if="tab.count > 0" class="ml-1 text-[10px] text-gray-400">({{ tab.count }})</span>
+          <span v-if="tab.count > 0" class="ms-1 text-[10px] text-gray-400">({{ tab.count }})</span>
         </button>
       </nav>
     </div>
@@ -92,8 +92,8 @@
               @click="closeInstructionForm"
               class="flex items-center gap-1 px-4 pt-3 pb-2 text-xs text-gray-500 hover:text-gray-700 flex-shrink-0"
             >
-              <Icon name="heroicons:chevron-left" class="w-3 h-3" />
-              All Instructions
+              <Icon name="heroicons:chevron-left" class="w-3 h-3 rtl-flip" />
+              {{ $t('reportAgent.allInstructions') }}
             </button>
             <!-- Unpublished-build warning banner (edit mode only) -->
             <div
@@ -104,15 +104,15 @@
               <div class="flex-1 min-w-0">
                 <div class="text-[11px] text-amber-800">
                   {{ selectedInstruction.current_build_status === 'draft'
-                    ? 'This instruction is part of an unpublished draft build.'
-                    : 'This instruction is part of a build pending review.' }}
+                    ? $t('reportAgent.unpublishedDraft')
+                    : $t('reportAgent.pendingReview') }}
                 </div>
                 <button
                   v-if="canViewBuilds"
                   @click="openBuildExplorer(selectedInstruction.current_build_id)"
                   class="mt-0.5 text-[11px] text-amber-700 hover:text-amber-900 underline"
                 >
-                  View changes
+                  {{ $t('reportAgent.viewChanges') }}
                 </button>
               </div>
             </div>
@@ -132,12 +132,12 @@
               <!-- Filters -->
               <div class="flex flex-col gap-2 mb-3">
                 <div class="relative">
-                  <Icon name="heroicons:magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                  <Icon name="heroicons:magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
                   <input
                     v-model="instructionSearch"
                     type="text"
-                    placeholder="Search..."
-                    class="w-full pl-7 pr-2 py-1.5 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300"
+                    :placeholder="$t('reportAgent.searchPlaceholder')"
+                    class="w-full ps-7 pe-2 py-1.5 text-[11px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300"
                   />
                 </div>
                 <div class="flex items-center gap-2">
@@ -147,16 +147,16 @@
                       @click.stop="statusDropdownOpen = !statusDropdownOpen"
                       class="flex items-center gap-1 text-[11px] border border-gray-200 rounded-md py-1 px-2 text-gray-600 hover:bg-gray-50 bg-white"
                     >
-                      <span v-if="instructionStatusFilter.length === 0">All statuses</span>
+                      <span v-if="instructionStatusFilter.length === 0">{{ $t('reportAgent.allStatuses') }}</span>
                       <span v-else class="truncate max-w-[100px]">{{ instructionStatusFilter.map(s => helpers.formatStatus(s)).join(', ') }}</span>
                       <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': statusDropdownOpen }" />
                     </button>
-                    <div v-if="statusDropdownOpen" class="absolute z-20 mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[120px]">
+                    <div v-if="statusDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[120px]">
                       <button
                         v-for="s in instructionStatuses"
                         :key="s"
                         @click.stop="toggleStatusFilter(s)"
-                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-left"
+                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
                       >
                         <span
                           class="w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0"
@@ -169,9 +169,9 @@
                       <button
                         v-if="instructionStatusFilter.length > 0"
                         @click.stop="instructionStatusFilter = []"
-                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-left font-medium"
+                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-start font-medium"
                       >
-                        Clear all
+                        {{ $t('reportAgent.clearAll') }}
                       </button>
                     </div>
                   </div>
@@ -181,16 +181,16 @@
                       @click.stop="categoryDropdownOpen = !categoryDropdownOpen"
                       class="flex items-center gap-1 text-[11px] border border-gray-200 rounded-md py-1 px-2 text-gray-600 hover:bg-gray-50 bg-white"
                     >
-                      <span v-if="instructionCategoryFilter.length === 0">All categories</span>
+                      <span v-if="instructionCategoryFilter.length === 0">{{ $t('reportAgent.allCategories') }}</span>
                       <span v-else class="truncate max-w-[100px]">{{ instructionCategoryFilter.map(c => helpers.formatCategory(c)).join(', ') }}</span>
                       <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': categoryDropdownOpen }" />
                     </button>
-                    <div v-if="categoryDropdownOpen" class="absolute z-20 mt-1 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[140px]">
+                    <div v-if="categoryDropdownOpen" class="absolute z-20 mt-1 start-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden min-w-[140px]">
                       <button
                         v-for="cat in instructionCategories"
                         :key="cat"
                         @click.stop="toggleCategoryFilter(cat)"
-                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-left"
+                        class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
                       >
                         <span
                           class="w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0"
@@ -203,9 +203,9 @@
                       <button
                         v-if="instructionCategoryFilter.length > 0"
                         @click.stop="instructionCategoryFilter = []"
-                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-left font-medium"
+                        class="w-full px-2.5 py-1.5 text-[11px] text-indigo-600 hover:bg-indigo-50 border-t border-gray-100 text-start font-medium"
                       >
-                        Clear all
+                        {{ $t('reportAgent.clearAll') }}
                       </button>
                     </div>
                   </div>
@@ -214,28 +214,28 @@
                     size="xs"
                     color="blue"
                     icon="i-heroicons-plus"
-                    class="ml-auto"
+                    class="ms-auto"
                     @click="creatingInstruction = true"
                   >
-                    {{ canCreateInstructions ? 'Create' : 'Suggest' }}
+                    {{ canCreateInstructions ? $t('reportAgent.create') : $t('reportAgent.suggest') }}
                   </UButton>
                 </div>
               </div>
 
               <!-- List -->
-              <div v-if="instructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No instructions found</div>
-              <div v-else-if="filteredInstructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No matching instructions</div>
+              <div v-if="instructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noInstructions') }}</div>
+              <div v-else-if="filteredInstructions.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noMatching') }}</div>
               <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
                 <button
                   v-for="inst in filteredInstructions"
                   :key="inst.id"
                   @click="selectedInstruction = inst"
-                  class="w-full px-3 py-2.5 text-left text-xs flex items-start gap-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                  class="w-full px-3 py-2.5 text-start text-xs flex items-start gap-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
                 >
                   <div class="flex-1 min-w-0">
                     <!-- Title or text preview -->
                     <div class="flex items-center gap-1.5">
-                      <span class="truncate text-gray-800 font-medium text-xs">{{ inst.title || inst.text?.slice(0, 60) || 'Untitled' }}</span>
+                      <span class="truncate text-gray-800 font-medium text-xs">{{ inst.title || inst.text?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
                     </div>
                     <!-- Text preview if title exists -->
                     <p v-if="inst.title && inst.text" class="text-[11px] text-gray-500 truncate mt-0.5 leading-snug">{{ inst.text.slice(0, 80) }}</p>
@@ -250,7 +250,7 @@
                       </template>
                       <span v-else class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-purple-50 text-[9px] text-purple-600 font-medium border border-purple-100">
                         <Icon name="heroicons:circle-stack" class="w-2.5 h-2.5 text-purple-400 flex-shrink-0" />
-                        Any
+                        {{ $t('reportAgent.any') }}
                       </span>
                       <span
                         :class="helpers.getCategoryClass(inst.category)"
@@ -300,7 +300,7 @@
           :can-update="canUpdateDataSource"
           :show-refresh="false"
           :show-save="canUpdateDataSource"
-          save-label="Save"
+          :save-label="t('reportAgent.save')"
           :show-stats="canUpdateDataSource"
           max-height="calc(100vh - 280px)"
         />
@@ -313,13 +313,13 @@
         </div>
         <template v-else>
           <div v-if="queriesError" class="text-xs text-gray-500">{{ queriesError }}</div>
-          <div v-else-if="queries.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No saved queries found</div>
+          <div v-else-if="queries.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noQueries') }}</div>
           <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
             <a
               v-for="entity in queries"
               :key="entity.id"
               :href="`/queries/${entity.id}`"
-              class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
@@ -345,23 +345,23 @@
         </div>
         <template v-else>
           <div v-if="evalsError" class="text-xs text-gray-500">{{ evalsError }}</div>
-          <div v-else-if="evals.length === 0" class="text-xs text-gray-400 italic py-6 text-center">No evals found for this agent</div>
+          <div v-else-if="evals.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noEvals') }}</div>
           <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
             <a
               v-for="tc in evals"
               :key="tc.id"
               :href="`/evals`"
-              class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+              class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
                   <span class="px-1 py-0.5 text-[9px] rounded border flex-shrink-0 text-amber-700 border-amber-200 bg-amber-50">
-                    {{ tc.suite_name || 'EVAL' }}
+                    {{ tc.suite_name || $t('reportAgent.evalBadge') }}
                   </span>
                   <span class="truncate text-gray-800 font-medium">{{ tc.name || promptPreview(tc.prompt_json) }}</span>
                 </div>
                 <div v-if="tc.expectations_json?.length" class="text-[11px] text-gray-400 truncate mt-0.5">
-                  {{ tc.expectations_json.length }} expectation{{ tc.expectations_json.length > 1 ? 's' : '' }}
+                  {{ tc.expectations_json.length === 1 ? $t('reportAgent.expectationOne', { n: 1 }) : $t('reportAgent.expectationMany', { n: tc.expectations_json.length }) }}
                 </div>
               </div>
             </a>
@@ -385,6 +385,8 @@ import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
 import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   agents: Array<{ id: string; name: string; type?: string; connections?: any[] }>
@@ -526,15 +528,15 @@ const selectedAgent = computed(() => {
 
 // Tab definitions with counts (tables count managed by TablesSelector internally)
 const tabs = computed(() => {
-  const t: Array<{ key: 'instructions' | 'tables' | 'queries' | 'evals'; label: string; count: number }> = [
-    { key: 'instructions', label: 'Instructions', count: instructions.value.length },
-    { key: 'tables', label: 'Tables', count: 0 },
-    { key: 'queries', label: 'Queries', count: queries.value.length },
+  const out: Array<{ key: 'instructions' | 'tables' | 'queries' | 'evals'; label: string; count: number }> = [
+    { key: 'instructions', label: t('reportAgent.tabInstructions'), count: instructions.value.length },
+    { key: 'tables', label: t('reportAgent.tabTables'), count: 0 },
+    { key: 'queries', label: t('reportAgent.tabQueries'), count: queries.value.length },
   ]
   if (canManageTests.value) {
-    t.push({ key: 'evals', label: 'Evals', count: evals.value.length })
+    out.push({ key: 'evals', label: t('reportAgent.tabEvals'), count: evals.value.length })
   }
-  return t
+  return out
 })
 
 const instructions = computed(() => selectedAgentId.value ? (instructionsCache.value[selectedAgentId.value] || []) : [])
@@ -573,14 +575,14 @@ function formatDate(dateStr: string): string {
 }
 
 function promptPreview(promptJson: any): string {
-  if (!promptJson) return 'Untitled'
+  if (!promptJson) return t('reportAgent.untitled')
   if (typeof promptJson === 'string') return promptJson.slice(0, 60)
   if (Array.isArray(promptJson) && promptJson.length > 0) {
     const first = promptJson[0]
     const content = first?.content || first?.text || ''
-    return typeof content === 'string' ? content.slice(0, 60) : 'Untitled'
+    return typeof content === 'string' ? content.slice(0, 60) : t('reportAgent.untitled')
   }
-  return 'Untitled'
+  return t('reportAgent.untitled')
 }
 
 // Close dropdown on outside click
@@ -611,11 +613,11 @@ async function fetchTabData(agentId: string, tab: string) {
         method: 'GET',
         query: { data_source_ids: agentId, include_global: true, limit: 200, include_own: true, include_drafts: true }
       })
-      if (error?.value) { instructionsError.value = 'Failed to load instructions'; return }
+      if (error?.value) { instructionsError.value = t('reportAgent.loadFailInstructions'); return }
       const payload: any = (data as any)?.value
       const agentInstructions = payload?.items || payload || []
       instructionsCache.value[agentId] = agentInstructions
-    } catch { instructionsError.value = 'Failed to load instructions' }
+    } catch { instructionsError.value = t('reportAgent.loadFailInstructions') }
     finally { loading.value = false }
   }
 
@@ -627,11 +629,11 @@ async function fetchTabData(agentId: string, tab: string) {
         method: 'GET',
         query: { data_source_ids: agentId }
       })
-      if (error?.value) { queriesError.value = 'Failed to load queries'; return }
+      if (error?.value) { queriesError.value = t('reportAgent.loadFailQueries'); return }
       const payload: any = (data as any)?.value
       const entities = Array.isArray(payload) ? payload : []
       queriesCache.value[agentId] = entities.filter((e: any) => e.status === 'published' && e.global_status === 'approved')
-    } catch { queriesError.value = 'Failed to load queries' }
+    } catch { queriesError.value = t('reportAgent.loadFailQueries') }
     finally { loading.value = false }
   }
 
@@ -643,14 +645,14 @@ async function fetchTabData(agentId: string, tab: string) {
         method: 'GET',
         query: { data_source_id: agentId, limit: 50 }
       })
-      if (error?.value) { evalsError.value = 'Failed to load evals'; return }
+      if (error?.value) { evalsError.value = t('reportAgent.loadFailEvals'); return }
       const payload: any = (data as any)?.value
       const cases = Array.isArray(payload) ? payload : []
       evalsCache.value[agentId] = cases.filter((c: any) => {
         const dsIds = c.data_source_ids_json || []
         return dsIds.includes(agentId)
       })
-    } catch { evalsError.value = 'Failed to load evals' }
+    } catch { evalsError.value = t('reportAgent.loadFailEvals') }
     finally { loading.value = false }
   }
 }

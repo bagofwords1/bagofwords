@@ -6,11 +6,11 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('schemas')"
       >
-        <Icon :name="expandedSections.has('schemas') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        <Icon :name="expandedSections.has('schemas') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Schemas
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('schemas')" class="ml-2 space-y-2">
+        <div v-if="expandedSections.has('schemas')" class="ms-2 space-y-2">
           <!-- Object-based data sources and tables -->
           <div v-if="dataSources.length" class="space-y-2">
             <div v-for="ds in dataSources" :key="ds.info.id" class="border rounded-md">
@@ -18,11 +18,11 @@
                 <div class="text-xs font-medium text-gray-900">
                   {{ ds.info.name }} <span class="text-gray-500">({{ ds.info.type }})</span>
                   <!-- Usage tracking indicator -->
-                  <span v-if="ds._usage_meta" class="ml-2 text-[9px] px-1 py-0.5 rounded bg-blue-100 text-blue-700">
+                  <span v-if="ds._usage_meta" class="ms-2 text-[9px] px-1 py-0.5 rounded bg-blue-100 text-blue-700">
                     {{ (ds.tables || []).length }} of {{ ds._usage_meta.tables_total }} tables
                   </span>
                 </div>
-                <Icon :name="expandedSections.has('ds:'+ds.info.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
+                <Icon :name="expandedSections.has('ds:'+ds.info.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500 rtl-flip" />
               </div>
               <Transition name="fade">
                 <div v-if="expandedSections.has('ds:'+ds.info.id)" class="px-3 py-2 space-y-1">
@@ -36,7 +36,7 @@
                     <div v-for="tbl in (ds.tables || [])" :key="ds.info.id + ':' + tbl.name" class="py-1">
                       <div class="flex items-center cursor-pointer" @click="toggleSection('tbl:'+ds.info.id+':'+tbl.name)">
                         <div class="text-xs text-gray-900">{{ tbl.name }}</div>
-                        <div class="ml-auto flex items-center gap-3">
+                        <div class="ms-auto flex items-center gap-3">
                           <!-- Score -->
                           <div v-if="tbl.score !== undefined" class="text-[10px] text-gray-500">score: {{ formatScore(tbl.score) }}</div>
                           <!-- Usage total -->
@@ -44,34 +44,34 @@
                           <!-- Success / Failure with icons -->
                           <div v-if="tbl.success_count !== undefined || tbl.failure_count !== undefined" class="flex items-center gap-2">
                             <span class="inline-flex items-center text-[10px] text-gray-700">
-                              <Icon name="heroicons-check-circle" class="w-3 h-3 text-green-600 mr-1" />
+                              <Icon name="heroicons-check-circle" class="w-3 h-3 text-green-600 me-1" />
                               {{ tbl.success_count ?? 0 }}
                             </span>
                             <span class="inline-flex items-center text-[10px] text-gray-700">
-                              <Icon name="heroicons-x-circle" class="w-3 h-3 text-red-600 mr-1" />
+                              <Icon name="heroicons-x-circle" class="w-3 h-3 text-red-600 me-1" />
                               {{ tbl.failure_count ?? 0 }}
                             </span>
                           </div>
                           <!-- Feedback thumbs up/down -->
                           <div v-if="tbl.pos_feedback_count !== undefined || tbl.neg_feedback_count !== undefined" class="flex items-center gap-2">
                             <span class="inline-flex items-center text-[10px] text-gray-700">
-                              <Icon name="heroicons-hand-thumb-up" class="w-3 h-3 text-green-600 mr-1" />
+                              <Icon name="heroicons-hand-thumb-up" class="w-3 h-3 text-green-600 me-1" />
                               {{ tbl.pos_feedback_count ?? 0 }}
                             </span>
                             <span class="inline-flex items-center text-[10px] text-gray-700">
-                              <Icon name="heroicons-hand-thumb-down" class="w-3 h-3 text-red-600 mr-1" />
+                              <Icon name="heroicons-hand-thumb-down" class="w-3 h-3 text-red-600 me-1" />
                               {{ tbl.neg_feedback_count ?? 0 }}
                             </span>
                           </div>
-                          <Icon :name="expandedSections.has('tbl:'+ds.info.id+':'+tbl.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
+                          <Icon :name="expandedSections.has('tbl:'+ds.info.id+':'+tbl.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500 rtl-flip" />
                         </div>
                       </div>
                       <Transition name="fade">
-                        <div v-if="expandedSections.has('tbl:'+ds.info.id+':'+tbl.name)" class="mt-1 pl-2 space-y-2">
+                        <div v-if="expandedSections.has('tbl:'+ds.info.id+':'+tbl.name)" class="mt-1 ps-2 space-y-2">
                           <!-- Full columns display (when available) -->
                           <div v-if="tbl.columns?.length">
                             <div class="text-[11px] text-gray-700">Columns:</div>
-                            <ul class="ml-3 list-disc">
+                            <ul class="ms-3 list-disc">
                               <li v-for="col in (tbl.columns || [])" :key="tbl.name + ':' + col.name" class="text-[11px] text-gray-800">
                                 {{ col.name }}<span v-if="col.dtype" class="text-gray-500"> ({{ col.dtype }})</span>
                               </li>
@@ -80,11 +80,11 @@
                           <!-- Usage tracking mode: only show column count -->
                           <div v-else-if="tbl._usage_meta?.columns_count !== undefined" class="text-[11px] text-gray-600">
                             {{ tbl._usage_meta.columns_count }} columns
-                            <span v-if="tbl._usage_meta.selection_reason" class="ml-2 text-gray-400">({{ tbl._usage_meta.selection_reason }})</span>
+                            <span v-if="tbl._usage_meta.selection_reason" class="ms-2 text-gray-400">({{ tbl._usage_meta.selection_reason }})</span>
                           </div>
                           <div v-if="tableMetrics(tbl).length">
                             <div class="text-[11px] text-gray-700">Metrics:</div>
-                            <ul class="ml-3 list-disc">
+                            <ul class="ms-3 list-disc">
                               <li v-for="m in tableMetrics(tbl)" :key="m.key" class="text-[11px] text-gray-800">
                                 {{ m.label }}: <span class="text-gray-600">{{ m.value }}</span>
                               </li>
@@ -103,31 +103,31 @@
           <div v-else-if="schemasText">
             <div v-for="section in xmlSections" :key="section.tag" class="text-xs">
               <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-1" @click="toggleSection('tag:'+section.tag)">
-                <Icon :name="expandedSections.has('tag:'+section.tag) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                <Icon :name="expandedSections.has('tag:'+section.tag) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                 {{ section.tag }}
-                <span v-if="section.tag === 'schema' && tables.length" class="ml-2 text-[11px] text-gray-400">({{ tables.length }} tables)</span>
+                <span v-if="section.tag === 'schema' && tables.length" class="ms-2 text-[11px] text-gray-400">({{ tables.length }} tables)</span>
               </div>
               <Transition name="fade">
-                <div v-if="expandedSections.has('tag:'+section.tag) && section.tag !== 'schema'" class="ml-3">
+                <div v-if="expandedSections.has('tag:'+section.tag) && section.tag !== 'schema'" class="ms-3">
                   <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ section.content.trim() }}</pre>
                 </div>
               </Transition>
               <Transition name="fade">
-                <div v-if="expandedSections.has('tag:'+section.tag) && section.tag === 'schema'" class="ml-2 space-y-2">
+                <div v-if="expandedSections.has('tag:'+section.tag) && section.tag === 'schema'" class="ms-2 space-y-2">
                   <div v-for="t in tables" :key="t.name">
                     <div class="flex items-center flex-wrap gap-x-2 cursor-pointer text-[11px] uppercase tracking-wide text-gray-500" @click="toggleSection('table:'+t.name)">
-                      <Icon :name="expandedSections.has('table:'+t.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                      <Icon :name="expandedSections.has('table:'+t.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                       <span class="inline-flex items-center">
-                        <span :class="['inline-block w-2.5 h-2.5 rounded-full mr-1', scoreDotClass(t.metrics?.score)]"></span>
+                        <span :class="['inline-block w-2.5 h-2.5 rounded-full me-1', scoreDotClass(t.metrics?.score)]"></span>
                         <span class="font-medium">{{ t.name }}</span>
-                        <span class="ml-2 text-gray-400 normal-case">(
+                        <span class="ms-2 text-gray-400 normal-case">(
                           {{ t.columns?.length || 0 }} columns
                           <template v-if="t.metrics && t.metrics.score !== undefined">, score: {{ formatScore(t.metrics.score) }}</template>
                         )</span>
                       </span>
                     </div>
                     <Transition name="fade">
-                      <div v-if="expandedSections.has('table:'+t.name)" class="ml-4 mt-1 space-y-1">
+                      <div v-if="expandedSections.has('table:'+t.name)" class="ms-4 mt-1 space-y-1">
                         <div v-if="t.columns?.length">
                           <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Columns</div>
                           <div class="grid grid-cols-1 gap-1">
@@ -164,21 +164,21 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('instructions')"
       >
-        <Icon :name="expandedSections.has('instructions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        <Icon :name="expandedSections.has('instructions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Instructions
-        <span v-if="instructionsItems.length" class="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+        <span v-if="instructionsItems.length" class="ms-2 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
           {{ instructionsItems.length }}
         </span>
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('instructions')" class="ml-4">
+        <div v-if="expandedSections.has('instructions')" class="ms-4">
           <!-- Build information -->
           <div v-if="props.build" class="mb-3 pb-3 border-b border-gray-200">
             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Build</div>
             <div class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
               <span class="font-semibold">#{{ props.build.build_number }}</span>
-              <span v-if="props.build.title" class="ml-1">{{ props.build.title }}</span>
-              <span v-if="props.build.is_main" class="ml-1">(Main)</span>
+              <span v-if="props.build.title" class="ms-1">{{ props.build.title }}</span>
+              <span v-if="props.build.is_main" class="ms-1">(Main)</span>
             </div>
           </div>
           
@@ -189,12 +189,12 @@
             <table class="min-w-full divide-y divide-gray-200">
               <thead class="bg-gray-50">
                 <tr>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-24">Labels</th>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Usage</th>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Load</th>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Type</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider w-24">Labels</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Usage</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Load</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Type</th>
                 </tr>
               </thead>
               <tbody class="bg-white divide-y divide-gray-200">
@@ -210,7 +210,7 @@
                       <!-- Expand button for full content -->
                       <button 
                         v-if="(ins.text || ins.content || '').length > 80"
-                        class="text-[10px] text-blue-600 hover:text-blue-800 mt-0.5 text-left"
+                        class="text-[10px] text-blue-600 hover:text-blue-800 mt-0.5 text-start"
                         @click="toggleSection('instruction:'+(ins.id || ins.key))"
                       >
                         {{ expandedSections.has('instruction:'+(ins.id || ins.key)) ? 'show less' : 'show more' }}
@@ -279,8 +279,8 @@
             <table class="min-w-full divide-y divide-gray-200">
               <thead class="bg-gray-50">
                 <tr>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
-                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
+                  <th class="px-3 py-2 text-start text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
                 </tr>
               </thead>
               <tbody class="bg-white divide-y divide-gray-200">
@@ -319,12 +319,12 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('observations')"
       >
-        <Icon :name="expandedSections.has('observations') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        <Icon :name="expandedSections.has('observations') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Observations
-        <span v-if="toolObservations.length" class="ml-2 text-[10px] text-gray-400">({{ toolObservations.length }} execution{{ toolObservations.length !== 1 ? 's' : '' }})</span>
+        <span v-if="toolObservations.length" class="ms-2 text-[10px] text-gray-400">({{ toolObservations.length }} execution{{ toolObservations.length !== 1 ? 's' : '' }})</span>
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('observations')" class="ml-2 space-y-2">
+        <div v-if="expandedSections.has('observations')" class="ms-2 space-y-2">
           <!-- No observations -->
           <div v-if="!toolObservations.length" class="text-xs text-gray-500">No tool executions recorded</div>
           
@@ -354,7 +354,7 @@
               </div>
               <div class="flex items-center gap-2">
                 <span v-if="obs.timestamp" class="text-[10px] text-gray-400">{{ formatObservationTime(obs.timestamp) }}</span>
-                <Icon :name="expandedSections.has('obs:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
+                <Icon :name="expandedSections.has('obs:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500 rtl-flip" />
               </div>
             </div>
             
@@ -373,7 +373,7 @@
                   <!-- User Prompt -->
                   <div v-if="obs.tool_input.user_prompt" class="mb-2">
                     <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">User Prompt</div>
-                    <div class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1.5 border-l-2 border-gray-300">
+                    <div class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1.5 border-s-2 border-gray-300">
                       {{ truncateText(obs.tool_input.user_prompt, 200) }}
                     </div>
                   </div>
@@ -381,7 +381,7 @@
                   <!-- Interpreted Prompt -->
                   <div v-if="obs.tool_input.interpreted_prompt" class="mb-2">
                     <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Interpreted</div>
-                    <div class="text-xs text-gray-700 bg-blue-50 rounded px-2 py-1.5 border-l-2 border-blue-300">
+                    <div class="text-xs text-gray-700 bg-blue-50 rounded px-2 py-1.5 border-s-2 border-blue-300">
                       {{ truncateText(obs.tool_input.interpreted_prompt, 200) }}
                     </div>
                   </div>
@@ -396,7 +396,7 @@
                           :key="source.data_source_id + ':' + table"
                           class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200"
                         >
-                          <Icon name="heroicons-table-cells" class="w-3 h-3 mr-1 text-indigo-400" />
+                          <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-indigo-400" />
                           {{ table }}
                         </span>
                       </template>
@@ -409,14 +409,14 @@
                       class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-400 mb-1"
                       @click.stop="toggleSection('obs-input:' + obs.execution_number)"
                     >
-                      <Icon :name="expandedSections.has('obs-input:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                      <Icon :name="expandedSections.has('obs-input:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                       Other Fields ({{ getOtherInputFields(obs.tool_input).length }})
                     </div>
                     <Transition name="fade">
-                      <div v-if="expandedSections.has('obs-input:' + obs.execution_number)" class="ml-2 space-y-1">
+                      <div v-if="expandedSections.has('obs-input:' + obs.execution_number)" class="ms-2 space-y-1">
                         <div v-for="[key, value] in getOtherInputFields(obs.tool_input)" :key="key" class="text-xs">
                           <span class="text-gray-500">{{ key }}:</span>
-                          <span class="text-gray-800 ml-1">{{ formatInputValue(value) }}</span>
+                          <span class="text-gray-800 ms-1">{{ formatInputValue(value) }}</span>
                         </div>
                       </div>
                     </Transition>
@@ -430,7 +430,7 @@
                   <!-- Summary -->
                   <div v-if="obs.observation.summary" class="mb-2">
                     <div 
-                      class="text-xs rounded px-2 py-1.5 border-l-2"
+                      class="text-xs rounded px-2 py-1.5 border-s-2"
                       :class="hasObservationError(obs) ? 'bg-red-50 border-red-300 text-red-800' : 'bg-green-50 border-green-300 text-green-800'"
                     >
                       {{ obs.observation.summary }}
@@ -465,11 +465,11 @@
                       class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-400 mb-1"
                       @click.stop="toggleSection('obs-result:' + obs.execution_number)"
                     >
-                      <Icon :name="expandedSections.has('obs-result:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                      <Icon :name="expandedSections.has('obs-result:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                       Details
                     </div>
                     <Transition name="fade">
-                      <div v-if="expandedSections.has('obs-result:' + obs.execution_number)" class="ml-2">
+                      <div v-if="expandedSections.has('obs-result:' + obs.execution_number)" class="ms-2">
                         <pre class="text-[11px] text-gray-700 whitespace-pre-wrap bg-gray-50 rounded p-2 overflow-x-auto max-h-40">{{ formatJson(Object.fromEntries(getOtherObservationFields(obs.observation))) }}</pre>
                       </div>
                     </Transition>
@@ -504,11 +504,11 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('mentions')"
       >
-        <Icon :name="expandedSections.has('mentions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        <Icon :name="expandedSections.has('mentions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Mentions
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('mentions')" class="ml-4 space-y-3">
+        <div v-if="expandedSections.has('mentions')" class="ms-4 space-y-3">
           <!-- Files -->
           <div v-if="mentions.files?.length">
             <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Files</div>
@@ -538,7 +538,7 @@
                 <div>
                   <span class="font-mono">{{ (t.data_source_name ? (t.data_source_name + '.') : '') + (t.table_name || '') }}</span>
                 </div>
-                <div v-if="t.columns_preview?.length" class="text-[11px] text-gray-600 ml-2">
+                <div v-if="t.columns_preview?.length" class="text-[11px] text-gray-600 ms-2">
                   columns: {{ t.columns_preview.join(', ') }}
                 </div>
               </div>
@@ -559,7 +559,7 @@
                 <div v-if="e.columns?.length" class="text-[11px] text-gray-600 mt-0.5">columns: {{ e.columns.join(', ') }}</div>
                 <div v-if="e.sample_rows?.length" class="text-[11px] text-gray-600 mt-0.5">
                   sample rows:
-                  <div class="ml-2">
+                  <div class="ms-2">
                     <div v-for="(row, idx) in e.sample_rows.slice(0, 2)" :key="idx" class="text-[11px] text-gray-700">
                       {{ Object.entries(row).slice(0,6).map(([k,v]) => `${k}=${String(v).length > 100 ? String(v).slice(0,100)+'…' : v}`).join(', ') }}
                     </div>
@@ -578,11 +578,11 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('entities')"
       >
-        <Icon :name="expandedSections.has('entities') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        <Icon :name="expandedSections.has('entities') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Entities
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('entities')" class="ml-4 space-y-2">
+        <div v-if="expandedSections.has('entities')" class="ms-4 space-y-2">
           <div v-for="e in (entities.items || [])" :key="e.id" class="text-xs text-gray-800 border rounded-md p-2">
             <div class="flex items-center flex-wrap gap-2">
               <span class="font-medium">{{ e.title || e.id }}</span>
@@ -618,11 +618,11 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('metadata')"
       >
-        <Icon :name="expandedSections.has('metadata') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        <Icon :name="expandedSections.has('metadata') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Metadata
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('metadata')" class="ml-4">
+        <div v-if="expandedSections.has('metadata')" class="ms-4">
           <div v-if="plannerPromptTokens !== null" class="flex items-baseline text-xs py-0.5 mb-2">
             <div class="w-44 text-[11px] uppercase tracking-wide text-gray-500">Planner Prompt Tokens</div>
             <div class="text-gray-900 font-semibold">{{ formatNumber(plannerPromptTokens) }}</div>
@@ -634,11 +634,11 @@
             </div>
             <div v-else>
               <div class="flex items-center cursor-pointer" @click="toggleSection('meta:'+k)">
-                <Icon :name="expandedSections.has('meta:'+k) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1 text-gray-500" />
+                <Icon :name="expandedSections.has('meta:'+k) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-500 rtl-flip" />
                 <div class="w-44 text-[11px] uppercase tracking-wide text-gray-500">{{ k.replace(/_/g,' ') }}</div>
               </div>
               <Transition name="fade">
-                <div v-if="expandedSections.has('meta:'+k)" class="ml-4">
+                <div v-if="expandedSections.has('meta:'+k)" class="ms-4">
                   <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ JSON.stringify(v, null, 2) }}</pre>
                 </div>
               </Transition>

@@ -12,7 +12,7 @@
                 <!-- Green dot indicator when connected -->
                 <span 
                     v-if="hasConnection" 
-                    class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-500"
+                    class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 rounded-full bg-green-500"
                 ></span>
             </span>
             <span class="text-gray-700">{{ label }}</span>
