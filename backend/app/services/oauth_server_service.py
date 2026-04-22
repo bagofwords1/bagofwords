@@ -1,7 +1,7 @@
 """OAuth 2.1 Authorization Server service.
 
 Handles client registration, authorization code issuance, token exchange,
-and token validation for external MCP clients (e.g., Claude Web).
+and token validation for external OAuth clients.
 """
 
 import json
@@ -18,9 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.oauth_server import (
-    OAuthMCPClient,
-    OAuthMCPAuthorizationCode,
-    OAuthMCPAccessToken,
+    OAuthClient,
+    OAuthAuthorizationCode,
+    OAuthAccessToken,
 )
 from app.models.user import User
 from app.models.organization import Organization
@@ -34,8 +34,8 @@ ACCESS_TOKEN_LIFETIME = timedelta(days=365)
 REFRESH_TOKEN_LIFETIME = timedelta(days=365)
 AUTHORIZATION_CODE_LIFETIME = timedelta(minutes=5)
 
-# Claude's known callback URLs
-CLAUDE_REDIRECT_URIS = [
+# Default redirect URIs (covers Claude Web and common MCP inspector tools).
+DEFAULT_REDIRECT_URIS = [
     "https://claude.ai/api/mcp/auth_callback",
     "https://claude.com/api/mcp/auth_callback",
     "http://localhost:6274/oauth/callback",
@@ -70,6 +70,7 @@ class OAuthServerService:
         db: AsyncSession,
         organization_id: str,
         name: str,
+        scopes: str,
         redirect_uris: Optional[list[str]] = None,
     ) -> dict:
         """Create an OAuth client for an organization.
@@ -77,19 +78,19 @@ class OAuthServerService:
         Returns dict with client_id, client_secret (plaintext, shown only once), and name.
         """
         if redirect_uris is None:
-            redirect_uris = list(CLAUDE_REDIRECT_URIS)
+            redirect_uris = list(DEFAULT_REDIRECT_URIS)
 
         client_id = f"bow_client_{secrets.token_urlsafe(16)}"
         client_secret = f"bow_secret_{secrets.token_urlsafe(32)}"
         secret_hash = _hash(client_secret)
 
-        client = OAuthMCPClient(
+        client = OAuthClient(
             organization_id=organization_id,
             client_id=client_id,
             client_secret_hash=secret_hash,
             name=name,
             redirect_uris=json.dumps(redirect_uris),
-            scopes="mcp",
+            scopes=scopes,
         )
         db.add(client)
         await db.commit()
@@ -110,10 +111,10 @@ class OAuthServerService:
         organization_id: str,
     ) -> list[dict]:
         result = await db.execute(
-            select(OAuthMCPClient)
-            .where(OAuthMCPClient.organization_id == organization_id)
-            .where(OAuthMCPClient.deleted_at.is_(None))
-            .order_by(OAuthMCPClient.created_at.desc())
+            select(OAuthClient)
+            .where(OAuthClient.organization_id == organization_id)
+            .where(OAuthClient.deleted_at.is_(None))
+            .order_by(OAuthClient.created_at.desc())
         )
         clients = result.scalars().all()
         return [
@@ -134,9 +135,9 @@ class OAuthServerService:
     ) -> Optional[dict]:
         """Public info about a client (for consent screen)."""
         result = await db.execute(
-            select(OAuthMCPClient)
-            .where(OAuthMCPClient.client_id == client_id)
-            .where(OAuthMCPClient.deleted_at.is_(None))
+            select(OAuthClient)
+            .where(OAuthClient.client_id == client_id)
+            .where(OAuthClient.deleted_at.is_(None))
         )
         client = result.scalar_one_or_none()
         if not client:
@@ -150,10 +151,10 @@ class OAuthServerService:
         organization_id: str,
     ) -> bool:
         result = await db.execute(
-            select(OAuthMCPClient)
-            .where(OAuthMCPClient.id == client_db_id)
-            .where(OAuthMCPClient.organization_id == organization_id)
-            .where(OAuthMCPClient.deleted_at.is_(None))
+            select(OAuthClient)
+            .where(OAuthClient.id == client_db_id)
+            .where(OAuthClient.organization_id == organization_id)
+            .where(OAuthClient.deleted_at.is_(None))
         )
         client = result.scalar_one_or_none()
         if not client:
@@ -170,10 +171,10 @@ class OAuthServerService:
     ) -> Optional[dict]:
         """Rotate client_secret. Returns new secret (plaintext, shown once)."""
         result = await db.execute(
-            select(OAuthMCPClient)
-            .where(OAuthMCPClient.id == client_db_id)
-            .where(OAuthMCPClient.organization_id == organization_id)
-            .where(OAuthMCPClient.deleted_at.is_(None))
+            select(OAuthClient)
+            .where(OAuthClient.id == client_db_id)
+            .where(OAuthClient.organization_id == organization_id)
+            .where(OAuthClient.deleted_at.is_(None))
         )
         client = result.scalar_one_or_none()
         if not client:
@@ -197,12 +198,12 @@ class OAuthServerService:
         db: AsyncSession,
         client_id: str,
         client_secret: Optional[str] = None,
-    ) -> Optional[OAuthMCPClient]:
+    ) -> Optional[OAuthClient]:
         """Validate client credentials. If client_secret is None, only validate client_id."""
         result = await db.execute(
-            select(OAuthMCPClient)
-            .where(OAuthMCPClient.client_id == client_id)
-            .where(OAuthMCPClient.deleted_at.is_(None))
+            select(OAuthClient)
+            .where(OAuthClient.client_id == client_id)
+            .where(OAuthClient.deleted_at.is_(None))
         )
         client = result.scalar_one_or_none()
         if not client:
@@ -214,7 +215,7 @@ class OAuthServerService:
 
         return client
 
-    def validate_redirect_uri(self, client: OAuthMCPClient, redirect_uri: str) -> bool:
+    def validate_redirect_uri(self, client: OAuthClient, redirect_uri: str) -> bool:
         allowed = json.loads(client.redirect_uris)
         return redirect_uri in allowed
 
@@ -233,7 +234,7 @@ class OAuthServerService:
         """Create and return an authorization code."""
         code = secrets.token_urlsafe(32)
 
-        auth_code = OAuthMCPAuthorizationCode(
+        auth_code = OAuthAuthorizationCode(
             code=code,
             client_id=client_id,
             user_id=user_id,
@@ -270,10 +271,10 @@ class OAuthServerService:
 
         # Look up the authorization code
         result = await db.execute(
-            select(OAuthMCPAuthorizationCode)
-            .where(OAuthMCPAuthorizationCode.code == code)
-            .where(OAuthMCPAuthorizationCode.client_id == client_id)
-            .where(OAuthMCPAuthorizationCode.deleted_at.is_(None))
+            select(OAuthAuthorizationCode)
+            .where(OAuthAuthorizationCode.code == code)
+            .where(OAuthAuthorizationCode.client_id == client_id)
+            .where(OAuthAuthorizationCode.deleted_at.is_(None))
         )
         auth_code = result.scalar_one_or_none()
         if not auth_code:
@@ -304,7 +305,7 @@ class OAuthServerService:
         access_token, access_hash = _generate_token(ACCESS_TOKEN_PREFIX)
         refresh_token, refresh_hash = _generate_token(REFRESH_TOKEN_PREFIX)
 
-        token_record = OAuthMCPAccessToken(
+        token_record = OAuthAccessToken(
             token_hash=access_hash,
             client_id=client_id,
             user_id=auth_code.user_id,
@@ -342,10 +343,10 @@ class OAuthServerService:
         refresh_hash = _hash(refresh_token)
 
         result = await db.execute(
-            select(OAuthMCPAccessToken)
-            .where(OAuthMCPAccessToken.refresh_token_hash == refresh_hash)
-            .where(OAuthMCPAccessToken.client_id == client_id)
-            .where(OAuthMCPAccessToken.deleted_at.is_(None))
+            select(OAuthAccessToken)
+            .where(OAuthAccessToken.refresh_token_hash == refresh_hash)
+            .where(OAuthAccessToken.client_id == client_id)
+            .where(OAuthAccessToken.deleted_at.is_(None))
         )
         token_record = result.scalar_one_or_none()
         if not token_record:
@@ -364,7 +365,7 @@ class OAuthServerService:
         new_access, new_access_hash = _generate_token(ACCESS_TOKEN_PREFIX)
         new_refresh, new_refresh_hash = _generate_token(REFRESH_TOKEN_PREFIX)
 
-        new_record = OAuthMCPAccessToken(
+        new_record = OAuthAccessToken(
             token_hash=new_access_hash,
             client_id=client_id,
             user_id=token_record.user_id,
@@ -402,9 +403,9 @@ class OAuthServerService:
         token_hash = _hash(token)
 
         result = await db.execute(
-            select(OAuthMCPAccessToken)
-            .where(OAuthMCPAccessToken.token_hash == token_hash)
-            .where(OAuthMCPAccessToken.deleted_at.is_(None))
+            select(OAuthAccessToken)
+            .where(OAuthAccessToken.token_hash == token_hash)
+            .where(OAuthAccessToken.deleted_at.is_(None))
         )
         token_record = result.scalar_one_or_none()
         if not token_record:
