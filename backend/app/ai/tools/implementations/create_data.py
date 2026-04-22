@@ -378,9 +378,9 @@ ORGANIZATION VISUALIZATION INSTRUCTIONS:
 
 """
         
-        prompt = f"""You are a visualization planner. Analyze the data profile and choose the best visualization type.
+        prompt = f"""Role: visualization planner. Analyze the data profile and choose the best visualization type.
 {instructions_block}
-CRITICAL: You MUST use EXACT column names from the data. Available columns are: {column_names}
+Use the exact column names from the data. Available columns are: {column_names}
 
 Context: {messages_context or "None"}
 User prompt: {user_prompt or "None"}
@@ -392,13 +392,13 @@ Data profile:
 RULES FOR METRIC_CARD (KPI display)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Use metric_card when showing a single key metric. The "value" field MUST be an EXACT column name.
+Use metric_card when showing a single key metric. The "value" field should be an exact column name.
 
-DETECTING THE VALUE COLUMN:
+Detecting the value column:
 - Look for columns with names like: revenue, total, amount, count, sum, value, sales, profit, cost
-- AVOID using date/time columns (year, month, date, week, day) as the value
-- AVOID using ID columns as the value
-- Pick the column that represents the METRIC the user asked about
+- Avoid using date/time columns (year, month, date, week, day) as the value
+- Avoid using ID columns as the value
+- Pick the column that represents the metric the user asked about
 
 DETECTING TIME-SERIES FOR SPARKLINE:
 If row_count > 1 AND there's a time column (month, date, week, year, period, day), enable sparkline:
@@ -435,13 +435,13 @@ Series contracts:
 - scatter: [{{"name", "x", "y", "aggregation?"}}] (+ size optional)
 - heatmap: [{{"name", "x", "y", "value", "colorScheme", "showValues", "aggregation?"}}]
   - colorScheme: "blue" | "green" | "red" | "violet" | "orange" (default: "blue")
-  - showValues: true | false (default: true) - whether to show values in cells
+  - showValues: true | false (default: true) — whether to show values in cells
 - table: series: []
 
-CRITICAL FOR BAR/LINE/AREA CHARTS:
-- "key" = the CATEGORY column (x-axis) - REQUIRED, usually a date, name, or category column
-- "value" = the NUMERIC column (y-axis) - REQUIRED, the metric to display
-- You MUST include BOTH "key" and "value" in every series entry!
+For bar/line/area charts:
+- "key" = the category column (x-axis), required — usually a date, name, or category column
+- "value" = the numeric column (y-axis), required — the metric to display
+- Include both "key" and "value" in every series entry.
 
 DETECTING GROUP_BY (for multi-series grouped bar/line/area charts):
 - If the data has a CATEGORICAL column that creates MULTIPLE ROWS per x-axis value, use "group_by"
@@ -549,8 +549,8 @@ Include "group_by" when the data has multiple rows per x-axis category that shou
 Include "aggregation" on each series entry when rows are granular.
 Include "filters" only when narrowing the data to a specific slice.
 
-REMEMBER: Use EXACT column names from: {column_names}
-Do NOT use generic placeholders like "value" unless that's the actual column name."""
+Reminder: use exact column names from: {column_names}
+Do not use generic placeholders like "value" unless that is the actual column name."""
 
         try:
             raw = llm.inference(prompt, usage_scope="create_data.viz_infer")
