@@ -430,7 +430,7 @@ OTHER CHART TYPES
 Allowed types: {", ".join(allowed_types)}
 
 Series contracts:
-- bar/line/area: [{{"name", "key", "value", "aggregation?"}}] - BOTH key AND value are REQUIRED!
+- bar/line/area: [{{"name", "key", "value", "aggregation?"}}] — both `key` and `value` are required.
 - pie/map: [{{"name", "key", "value", "aggregation?"}}]
 - scatter: [{{"name", "x", "y", "aggregation?"}}] (+ size optional)
 - heatmap: [{{"name", "x", "y", "value", "colorScheme", "showValues", "aggregation?"}}]
@@ -488,61 +488,63 @@ DECISION LOGIC:
 7. Raw data display → table
 
 ═══════════════════════════════════════════════════════════════════════════════
-GRANULARITY: AGGREGATION AND DEFAULT FILTERS
+Granularity: aggregation and default filters
 ═══════════════════════════════════════════════════════════════════════════════
 
-Data is often GRANULAR — many rows per x-axis category or per metric value. Decide how
-to collapse rows by either setting an "aggregation" on each series OR emitting
-"filters" that reduce the data to one row per bucket.
+Data is often granular — many rows per x-axis category or per metric value. Pick
+an "aggregation" on each series or emit top-level "filters" to reduce the rows
+to one per bucket.
 
-DETECT GRANULARITY:
+Detecting granularity:
 - Compute expected_rows = unique_count(chosen_key) × unique_count(group_by or 1).
-- If row_count > expected_rows, the data has multiple rows per bucket — you MUST pick an
-  aggregation or a filter. Not doing so makes the chart show the first row silently.
+- If row_count exceeds expected_rows, the data has multiple rows per bucket —
+  pick an aggregation or a filter. Without one the chart shows only the first
+  row per bucket, which is usually wrong.
 
-AGGREGATION VALUES: "sum" | "avg" | "count" | "min" | "max"
+Aggregation values: "sum" | "avg" | "count" | "min" | "max"
 - sum: totals (revenue, amount, qty) — the common default
 - avg: averages (price, score, rating)
 - count: row counts (transactions, events) — rarely the `value` column itself
 - min/max: extrema (latest price, highest score)
 
-AGGREGATION EXAMPLE (cartesian, granular transactions):
+Aggregation example (cartesian, granular transactions):
 Columns: ["transaction_date", "amount", "region"]
 row_count: 5,000; unique_count(transaction_date): 30; unique_count(region): 4
-Expected rows without aggregation: 30 × 4 = 120 — but we have 5,000 → GRANULAR.
-CORRECT (aggregate sum per date+region):
+Expected rows without aggregation: 30 × 4 = 120, but the profile shows 5,000 — granular.
+Recommended (aggregate sum per date+region):
 {{"type": "bar_chart", "series": [{{"name": "Revenue", "key": "transaction_date", "value": "amount", "aggregation": "sum"}}], "group_by": "region"}}
 
-AGGREGATION EXAMPLE (metric_card, granular daily sales):
+Aggregation example (metric_card, granular daily sales):
 Columns: ["date", "sales"]
 row_count: 365; unique_count(date): 365
 Without aggregation, metric_card shows the first row's sales only (not a KPI).
-CORRECT:
+Recommended:
 {{"type": "metric_card", "series": [{{"name": "Total Sales", "value": "sales", "aggregation": "sum"}}]}}
 
-DEFAULT FILTERS (alternative to aggregation):
-Use "filters" at the top level to reduce granular data down to a single row per bucket
-when the user's intent is clearly "just the latest" or "just this one segment". Filters
-open the widget in a pre-filtered state and remain user-editable.
+Default filters (alternative to aggregation):
+Use "filters" at the top level to reduce granular data down to a single row per
+bucket when the user's intent is clearly "just the latest" or "just this one
+segment". Filters open the widget pre-filtered and remain user-editable.
 
 Filter shape: [{{"column": "<column>", "operator": "<op>", "value": <value>}}]
-Operators: "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with",
-  "greater_than", "less_than", "gte", "lte", "before", "after", "is_empty", "is_not_empty".
+Operators: "equals", "not_equals", "contains", "not_contains", "starts_with",
+"ends_with", "greater_than", "less_than", "gte", "lte", "before", "after",
+"is_empty", "is_not_empty".
 
-DEFAULT FILTERS EXAMPLE (pick latest period):
+Default filters example (pick latest period):
 Columns: ["month", "revenue"]
 User prompt: "show this month's revenue"
 {{"type": "metric_card", "series": [{{"name": "Revenue", "value": "revenue"}}],
   "filters": [{{"column": "month", "operator": "equals", "value": "2024-06"}}]}}
 
-Prefer aggregation over filters when the intent is "all data, summarized". Prefer
-filters when the intent is "this specific slice". Don't set both unless you need to.
+Prefer aggregation when the intent is "all data, summarized". Prefer filters
+when the intent is "this specific slice". Setting both is rarely useful.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
-Return ONLY valid JSON:
+Return only valid JSON:
 {{"type": "...", "series": [...], "group_by": "column_name_or_null", "filters": [...]}}
 
 Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.

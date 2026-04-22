@@ -419,12 +419,12 @@ DATA ACCESS:
 - **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
 - **DEFENSIVE CODING**: Row values can be `null`/`undefined`. ALWAYS guard before string methods: `(val || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()` on a potentially nullish value.
 
-VIEW HINTS — HONOR THE VIZ CONFIG:
-Inspect `view.aggregation`, `view.seriesStyles[i].aggregation`, and `view.defaultFilters` before rendering. These tell you the author's intent for granular data:
+View hints — follow the viz config:
+Inspect `view.aggregation`, `view.seriesStyles[i].aggregation`, and `view.defaultFilters` before rendering. These describe the author's intent for granular data:
 
-- `view.aggregation` (`"sum"|"avg"|"count"|"min"|"max"`): aggregate rows with `reduce`/`Map` before rendering (e.g. metric cards, pies, heatmaps). NEVER read `rows[0]` as the value when aggregation is set.
+- `view.aggregation` (`"sum"|"avg"|"count"|"min"|"max"`): aggregate rows with `reduce`/`Map` before rendering (e.g. metric cards, pies, heatmaps). Avoid reading `rows[0]` as the value when aggregation is set.
 - `view.seriesStyles[i].aggregation`: per-series aggregation — apply when building each series in multi-series bar/line/area charts.
-- `view.defaultFilters` (array of `{{column, operator, value}}`): seed these into `useFilters()` on first mount with `setFilter()` so the dashboard opens already filtered. Do not render the unfiltered data when defaults are declared.
+- `view.defaultFilters` (array of `{{column, operator, value}}`): seed these into `useFilters()` on first mount with `setFilter()` so the dashboard opens already filtered. Render the filtered rows when defaults are declared.
 
 AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<KPICard>` — `className` replaces default theme (bg-white, border, text-slate-900). `titleClassName`/`subtitleClassName` replace text defaults. `style` for inline overrides. Theme to match the dashboard's color story.

@@ -1497,21 +1497,21 @@ Each visualization:
 - **Do not hardcode data** — all values should come from `data.visualizations[N].rows`
 - **Defensive coding**: Row values and properties can be `null`/`undefined`. Use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Do not call string methods on a value that could be nullish.
 
-VIEW HINTS — HONOR THE VIZ CONFIG:
-The `view_config` on each visualization tells you HOW the author wants the data rendered. Do NOT ignore it.
+View hints — honor the viz config:
+The `view_config` on each visualization describes how the author wants the data rendered. Follow it when generating code.
 
-- `view_config.aggregation` (`"sum" | "avg" | "count" | "min" | "max"`): the raw rows are granular and must be aggregated before rendering (especially for `count`, `metric_card`, `pie_chart`, `heatmap`). Apply the aggregation with a `rows.reduce(...)` over the relevant value column. Example for a metric card with aggregation=sum:
+- `view_config.aggregation` (`"sum" | "avg" | "count" | "min" | "max"`): the raw rows are granular, so aggregate the relevant value column before rendering (especially for `count`, `metric_card`, `pie_chart`, `heatmap`). Use `rows.reduce(...)`. Example for a metric card with aggregation=sum:
   ```js
   const total = useMemo(
     () => viz[0].rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0),
     [viz]
   );
   ```
-  For pie/heatmap/bar where we group by a category, group first and aggregate the value per group — never pick the first matching row.
+  For pie/heatmap/bar charts that group by a category, group first and aggregate the value per group rather than using the first matching row.
 
 - `view_config.series_aggregations` (array of `{{key, aggregation}}`): apply the given aggregation per series when building multi-series bar/line/area charts.
 
-- `view_config.default_filters` (array of `{{column, operator, value}}`): the author wants the dashboard to OPEN with these filters already applied. Seed them on first mount so the initial view matches the intent, for example:
+- `view_config.default_filters` (array of `{{column, operator, value}}`): the author wants the dashboard to open with these filters already applied. Seed them on first mount so the initial view matches the intent, for example:
   ```js
   const {{ filters, setFilter, filterRows }} = useFilters();
   useEffect(() => {{
@@ -1520,7 +1520,7 @@ The `view_config` on each visualization tells you HOW the author wants the data 
     setFilter('column_name', value);
   }}, []);
   ```
-  If the underlying runtime uses richer operators (`equals`, `greater_than`, etc.), either call `setFilter` with the operator-aware object it expects, or compute the filtered rows directly via `filterRows(viz[N].rows)` once the filter is seeded. Never render an unfiltered view when defaults are present — the dashboard would show the wrong numbers on load.
+  If the underlying runtime uses richer operators (`equals`, `greater_than`, etc.), either call `setFilter` with the operator-aware object it expects, or compute the filtered rows directly via `filterRows(viz[N].rows)` once the filter is seeded. Render the filtered view when defaults are present so the initial numbers match the author's intent.
 
 YOUR VISUALIZATIONS:
 
