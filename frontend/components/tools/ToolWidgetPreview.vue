@@ -451,6 +451,17 @@ const filteredRows = computed(() => {
   )
 })
 
+// Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
+const normalizedView = computed(() => {
+  const v = visualization.value?.view || (step.value as any)?.view
+  if (!v) return null
+  // Already in v2 format (has .view.type)
+  if (v.view?.type) return v
+  // Flat format - wrap it
+  if (v.type) return { view: v, version: 'v2' }
+  return v
+})
+
 // ------------------------------------------------------------------
 // Default-filter seeding
 // When a visualization declares `view.defaultFilters`, push them into the
@@ -543,17 +554,6 @@ const filteredStep = computed(() => {
   }
 })
 // ============ END SHARED FILTER LOGIC ============
-
-// Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
-const normalizedView = computed(() => {
-  const v = visualization.value?.view || (step.value as any)?.view
-  if (!v) return null
-  // Already in v2 format (has .view.type)
-  if (v.view?.type) return v
-  // Flat format - wrap it
-  if (v.type) return { view: v, version: 'v2' }
-  return v
-})
 
 // Provide a stable widget object for children even if upstream is null
 const effectiveWidget = computed(() => {
