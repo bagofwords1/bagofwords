@@ -199,6 +199,13 @@ const saveAll = async () => {
             const localeBody = JSON.stringify({ locale: form.value.locale || null })
             const localeResp = await useMyFetch('/api/organization/locale', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: localeBody })
             if (localeResp.status.value !== 'success') throw new Error(localeResp.error?.value?.data?.detail || t('settings.language.saveError'))
+            const resolved = (localeResp.data?.value as any)?.effective_locale as string | undefined
+            // Flip the admin's own view right away. Without this the reload below
+            // would keep them on their prior locale (the plugin's hydration only
+            // applies when bow.locale is unset, and pressing Save here is a
+            // clear signal the admin wants to see the result).
+            const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => void) | undefined
+            if (resolved && typeof setLocale === 'function') setLocale(resolved)
             initialLocale.value = form.value.locale
         }
 

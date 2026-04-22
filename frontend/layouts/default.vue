@@ -280,6 +280,25 @@
         ])
       }
     } catch {}
+
+    // Hydrate locale from org config. Runs once per full page load —
+    // the user's personal choice (stored under `bow.locale`) always
+    // wins; we only apply the org override when they haven't picked
+    // anything. Executes here rather than in the i18n plugin because
+    // useMyFetch needs the session + org state that are only ready
+    // after mount.
+    try {
+      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('bow.locale') : null
+      if (!stored) {
+        const resp = await useMyFetch('/api/organization/locale')
+        const body = resp.data?.value as any
+        const effective = body?.effective_locale
+        const setLocale = (useNuxtApp() as any).$setLocale as ((c: string) => void) | undefined
+        if (effective && typeof setLocale === 'function') setLocale(effective)
+      }
+    } catch {
+      // non-fatal; user can still pick manually via the settings picker
+    }
   })
   const { version, environment, app_url, intercom } = useRuntimeConfig().public
   

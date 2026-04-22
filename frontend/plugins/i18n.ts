@@ -56,25 +56,9 @@ export default defineNuxtPlugin(async (nuxtApp) => {
 
   nuxtApp.provide('setLocale', setLocale)
 
-  // Hydrate from backend once on client (server-provided config may override
-  // the cached choice, which is desirable when an admin changes the org locale).
-  try {
-    const cfg = await $fetch<any>('/api/config/i18n', {
-      headers: (() => {
-        const headers: Record<string, string> = {}
-        try {
-          const orgId = localStorage.getItem('x-organization-id')
-          if (orgId) headers['X-Organization-Id'] = orgId
-        } catch {}
-        return headers
-      })(),
-    })
-    const next = cfg?.current_locale
-    // Only apply if the user hasn't already picked a locale explicitly.
-    if (!stored && isLocale(next)) {
-      setLocale(next)
-    }
-  } catch {
-    // ignore; first-boot fallback already in place
-  }
+  // Backend hydration (applying the org's configured locale when the user
+  // has not picked their own) happens in `layouts/default.vue` after the
+  // session + org are ready — the plugin can't do it reliably because the
+  // org id lives in Nuxt state, not localStorage, and running useMyFetch
+  // from here is racy.
 })

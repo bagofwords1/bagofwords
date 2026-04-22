@@ -376,11 +376,11 @@
 			</ul>
 			<div v-else class="mt-32 fade-in">
 				<h1 class="text-4xl mb-4">🪴</h1>
-				<h1 class="text-lg font-semibold">Ask a question to get started.</h1>
+				<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
 
 				<hr class="my-4">
-				<p class="text-gray-500 text-sm"><span class="font-semibold">Tip:</span> <br />
-					Not sure what to ask? You can ask the AI Analyst to suggest questions about a specific topic.
+				<p class="text-gray-500 text-sm"><span class="font-semibold">{{ $t('reports.emptyTipLabel') }}</span> <br />
+					{{ $t('reports.emptyTipBody') }}
 				</p>
 
 			</div>

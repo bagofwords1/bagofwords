@@ -252,7 +252,10 @@
     "columnCreated": "Created",
     "columnDataSources": "Data sources",
     "columnTitle": "Title",
-    "columnUser": "User"
+    "columnUser": "User",
+    "emptyTitle": "Ask a question to get started.",
+    "emptyTipLabel": "Tip:",
+    "emptyTipBody": "Not sure what to ask? You can ask the AI Analyst to suggest questions about a specific topic."
   },
   "settings": {
     "title": "Settings",

@@ -252,7 +252,10 @@
     "columnDataSources": "Fuentes de datos",
     "columnTitle": "Título",
     "empty": "No se encontraron informes",
-    "emptyHint": "Intente ajustar los filtros o el término de búsqueda"
+    "emptyHint": "Intente ajustar los filtros o el término de búsqueda",
+    "emptyTitle": "Haz una pregunta para empezar.",
+    "emptyTipLabel": "Consejo:",
+    "emptyTipBody": "¿No sabes qué preguntar? Pide al analista de IA que sugiera preguntas sobre un tema concreto."
   },
   "settings": {
     "title": "Ajustes",
