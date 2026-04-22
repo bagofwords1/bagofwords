@@ -266,7 +266,7 @@ class Coder:
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
              * Print the dict/df preview to help ensure indices and positions are correct.
-           - After any operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", {data_preview_instruction})
+           - After any operation that changes DataFrame columns (merge, join, add/remove columns), print a preview using: print("df Preview:", df.head())
            - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
            - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
            - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
