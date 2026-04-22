@@ -734,6 +734,33 @@ class QlikSenseApiKeyCredentials(BaseModel):
     )
 
 
+class QlikSenseOAuthM2MCredentials(BaseModel):
+    """OAuth 2.0 Client Credentials (machine-to-machine) for Qlik Cloud.
+
+    Register an OAuth client in the tenant ('Management Console > Integrations >
+    OAuth') with grant type 'client_credentials' and copy the client id/secret
+    here. Short-lived access tokens are fetched and refreshed automatically.
+    """
+    client_id: str = Field(
+        ...,
+        title="OAuth Client ID",
+        description="OAuth client ID from the Qlik Cloud Management Console.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_secret: str = Field(
+        ...,
+        title="OAuth Client Secret",
+        description="OAuth client secret that pairs with the client ID.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    scope: Optional[str] = Field(
+        "user_default",
+        title="Scope",
+        description="OAuth scope requested at token exchange. Default 'user_default' covers standard Qlik Cloud APIs.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
 class QlikSenseConfig(BaseModel):
     base_url: str = Field(
         ...,
@@ -1058,6 +1085,7 @@ __all__ = [
     "QVDConfig",
     # Qlik Sense (live connector)
     "QlikSenseApiKeyCredentials",
+    "QlikSenseOAuthM2MCredentials",
     "QlikSenseConfig",
     # Microsoft Fabric
     "MSFabricCredentials",

@@ -5,16 +5,23 @@ Discovers Qlik apps (models) via the Qlik Cloud REST API and runs hypercube
 queries against them via the Qlik Engine API (QIX), a JSON-RPC 2.0 protocol
 spoken over WebSocket.
 
+Authentication:
+  - ``api_key`` — long-lived bearer token generated in the tenant UI
+    (Settings > API keys). Fastest to set up; single rotatable secret.
+  - ``oauth_m2m`` — OAuth 2.0 Client Credentials. The tenant issues
+    short-lived access tokens in exchange for ``client_id`` + ``client_secret``.
+    Tokens are cached in-process and refreshed before expiry. Preferred for
+    production deployments with secret-rotation policies.
+
 Scope of v1:
-  - Qlik Cloud (tenant.REGION.qlikcloud.com) with API-key bearer auth
+  - Qlik Cloud (tenant.REGION.qlikcloud.com)
   - REST discovery: GET /api/v1/users/me, /api/v1/items?resourceType=app,
     /api/v1/apps/{appId}/data/metadata
   - QIX fallback + query: OpenDoc, GetTablesAndKeys, GetFieldList,
     CreateSessionObject(qHyperCubeDef), GetHyperCubeData
 
-Out of scope for v1: on-prem Enterprise on Windows, OAuth2 Authorization Code,
-M2M impersonation, JWT — all hooks are structured to slot in later without
-rewriting the discovery/query core.
+Out of scope for v1: on-prem Enterprise on Windows, OAuth2 Authorization Code
+(interactive user login), JWT.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
@@ -39,17 +47,26 @@ logger = logging.getLogger(__name__)
 class QlikSenseClient(DataSourceClient):
     """Qlik Sense Cloud client — REST discovery + QIX query over WebSocket."""
 
+    # OAuth tokens are refreshed this many seconds before their advertised expiry.
+    _TOKEN_REFRESH_SKEW_SEC = 60
+
     def __init__(
         self,
         base_url: str,
         api_key: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        scope: Optional[str] = "user_default",
         verify_ssl: bool = True,
         timeout_sec: int = 30,
         space_filter: Optional[str] = None,
         max_concurrency: int = 10,
     ):
         self.base_url = (base_url or "").rstrip("/")
-        self.api_key = api_key
+        self.api_key = api_key or None
+        self.client_id = client_id or None
+        self.client_secret = client_secret or None
+        self.scope = scope or "user_default"
         self.verify_ssl = verify_ssl
         self.timeout_sec = timeout_sec
         self.max_concurrency = max(1, int(max_concurrency or 10))
@@ -60,10 +77,24 @@ class QlikSenseClient(DataSourceClient):
             self._space_filter = tokens or None
 
         self._http: Optional[requests.Session] = None
+        # OAuth M2M token cache
+        self._access_token: Optional[str] = None
+        self._token_expires_at: float = 0.0
 
     # ------------------------------------------------------------------
     # Connection / auth
     # ------------------------------------------------------------------
+
+    @property
+    def _auth_mode(self) -> str:
+        """Which credential was supplied? 'api_key', 'oauth_m2m', or raises."""
+        if self.api_key:
+            return "api_key"
+        if self.client_id and self.client_secret:
+            return "oauth_m2m"
+        raise RuntimeError(
+            "Qlik Sense requires either api_key or (client_id + client_secret)"
+        )
 
     def connect(self) -> None:
         """Set up the REST HTTP session. QIX connections are opened per call."""
@@ -71,13 +102,58 @@ class QlikSenseClient(DataSourceClient):
             return
         if not self.base_url:
             raise RuntimeError("base_url is required")
-        if not self.api_key:
-            raise RuntimeError("api_key is required")
+        # Validate we have *some* credential path (raises on misconfiguration).
+        _ = self._auth_mode
         self._http = requests.Session()
+
+    def _fetch_oauth_token(self) -> None:
+        """Exchange client_id/client_secret for a bearer token via /oauth/token."""
+        url = f"{self.base_url}/oauth/token"
+        body = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "scope": self.scope,
+        }
+        # Use a bare requests.post here (not self._http) so token exchange doesn't
+        # try to call _bearer_token() recursively.
+        resp = requests.post(
+            url,
+            data=body,
+            headers={"Accept": "application/json"},
+            timeout=self.timeout_sec,
+            verify=self.verify_ssl,
+        )
+        if resp.status_code >= 300:
+            raise RuntimeError(
+                f"Qlik Cloud OAuth token exchange failed: POST {url} "
+                f"HTTP {resp.status_code} {resp.text[:500]}"
+            )
+        try:
+            data = resp.json() or {}
+        except ValueError as e:
+            raise RuntimeError(f"Qlik Cloud OAuth returned non-JSON: {e}")
+        token = data.get("access_token")
+        if not token:
+            raise RuntimeError("Qlik Cloud OAuth response missing access_token")
+        expires_in = int(data.get("expires_in") or 3600)
+        self._access_token = token
+        self._token_expires_at = time.time() + expires_in
+
+    def _bearer_token(self) -> str:
+        """Return the current bearer token, refreshing OAuth tokens as needed."""
+        mode = self._auth_mode
+        if mode == "api_key":
+            return self.api_key or ""
+        # oauth_m2m — refresh if close to expiry
+        now = time.time()
+        if not self._access_token or now >= (self._token_expires_at - self._TOKEN_REFRESH_SKEW_SEC):
+            self._fetch_oauth_token()
+        return self._access_token or ""
 
     def _auth_headers(self) -> Dict[str, str]:
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self._bearer_token()}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
@@ -515,7 +591,7 @@ class QlikSenseClient(DataSourceClient):
                 ssl_ctx.verify_mode = ssl.CERT_NONE
         else:
             ssl_ctx = None
-        headers = [("Authorization", f"Bearer {self.api_key}")]
+        headers = [("Authorization", f"Bearer {self._bearer_token()}")]
 
         async with websockets.connect(
             url,
@@ -614,7 +690,7 @@ class QlikSenseClient(DataSourceClient):
                 ssl_ctx.verify_mode = ssl.CERT_NONE
         else:
             ssl_ctx = None
-        headers = [("Authorization", f"Bearer {self.api_key}")]
+        headers = [("Authorization", f"Bearer {self._bearer_token()}")]
 
         async with websockets.connect(
             url,
