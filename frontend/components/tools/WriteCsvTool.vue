@@ -6,7 +6,7 @@
         class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
         @click="toggleDetails"
       >
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-document-text" class="w-3 h-3 me-1 text-gray-400" />
           Writing CSV…
@@ -32,7 +32,7 @@
             class="flex items-center text-gray-500 cursor-pointer hover:text-gray-700"
             @click.stop="codeCollapsed = !codeCollapsed"
           >
-            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
+            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
             <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
             <span>{{ $t('tools.common.code') }}</span>
           </div>

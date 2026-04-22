@@ -18,7 +18,7 @@
       <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
         <Icon
           :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-          class="w-3 h-3 me-1 text-gray-400"
+          class="w-3 h-3 me-1 text-gray-400 rtl-flip"
         />
         <span>Knowledge</span>
         <span class="text-gray-300">·</span>

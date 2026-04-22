@@ -4,9 +4,9 @@
       <!-- Header -->
       <div class="px-4 py-3 bg-white border-b flex items-center justify-between flex-shrink-0">
         <div class="text-sm font-medium text-gray-800">
-          {{ canCreateEntities ? 'Save Query' : 'Suggest Query' }}
+          {{ canCreateEntities ? $t('entityCreate.saveQuery') : $t('entityCreate.suggestQuery') }}
         </div>
-        <button class="text-xs text-gray-500 hover:text-gray-700" @click="open = false">Close</button>
+        <button class="text-xs text-gray-500 hover:text-gray-700" @click="open = false">{{ $t('entityCreate.close') }}</button>
       </div>
 
       <div class="flex-1 flex overflow-hidden min-h-0">
@@ -16,20 +16,20 @@
             <div class="bg-white rounded-lg p-3">
               <!-- Info message for non-admins (suggestions) -->
               <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
-                <div class="font-medium mb-1">Suggest Saved Query for Review</div>
-                <div>Your query will be submitted for admin approval before being published.</div>
+                <div class="font-medium mb-1">{{ $t('entityCreate.suggestHeading') }}</div>
+                <div>{{ $t('entityCreate.suggestBody') }}</div>
               </div>
 
               <!-- Info message for admins -->
               <div v-if="canCreateEntities" class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
-                <div class="font-medium mb-1">Save Query</div>
-                <div>As an admin, your query will be published directly.</div>
+                <div class="font-medium mb-1">{{ $t('entityCreate.adminHeading') }}</div>
+                <div>{{ $t('entityCreate.adminBody') }}</div>
               </div>
-              
+
               <!-- Error message for no permissions -->
               <div v-if="!canCreateEntities && !canSuggestEntities" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
-                <div class="font-medium mb-1">No Permission</div>
-                <div>You don't have permission to create or suggest entities.</div>
+                <div class="font-medium mb-1">{{ $t('entityCreate.noPermissionHeading') }}</div>
+                <div>{{ $t('entityCreate.noPermissionBody') }}</div>
               </div>
               <EntityForm v-model="form" :show-status="canCreateEntities" />
             </div>
@@ -37,15 +37,15 @@
 
           <!-- Footer Actions -->
           <div class="px-4 py-3 bg-white border-t flex items-center justify-end gap-2 flex-shrink-0">
-            <button class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" @click="open = false">Cancel</button>
-            <button 
-              class="text-white text-xs font-medium py-1.5 px-3 rounded-lg disabled:opacity-50" 
+            <button class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" @click="open = false">{{ $t('entityCreate.cancel') }}</button>
+            <button
+              class="text-white text-xs font-medium py-1.5 px-3 rounded-lg disabled:opacity-50"
               :class="canCreateEntities ? 'bg-blue-500 hover:bg-blue-600' : 'bg-amber-500 hover:bg-amber-600'"
-              :disabled="saving || !canSave" 
+              :disabled="saving || !canSave"
               @click="onSave"
             >
-              <span v-if="saving">{{ canCreateEntities ? 'Saving...' : 'Submitting...' }}</span>
-              <span v-else>{{ canCreateEntities ? 'Save Entity' : 'Suggest Entity' }}</span>
+              <span v-if="saving">{{ canCreateEntities ? $t('entityCreate.saving') : $t('entityCreate.submitting') }}</span>
+              <span v-else>{{ canCreateEntities ? $t('entityCreate.saveEntity') : $t('entityCreate.suggestEntity') }}</span>
             </button>
           </div>
         </section>
@@ -57,9 +57,12 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { useCan } from '~/composables/usePermissions'
 import EntityForm from './EntityForm.vue'
+
+const { t } = useI18n()
 
 interface Props {
   visible: boolean
@@ -132,7 +135,7 @@ async function onSave() {
   saving.value = true
   errorMsg.value = ''
   try {
-    if (!props.stepId) throw new Error('Step is required to save')
+    if (!props.stepId) throw new Error(t('entityCreate.stepRequired'))
     
     // If user can create entities, respect their status choice
     // If user can only suggest, force it to be a suggestion (draft)
@@ -151,7 +154,7 @@ async function onSave() {
     emit('saved', data.value)
     open.value = false
   } catch (e: any) {
-    errorMsg.value = e?.data?.detail || e?.message || 'Failed to save entity'
+    errorMsg.value = e?.data?.detail || e?.message || t('entityCreate.saveFailed')
   } finally {
     saving.value = false
   }

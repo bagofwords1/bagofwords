@@ -39,13 +39,13 @@ const route = useRoute()
 
 // All available tabs with their required permissions
 const allTabs = [
-    { name: 'members', label: 'settings.members', requiredPermission: "view_members" },
+    { name: 'members', label: 'settings.membersTab', requiredPermission: "view_members" },
     { name: 'models', label: 'settings.llm', requiredPermission: "manage_llm" },
     { name: 'ai_settings', label: 'settings.aiSettings', requiredPermission: "manage_settings" },
     { name: 'general', label: 'settings.general', requiredPermission: "manage_settings" },
     { name: "integrations", label: "settings.integrations.title", requiredPermission: "manage_settings" },
     { name: 'audit', label: 'settings.auditLogs', requiredPermission: "view_audit_logs" },
-    { name: 'identity-provider', label: 'settings.identityProvider', requiredPermission: "manage_identity_providers" },
+    { name: 'identity-provider', label: 'settings.identityProviderTab', requiredPermission: "manage_identity_providers" },
     { name: 'license', label: 'settings.license', requiredPermission: "manage_settings" },
 ]
 

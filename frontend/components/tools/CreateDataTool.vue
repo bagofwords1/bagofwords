@@ -2,7 +2,7 @@
   <div class="mb-2">
     <!-- Main Header: Creating Data (always collapsible) -->
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCreateData">
-      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
@@ -30,7 +30,7 @@
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click.stop="toggleAttemptCode(idx)">
             <Icon name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
             <span class="text-gray-500">{{ $t('tools.common.attempt', { n: idx + 1 }) }}</span>
-            <Icon :name="attemptCodeExpanded[idx] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-2" />
+            <Icon :name="attemptCodeExpanded[idx] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
             <div v-if="attemptCodeExpanded[idx]" class="mt-1 ms-4">
@@ -56,7 +56,7 @@
             <span v-else class="text-gray-700">{{ $t('tools.createData.generatedCode') }}</span>
             <span v-if="failedAttempts.length > 0 && !isCodeGenerating" class="ms-1.5 text-gray-400">{{ $t('tools.common.attemptSuffix', { n: failedAttempts.length + 1 }) }}</span>
             <span v-if="isCodeGenerating && currentAttempt > 1" class="ms-1.5 text-gray-400">{{ $t('tools.common.attemptSuffix', { n: currentAttempt }) }}</span>
-            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2" />
+            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed && codeContent" class="mt-1 ms-4">

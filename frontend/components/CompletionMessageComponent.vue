@@ -52,7 +52,7 @@
                                 <!-- Always show "Thought Process" when content is available -->
                                 <div class="flex items-center">
                                     <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" 
-                                         class="w-4 h-4 text-gray-500" />
+                                         class="w-4 h-4 text-gray-500 rtl-flip" />
                                     <span v-if="(localCompletion.completion?.content && localCompletion.completion?.content.length > 0) || localCompletion.status === 'stopped' || localCompletion.status === 'error' || localCompletion.sigkill" class="ms-1">
                                         Thought Process
                                     </span>
@@ -101,7 +101,7 @@
                                     <button @click="localCompletion.isCollapsed = !localCompletion.isCollapsed"
                                         class="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
                                         <Icon
-                                            :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" />
+                                            :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"  class="rtl-flip" />
                                     </button>
                                 </div>
                             </div>
@@ -212,13 +212,13 @@
                 <div v-if="plan">
                     <div class="flex justify-between items-center cursor-pointer" @click="togglePromptCollapsed">
                         <h3 class="text-md font-bold mb-2">Prompt</h3>
-                        <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                        <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
                     <pre v-if="!promptCollapsed" class="text-xs">{{ plan_content.text }}</pre>
                     
                     <div class="flex justify-between items-center cursor-pointer mt-4" @click="togglePlanCollapsed">
                         <h3 class="text-md font-bold mb-2">Plan</h3>
-                        <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                        <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
                     <pre v-if="!planCollapsed" class="text-xs">
                         <div class="text-xs">Analysis Complete: {{ plan_analysis_complete }}</div>
@@ -229,7 +229,7 @@
                     <!-- Add token usage section -->
                     <div class="flex justify-between items-center cursor-pointer mt-4" @click="toggleTokensCollapsed">
                         <h3 class="text-md font-bold mb-2">Token Usage</h3>
-                        <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                        <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5 rtl-flip" />
                     </div>
                     <div v-if="!tokensCollapsed" class="text-xs bg-gray-50 p-3 rounded">
                         <div v-if="plan_content.token_usage">

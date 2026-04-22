@@ -125,7 +125,7 @@
               >
                 <UIcon
                   :name="expandedTools[tool.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-                  class="w-3 h-3 text-gray-400 flex-shrink-0"
+                  class="w-3 h-3 text-gray-400 flex-shrink-0 rtl-flip"
                 />
                 <code class="text-[13px] text-gray-800 font-medium whitespace-nowrap">{{ tool.name }}</code>
                 <span v-if="!tool.is_enabled" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-400">off</span>

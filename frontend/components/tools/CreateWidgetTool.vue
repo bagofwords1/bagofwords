@@ -29,7 +29,7 @@
             <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <span v-if="!dmDone" class="tool-shimmer">{{ $t('tools.createWidget.creatingDataModel') }}</span>
             <span v-else class="text-gray-700">{{ $t('tools.createWidget.creatingDataModel') }}</span>
-            <Icon :name="dmCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2" />
+            <Icon :name="dmCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
             <div v-if="!dmCollapsed" class="mt-1 ms-4">
@@ -65,7 +65,7 @@
             <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingCode') }}</span>
             <span v-else-if="isCodeRunning" class="tool-shimmer">{{ $t('tools.createWidget.generatingCode') }}</span>
             <span v-else class="text-gray-700">{{ $t('tools.createWidget.generatingCode') }}</span>
-            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2" />
+            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">

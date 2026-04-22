@@ -125,7 +125,7 @@
                                             <!-- 1. Thinking box (reasoning) -->
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
-                                                    <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
+                                                    <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400 rtl-flip" />
                                                     <span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
                                                         {{ getThoughtProcessLabel(block) }}
                                                     </span>

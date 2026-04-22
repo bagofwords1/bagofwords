@@ -129,3 +129,24 @@
 }
 [dir="rtl"] .markstream-vue .text-left { text-align: start; }
 [dir="rtl"] .markstream-vue .text-right { text-align: end; }
+
+/* 7b. Mixed-locale markdown: UI locale is LTR but the assistant answered
+ *     in Hebrew/Arabic (or vice-versa). Text alignment works because each
+ *     innermost <p dir="auto"> resolves independently, but the <li>/<ol>
+ *     around it can't see through nested `dir="auto"` descendants per the
+ *     HTML spec's auto-directionality algorithm — so markers stay on the
+ *     LTR edge. There is no pure-CSS fix (`:dir()` follows the same spec
+ *     rule). The `useMarkdownAutoDir` composable scans textContent itself
+ *     and sets an explicit `dir="rtl"` / `dir="ltr"` on every ol/ul/li
+ *     inside `.markdown-wrapper`; these rules swap padding to the correct
+ *     edge based on that attribute regardless of the document direction. */
+.markdown-wrapper ol[dir="rtl"],
+.markdown-wrapper ul[dir="rtl"] {
+  padding-left: 0 !important;
+  padding-right: 1.625em !important;
+}
+.markdown-wrapper ol[dir="ltr"],
+.markdown-wrapper ul[dir="ltr"] {
+  padding-left: 1.625em !important;
+  padding-right: 0 !important;
+}

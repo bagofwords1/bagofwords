@@ -84,7 +84,7 @@
                     isAllDomains ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
                   ]"
                 >
-                  <span class="text-xs font-medium">All Agents</span>
+                  <span class="text-xs font-medium">{{ $t('nav.allAgents') }}</span>
                   <UIcon v-if="isAllDomains" name="heroicons-check" class="w-3 h-3 ms-auto text-indigo-600" />
                 </button>
 
@@ -118,7 +118,7 @@
                   class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                 >
                   <UIcon name="heroicons-cog-6-tooth" class="w-3 h-3 flex-shrink-0" />
-                  <span class="text-[11px]">Manage</span>
+                  <span class="text-[11px]">{{ $t('nav.manage') }}</span>
                 </a>
               </template>
             </div>

@@ -25,7 +25,7 @@
       <!-- Loading state -->
       <div v-if="isLoadingMentions" class="p-2 text-start text-xs text-gray-500 flex items-center gap-2">
         <Spinner class="w-3 h-3" />
-        <span>Loading…</span>
+        <span>{{ $t('mentionInput.loading') }}</span>
       </div>
       
       <!-- Search results view -->
@@ -65,7 +65,7 @@
         </div>
         
         <div v-if="filteredCategories.length === 0" class="px-2 py-4 text-xs text-gray-500">
-          No results found
+          {{ $t('mentionInput.noResults') }}
         </div>
       </div>
       
@@ -88,17 +88,17 @@
         <div v-if="expandedCategory === 'data_sources'" class="space-y-2">
           <div v-if="expandedItem?.description" class="text-[12px] text-gray-600 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
           <div>
-            <div class="text-[11px] text-gray-500 mb-1">Tables</div>
+            <div class="text-[11px] text-gray-500 mb-1">{{ $t('mentionInput.tables') }}</div>
             <div class="max-h-40 overflow-auto border rounded">
-              <div 
-                v-for="t in tablesForExpandedDataSource" 
-                :key="t.id" 
+              <div
+                v-for="t in tablesForExpandedDataSource"
+                :key="t.id"
                 class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50"
               >
                 <DataSourceIcon :type="t.icon_type" class="h-3" />
                 <span class="truncate">{{ t.name }}</span>
               </div>
-              <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">No tables.</div>
+              <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noTables') }}</div>
             </div>
           </div>
         </div>
@@ -109,7 +109,7 @@
             <span v-if="expandedItem?.connection_name" class="px-1.5 py-0.5 bg-gray-100 rounded">{{ expandedItem.connection_name }}</span>
             <span v-if="expandedItem?.data_source_name" class="px-1.5 py-0.5 bg-gray-100 rounded">{{ expandedItem.data_source_name }}</span>
           </div>
-          <div class="text-[11px] text-gray-500">Columns</div>
+          <div class="text-[11px] text-gray-500">{{ $t('mentionInput.columns') }}</div>
           <div class="flex flex-wrap gap-1 max-h-40 overflow-auto">
             <span 
               v-for="(col, idx) in (expandedItem?.columns || [])" 
@@ -119,13 +119,13 @@
               {{ typeof col === 'string' ? col : (col as any).name }}
               <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
             </span>
-            <span v-if="!(expandedItem?.columns || []).length" class="text-[12px] text-gray-400">No columns.</span>
+            <span v-if="!(expandedItem?.columns || []).length" class="text-[12px] text-gray-400">{{ $t('mentionInput.noColumns') }}</span>
           </div>
         </div>
 
         <!-- Entity details: inline description + data preview inside dropdown -->
         <div v-else-if="expandedCategory === 'entities'" class="space-y-2">
-          <div v-if="entityLoading" class="text-[11px] text-gray-500 flex items-center gap-2"><Spinner class="w-3 h-3" /> Loading…</div>
+          <div v-if="entityLoading" class="text-[11px] text-gray-500 flex items-center gap-2"><Spinner class="w-3 h-3" /> {{ $t('mentionInput.loading') }}</div>
           <template v-else>
             <div v-if="(entityDetails?.description || expandedItem?.description)" class="text-[11px] text-gray-600 leading-snug">{{ entityDetails?.description || expandedItem?.description }}</div>
             <div v-if="entityPreviewColumns.length && entityPreviewRows.length" class="overflow-auto border rounded">
@@ -142,9 +142,9 @@
                 </tbody>
               </table>
             </div>
-            <div v-else class="text-[12px] text-gray-400">No data available.</div>
+            <div v-else class="text-[12px] text-gray-400">{{ $t('mentionInput.noData') }}</div>
             <div class="pt-1">
-              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50">Open page</NuxtLink>
+              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50">{{ $t('mentionInput.openPage') }}</NuxtLink>
             </div>
           </template>
         </div>
@@ -155,9 +155,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
+
+const { t, locale: i18nLocale } = useI18n()
 
 interface MentionItem {
   id: string
@@ -187,7 +190,7 @@ const props = defineProps({
   },
   placeholder: {
     type: String,
-    default: 'Type @ to mention...'
+    default: ''
   },
   rows: {
     type: Number,
@@ -240,7 +243,6 @@ const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
 // `dir="auto"` on an empty contenteditable resolves to LTR per spec (not to
 // the document's direction), so the placeholder and the cursor land on the
 // left side even when <html dir="rtl">. Bind to the active locale instead.
-const { locale: i18nLocale } = useI18n()
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const editorDir = computed<'rtl' | 'ltr'>(() =>
   RTL_LOCALES.has(i18nLocale.value) ? 'rtl' : 'ltr'
@@ -926,9 +928,11 @@ function buildMentionGroups(selected: MentionItem[]) {
 
 function setPlaceholder() {
   if (inputRef.value && inputRef.value.innerText.trim() === '') {
-    inputRef.value.setAttribute('data-placeholder', props.placeholder)
+    inputRef.value.setAttribute('data-placeholder', props.placeholder || t('mentionInput.placeholder'))
   }
 }
+
+watch(i18nLocale, () => setPlaceholder())
 
 // Helper to format time ago
 function formatTimeAgo(dateStr: string | null): string {
@@ -938,12 +942,12 @@ function formatTimeAgo(dateStr: string | null): string {
     const now = new Date()
     const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
     
-    if (seconds < 60) return 'just now'
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`
-    if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`
-    if (seconds < 2592000) return `${Math.floor(seconds / 604800)} weeks ago`
-    return `${Math.floor(seconds / 2592000)} months ago`
+    if (seconds < 60) return t('mentionInput.time.justNow')
+    if (seconds < 3600) return t('mentionInput.time.minutesAgo', { n: Math.floor(seconds / 60) })
+    if (seconds < 86400) return t('mentionInput.time.hoursAgo', { n: Math.floor(seconds / 3600) })
+    if (seconds < 604800) return t('mentionInput.time.daysAgo', { n: Math.floor(seconds / 86400) })
+    if (seconds < 2592000) return t('mentionInput.time.weeksAgo', { n: Math.floor(seconds / 604800) })
+    return t('mentionInput.time.monthsAgo', { n: Math.floor(seconds / 2592000) })
   } catch {
     return ''
   }
@@ -973,7 +977,7 @@ async function fetchAvailableMentions() {
       allCategories.value = [
         {
           name: 'data_sources',
-          label: 'Data Sources',
+          label: t('mentionInput.categories.dataSources'),
           items: (apiData.data_sources || []).map((ds: any) => ({
             ...ds,
             subtitle: ds.description || ds.data_source_type,
@@ -982,7 +986,7 @@ async function fetchAvailableMentions() {
         },
         {
           name: 'entities',
-          label: 'Queries',
+          label: t('mentionInput.categories.queries'),
           items: (apiData.entities || []).map((entity: any) => ({
             ...entity,
             name: entity.title,
@@ -991,7 +995,7 @@ async function fetchAvailableMentions() {
         },
         {
           name: 'files',
-          label: 'Files',
+          label: t('mentionInput.categories.files'),
           items: (apiData.files || []).map((file: any) => ({
             ...file,
             name: file.filename,
@@ -1000,7 +1004,7 @@ async function fetchAvailableMentions() {
         },
         {
           name: 'tables',
-          label: 'Tables',
+          label: t('mentionInput.categories.tables'),
           items: (apiData.tables || []).map((table: any) => ({
             ...table,
             // Normalize field for client-side filtering compatibility

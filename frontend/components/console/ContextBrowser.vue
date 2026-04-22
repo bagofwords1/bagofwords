@@ -6,7 +6,7 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('schemas')"
       >
-        <Icon :name="expandedSections.has('schemas') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+        <Icon :name="expandedSections.has('schemas') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Schemas
       </div>
       <Transition name="fade">
@@ -22,7 +22,7 @@
                     {{ (ds.tables || []).length }} of {{ ds._usage_meta.tables_total }} tables
                   </span>
                 </div>
-                <Icon :name="expandedSections.has('ds:'+ds.info.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
+                <Icon :name="expandedSections.has('ds:'+ds.info.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500 rtl-flip" />
               </div>
               <Transition name="fade">
                 <div v-if="expandedSections.has('ds:'+ds.info.id)" class="px-3 py-2 space-y-1">
@@ -63,7 +63,7 @@
                               {{ tbl.neg_feedback_count ?? 0 }}
                             </span>
                           </div>
-                          <Icon :name="expandedSections.has('tbl:'+ds.info.id+':'+tbl.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
+                          <Icon :name="expandedSections.has('tbl:'+ds.info.id+':'+tbl.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500 rtl-flip" />
                         </div>
                       </div>
                       <Transition name="fade">
@@ -103,7 +103,7 @@
           <div v-else-if="schemasText">
             <div v-for="section in xmlSections" :key="section.tag" class="text-xs">
               <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-1" @click="toggleSection('tag:'+section.tag)">
-                <Icon :name="expandedSections.has('tag:'+section.tag) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+                <Icon :name="expandedSections.has('tag:'+section.tag) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                 {{ section.tag }}
                 <span v-if="section.tag === 'schema' && tables.length" class="ms-2 text-[11px] text-gray-400">({{ tables.length }} tables)</span>
               </div>
@@ -116,7 +116,7 @@
                 <div v-if="expandedSections.has('tag:'+section.tag) && section.tag === 'schema'" class="ms-2 space-y-2">
                   <div v-for="t in tables" :key="t.name">
                     <div class="flex items-center flex-wrap gap-x-2 cursor-pointer text-[11px] uppercase tracking-wide text-gray-500" @click="toggleSection('table:'+t.name)">
-                      <Icon :name="expandedSections.has('table:'+t.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+                      <Icon :name="expandedSections.has('table:'+t.name) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                       <span class="inline-flex items-center">
                         <span :class="['inline-block w-2.5 h-2.5 rounded-full me-1', scoreDotClass(t.metrics?.score)]"></span>
                         <span class="font-medium">{{ t.name }}</span>
@@ -164,7 +164,7 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('instructions')"
       >
-        <Icon :name="expandedSections.has('instructions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+        <Icon :name="expandedSections.has('instructions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Instructions
         <span v-if="instructionsItems.length" class="ms-2 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
           {{ instructionsItems.length }}
@@ -319,7 +319,7 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('observations')"
       >
-        <Icon :name="expandedSections.has('observations') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+        <Icon :name="expandedSections.has('observations') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Observations
         <span v-if="toolObservations.length" class="ms-2 text-[10px] text-gray-400">({{ toolObservations.length }} execution{{ toolObservations.length !== 1 ? 's' : '' }})</span>
       </div>
@@ -354,7 +354,7 @@
               </div>
               <div class="flex items-center gap-2">
                 <span v-if="obs.timestamp" class="text-[10px] text-gray-400">{{ formatObservationTime(obs.timestamp) }}</span>
-                <Icon :name="expandedSections.has('obs:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
+                <Icon :name="expandedSections.has('obs:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500 rtl-flip" />
               </div>
             </div>
             
@@ -409,7 +409,7 @@
                       class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-400 mb-1"
                       @click.stop="toggleSection('obs-input:' + obs.execution_number)"
                     >
-                      <Icon :name="expandedSections.has('obs-input:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+                      <Icon :name="expandedSections.has('obs-input:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                       Other Fields ({{ getOtherInputFields(obs.tool_input).length }})
                     </div>
                     <Transition name="fade">
@@ -465,7 +465,7 @@
                       class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-400 mb-1"
                       @click.stop="toggleSection('obs-result:' + obs.execution_number)"
                     >
-                      <Icon :name="expandedSections.has('obs-result:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+                      <Icon :name="expandedSections.has('obs-result:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                       Details
                     </div>
                     <Transition name="fade">
@@ -504,7 +504,7 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('mentions')"
       >
-        <Icon :name="expandedSections.has('mentions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+        <Icon :name="expandedSections.has('mentions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Mentions
       </div>
       <Transition name="fade">
@@ -578,7 +578,7 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('entities')"
       >
-        <Icon :name="expandedSections.has('entities') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+        <Icon :name="expandedSections.has('entities') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Entities
       </div>
       <Transition name="fade">
@@ -618,7 +618,7 @@
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
         @click="toggleSection('metadata')"
       >
-        <Icon :name="expandedSections.has('metadata') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+        <Icon :name="expandedSections.has('metadata') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Metadata
       </div>
       <Transition name="fade">
@@ -634,7 +634,7 @@
             </div>
             <div v-else>
               <div class="flex items-center cursor-pointer" @click="toggleSection('meta:'+k)">
-                <Icon :name="expandedSections.has('meta:'+k) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-500" />
+                <Icon :name="expandedSections.has('meta:'+k) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-500 rtl-flip" />
                 <div class="w-44 text-[11px] uppercase tracking-wide text-gray-500">{{ k.replace(/_/g,' ') }}</div>
               </div>
               <Transition name="fade">

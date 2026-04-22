@@ -24,7 +24,7 @@
             @click="toggleItem(idx)"
             :aria-expanded="isExpanded(idx)"
           >
-            <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1" />
+            <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
             <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-3 me-2" />
             <div class="font-medium text-gray-700 truncate">
               {{ item.name || item.path || 'resource' }}

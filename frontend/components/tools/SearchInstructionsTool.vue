@@ -26,7 +26,7 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1" />
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
               <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
               <div class="font-medium text-gray-700 truncate">
                 {{ displayTitle(item) }}

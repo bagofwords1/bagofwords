@@ -32,7 +32,7 @@
           <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
           />
         </span>
       </div>
@@ -71,7 +71,7 @@
           >
             <Icon
               :name="showCode ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-              class="w-2.5 h-2.5 me-1 text-gray-400"
+              class="w-2.5 h-2.5 me-1 text-gray-400 rtl-flip"
             />
             <span>{{ $t('tools.common.code') }}</span>
           </div>
@@ -88,7 +88,7 @@
           >
             <Icon
               :name="showOutput ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-              class="w-2.5 h-2.5 me-1 text-gray-400"
+              class="w-2.5 h-2.5 me-1 text-gray-400 rtl-flip"
             />
             <span>{{ $t('tools.common.output') }}</span>
           </div>

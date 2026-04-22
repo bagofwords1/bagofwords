@@ -302,7 +302,7 @@
                                 <div class="flex items-center gap-2">
                                     <UIcon 
                                         :name="diffExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" 
-                                        class="w-3 h-3 text-gray-400"
+                                        class="w-3 h-3 text-gray-400 rtl-flip"
                                     />
                                     <span class="text-xs font-medium text-gray-700">Changes (from Build #{{ diffData.build_a_number }})</span>
                                 </div>
@@ -347,7 +347,7 @@
                                         <span v-else class="w-4 shrink-0"></span>
                                         <UIcon
                                             :name="isDiffItemExpanded(item.instruction_id) ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                                            class="w-3 h-3 text-gray-400 mt-0.5 shrink-0"
+                                            class="w-3 h-3 text-gray-400 mt-0.5 shrink-0 rtl-flip"
                                         />
                                         <div class="flex-1 min-w-0">
                                             <div class="flex items-center gap-1.5">
@@ -431,7 +431,7 @@
                                 <div class="flex items-center gap-2">
                                     <UIcon 
                                         :name="evalsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" 
-                                        class="w-3 h-3 text-gray-400"
+                                        class="w-3 h-3 text-gray-400 rtl-flip"
                                     />
                                     <span class="text-xs font-medium text-gray-700">Evals</span>
                                     <!-- Show test status badge if available -->
@@ -615,7 +615,7 @@
                                 <div class="flex items-center gap-2">
                                     <UIcon 
                                         :name="instructionsExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" 
-                                        class="w-3 h-3 text-gray-400"
+                                        class="w-3 h-3 text-gray-400 rtl-flip"
                                     />
                                     <span class="text-xs font-medium text-gray-700">Instructions</span>
                                     <span class="text-[10px] text-gray-400">({{ totalInstructions }})</span>

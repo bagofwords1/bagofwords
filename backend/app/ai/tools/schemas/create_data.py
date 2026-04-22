@@ -12,7 +12,7 @@ class CreateDataInput(BaseModel):
     Generates and executes code to produce tabular data based on the prompt and targeted schemas.
     """
 
-    title: str = Field(..., description="Title for the data artifact to create")
+    title: str = Field(..., description="Title for the data artifact to create. Should be in the same language of the user/prompt")
     user_prompt: str = Field(..., description="Original user instruction")
     interpreted_prompt: str = Field(..., description="LLM-interpreted, clarified version of the user prompt. "
     "Be prescriptive: name specific tables, target columns, and additional columns for filtering. "

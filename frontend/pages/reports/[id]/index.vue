@@ -197,7 +197,7 @@
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
-													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
+													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400 rtl-flip" />
 													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
 														{{ getThoughtProcessLabel(block) }}
 													</span>
@@ -2364,6 +2364,8 @@ const handleOfficeJsResult = async (event: MessageEvent) => {
     }
 }
 
+const markdownAutoDir = ref<{ stop: () => void } | null>(null)
+
 onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
@@ -2372,6 +2374,7 @@ onMounted(() => {
         handleOpenArtifact({ artifactId: ev.detail?.artifact_id })
     }) as EventListener)
     window.addEventListener('message', handleOfficeJsResult)
+    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
@@ -2493,6 +2496,7 @@ onUnmounted(() => {
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
 	stopScheduledCompletionsPoll()
+	markdownAutoDir.value?.stop()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 })
@@ -3045,10 +3049,12 @@ onMounted(async () => {
 }
 
 .thinking-content {
-	padding: 4px 0 4px 10px;
+	padding-block: 4px;
+	padding-inline-start: 10px;
+	padding-inline-end: 0;
 	margin-top: 2px;
 	margin-bottom: 4px;
-	border-left: 1px dashed #e5e7eb;
+	border-inline-start: 1px dashed #e5e7eb;
 	font-size: 12px !important;
 	line-height: 1.4;
 	color: #6b7280;

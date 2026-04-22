@@ -4,7 +4,7 @@
             <!-- Header -->
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">Agent Execution</h3>
+                    <h3 class="text-lg font-semibold text-gray-900">{{ $t('traceModal.title') }}</h3>
                     <UButton
                         color="gray"
                         variant="ghost"
@@ -14,13 +14,13 @@
                 </div>
                 <div class="flex items-start justify-between mt-1">
                     <div class="flex items-center gap-3 text-sm text-gray-500">
-                        <span>Report ID: {{ reportId }}</span>
+                        <span>{{ $t('traceModal.reportId', { id: reportId }) }}</span>
                         <!-- Timing summary pills -->
                         <template v-if="traceData?.timing_breakdown">
                             <span v-if="traceData.timing_breakdown.total_duration_ms != null"
                                 class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-xs text-gray-600">
                                 <UIcon name="i-heroicons-clock" class="w-3 h-3" />
-                                Total {{ formatDuration(traceData.timing_breakdown.total_duration_ms) }}
+                                {{ $t('traceModal.total', { duration: formatDuration(traceData.timing_breakdown.total_duration_ms) }) }}
                             </span>
                         </template>
                     </div>
@@ -29,26 +29,26 @@
                         v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)"
                         class="flex items-center gap-2"
                     >
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500 me-1">AI Scoring</div>
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500 me-1">{{ $t('traceModal.aiScoring') }}</div>
                         <div
                             v-if="traceData.agent_execution.instructions_effectiveness !== null"
                             class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-blue-50 text-blue-700 border-blue-200"
                         >
-                            <span class="me-1">Instructions</span>
+                            <span class="me-1">{{ $t('traceModal.instructions') }}</span>
                             <span class="font-semibold">{{ traceData.agent_execution.instructions_effectiveness }}/5</span>
                         </div>
                         <div
                             v-if="traceData.agent_execution.context_effectiveness !== null"
                             class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-purple-50 text-purple-700 border-purple-200"
                         >
-                            <span class="me-1">Context</span>
+                            <span class="me-1">{{ $t('traceModal.context') }}</span>
                             <span class="font-semibold">{{ traceData.agent_execution.context_effectiveness }}/5</span>
                         </div>
                         <div
                             v-if="traceData.agent_execution.response_score !== null"
                             class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-green-50 text-green-700 border-green-200"
                         >
-                            <span class="me-1">Response</span>
+                            <span class="me-1">{{ $t('traceModal.response') }}</span>
                             <span class="font-semibold">{{ traceData.agent_execution.response_score }}/5</span>
                         </div>
                     </div>
@@ -61,7 +61,7 @@
                 <div v-if="isLoading" class="flex-1 flex items-center justify-center">
                     <div class="text-center">
                         <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
-                        <p class="text-sm text-gray-500">Loading execution trace...</p>
+                        <p class="text-sm text-gray-500">{{ $t('traceModal.loading') }}</p>
                     </div>
                 </div>
 
@@ -69,13 +69,13 @@
                 <div v-else class="grid grid-cols-5 gap-6 flex-1 min-h-0">
                     <!-- Left Pane: Minimal Block List (2/5 width) -->
                     <div class="col-span-2 border-e border-gray-200 pe-4 flex flex-col min-h-0">
-                        <div class="text-xs text-gray-600 mb-2">Execution Blocks</div>
+                        <div class="text-xs text-gray-600 mb-2">{{ $t('traceModal.executionBlocks') }}</div>
                         <div class="flex-1 min-h-0 overflow-y-auto pe-2">
                             <div v-for="(item, index) in visibleLeftItems" :key="item.id" :class="[item.kind === 'section' ? 'mb-0' : 'mb-2', item.phase === 'knowledge_harness' ? 'ms-4 ps-3 border-s border-gray-200' : '']">
                                 <div v-if="item.kind === 'section'"
                                     class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 hover:text-gray-700 select-none"
                                     @click="toggleHarnessCollapsed()">
-                                    <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3" />
+                                    <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3 rtl-flip" />
                                     <span>{{ item.title }}</span>
                                     <span class="text-gray-400">· {{ harnessCount }}</span>
                                 </div>
@@ -87,7 +87,7 @@
                                         <div class="font-medium text-gray-900 truncate flex items-center gap-1">
                                             <span class="truncate">{{ item.title }}</span>
                                             <span v-if="item.data_sources?.length" class="flex items-center gap-0.5 flex-shrink-0 ms-1">
-                                                <UTooltip v-for="ds in item.data_sources" :key="ds.id" :text="ds.name || ds.type || 'Data source'">
+                                                <UTooltip v-for="ds in item.data_sources" :key="ds.id" :text="ds.name || ds.type || $t('nav.dataSources')">
                                                     <DataSourceIcon :type="ds.type" class="w-3.5 h-3.5" />
                                                 </UTooltip>
                                             </span>
@@ -99,10 +99,10 @@
                                         <!-- codegen / execution split when available -->
                                         <template v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms != null">
                                             <span class="text-purple-500">
-                                                LLM {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms ?? 0) }}
+                                                {{ $t('traceModal.llm') }} {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.codegen_ms ?? 0) }}
                                             </span>
                                             <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms != null" class="text-orange-500">
-                                                Exec {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms ?? 0) }}
+                                                {{ $t('traceModal.exec') }} {{ formatDuration((item.ref?.tool_execution?.sub_timings_json as any)?.execution_ms ?? 0) }}
                                             </span>
                                             <span v-if="(item.ref?.tool_execution?.sub_timings_json as any)?.retry_count" class="text-red-500">
                                                 ×{{ ((item.ref?.tool_execution?.sub_timings_json as any)?.retry_count ?? 0) + 1 }}
@@ -118,7 +118,7 @@
                                         <!-- Planner LLM badge -->
                                         <template v-else-if="item.ref?.plan_decision?.metrics_json?.total_duration_ms != null">
                                             <span class="text-purple-500">
-                                                LLM {{ formatDuration(item.ref.plan_decision.metrics_json.total_duration_ms) }}
+                                                {{ $t('traceModal.llm') }} {{ formatDuration(item.ref.plan_decision.metrics_json.total_duration_ms) }}
                                             </span>
                                         </template>
                                         <!-- total -->
@@ -141,7 +141,7 @@
                         <div v-if="!selectedItem" class="flex items-center justify-center h-full text-gray-500">
                             <div class="text-center">
                                 <UIcon name="i-heroicons-cursor-arrow-rays" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                                <p class="text-xs">Select an item from the tree to view details</p>
+                                <p class="text-xs">{{ $t('traceModal.selectItem') }}</p>
                             </div>
                         </div>
 
@@ -167,11 +167,11 @@
 
                                 <!-- User prompt + context (minimal) -->
                                 <template v-if="selectedItem.id === 'user_prompt'">
-                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">User Prompt</div>
+                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.userPrompt') }}</div>
                                     <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
-                                    
+
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Context</div>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.context') }}</div>
                                         <ContextBrowser 
                                             :context-data="traceData.head_context_snapshot.context_view_json || {}" 
                                             :build="traceData?.build"
@@ -184,9 +184,9 @@
                                     <div v-if="instructionsSummaryItems.length">
                                         <!-- Summary counts -->
                                         <div class="flex items-center gap-3 mb-3 text-xs text-gray-600">
-                                            <span class="font-medium">{{ instructionsSummaryItems.length }} instructions</span>
-                                            <span v-if="instructionsAlwaysCount" class="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ instructionsAlwaysCount }} always</span>
-                                            <span v-if="instructionsIntelligentCount" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ instructionsIntelligentCount }} intelligent</span>
+                                            <span class="font-medium">{{ $t('traceModal.instructionsCount', { count: instructionsSummaryItems.length }) }}</span>
+                                            <span v-if="instructionsAlwaysCount" class="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ $t('traceModal.alwaysCount', { count: instructionsAlwaysCount }) }}</span>
+                                            <span v-if="instructionsIntelligentCount" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ $t('traceModal.intelligentCount', { count: instructionsIntelligentCount }) }}</span>
                                         </div>
                                         <!-- Collapsible list -->
                                         <div class="space-y-1">
@@ -203,40 +203,40 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div v-else class="text-xs text-gray-500">No instructions loaded.</div>
+                                    <div v-else class="text-xs text-gray-500">{{ $t('traceModal.noInstructions') }}</div>
                                 </template>
 
                                 <!-- Decision details (minimal) -->
                                 <template v-else>
                                     <!-- Feedback details -->
                                     <div v-if="selectedItem.kind === 'feedback'">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Feedback</div>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.feedback') }}</div>
                                         <div class="flex items-center space-x-2 mb-2">
                                             <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
                                                   :class="(selectedItem.direction || 0) > 0 ? 'bg-green-100 text-green-800' : (selectedItem.direction || 0) < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
-                                                {{ (selectedItem.direction || 0) > 0 ? 'Positive' : (selectedItem.direction || 0) < 0 ? 'Negative' : 'Neutral' }}
+                                                {{ (selectedItem.direction || 0) > 0 ? $t('traceModal.positive') : (selectedItem.direction || 0) < 0 ? $t('traceModal.negative') : $t('traceModal.neutral') }}
                                             </span>
                                             <span class="text-xs text-gray-500">{{ formatDate(selectedItem.created_at) }}</span>
                                         </div>
                                         <div v-if="selectedItem.message">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Message</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.message') }}</div>
                                             <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.message }}</pre>
                                         </div>
                                     </div>
                                     <!-- Non-feedback details -->
                                     <div v-else>
                                         <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Reasoning</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.reasoning') }}</div>
                                             <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                         </div>
                                         <div>
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Content</div>
-                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || 'No content' }}</pre>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">{{ $t('traceModal.content') }}</div>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
                                         </div>
 
                                         <!-- Tool execution with specialized rendering -->
                                         <div v-if="selectedItem.tool_execution" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Tool Execution</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.toolExecution') }}</div>
                                             <!-- Use specialized tool component if available -->
                                             <component
                                                 v-if="shouldUseToolComponent(selectedItem.tool_execution)"
@@ -261,9 +261,9 @@
                                                 class="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-500 mb-2 cursor-pointer hover:text-gray-700"
                                                 @click="showToolInstructions = !showToolInstructions"
                                             >
-                                                <UIcon :name="showToolInstructions ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
+                                                <UIcon :name="showToolInstructions ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                                 <UIcon name="i-heroicons-cube" class="w-3 h-3" />
-                                                {{ selectedItem.tool_execution.result_json.related_instructions.length }} Instructions Loaded
+                                                {{ $t('traceModal.instructionsLoaded', { count: selectedItem.tool_execution.result_json.related_instructions.length }) }}
                                             </div>
                                             <Transition name="fade">
                                                 <div v-if="showToolInstructions" class="space-y-1">
@@ -280,18 +280,18 @@
 
                                         <!-- Sub-timings: per-query breakdown -->
                                         <div v-if="selectedItemSubTimings" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Query Timing</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.queryTiming') }}</div>
                                             <div class="space-y-1 text-xs">
                                                 <!-- Phase summary row -->
                                                 <div class="flex items-center gap-3 text-gray-500 mb-2">
                                                     <span v-if="selectedItemSubTimings.codegen_ms != null">
-                                                        LLM codegen <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.codegen_ms) }}</span>
+                                                        {{ $t('traceModal.llmCodegen') }} <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.codegen_ms) }}</span>
                                                     </span>
                                                     <span v-if="selectedItemSubTimings.execution_ms != null">
-                                                        Data query execution <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.execution_ms) }}</span>
+                                                        {{ $t('traceModal.dataQueryExecution') }} <span class="font-medium text-gray-700">{{ formatDuration(selectedItemSubTimings.execution_ms) }}</span>
                                                     </span>
                                                     <span v-if="selectedItemSubTimings.retry_count">
-                                                        Retries <span class="font-medium text-red-600">{{ selectedItemSubTimings.retry_count }}</span>
+                                                        {{ $t('traceModal.retries') }} <span class="font-medium text-red-600">{{ selectedItemSubTimings.retry_count }}</span>
                                                     </span>
                                                 </div>
                                                 <!-- Per-query table -->
@@ -300,9 +300,9 @@
                                                         <thead class="bg-gray-50 text-gray-500">
                                                             <tr>
                                                                 <th class="px-2 py-1 text-start font-medium">#</th>
-                                                                <th class="px-2 py-1 text-end font-medium">Time</th>
-                                                                <th class="px-2 py-1 text-end font-medium">Rows</th>
-                                                                <th class="px-2 py-1 text-start font-medium">SQL</th>
+                                                                <th class="px-2 py-1 text-end font-medium">{{ $t('traceModal.tableTime') }}</th>
+                                                                <th class="px-2 py-1 text-end font-medium">{{ $t('traceModal.tableRows') }}</th>
+                                                                <th class="px-2 py-1 text-start font-medium">{{ $t('traceModal.tableSql') }}</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -327,7 +327,7 @@
 
                                         <!-- Stages waterfall -->
                                         <div v-if="filteredStages.length" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Stages</div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">{{ $t('traceModal.stages') }}</div>
                                             <div class="space-y-1">
                                                 <div v-for="s in filteredStages" :key="s.stage"
                                                      class="flex items-center gap-2 text-[11px]">
@@ -443,6 +443,7 @@ import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
+const { t } = useI18n()
 
 interface ToolExecutionUI {
     tool_name: string
@@ -647,12 +648,12 @@ const leftItems = computed(() => {
     const items: any[] = []
     // 1) User prompt
     if (traceData.value?.head_prompt_snippet) {
-        items.push({ id: 'user_prompt', kind: 'prompt', title: 'User Prompt', subtitle: traceData.value.head_prompt_snippet })
+        items.push({ id: 'user_prompt', kind: 'prompt', title: t('traceModal.userPrompt'), subtitle: traceData.value.head_prompt_snippet })
     }
     // 1b) Instructions summary (from context snapshot)
     const instrItems = traceData.value?.head_context_snapshot?.context_view_json?.instructions_usage
     if (instrItems?.length) {
-        items.push({ id: 'instructions_summary', kind: 'instructions', title: 'Instructions', subtitle: `${instrItems.length} loaded` })
+        items.push({ id: 'instructions_summary', kind: 'instructions', title: t('traceModal.instructions'), subtitle: t('traceModal.loaded', { count: instrItems.length }) })
     }
     // 2) Decisions (blocks) — main-loop first, then knowledge harness
     const mainBlocks = blocks.value.filter((b: any) => (b as any).phase !== 'knowledge_harness')
@@ -662,25 +663,25 @@ const leftItems = computed(() => {
         const action = te?.tool_action ? te.tool_action : undefined
         const tool_call_name = action ? `${te.tool_name}.${action}` : te?.tool_name
         const data_sources = te?.data_sources || (b as any).tool_execution?.data_sources || []
-        const title = tool_call_name ? `Decision: ${tool_call_name}` : (b.title || 'Decision')
+        const title = tool_call_name ? t('traceModal.decision', { name: tool_call_name }) : (b.title || t('traceModal.decision', { name: '' }).replace(/:\s*$/, ''))
         items.push({ id: b.id, kind: 'decision', title, subtitle: undefined, ref: b, data_sources, phase })
     }
     for (const b of mainBlocks) pushBlock(b)
     if (harnessBlocks.length) {
-        items.push({ id: 'knowledge_harness_header', kind: 'section', title: 'Knowledge Harness' })
+        items.push({ id: 'knowledge_harness_header', kind: 'section', title: t('traceModal.knowledgeHarness') })
         for (const b of harnessBlocks) pushBlock(b, 'knowledge_harness')
     }
     // 2b) Latest feedback (if exists)
     if (traceData.value?.latest_feedback) {
         const fb = traceData.value.latest_feedback
-        const label = fb.direction > 0 ? 'Positive' : (fb.direction < 0 ? 'Negative' : 'Neutral')
+        const label = fb.direction > 0 ? t('traceModal.positive') : (fb.direction < 0 ? t('traceModal.negative') : t('traceModal.neutral'))
         const subtitle = fb.message ? (fb.message.length > 140 ? fb.message.slice(0, 140) + '…' : fb.message) : undefined
-        items.push({ id: 'latest_feedback', kind: 'feedback', title: `Feedback: ${label}`, subtitle, ref: fb })
+        items.push({ id: 'latest_feedback', kind: 'feedback', title: t('traceModal.feedbackLabel', { label }), subtitle, ref: fb })
     }
     // 3) Analysis completed marker (if any block has analysis_complete)
     const hasFinal = blocks.value.some((b: any) => b?.plan_decision?.analysis_complete)
     if (hasFinal) {
-        items.push({ id: 'analysis_completed', kind: 'final', title: 'Decision: analysis_completed' })
+        items.push({ id: 'analysis_completed', kind: 'final', title: t('traceModal.decisionAnalysisCompleted') })
     }
     return items
 })
@@ -702,7 +703,7 @@ const fetchTraceData = async () => {
         } else if (response.data.value) {
             traceData.value = response.data.value
             // Always open on the prompt block
-            selectedItem.value = { id: 'user_prompt', title: 'User Prompt', content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
+            selectedItem.value = { id: 'user_prompt', title: t('traceModal.userPrompt'), content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
             selectedItemType.value = 'block'
         }
     } catch (error) {
@@ -731,17 +732,17 @@ const selectLeftItem = (item: any) => {
     if (item.kind === 'decision' && item.ref) {
         selectBlock(item.ref)
     } else if (item.kind === 'prompt') {
-        selectedItem.value = { id: 'user_prompt', title: 'User Prompt', content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
+        selectedItem.value = { id: 'user_prompt', title: t('traceModal.userPrompt'), content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
         selectedItemType.value = 'block'
     } else if (item.kind === 'instructions') {
-        selectedItem.value = { id: 'instructions_summary', kind: 'instructions', title: 'Instructions', created_at: traceData.value?.agent_execution?.started_at }
+        selectedItem.value = { id: 'instructions_summary', kind: 'instructions', title: t('traceModal.instructions'), created_at: traceData.value?.agent_execution?.started_at }
         selectedItemType.value = 'block'
     } else if (item.kind === 'feedback' && item.ref) {
         const fb = item.ref as CompletionFeedbackUI
-        selectedItem.value = { id: 'latest_feedback', kind: 'feedback', title: 'Feedback', direction: fb.direction, message: fb.message, created_at: fb.created_at }
+        selectedItem.value = { id: 'latest_feedback', kind: 'feedback', title: t('traceModal.feedback'), direction: fb.direction, message: fb.message, created_at: fb.created_at }
         selectedItemType.value = 'block'
     } else if (item.kind === 'final') {
-        selectedItem.value = { id: 'analysis_completed', title: 'Analysis Completed', content: 'Analysis marked complete.', created_at: traceData.value?.agent_execution?.completed_at }
+        selectedItem.value = { id: 'analysis_completed', title: t('traceModal.analysisCompleted'), content: t('traceModal.analysisMarkedComplete'), created_at: traceData.value?.agent_execution?.completed_at }
         selectedItemType.value = 'block'
     }
 }
@@ -816,7 +817,7 @@ const getIssueLabel = (issueType?: string) => {
 
 const getSelectedItemIcon = () => 'i-heroicons-cog-6-tooth'
 
-const getSelectedItemTitle = () => selectedItem.value?.title || 'Block'
+const getSelectedItemTitle = () => selectedItem.value?.title || t('traceModal.block')
 
 const getStatusIcon = (status: string) => {
     if (status === 'error') return 'i-heroicons-x-circle'

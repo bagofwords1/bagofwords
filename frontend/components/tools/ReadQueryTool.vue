@@ -3,7 +3,7 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleDetails">
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
           Reading {{ queryCount > 1 ? `${queryCount} queries` : `query "${queryTitle}"` }}…

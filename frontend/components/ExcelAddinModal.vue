@@ -64,7 +64,7 @@
                     >
                         <UIcon
                             :name="showManifest ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-                            class="w-3 h-3"
+                            class="w-3 h-3 rtl-flip"
                         />
                         {{ showManifest ? 'Hide XML' : 'Show XML' }}
                     </button>

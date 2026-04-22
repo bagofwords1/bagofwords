@@ -8,7 +8,7 @@
       <Icon
         v-if="hasDetail"
         :name="collapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-        class="w-3 h-3 me-1 text-gray-400"
+        class="w-3 h-3 me-1 text-gray-400 rtl-flip"
       />
       <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500">
         <Icon name="heroicons-document-text" class="w-3 h-3 me-1 text-gray-400" />

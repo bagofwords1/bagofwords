@@ -1,7 +1,7 @@
 <template>
   <div class="mb-2">
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
 
       <!-- Status icon -->
       <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />

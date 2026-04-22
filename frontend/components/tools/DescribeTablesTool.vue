@@ -24,7 +24,7 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1" />
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
               <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" />
               <span v-if="item.connection_name" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 me-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
               <div class="font-medium text-gray-700 truncate">
@@ -78,7 +78,7 @@
               class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50"
               @click="showInstructions = !showInstructions"
             >
-              <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1" />
+              <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
               <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400" />
               <span class="text-gray-600">{{ relatedInstructions.length }} instruction{{ relatedInstructions.length !== 1 ? 's' : '' }} loaded</span>
             </div>

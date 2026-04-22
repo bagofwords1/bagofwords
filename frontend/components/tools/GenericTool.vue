@@ -1,7 +1,7 @@
 <template>
   <div class="mb-2">
     <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
 
       <!-- Status icon -->
       <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
@@ -152,7 +152,7 @@
                       class="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
                       @click.stop="showFullOutput = !showFullOutput"
                     >
-                      <Icon :name="showFullOutput ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
+                      <Icon :name="showFullOutput ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                       {{ showFullOutput ? $t('tools.common.hideFullOutput') : $t('tools.common.showFullOutput') }}
                     </button>
                     <Transition name="fade">

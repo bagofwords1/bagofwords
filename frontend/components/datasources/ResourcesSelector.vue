@@ -145,7 +145,7 @@
                     class="me-2"
                   />
                   <div class="flex-1 cursor-pointer flex items-center" @click="toggleFileExpanded(file)">
-                    <UIcon :name="expandedFiles[file.path] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-400" />
+                    <UIcon :name="expandedFiles[file.path] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-400 rtl-flip" />
                     <UIcon name="heroicons:document-text" class="w-4 h-4 text-gray-500 me-2" />
                     <span class="text-sm font-medium text-gray-700">{{ file.displayName }}</span>
                     <span class="ms-2 text-xs text-gray-400">({{ file.resources.length }} {{ file.resources.length === 1 ? 'chunk' : 'chunks' }})</span>
@@ -177,7 +177,7 @@
                 <div class="flex items-center">
                   <UCheckbox v-if="canUpdate" v-model="res.is_active" color="blue" class="me-2" />
                   <div class="font-semibold text-gray-600 cursor-pointer flex items-center" @click="toggleResource(res)">
-                    <UIcon :name="expandedResources[res.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1" />
+                    <UIcon :name="expandedResources[res.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 rtl-flip" />
                     <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-4 h-4 text-gray-500 me-1" />
                     <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-4 h-4 text-gray-500 me-1" />
                     <span class="text-sm">{{ res.name }}</span>

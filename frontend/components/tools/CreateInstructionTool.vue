@@ -14,7 +14,7 @@
           <Icon
             v-if="instructionText"
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 shrink-0"
+            class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip"
           />
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
@@ -24,7 +24,7 @@
           <span v-if="lineCount > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ lineCount }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 shrink-0"
+            class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip"
           />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 flex items-center">
@@ -33,7 +33,7 @@
           <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
           />
         </span>
         <span v-else class="text-gray-600 flex items-center">
@@ -41,7 +41,7 @@
           <span>{{ $t('tools.createInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400"
+            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
           />
         </span>
       </div>

@@ -438,7 +438,7 @@
     <!-- Styling -->
     <div>
       <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.style = !expanded.style">
-        <Icon :name="expanded.style ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+        <Icon :name="expanded.style ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Style
       </div>
       <Transition name="fade">
@@ -460,7 +460,7 @@
               <!-- X-Axis Labels section - auto-expanded when X-axis is visible -->
               <div v-if="local.xAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
                 <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.xAxisLabels = !expanded.xAxisLabels">
-                  <Icon :name="expanded.xAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+                  <Icon :name="expanded.xAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                   X-Axis Labels
                 </div>
                 <Transition name="fade">
@@ -497,7 +497,7 @@
               <!-- Y-Axis section - placeholder for future controls -->
               <div v-if="local.yAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
                 <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.yAxisLabels = !expanded.yAxisLabels">
-                  <Icon :name="expanded.yAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1" />
+                  <Icon :name="expanded.yAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                   Y-Axis Labels
                 </div>
                 <Transition name="fade">

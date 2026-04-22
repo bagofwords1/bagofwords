@@ -266,7 +266,7 @@
                 />
                 <button type="button" class="flex items-center justify-between text-start flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
-                    <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500" />
+                    <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500 rtl-flip" />
                     <template v-if="availableConnections.length > 1">
                       <DataSourceIcon :type="table.connection_type" class="h-3.5 me-1 flex-shrink-0" />
                       <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
