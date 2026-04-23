@@ -863,7 +863,7 @@
       "inviteTitle": "Invite Member",
       "inviteSubtitle": "Add a new member to your organization",
       "emailLabel": "Email",
-      "emailPlaceholder": "member@example.com",
+      "emailPlaceholder": "member{'@'}example.com",
       "roleLabel": "Role",
       "cancel": "Cancel",
       "sendInvitation": "Send Invitation",

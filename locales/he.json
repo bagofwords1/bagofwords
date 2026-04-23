@@ -863,7 +863,7 @@
       "inviteTitle": "הזמנת משתמש",
       "inviteSubtitle": "הוסף משתמש חדש לארגון שלך",
       "emailLabel": "אימייל",
-      "emailPlaceholder": "member@example.com",
+      "emailPlaceholder": "member{'@'}example.com",
       "roleLabel": "תפקיד",
       "cancel": "ביטול",
       "sendInvitation": "שליחת הזמנה",

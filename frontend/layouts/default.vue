@@ -311,8 +311,15 @@
   // sidebar is on the right so tooltips go left.
   const { locale: i18nLocale } = useI18n({ useScope: 'global' })
   const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+  const isRtl = computed<boolean>(() => RTL_LOCALES.has(i18nLocale.value))
   const tooltipPlacement = computed<'left' | 'right'>(() =>
-    RTL_LOCALES.has(i18nLocale.value) ? 'left' : 'right'
+    isRtl.value ? 'left' : 'right'
+  )
+  // Intercom launcher should sit on the opposite side of the sidebar so it
+  // doesn't collide with it. LTR: sidebar left → launcher right (default).
+  // RTL: sidebar right → launcher left.
+  const intercomAlignment = computed<'left' | 'right'>(() =>
+    isRtl.value ? 'left' : 'right'
   )
   
   const currentUserName = computed<string>(() => {
@@ -355,7 +362,8 @@
  
   if (environment === 'production' && intercom) {
     $intercom.boot({
-      hide_default_launcher: isExcel.value
+      hide_default_launcher: isExcel.value,
+      alignment: intercomAlignment.value
     })
     watch([currentUser, organization], ([user, org]) => {
       if (user && org) {
@@ -367,6 +375,7 @@
           environment: environment,
           app_url: app_url,
           hide_default_launcher: isExcel.value,
+          alignment: intercomAlignment.value,
           company: {
             company_id: org.id,
             name: org.name
@@ -374,6 +383,9 @@
         })
       }
     }, { immediate: true })
+    watch(intercomAlignment, (alignment) => {
+      $intercom.update({ alignment })
+    })
   }
 
 const createNewReport = async () => {
