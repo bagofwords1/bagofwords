@@ -932,18 +932,6 @@ class BuildService:
                 .where(Instruction.id == instruction_id)
                 .values(**values)
             )
-            # Ensure instructions created as drafts in this build become visible
-            # to legacy loaders after promotion.
-            await db.execute(
-                sql_update(Instruction)
-                .where(
-                    and_(
-                        Instruction.id == instruction_id,
-                        Instruction.status == "draft",
-                    )
-                )
-                .values(status="published")
-            )
 
         await db.commit()
 
