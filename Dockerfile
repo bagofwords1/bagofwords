@@ -74,6 +74,10 @@ COPY ./bow-config.yaml /app/bow-config.yaml
 # Copy the frontend directory contents
 COPY ./frontend /app/frontend
 
+# `frontend/plugins/i18n.ts` imports `../../locales/*.json` at build time,
+# so the repo-root `locales/` dir must be present for Rollup to resolve them.
+COPY ./locales /app/locales
+
 # Set working directory for frontend
 WORKDIR /app/frontend
 
