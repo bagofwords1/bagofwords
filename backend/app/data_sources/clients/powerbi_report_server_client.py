@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -814,22 +815,40 @@ class PowerBIReportServerClient(DataSourceClient):
     # ------------------------------------------------------------------
 
     def test_connection(self) -> Dict:
+        import time as _time
+
+        t0 = _time.perf_counter()
         try:
             self.connect()
         except Exception as e:
-            return {"success": False, "message": f"Session init failed: {e}"}
+            return {"success": False, "message": f"Session init failed: {e}", "details": {}}
 
+        auth_ms = round((_time.perf_counter() - t0) * 1000, 1)
+        t1 = _time.perf_counter()
         try:
             sys_info = self.get_system_info()
         except Exception as e:
             msg = str(e)
             if "401" in msg or "Unauthorized" in msg:
-                return {"success": False, "message": f"Authentication failed: check username, domain, and password ({msg[:180]})"}
-            return {"success": False, "message": f"Cannot reach server: {msg[:200]}"}
+                return {
+                    "success": False,
+                    "message": f"Authentication failed: check username, domain, and password ({msg[:180]})",
+                    "timings": {"auth_ms": auth_ms},
+                    "details": {},
+                }
+            return {
+                "success": False,
+                "message": f"Cannot reach server: {msg[:200]}",
+                "timings": {"auth_ms": auth_ms},
+                "details": {},
+            }
+
+        system_ms = round((_time.perf_counter() - t1) * 1000, 1)
 
         product = sys_info.get("ProductName") or "Power BI Report Server"
         version = sys_info.get("ProductVersion") or ""
 
+        t2 = _time.perf_counter()
         try:
             pbi = self.list_powerbi_reports()
             paginated = self.list_paginated_reports()
@@ -840,7 +859,12 @@ class PowerBIReportServerClient(DataSourceClient):
                 "success": False,
                 "message": f"Authenticated with {product} {version} but could not list catalog: {e}",
                 "connectivity": True,
+                "timings": {"auth_ms": auth_ms, "system_ms": system_ms},
+                "details": {"product_version": version},
             }
+        catalog_ms = round((_time.perf_counter() - t2) * 1000, 1)
+
+        auth_mode = "NTLM" if self.domain or "\\" in (self.username or "") else "Basic"
 
         return {
             "success": True,
@@ -854,19 +878,35 @@ class PowerBIReportServerClient(DataSourceClient):
             "shared_datasets": len(shared_datasets),
             "kpis": len(kpis),
             "product_version": version,
+            "timings": {
+                "auth_ms": auth_ms,
+                "system_ms": system_ms,
+                "catalog_ms": catalog_ms,
+            },
+            "details": {
+                "product": product,
+                "product_version": version,
+                "auth_mode": auth_mode,
+                "powerbi_reports": len(pbi),
+                "paginated_reports": len(paginated),
+                "shared_datasets": len(shared_datasets),
+                "kpis": len(kpis),
+            },
         }
 
     # ------------------------------------------------------------------
     # get_schemas — build BOW Table objects
     # ------------------------------------------------------------------
 
-    def get_schemas(self) -> List[Table]:
+    def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """Build Table objects for:
           - Each Power BI report (.pbix) — one Table per report (columns empty; metadata carries data sources)
           - Each paginated report (RDL) dataset — one Table per DataSet inside the RDL (columns + CommandText)
           - Each shared dataset (.rsd) — one Table with schema columns and CommandText
           - Each KPI — one Table representing the metric (for LLM awareness)
         """
+        reporter = make_reporter(progress_callback)
+        reporter.phase("listing")
         self.connect()
         tables: List[Table] = []
 
@@ -904,6 +944,10 @@ class PowerBIReportServerClient(DataSourceClient):
                 logger.warning(f"list_shared_data_sources failed: {e}")
                 shared_ds_sources = []
 
+        reporter.phase(
+            "pbix_reports",
+            total=len(pbi_reports) if self.extract_pbix_schemas else 0,
+        )
         # ---- Power BI reports ----
         if pbi_reports:
             with ThreadPoolExecutor(max_workers=8) as pool:
@@ -951,6 +995,7 @@ class PowerBIReportServerClient(DataSourceClient):
                             pbix_schemas[r["Id"]] = fut.result()
                         except Exception as e:
                             logger.debug(f"pbix schema extract failed for {r['Id']}: {e}")
+                        reporter.item(r.get("Name") or r["Id"])
 
             for r in pbi_reports:
                 rid = r["Id"]
@@ -1070,6 +1115,7 @@ class PowerBIReportServerClient(DataSourceClient):
                             },
                         ))
 
+        reporter.phase("rdl_reports", total=len(rdl_reports))
         # ---- Paginated RDL reports: download content + parse ----
         if rdl_reports:
             with ThreadPoolExecutor(max_workers=6) as pool:
@@ -1078,6 +1124,7 @@ class PowerBIReportServerClient(DataSourceClient):
                     r = content_futs[fut]
                     rid = r["Id"]
                     rname = r.get("Name") or rid
+                    reporter.item(rname)
                     try:
                         xml_bytes = fut.result()
                         parsed = self.parse_rdl_content(xml_bytes)
@@ -1163,6 +1210,7 @@ class PowerBIReportServerClient(DataSourceClient):
                             }},
                         ))
 
+        reporter.phase("shared_datasets", total=len(shared_datasets))
         # ---- Shared datasets: fetch schema + content ----
         if shared_datasets:
             with ThreadPoolExecutor(max_workers=6) as pool:
@@ -1180,6 +1228,7 @@ class PowerBIReportServerClient(DataSourceClient):
                         schemas[d["Id"]] = fut.result()
                     except Exception as e:
                         logger.debug(f"dataset {d['Id']} schema failed: {e}")
+                    reporter.item(d.get("Name") or d["Id"])
                 for fut in as_completed(content_futs):
                     d = content_futs[fut]
                     try:
@@ -1254,8 +1303,10 @@ class PowerBIReportServerClient(DataSourceClient):
                     metadata_json=metadata_json,
                 ))
 
+        reporter.phase("kpis", total=len(kpis or []))
         # ---- KPIs ----
         for k in kpis or []:
+            reporter.item(k.get("Name") or k.get("Id"))
             kid = k.get("Id")
             kname = k.get("Name") or kid
             metadata_json = {
@@ -1283,6 +1334,7 @@ class PowerBIReportServerClient(DataSourceClient):
                 metadata_json=metadata_json,
             ))
 
+        reporter.done()
         return tables
 
     def get_schema(self, table_name: str) -> Table:

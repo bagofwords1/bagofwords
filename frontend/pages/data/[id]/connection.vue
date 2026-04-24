@@ -81,11 +81,58 @@
                             </div>
                         </div>
 
+                        <!-- Indexing progress bar (when a background job is running) -->
+                        <div v-if="isConnIndexing(conn)" class="mt-3 ms-11">
+                            <div class="flex items-center justify-between text-xs text-blue-700 mb-1">
+                                <span class="font-medium">{{ connIndexingSummary(conn) }}</span>
+                                <span v-if="(conn.indexing?.progress_total || 0) > 0">{{ indexingProgressPercent(conn) }}%</span>
+                            </div>
+                            <div class="h-1.5 w-full bg-blue-100 rounded overflow-hidden">
+                                <div
+                                    class="h-full bg-blue-500 transition-all duration-300"
+                                    :class="{ 'animate-pulse w-1/3': (conn.indexing?.progress_total || 0) === 0 }"
+                                    :style="(conn.indexing?.progress_total || 0) > 0 ? { width: indexingProgressPercent(conn) + '%' } : {}"
+                                ></div>
+                            </div>
+                        </div>
+
+                        <!-- Indexing failed -->
+                        <div v-else-if="conn.indexing?.status === 'failed'" class="mt-3 ms-11 text-xs flex items-center gap-2">
+                            <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600" />
+                            <span class="text-amber-700">
+                                Indexing failed: {{ conn.indexing.error || 'Unknown error' }}
+                            </span>
+                            <UButton
+                                v-if="canManageConnections"
+                                size="xs"
+                                color="amber"
+                                variant="soft"
+                                @click="reindexConnection(conn.id)"
+                            >
+                                Retry
+                            </UButton>
+                        </div>
+
                         <!-- Test result (inline) -->
                         <div v-if="testResults[conn.id]" class="mt-2 ms-11 text-xs">
-                            <span :class="testResults[conn.id]?.success ? 'text-green-600' : 'text-red-600'">
+                            <div :class="testResults[conn.id]?.success ? 'text-green-600' : 'text-red-600'">
                                 {{ testResults[conn.id]?.success ? 'Connection successful' : (testResults[conn.id]?.message || 'Connection failed') }}
-                            </span>
+                            </div>
+                            <!-- Timings -->
+                            <div v-if="testResults[conn.id]?.timings" class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500">
+                                <span v-for="(ms, key) in testResults[conn.id].timings" :key="key">
+                                    {{ key }}: {{ ms }}ms
+                                </span>
+                            </div>
+                            <!-- Per-client details -->
+                            <div
+                                v-if="testResults[conn.id]?.details && Object.keys(testResults[conn.id].details).length"
+                                class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500"
+                            >
+                                <span v-for="(val, key) in testResults[conn.id].details" :key="key">
+                                    {{ key }}: {{ typeof val === 'object' ? JSON.stringify(val) : val }}
+                                </span>
+                            </div>
                         </div>
 
                         <!-- User Connection (only for user_required auth, non-admin) -->
@@ -292,32 +339,54 @@ const availableConnections = computed(() => {
   return orgConnections.value.filter(c => !linkedIds.has(c.id))
 })
 
-// Status helpers
-function getEffectiveStatus(conn: any): 'success' | 'error' | 'unknown' {
-    // Local test result takes priority
+// Status helpers — derived from the shared state machine.
+import {
+    getEffectiveStatus as deriveStatus,
+    indexingSummary,
+    isIndexingActive,
+    statusBadgeClass,
+    statusLabel,
+} from '~/composables/useConnectionStatus'
+
+function getConnectionEffective(conn: any) {
+    // Local test result overrides for immediate UI feedback after a manual test.
     const local = testResults.value[conn.id]
     if (local) return local.success ? 'success' : 'error'
-    // Then API status
-    const api = String(conn.user_status?.connection || '').toLowerCase()
-    if (api === 'success') return 'success'
-    if (api === 'not_connected' || api === 'offline') return 'error'
-    // For user_required with credentials but no test yet
-    if (conn.auth_policy === 'user_required' && conn.user_status?.has_user_credentials) return 'success'
-    return 'unknown'
+    return deriveStatus(conn)
 }
 
 function getStatusClass(conn: any) {
-    const s = getEffectiveStatus(conn)
-    if (s === 'success') return 'bg-green-50 text-green-700 border-green-200'
-    if (s === 'error') return 'bg-red-50 text-red-700 border-red-200'
-    return 'bg-gray-50 text-gray-700 border-gray-200'
+    return statusBadgeClass(getConnectionEffective(conn) as any)
 }
 
 function getStatusLabel(conn: any) {
-    const s = getEffectiveStatus(conn)
-    if (s === 'success') return 'Connected'
-    if (s === 'error') return 'Not connected'
-    return 'Unknown'
+    return statusLabel(getConnectionEffective(conn) as any)
+}
+
+function isConnIndexing(conn: any) {
+    return isIndexingActive(conn?.indexing)
+}
+
+function indexingProgressPercent(conn: any) {
+    const idx = conn?.indexing
+    if (!idx) return 0
+    const total = idx.progress_total || 0
+    const done = idx.progress_done || 0
+    if (total <= 0) return 0
+    return Math.min(100, Math.floor((done / total) * 100))
+}
+
+function connIndexingSummary(conn: any) {
+    return indexingSummary(conn?.indexing)
+}
+
+async function reindexConnection(connectionId: string) {
+    try {
+        await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
+        await injectedFetchIntegration()
+    } catch (e: any) {
+        toast.add({ title: 'Failed to restart indexing', description: e?.message || '', color: 'red' })
+    }
 }
 
 function getLastChecked(conn: any) {

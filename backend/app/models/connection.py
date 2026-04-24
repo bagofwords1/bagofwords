@@ -79,6 +79,14 @@ class Connection(BaseSchema):
         cascade="all, delete-orphan",
     )
 
+    # Background schema ingestion history (one row per refresh attempt)
+    indexings = relationship(
+        "ConnectionIndexing",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+        order_by="desc(ConnectionIndexing.created_at)",
+    )
+
     def get_client(self):
         """Instantiate and return the appropriate database client."""
         try:

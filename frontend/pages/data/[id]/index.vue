@@ -2,7 +2,32 @@
     <div class="py-6 relative">
         <!-- Hide content when there's a fetch error (layout shows error state) -->
         <div v-if="fetchError" />
-        <div v-else class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
+        <div v-else>
+            <!-- Indexing banner: shown while any linked connection is discovering schema -->
+            <div
+                v-if="indexingConnections.length > 0"
+                class="mb-4 flex items-start gap-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg px-4 py-3"
+            >
+                <UIcon name="heroicons-arrow-path" class="w-5 h-5 mt-0.5 animate-spin flex-none" />
+                <div class="flex-1 text-sm">
+                    <div class="font-medium">
+                        Discovering schema for
+                        {{ indexingConnections.length }}
+                        {{ indexingConnections.length === 1 ? 'connection' : 'connections' }}…
+                    </div>
+                    <div class="mt-1 text-xs text-blue-700 space-y-0.5">
+                        <div v-for="conn in indexingConnections" :key="conn.id">
+                            <span class="font-medium">{{ conn.name }}</span>
+                            <span class="ms-1 text-blue-600">· {{ connIndexingSummary(conn) }}</span>
+                        </div>
+                    </div>
+                </div>
+                <NuxtLink :to="`/data/${route.params.id}/connection`" class="text-xs font-medium underline">
+                    View progress
+                </NuxtLink>
+            </div>
+
+        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
             <div v-if="loading" class="text-xs text-gray-500 text-center">{{ $t('common.loading') }}</div>
             <div v-else class="md:w-2/3 ">
                 <div class="flex items-center gap-2">
@@ -26,6 +51,8 @@
                     </div>
                 </div>
             </div>
+        </div>
+
         </div>
 
         <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-2xl' }">
@@ -85,6 +112,7 @@
 import { ref, computed, onMounted, inject, watch } from 'vue'
 import { useCan } from '~/composables/usePermissions'
 import DataSourceQuestionsHome from '~/components/DataSourceQuestionsHome.vue'
+import { isIndexingActive, indexingSummary } from '~/composables/useConnectionStatus'
 import type { Ref } from 'vue'
 
 definePageMeta({ auth: true, layout: 'data' })
@@ -115,6 +143,14 @@ const savingDesc = ref(false)
 const computedDescription = computed(() => {
     return dataSource.value?.description || availableMeta.value?.description || ''
 })
+
+const indexingConnections = computed(() =>
+    (dataSource.value?.connections || []).filter((c: any) => isIndexingActive(c?.indexing))
+)
+
+function connIndexingSummary(conn: any) {
+    return indexingSummary(conn?.indexing)
+}
 
 const displayDataSource = computed(() => {
     if (!dataSource.value) return null

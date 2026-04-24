@@ -11,8 +11,8 @@
                             <div v-if="!isLoading && integration && !fetchError" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
                                 <template v-if="integration.connections && integration.connections.length > 0">
                                     <template v-for="conn in integration.connections.slice(0, 4)" :key="conn.id">
-                                        <span :class="['w-2 h-2 rounded-full', getConnectionStatus(conn) === 'success' ? 'bg-green-500' : 'bg-red-500']"></span>
-                                        <UTooltip :text="conn.name">
+                                        <span :class="['w-2 h-2 rounded-full', statusDotClass(getEffectiveStatus(conn))]"></span>
+                                        <UTooltip :text="conn.name + (getEffectiveStatus(conn) === 'indexing' ? ' · ' + indexingSummary(conn.indexing) : '')">
                                             <DataSourceIcon :type="conn.type" class="h-4" />
                                         </UTooltip>
                                     </template>
@@ -98,6 +98,12 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import {
+    getEffectiveStatus,
+    hasAnyActiveIndexing,
+    indexingSummary,
+    statusDotClass,
+} from '~/composables/useConnectionStatus'
 
 const route = useRoute()
 
@@ -183,12 +189,49 @@ provide('fetchIntegration', fetchIntegration)
 provide('isLoading', isLoading)
 provide('fetchError', fetchError)
 
+// Poll while any connection is currently indexing — the backend inlines the
+// latest indexing row into each connection. Poll stops when every connection
+// has reached a terminal state (or when the integration fetch errors).
+const POLL_INTERVAL_MS = 2000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function stopPolling() {
+    if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = null
+    }
+}
+
+function maybeStartPolling() {
+    const hasActive = hasAnyActiveIndexing(integration.value?.connections)
+    if (hasActive && !pollTimer) {
+        pollTimer = setInterval(() => {
+            if (fetchError.value) {
+                stopPolling()
+                return
+            }
+            fetchIntegration().then(() => {
+                if (!hasAnyActiveIndexing(integration.value?.connections)) {
+                    stopPolling()
+                }
+            })
+        }, POLL_INTERVAL_MS)
+    } else if (!hasActive) {
+        stopPolling()
+    }
+}
+
 watch(id, () => {
-    fetchIntegration()
+    stopPolling()
+    fetchIntegration().then(maybeStartPolling)
 })
 
 onMounted(() => {
-    fetchIntegration()
+    fetchIntegration().then(maybeStartPolling)
+})
+
+onBeforeUnmount(() => {
+    stopPolling()
 })
 </script>
 

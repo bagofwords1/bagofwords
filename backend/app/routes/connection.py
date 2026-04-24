@@ -27,7 +27,9 @@ from app.schemas.connection_schema import (
     ConnectionTableSchema,
     ConnectionTestOverride,
     ConnectionTestResult,
+    ConnectionIndexingProgress,
 )
+from app.services.connection_indexing_service import ConnectionIndexingService
 from app.schemas.connection_tool_schema import (
     ConnectionToolSchema,
     ConnectionToolUpdate,
@@ -37,6 +39,27 @@ from app.schemas.connection_tool_schema import (
 
 router = APIRouter(prefix="/connections", tags=["connections"])
 connection_service = ConnectionService()
+indexing_service = ConnectionIndexingService()
+
+
+def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
+    """Adapt a ConnectionIndexing ORM row to the polling payload. Returns None
+    when no row is provided.
+    """
+    if row is None:
+        return None
+    return ConnectionIndexingProgress(
+        id=str(row.id),
+        status=row.status,
+        phase=row.phase,
+        current_item=row.current_item,
+        progress_done=row.progress_done or 0,
+        progress_total=row.progress_total or 0,
+        started_at=row.started_at.isoformat() if row.started_at else None,
+        finished_at=row.finished_at.isoformat() if row.finished_at else None,
+        error=row.error,
+        stats=row.stats_json,
+    )
 
 
 async def _is_org_admin(db: AsyncSession, user: User, organization: Organization) -> bool:
@@ -321,6 +344,8 @@ async def test_connection(
         connectivity=result.get("connectivity", result.get("success", False)),
         schema_access=result.get("schema_access", False),
         table_count=result.get("table_count", 0),
+        timings=result.get("timings"),
+        details=result.get("details"),
     )
 
 
@@ -346,6 +371,8 @@ async def test_my_connection_credentials(
         connectivity=result.get("connectivity", result.get("success", False)),
         schema_access=result.get("schema_access", False),
         table_count=result.get("table_count", 0),
+        timings=result.get("timings"),
+        details=result.get("details"),
     )
 
 
@@ -357,14 +384,55 @@ async def refresh_connection_schema(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Refresh connection schema (discover tables)."""
+    """Kick off a background indexing job to refresh the connection's schema.
+
+    Returns immediately with the indexing row. Poll `GET /connections/{id}/indexing`
+    to observe progress. Idempotent — re-firing while a job is running returns
+    the in-flight row.
+    """
     connection = await connection_service.get_connection(db, connection_id, organization)
-    tables = await connection_service.refresh_schema(db, connection, current_user)
-    
+    row = await indexing_service.start(db=db, connection=connection)
+    progress = _indexing_to_progress(row)
     return {
-        "message": f"Refreshed schema. Found {len(tables)} tables.",
-        "table_count": len(tables),
+        "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",
+        "indexing": progress.model_dump() if progress else None,
     }
+
+
+@router.post("/{connection_id}/reindex")
+@requires_permission('manage_connections')
+async def reindex_connection(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Alias of `/refresh` that matches the new naming. Kicks off a background
+    indexing job and returns the indexing row.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    row = await indexing_service.start(db=db, connection=connection)
+    progress = _indexing_to_progress(row)
+    return {
+        "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",
+        "indexing": progress.model_dump() if progress else None,
+    }
+
+
+@router.get("/{connection_id}/indexing", response_model=ConnectionIndexingProgress)
+async def get_connection_indexing(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Return the latest indexing row for this connection. 404 if none exists."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+    row = await indexing_service.get_latest(db, connection_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No indexing runs found for this connection")
+    return _indexing_to_progress(row)
 
 
 async def _ensure_can_read_connection(db, organization, current_user, connection):

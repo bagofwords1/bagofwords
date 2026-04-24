@@ -11,13 +11,14 @@ import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, List
+from typing import Generator, List, Optional
 
 import duckdb
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.settings.logging_config import get_logger
 
 
@@ -311,7 +312,7 @@ class QVDClient(DataSourceClient):
         with self.connect() as con:
             return con.execute(sql).df()
 
-    def get_tables(self) -> List[Table]:
+    def get_tables(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """
         Schema lookup. Uses DuckDB DESCRIBE on the cached Parquet when available
         (ground truth for queries); otherwise falls back to the QVD XML header.
@@ -319,7 +320,11 @@ class QVDClient(DataSourceClient):
         """
         tables: List[Table] = []
         used: set[str] = set()
-        for filepath in self._resolve_files():
+        files = self._resolve_files()
+        reporter = make_reporter(progress_callback)
+        reporter.phase("qvd_files", total=len(files))
+        for filepath in files:
+            reporter.item(os.path.basename(filepath))
             table_name = self._safe_table_name(filepath, used)
             cols: List[TableColumn] = []
             try:
@@ -339,10 +344,11 @@ class QVDClient(DataSourceClient):
                 fks=[],
                 metadata_json={"qvd": {"source_file": filepath}}
             ))
+        reporter.done()
         return tables
 
-    def get_schemas(self) -> List[Table]:
-        return self.get_tables()
+    def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
+        return self.get_tables(progress_callback=progress_callback)
 
     def get_schema(self, table_name: str) -> Table:
         for t in self.get_tables():
@@ -360,16 +366,32 @@ class QVDClient(DataSourceClient):
             if not files:
                 return {
                     "success": False,
-                    "message": "No QVD files found matching the patterns"
+                    "message": "No QVD files found matching the patterns",
+                    "details": {"files_found": 0, "patterns": self.patterns},
                 }
+            total_bytes = 0
+            cached_parquets = 0
             for f in files:
+                try:
+                    total_bytes += os.path.getsize(f)
+                except OSError:
+                    pass
+                _, cache_path = self._cache_key(f)
+                if cache_path.exists():
+                    cached_parquets += 1
                 self._read_qvd_header(f)
             return {
                 "success": True,
-                "message": f"Successfully verified {len(files)} QVD file(s)"
+                "message": f"Successfully verified {len(files)} QVD file(s)",
+                "details": {
+                    "files_found": len(files),
+                    "total_bytes": total_bytes,
+                    "cached_parquets": cached_parquets,
+                    "sample_files": [os.path.basename(f) for f in files[:5]],
+                },
             }
         except Exception as e:
-            return {"success": False, "message": str(e)}
+            return {"success": False, "message": str(e), "details": {}}
 
     @property
     def description(self) -> str:

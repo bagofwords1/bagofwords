@@ -78,6 +78,9 @@ class ConnectionEmbedded(BaseModel):
     last_synced_at: OptionalUTCDatetime = None
     user_status: Optional[DataSourceUserStatus] = None  # User's credential status for this connection
     table_count: int = 0  # Number of tables in this connection
+    # Latest schema indexing run, if any. Frontend derives the "indexing"
+    # effective status from this plus user_status.connection.
+    indexing: Optional[Dict[str, Any]] = None
 
     @validator('config', 'allowed_user_auth_modes', pre=True)
     def parse_json_fields(cls, v):

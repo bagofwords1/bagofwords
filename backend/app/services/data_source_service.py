@@ -69,8 +69,10 @@ class DataSourceService:
             return []
 
         from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+        from app.services.connection_indexing_service import ConnectionIndexingService
         from app.models.connection_table import ConnectionTable
 
+        indexing_service = ConnectionIndexingService()
         connections_list = []
 
         for conn in data_source.connections:
@@ -116,6 +118,26 @@ class DataSourceService:
                 )
                 table_count = legacy_count_result.scalar() or 0
 
+            # Inline latest indexing row (for UI polling / status badge).
+            indexing_payload = None
+            try:
+                indexing_row = await indexing_service.get_latest(db, str(conn.id))
+                if indexing_row is not None:
+                    indexing_payload = {
+                        "id": str(indexing_row.id),
+                        "status": indexing_row.status,
+                        "phase": indexing_row.phase,
+                        "current_item": indexing_row.current_item,
+                        "progress_done": indexing_row.progress_done or 0,
+                        "progress_total": indexing_row.progress_total or 0,
+                        "started_at": indexing_row.started_at.isoformat() if indexing_row.started_at else None,
+                        "finished_at": indexing_row.finished_at.isoformat() if indexing_row.finished_at else None,
+                        "error": indexing_row.error,
+                        "stats": indexing_row.stats_json,
+                    }
+            except Exception:
+                indexing_payload = None
+
             connections_list.append(ConnectionEmbedded(
                 id=str(conn.id),
                 name=conn.name,
@@ -127,6 +149,7 @@ class DataSourceService:
                 last_synced_at=conn.last_synced_at,
                 user_status=user_status,
                 table_count=table_count,
+                indexing=indexing_payload,
             ))
 
         return connections_list
@@ -239,9 +262,15 @@ class DataSourceService:
                 conn_table_count = conn_tables_result.scalar() or 0
 
                 if conn_table_count == 0 and conn.auth_policy == "system_only":
-                    # Refresh schema to populate ConnectionTable from the database
-                    connection_service = ConnectionService()
-                    await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
+                    # Kick off background indexing — the runner populates
+                    # ConnectionTable and then syncs DataSourceTable for every
+                    # linked data source. The create call returns without
+                    # waiting. The domain starts with zero tables; the UI
+                    # polls the indexing status and updates when ready.
+                    from app.services.connection_indexing_service import (
+                        ConnectionIndexingService,
+                    )
+                    await ConnectionIndexingService().start(db=db, connection=conn)
 
             # Use first connection's auth_policy for downstream logic
             auth_policy = connections_to_link[0].auth_policy
@@ -405,16 +434,18 @@ class DataSourceService:
                         max_auto_select=self.ONBOARDING_MAX_TABLES
                     )
             else:
-                # Mode 1: New connection - populate ConnectionTable first, then DataSourceTable
-                from app.services.connection_service import ConnectionService
-                connection_service = ConnectionService()
-                logger.info(f"create_data_source: Mode 1 - populating ConnectionTable for new connection {new_connection.id}")
-                await connection_service.refresh_schema(db=db, connection=new_connection, current_user=current_user)
-                logger.info(f"create_data_source: Mode 1 - syncing from ConnectionTable to DataSourceTable")
-                await self.sync_domain_tables_from_connection(
-                    db, new_data_source, new_connection,
-                    max_auto_select=self.ONBOARDING_MAX_TABLES
+                # Mode 1: New connection - schema discovery runs in the
+                # background. The indexing runner populates ConnectionTable
+                # and then syncs DataSourceTable for this data source
+                # (and any others linked to the connection).
+                from app.services.connection_indexing_service import (
+                    ConnectionIndexingService,
                 )
+                logger.info(
+                    f"create_data_source: Mode 1 - kicking off background indexing "
+                    f"for new connection {new_connection.id}"
+                )
+                await ConnectionIndexingService().start(db=db, connection=new_connection)
             await db.commit()
             await db.refresh(new_data_source)
 
