@@ -7,6 +7,18 @@
       </NuxtLink>
       <UDropdown :items="menuItems" :popper="{ placement: 'bottom-end' }">
         <UButton color="white" trailing-icon="i-heroicons-bars-3" />
+        <template #queries="{ item }">
+          <LibraryIcon class="w-4 h-4 text-gray-400" />
+          <span class="truncate">{{ item.label }}</span>
+        </template>
+        <template #monitoring="{ item }">
+          <ActivityIcon class="w-4 h-4 text-gray-400" />
+          <span class="truncate">{{ item.label }}</span>
+        </template>
+        <template #mcp="{ item }">
+          <McpIcon class="w-4 h-4 text-gray-400" />
+          <span class="truncate">{{ item.label }}</span>
+        </template>
       </UDropdown>
     </div>
     <div class="flex-1 flex flex-col justify-center px-3">
@@ -47,6 +59,18 @@
             <div class="hamburger md:hidden">
                 <UDropdown :items="menuItems" :popper="{ placement: 'bottom-start' }">
                     <UButton color="white" label="" trailing-icon="i-heroicons-bars-3" />
+                    <template #queries="{ item }">
+                      <LibraryIcon class="w-4 h-4 text-gray-400" />
+                      <span class="truncate">{{ item.label }}</span>
+                    </template>
+                    <template #monitoring="{ item }">
+                      <ActivityIcon class="w-4 h-4 text-gray-400" />
+                      <span class="truncate">{{ item.label }}</span>
+                    </template>
+                    <template #mcp="{ item }">
+                      <McpIcon class="w-4 h-4 text-gray-400" />
+                      <span class="truncate">{{ item.label }}</span>
+                    </template>
                 </UDropdown>
             </div>
         </div>
@@ -151,6 +175,8 @@
 
     <div class="gradient-glow"></div>
   </div>
+
+  <McpModal v-model="showMcpModal" />
 </template>
 
 <script setup lang="ts">
@@ -160,6 +186,10 @@ import { onMounted, nextTick } from 'vue';
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
 import RecentReports from '~/components/home/RecentReports.vue';
+import McpModal from '~/components/McpModal.vue';
+import LibraryIcon from '~/components/icons/LibraryIcon.vue';
+import ActivityIcon from '~/components/icons/ActivityIcon.vue';
+import McpIcon from '~/components/icons/McpIcon.vue';
 
 import { useCan } from '~/composables/usePermissions'
 import { KeyCode } from 'monaco-editor';
@@ -235,17 +265,47 @@ const showOnboardingBanner = computed(() => {
 
 
 const { t } = useI18n()
-const menuItems = computed(() => [
-  [{ label: t('nav.reports'), icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
-  [{ label: t('nav.data'), icon: 'i-heroicons-circle-stack', to: '/data' }],
-  [{ label: (currentUser.value as any)?.name, icon: 'i-heroicons-user'},
-  { label: organization.value.name, icon: 'i-heroicons-building-office'  }
-  ],
-  [{ label: t('auth.logout'), icon: 'i-heroicons-arrow-right-on-rectangle', click:
-  () => {
-    signOff()
-  } }],
-])
+const { isMcpEnabled } = useOrgSettings()
+const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
+
+const menuItems = computed(() => {
+  const main: any[] = [
+    { label: t('nav.reports'), icon: 'i-heroicons-chat-bubble-left-right', to: '/reports' },
+    { label: t('nav.dashboards'), icon: 'i-heroicons-chart-bar-square', to: '/dashboards' },
+    { label: t('nav.scheduled'), icon: 'i-heroicons-clock', to: '/scheduled-tasks' },
+    { label: t('nav.instructions'), icon: 'i-heroicons-cube', to: '/instructions' },
+    { label: t('nav.queries'), slot: 'queries', to: '/queries' },
+  ]
+  if (isAdmin.value) {
+    main.push({ label: t('nav.monitoring'), slot: 'monitoring', to: '/monitoring' })
+  }
+  if (useCan('manage_evals')) {
+    main.push({ label: t('nav.evals'), icon: 'i-heroicons-check-circle', to: '/evals' })
+  }
+
+  const bottom: any[] = [
+    { label: t('nav.dataAgents'), icon: 'i-heroicons-circle-stack', to: '/data' },
+    { label: t('nav.settings'), icon: 'i-heroicons-cog-6-tooth', to: '/settings' },
+    { label: t('nav.documentation'), icon: 'i-heroicons-book-open', click: () => window.open('https://docs.bagofwords.com', '_blank') },
+  ]
+  if (isMcpEnabled.value && useCan('manage_settings')) {
+    bottom.push({ label: t('nav.mcpServer'), slot: 'mcp', click: () => { showMcpModal.value = true } })
+  }
+
+  const identity: any[] = [
+    { label: (currentUser.value as any)?.name, icon: 'i-heroicons-user' },
+    { label: organization.value?.name, icon: 'i-heroicons-building-office' },
+  ]
+
+  return [
+    main,
+    bottom,
+    identity,
+    [{ label: t('auth.logout'), icon: 'i-heroicons-arrow-right-on-rectangle', click: () => { signOff() } }],
+  ]
+})
+
+const showMcpModal = ref(false)
 
 const { isExcel } = useExcel()
 
