@@ -38,7 +38,7 @@ from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
 from app.settings.config import settings
 from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
-from app.core.scheduler import scheduler
+from app.core.scheduler import scheduler, try_acquire_scheduler_leader
 from app.core.spa import mount_spa
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
@@ -351,62 +351,72 @@ async def startup_event():
         }
     )
 
+    # Only one uvicorn worker should register & run scheduled jobs. Otherwise
+    # N-workers × every scheduled tick becomes an N-way resource storm
+    # (customer log showed warm_all_qvd_caches firing 5–6× simultaneously).
+    is_scheduler_leader = try_acquire_scheduler_leader()
+    if not is_scheduler_leader:
+        logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
+
     # Register daily maintenance jobs
-    try:
-        scheduler.add_job(
-            purge_step_payloads_keep_latest_per_query,
-            trigger="cron",
-            hour=3,
-            minute=0,
-            id="purge_step_payloads_daily",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            misfire_grace_time=3600,
-            kwargs={"null_fields": ("data", "data_model", "view")},
-        )
-        logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
-    except Exception as e:
-        logger.error(f"Failed to schedule purge job: {e}")
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                purge_step_payloads_keep_latest_per_query,
+                trigger="cron",
+                hour=3,
+                minute=0,
+                id="purge_step_payloads_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+                kwargs={"null_fields": ("data", "data_model", "view")},
+            )
+            logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule purge job: {e}")
 
     # Background warmup of QVD Parquet caches so the first create_data/inspect_data
     # on a 1-5GB QVD doesn't block the UI for minutes.
-    try:
-        scheduler.add_job(
-            warm_all_qvd_caches,
-            trigger="interval",
-            minutes=15,
-            id="qvd_warmup",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            misfire_grace_time=300,
-            next_run_time=datetime.now(),
-        )
-        logger.info("Scheduled job: qvd_warmup every 15m (runs once at startup)")
-    except Exception as e:
-        logger.error(f"Failed to schedule QVD warmup job: {e}")
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                warm_all_qvd_caches,
+                trigger="interval",
+                minutes=15,
+                id="qvd_warmup",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+                next_run_time=datetime.now(),
+            )
+            logger.info("Scheduled job: qvd_warmup every 15m (runs once at startup)")
+        except Exception as e:
+            logger.error(f"Failed to schedule QVD warmup job: {e}")
 
     # Background warmup of PBIRS pbix Parquet caches so first queries against a
     # Power BI report don't pay the pbixray parse cost (~10-30s on ~50MB pbix).
-    try:
-        scheduler.add_job(
-            warm_all_pbirs_caches,
-            trigger="interval",
-            minutes=30,
-            id="pbirs_warmup",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            misfire_grace_time=600,
-            next_run_time=datetime.now(),
-        )
-        logger.info("Scheduled job: pbirs_warmup every 30m (runs once at startup)")
-    except Exception as e:
-        logger.error(f"Failed to schedule PBIRS warmup job: {e}")
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                warm_all_pbirs_caches,
+                trigger="interval",
+                minutes=30,
+                id="pbirs_warmup",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=600,
+                next_run_time=datetime.now(),
+            )
+            logger.info("Scheduled job: pbirs_warmup every 30m (runs once at startup)")
+        except Exception as e:
+            logger.error(f"Failed to schedule PBIRS warmup job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
-    if settings.bow_config.ldap.enabled and has_feature("ldap"):
+    if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):
         try:
             from app.ee.ldap.jobs import ldap_sync_all_organizations
             scheduler.add_job(
@@ -423,11 +433,17 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule LDAP sync job: {e}")
 
+    # All workers must start their scheduler (route handlers in this worker
+    # call scheduler.add_job to persist user-scheduled prompts/reports to the
+    # shared jobstore). Only the leader registers the global warmup jobs
+    # above — those are the ones that fanned out to N workers.
     scheduler.start()
 
-    # Re-register scheduled prompt jobs
-    from app.services.scheduled_prompt_service import scheduled_prompt_service
-    await scheduled_prompt_service.register_all_jobs()
+    if is_scheduler_leader:
+        # Re-register scheduled prompt jobs (only the leader flushes these to
+        # the jobstore; non-leaders would duplicate the set).
+        from app.services.scheduled_prompt_service import scheduled_prompt_service
+        await scheduled_prompt_service.register_all_jobs()
 
     # Validate license at startup
     license_info = get_license_info()
