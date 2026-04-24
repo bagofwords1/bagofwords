@@ -2605,16 +2605,23 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # First, refresh ConnectionTable from the database (for all linked connections)
+        # First, refresh ConnectionTable from the database (for all linked connections).
+        # If a background indexing job is currently in flight for any connection,
+        # await it first — both to avoid duplicate work and to ensure deterministic
+        # state for the synchronous sync that follows.
         if data_source.connections:
             from app.services.connection_service import ConnectionService
+            from app.services.connection_indexing_service import ConnectionIndexingService
             connection_service = ConnectionService()
+            indexing_service = ConnectionIndexingService()
             logger.info(f"refresh_data_source_schema: Found {len(data_source.connections)} connections for data_source {data_source_id}")
             has_system_only_conn = False
             for conn in data_source.connections:
                 logger.info(f"refresh_data_source_schema: Connection {conn.id} has auth_policy={conn.auth_policy}")
                 if conn.auth_policy == "system_only":
                     has_system_only_conn = True
+                    # Wait for any active indexing run before refreshing synchronously.
+                    await indexing_service.wait_for_active(db, str(conn.id))
                     logger.info(f"refresh_data_source_schema: Calling refresh_schema for connection {conn.id}")
                     await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
                     logger.info(f"refresh_data_source_schema: refresh_schema completed for connection {conn.id}")

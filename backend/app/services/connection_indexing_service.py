@@ -108,6 +108,30 @@ class ConnectionIndexingService:
         )
         return result.scalar_one_or_none()
 
+    async def wait_for_active(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+        *,
+        poll_interval_s: float = 0.05,
+        timeout_s: float = 600.0,
+    ) -> None:
+        """Block until any pending/running indexing for this connection reaches a
+        terminal state. Used by sync paths (e.g. data-source-level refresh) that
+        need a deterministic post-condition. Polls the row's status — runs on the
+        request thread.
+        """
+        deadline = time.perf_counter() + timeout_s
+        while time.perf_counter() < deadline:
+            active = await self.get_active(db, connection_id)
+            if active is None:
+                return
+            await asyncio.sleep(poll_interval_s)
+        logger.warning(
+            "indexing.wait_for_active.timeout",
+            extra={"connection_id": str(connection_id), "timeout_s": timeout_s},
+        )
+
     async def start(
         self,
         db: AsyncSession,

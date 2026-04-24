@@ -143,6 +143,7 @@ def test_connection_refresh_schema(
     create_user,
     login_user,
     whoami,
+    test_client,
 ):
     """Test that refreshing a connection discovers tables."""
     if not CONNECTION_TEST_DB_PATH.exists():
@@ -162,15 +163,23 @@ def test_connection_refresh_schema(
         org_id=org_id,
     )
 
-    # Refresh schema
+    # Refresh schema — now kicks off a background indexing job and returns
+    # the indexing row. Poll /indexing until terminal, then assert tables.
     refresh_result = refresh_connection_schema(
         connection_id=connection["id"],
         user_token=user_token,
         org_id=org_id,
     )
+    assert "indexing" in refresh_result
+    assert refresh_result["indexing"]["status"] in ("pending", "running", "completed")
 
-    assert "table_count" in refresh_result
-    assert refresh_result["table_count"] > 0
+    # Wait for the in-flight indexing run (first run may already be in flight
+    # from connection creation; reindex returns that one if so).
+    import time as _time
+    from tests.e2e.test_connection_indexing import _poll_until_terminal
+    final = _poll_until_terminal(test_client, connection["id"], user_token, org_id)
+    assert final["status"] == "completed", final
+    assert final["progress_total"] > 0
 
     # Verify tables are available
     tables = get_connection_tables(
