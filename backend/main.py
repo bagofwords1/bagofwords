@@ -384,7 +384,7 @@ async def startup_event():
             scheduler.add_job(
                 warm_all_qvd_caches,
                 trigger="interval",
-                minutes=15,
+                hours=1,
                 id="qvd_warmup",
                 replace_existing=True,
                 coalesce=True,
@@ -392,7 +392,7 @@ async def startup_event():
                 misfire_grace_time=300,
                 next_run_time=datetime.now(),
             )
-            logger.info("Scheduled job: qvd_warmup every 15m (runs once at startup)")
+            logger.info("Scheduled job: qvd_warmup every 1h (runs once at startup)")
         except Exception as e:
             logger.error(f"Failed to schedule QVD warmup job: {e}")
 
@@ -403,7 +403,7 @@ async def startup_event():
             scheduler.add_job(
                 warm_all_pbirs_caches,
                 trigger="interval",
-                minutes=30,
+                hours=1,
                 id="pbirs_warmup",
                 replace_existing=True,
                 coalesce=True,
@@ -411,7 +411,7 @@ async def startup_event():
                 misfire_grace_time=600,
                 next_run_time=datetime.now(),
             )
-            logger.info("Scheduled job: pbirs_warmup every 30m (runs once at startup)")
+            logger.info("Scheduled job: pbirs_warmup every 1h (runs once at startup)")
         except Exception as e:
             logger.error(f"Failed to schedule PBIRS warmup job: {e}")
 
