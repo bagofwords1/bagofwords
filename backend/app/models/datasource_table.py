@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, JSON, Integer, Float, DateTime
+from sqlalchemy import Column, String, ForeignKey, JSON, Integer, Float, DateTime, Index
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptForeignKey
@@ -12,6 +12,9 @@ class DataSourceTable(BaseSchema):
     This is the "DomainTable" in the new architecture.
     """
     __tablename__ = 'datasource_tables'
+    __table_args__ = (
+        Index('ix_dst_ds_active', 'datasource_id', 'is_active'),
+    )
 
     name = Column(String, nullable=False)
     datasource_id = Column(String(36), ForeignKey('data_sources.id'), nullable=False)
