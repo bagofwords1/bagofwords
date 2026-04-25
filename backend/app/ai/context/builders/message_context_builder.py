@@ -62,6 +62,76 @@ def _digest_knowledge_tool(tool_execution) -> str:
     return ""
 
 
+def _digest_eval_tool(tool_execution) -> str:
+    """Digest for eval tools (search_evals, create_eval, run_eval).
+
+    Returns empty string when the tool isn't one of these so callers can
+    fall through to the next elif.
+    """
+    name = tool_execution.tool_name
+    if name not in ('search_evals', 'create_eval', 'run_eval'):
+        return ""
+    rj = tool_execution.result_json or {}
+    output = rj.get('output') or {}
+
+    if name == 'search_evals':
+        items = output.get('items') or []
+        total = output.get('total') if isinstance(output.get('total'), int) else len(items)
+        hits = []
+        for it in items[:5]:
+            hits.append(f"{it.get('id','?')}:{(it.get('name') or '').strip()[:60]}({it.get('status','?')})")
+        more = f" (+{len(items)-5} more)" if len(items) > 5 else ""
+        return f"found {total} — [{'; '.join(hits)}]{more}" if hits else f"found {total}"
+
+    if name == 'create_eval':
+        if output.get('success') is False:
+            reason = output.get('rejected_reason') or output.get('message') or 'unknown'
+            return f"rejected: {reason}"
+        parts = []
+        if output.get('case_id'):
+            parts.append(f"id: {output.get('case_id')}")
+        if output.get('name'):
+            parts.append(f"name: {output.get('name')}")
+        if output.get('suite_name'):
+            parts.append(f"suite: {output.get('suite_name')}")
+        if output.get('status'):
+            parts.append(f"status={output.get('status')}")
+        if output.get('auto_generated'):
+            parts.append("auto=true")
+        return "; ".join(parts)
+
+    if name == 'run_eval':
+        if output.get('rejected_reason'):
+            return f"rejected: {output.get('rejected_reason')}"
+        parts = []
+        if output.get('run_id'):
+            parts.append(f"run_id: {output.get('run_id')}")
+        if output.get('status'):
+            parts.append(f"status={output.get('status')}")
+        passed = output.get('passed', 0)
+        failed = output.get('failed', 0)
+        total = output.get('total', 0)
+        parts.append(f"{passed}/{total} pass, {failed} fail")
+        results = output.get('results') or []
+        failed_cases = [r for r in results if r.get('status') in ('fail', 'error')]
+        if failed_cases:
+            shown = []
+            for r in failed_cases[:3]:
+                label = r.get('case_name') or r.get('case_id') or '?'
+                reason = r.get('failure_reason')
+                if reason:
+                    shown.append(f"{label}: {str(reason)[:80]}")
+                else:
+                    shown.append(label)
+            entry = "failed: [" + "; ".join(shown) + "]"
+            if len(failed_cases) > 3:
+                entry += f" +{len(failed_cases)-3}"
+            parts.append(entry)
+        return "; ".join(parts)
+
+    return ""
+
+
 def _digest_excel_tool(tool_execution) -> str:
     """Digest for Excel bridge tools.
 
@@ -532,6 +602,10 @@ class MessageContextBuilder:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                     digest = _digest_knowledge_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name in ('search_evals', 'create_eval', 'run_eval') and tool_execution.result_json:
+                                    digest = _digest_eval_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
@@ -1087,6 +1161,10 @@ class MessageContextBuilder:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                 digest = _digest_knowledge_tool(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.tool_name in ('search_evals', 'create_eval', 'run_eval') and tool_execution.result_json:
+                                digest = _digest_eval_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:

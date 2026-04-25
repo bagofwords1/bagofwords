@@ -579,6 +579,44 @@
       "empty": "No matching instructions found.",
       "untitled": "Untitled"
     },
+    "createEval": {
+      "drafting": "Drafting eval",
+      "draftingNamed": "Drafting eval \"{name}\"",
+      "created": "Created eval",
+      "notCreated": "Eval not created",
+      "unnamed": "(unnamed)",
+      "statusDraft": "draft",
+      "statusActive": "active",
+      "autoBadge": "auto",
+      "defaultMessage": "Eval was not created."
+    },
+    "runEval": {
+      "running": "Running eval",
+      "caseSingular": "case",
+      "casePlural": "cases",
+      "totalLabel": " · {count} {label}",
+      "stopped": "Eval run stopped",
+      "finished": "Eval run finished",
+      "pass": "{count} pass",
+      "fail": "{count} fail",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "stopTitle": "Stop the run (also stops the surrounding agent loop)",
+      "openRun": "Open run"
+    },
+    "searchEvals": {
+      "searching": "Searching evals",
+      "searchingFor": "Searching evals for {query}",
+      "searched": "Searched evals",
+      "searchedFor": "Searched evals for {query}",
+      "matchSingular": "{count} match",
+      "matchPlural": "{count} matches",
+      "empty": "No matching evals.",
+      "unnamed": "(unnamed)",
+      "statusDraft": "draft",
+      "statusArchived": "archived",
+      "autoBadge": "auto"
+    },
     "describeEntity": {
       "dataProfile": "Data Profile"
     },

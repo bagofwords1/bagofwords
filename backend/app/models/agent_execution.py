@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Integer, Float, JSON, ForeignKey
+from sqlalchemy import Column, String, DateTime, Integer, Float, JSON, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from .base import BaseSchema
 
@@ -30,9 +30,15 @@ class AgentExecution(BaseSchema):
 
     # Build
     build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True)
-    
+
     # Version tracking
     bow_version = Column(String, nullable=True, index=True)
+
+    # True when this execution is running inside a TestRun (i.e. the agent
+    # was spawned by ``TestRunService`` to evaluate a test case). Used by
+    # the ``run_eval`` tool to refuse nested invocations and keep recursion
+    # from stacking new TestRuns inside an in-flight one.
+    is_eval_run = Column(Boolean, nullable=False, default=False, index=True)
 
     # Relationships (optional lazy loading)
     plan_decisions = relationship('PlanDecision', back_populates='agent_execution', lazy='select')

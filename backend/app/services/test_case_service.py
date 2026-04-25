@@ -3,7 +3,12 @@ from sqlalchemy import select, or_
 from typing import List, Optional, Sequence
 from fastapi import HTTPException
 
-from app.models.eval import TestCase, TestSuite
+from app.models.eval import (
+    TestCase,
+    TestSuite,
+    TEST_CASE_STATUSES,
+    DEFAULT_DRAFTS_SUITE_NAME,
+)
 from app.models.llm_model import LLMModel
 from app.models.llm_provider import LLMProvider
 
@@ -108,6 +113,69 @@ class TestCaseService:
         await db.commit()
         await db.refresh(case)
         return case
+
+    async def update_case_status(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        current_user,
+        case_id: str,
+        status: str,
+    ) -> TestCase:
+        """Promote a draft to active or archive any case. Org-scoped via the
+        suite check inside ``get_case``.
+        """
+        if status not in TEST_CASE_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Allowed: {sorted(TEST_CASE_STATUSES)}",
+            )
+        case = await self.get_case(db, organization_id, current_user, case_id)
+        case.status = status
+        db.add(case)
+        await db.commit()
+        await db.refresh(case)
+        return case
+
+    async def get_or_create_drafts_suite(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        suite_name: str = DEFAULT_DRAFTS_SUITE_NAME,
+    ) -> TestSuite:
+        """Find-or-create the per-org default drafts suite.
+
+        Used by the knowledge-harness ``create_eval`` path (always) and by
+        training-mode ``create_eval`` when called without an explicit
+        ``suite_id``. Idempotent at the service layer — there's no DB
+        unique constraint on ``(organization_id, name)``, but in steady
+        state there will be at most one row per org.
+        """
+        stmt = (
+            select(TestSuite)
+            .where(TestSuite.organization_id == str(organization_id))
+            .where(TestSuite.name == suite_name)
+            .where(TestSuite.deleted_at.is_(None))
+            .order_by(TestSuite.created_at.asc())
+            .limit(1)
+        )
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+        if existing is not None:
+            return existing
+
+        suite = TestSuite(
+            organization_id=str(organization_id),
+            name=suite_name,
+            description=(
+                "Default bucket for auto-drafted and unscoped eval cases. "
+                "Drafts here are excluded from scheduled runs — promote to "
+                "active to include them."
+            ),
+        )
+        db.add(suite)
+        await db.commit()
+        await db.refresh(suite)
+        return suite
 
     async def delete_case(self, db: AsyncSession, organization_id: str, current_user, case_id: str) -> None:
         case = await self.get_case(db, organization_id, current_user, case_id)

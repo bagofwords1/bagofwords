@@ -24,12 +24,16 @@ interface OnboardingResponse {
 export const useOnboarding = () => {
   const state = useState<OnboardingConfig | null>('onboarding', () => null)
 
-  const fetchOnboarding = async (opts?: { in_onboarding?: boolean }) => {
+  const fetchOnboarding = async (opts?: { in_onboarding?: boolean; force?: boolean }) => {
     // Onboarding state is admin-only on the backend (manage_settings).
     // Skip the call entirely for non-admins to avoid 403 noise on every
     // route navigation (this composable is fetched from a global middleware,
     // the default layout, the home page, and the onboarding screens).
-    if (!useCan('manage_settings')) return state.value
+    // `force` lets callers that have already established admin-ness via another
+    // signal (e.g. the onboarding middleware, which runs before permissions
+    // are loaded) bypass the useCan gate and avoid a race that briefly renders
+    // the home page before redirecting to onboarding.
+    if (!opts?.force && !useCan('manage_settings')) return state.value
 
     const res = await useMyFetch('/organization/onboarding', {
       params: { in_onboarding: opts?.in_onboarding ? 'true' : 'false' }

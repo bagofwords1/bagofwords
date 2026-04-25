@@ -105,7 +105,12 @@
                                             </div>
                                         </td>
                                         <td class="px-6 py-3">
-                                            <span class="block max-w-[520px] truncate" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
+                                            <div class="flex items-center gap-2 max-w-[620px]">
+                                                <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-2 py-0.5 shrink-0" title="Draft — promote to active to include in default suite runs">Draft</span>
+                                                <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
+                                                <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 text-[10px] font-medium px-2 py-0.5 shrink-0" title="Auto-drafted by the knowledge harness">Auto</span>
+                                                <span class="block flex-1 truncate" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
+                                            </div>
                                         </td>
                                         <td class="px-6 py-3 text-gray-700">
                                             <div class="flex flex-wrap gap-1 max-w-[620px]">
@@ -120,6 +125,7 @@
                                         <td class="px-6 py-3">{{ c.suite_name }}</td>
                                         <td class="px-6 py-3">
                                             <div class="flex items-center gap-2">
+                                                <UButton v-if="c.status === 'draft'" color="green" size="xs" variant="soft" icon="i-heroicons-check-badge" @click="promoteCase(c)">Promote</UButton>
                                                 <UButton color="gray" size="xs" variant="soft" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
                                                 <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
                                                 <UButton color="red" size="xs" variant="soft" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
@@ -374,6 +380,8 @@ interface TestCaseRow {
     prompt_json?: { content?: string }
     expectations_json?: { rules?: any[] }
     data_source_ids_json?: string[]
+    status?: string
+    auto_generated?: boolean
 }
 
 const suitesById = ref<Record<string, string>>({})
@@ -496,6 +504,8 @@ async function loadCases() {
         prompt_json: c.prompt_json,
         expectations_json: c.expectations_json,
         data_source_ids_json: c.data_source_ids_json || [],
+        status: c.status,
+        auto_generated: !!c.auto_generated,
     }))
     // Clear selections when page changes
     selectedIds.value = new Set()
@@ -635,6 +645,29 @@ async function runCase(c: TestCaseRow) {
         if (run?.id) router.push(`/evals/runs/${run.id}`)
     } catch (e) {
         console.error('Failed to run test', e)
+    }
+}
+
+async function promoteCase(c: TestCaseRow) {
+    try {
+        const res: any = await useMyFetch(`/api/tests/cases/${c.id}/status`, {
+            method: 'PATCH',
+            body: { status: 'active' },
+        })
+        if (res?.error?.value) throw res.error.value
+        const updated = res?.data?.value
+        if (updated) {
+            const idx = tests.value.findIndex(t => t.id === c.id)
+            if (idx >= 0) {
+                const copy = [...tests.value]
+                copy[idx] = { ...copy[idx], status: updated.status }
+                tests.value = copy
+            }
+        }
+        toast.add({ title: 'Promoted to active', icon: 'i-heroicons-check-circle', color: 'green' })
+    } catch (e) {
+        console.error('Failed to promote test case', e)
+        toast.add({ title: 'Failed to promote', icon: 'i-heroicons-exclamation-circle', color: 'red' })
     }
 }
 

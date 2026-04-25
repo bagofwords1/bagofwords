@@ -91,8 +91,22 @@ class TestRunService:
             raise HTTPException(status_code=404, detail="Test suite not found")
         return suite
 
-    async def _get_cases(self, db: AsyncSession, suite_id: str) -> List[TestCase]:
-        res = await db.execute(select(TestCase).where(TestCase.suite_id == str(suite_id)).order_by(TestCase.created_at.asc()))
+    async def _get_cases(
+        self,
+        db: AsyncSession,
+        suite_id: str,
+        *,
+        status: Optional[str] = "active",
+    ) -> List[TestCase]:
+        """Fetch cases for a suite. Defaults to ``status='active'`` so
+        suite-level / scheduled runs skip drafts and archived cases. Pass
+        ``status=None`` to include every status (e.g. for UI listings).
+        """
+        stmt = select(TestCase).where(TestCase.suite_id == str(suite_id))
+        if status is not None:
+            stmt = stmt.where(TestCase.status == status)
+        stmt = stmt.order_by(TestCase.created_at.asc())
+        res = await db.execute(stmt)
         return res.scalars().all()
 
     async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str, ds_ids: Optional[List[str]] = None) -> Report:
