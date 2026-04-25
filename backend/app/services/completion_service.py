@@ -207,6 +207,13 @@ class CompletionService:
         main_build = main_build_result.scalar_one_or_none()
         return str(main_build.id) if main_build else None
 
+    # Short-TTL cache for /completions/estimate. Frontend calls this on every
+    # keystroke; without caching, each call does a full prime_static + refresh_warm
+    # (schema load + recent messages). Staleness within a few seconds is fine —
+    # the figure is an approximation displayed as a meter, not a billable number.
+    _estimate_cache: dict = {}
+    _estimate_cache_ttl_s: float = 10.0
+
     async def estimate_completion_tokens(
         self,
         db: AsyncSession,
@@ -221,6 +228,25 @@ class CompletionService:
         try:
             if not completion_data or not completion_data.prompt or not completion_data.prompt.content:
                 raise HTTPException(status_code=400, detail="Prompt content is required for estimation.")
+
+            # Cache lookup — bucket the prompt length in 50-char buckets so
+            # typing doesn't constantly invalidate; prompt token contribution
+            # is small compared to the context anyway.
+            _prompt = completion_data.prompt
+            _content = _prompt.content or ""
+            _cache_key = (
+                str(current_user.id),
+                str(report_id),
+                str(_prompt.widget_id) if _prompt.widget_id else None,
+                str(_prompt.step_id) if _prompt.step_id else None,
+                _prompt.mode,
+                str(_prompt.model_id) if _prompt.model_id else None,
+                len(_content) // 50,
+            )
+            _now = time.time()
+            _cached = self._estimate_cache.get(_cache_key)
+            if _cached is not None and (_now - _cached[0]) < self._estimate_cache_ttl_s:
+                return _cached[1]
 
             report_res = await db.execute(select(Report).filter(Report.id == report_id))
             report = report_res.scalar_one_or_none()
@@ -330,7 +356,7 @@ class CompletionService:
             if model_limit and model_limit > 0:
                 context_usage_pct = round((prompt_tokens / model_limit) * 100, 2)
 
-            return CompletionContextEstimateSchema(
+            _result = CompletionContextEstimateSchema(
                 model_id=getattr(model, "model_id", ""),
                 model_name=getattr(model, "name", None),
                 prompt_tokens=prompt_tokens,
@@ -339,6 +365,15 @@ class CompletionService:
                 near_limit=near_limit,
                 context_usage_pct=context_usage_pct,
             )
+            # Populate cache; prune stale entries opportunistically so the
+            # dict doesn't grow unbounded across many users/reports.
+            self._estimate_cache[_cache_key] = (_now, _result)
+            if len(self._estimate_cache) > 256:
+                _cutoff = _now - self._estimate_cache_ttl_s
+                self._estimate_cache = {
+                    k: v for k, v in self._estimate_cache.items() if v[0] >= _cutoff
+                }
+            return _result
         except HTTPException as he:
             raise he
         except Exception as e:

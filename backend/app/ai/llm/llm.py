@@ -20,6 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
+# Shared reference to the app's main asyncio loop. Populated lazily the
+# first time _schedule_usage_record runs from an async context, so that
+# later calls from worker threads (e.g. asyncio.to_thread(llm.inference))
+# can still schedule usage recording via run_coroutine_threadsafe.
+_MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+
 
 class LLM:
     def __init__(
@@ -360,10 +366,21 @@ class LLM:
             logger.debug("Failed to create LLM usage record coroutine: %s", exc)
             return
 
+        global _MAIN_LOOP
         try:
             loop = asyncio.get_running_loop()
+            _MAIN_LOOP = loop
         except RuntimeError:
-            logger.debug("Skipping LLM usage recording; no running loop for scope %s", scope)
+            # Called from a worker thread (e.g. asyncio.to_thread(llm.inference)).
+            # Fall back to the main loop captured from a previous async call.
+            loop = _MAIN_LOOP if (_MAIN_LOOP is not None and _MAIN_LOOP.is_running()) else None
+            if loop is None:
+                logger.debug("Skipping LLM usage recording; no running loop for scope %s", scope)
+                return
+            try:
+                asyncio.run_coroutine_threadsafe(coroutine, loop)
+            except Exception as exc:
+                logger.warning("Unable to schedule LLM usage recording (threadsafe): %s", exc)
             return
         try:
             loop.create_task(coroutine)

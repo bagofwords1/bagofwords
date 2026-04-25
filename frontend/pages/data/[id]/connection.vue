@@ -81,11 +81,36 @@
                             </div>
                         </div>
 
+                        <!-- Indexing progress / completion / failure (shared component, with logs toggle) -->
+                        <div v-if="conn.indexing" class="mt-3 ms-11">
+                            <ConnectionIndexingProgress :indexing="conn.indexing" :show-logs="true" />
+                            <div v-if="conn.indexing.status === 'failed' && canManageConnections" class="mt-2">
+                                <UButton size="xs" color="amber" variant="soft" @click="reindexConnection(conn.id)">
+                                    Retry
+                                </UButton>
+                            </div>
+                        </div>
+
                         <!-- Test result (inline) -->
                         <div v-if="testResults[conn.id]" class="mt-2 ms-11 text-xs">
-                            <span :class="testResults[conn.id]?.success ? 'text-green-600' : 'text-red-600'">
+                            <div :class="testResults[conn.id]?.success ? 'text-green-600' : 'text-red-600'">
                                 {{ testResults[conn.id]?.success ? 'Connection successful' : (testResults[conn.id]?.message || 'Connection failed') }}
-                            </span>
+                            </div>
+                            <!-- Timings -->
+                            <div v-if="testResults[conn.id]?.timings" class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500">
+                                <span v-for="(ms, key) in testResults[conn.id].timings" :key="key">
+                                    {{ key }}: {{ ms }}ms
+                                </span>
+                            </div>
+                            <!-- Per-client details -->
+                            <div
+                                v-if="testResults[conn.id]?.details && Object.keys(testResults[conn.id].details).length"
+                                class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-gray-500"
+                            >
+                                <span v-for="(val, key) in testResults[conn.id].details" :key="key">
+                                    {{ key }}: {{ typeof val === 'object' ? JSON.stringify(val) : val }}
+                                </span>
+                            </div>
                         </div>
 
                         <!-- User Connection (only for user_required auth, non-admin) -->
@@ -240,6 +265,7 @@ definePageMeta({ auth: true, layout: 'data' })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import Spinner from '~/components/Spinner.vue'
+import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useOrganization } from '~/composables/useOrganization'
 import type { Ref } from 'vue'
@@ -292,32 +318,54 @@ const availableConnections = computed(() => {
   return orgConnections.value.filter(c => !linkedIds.has(c.id))
 })
 
-// Status helpers
-function getEffectiveStatus(conn: any): 'success' | 'error' | 'unknown' {
-    // Local test result takes priority
+// Status helpers — derived from the shared state machine.
+import {
+    getEffectiveStatus as deriveStatus,
+    indexingSummary,
+    isIndexingActive,
+    statusBadgeClass,
+    statusLabel,
+} from '~/composables/useConnectionStatus'
+
+function getConnectionEffective(conn: any) {
+    // Local test result overrides for immediate UI feedback after a manual test.
     const local = testResults.value[conn.id]
     if (local) return local.success ? 'success' : 'error'
-    // Then API status
-    const api = String(conn.user_status?.connection || '').toLowerCase()
-    if (api === 'success') return 'success'
-    if (api === 'not_connected' || api === 'offline') return 'error'
-    // For user_required with credentials but no test yet
-    if (conn.auth_policy === 'user_required' && conn.user_status?.has_user_credentials) return 'success'
-    return 'unknown'
+    return deriveStatus(conn)
 }
 
 function getStatusClass(conn: any) {
-    const s = getEffectiveStatus(conn)
-    if (s === 'success') return 'bg-green-50 text-green-700 border-green-200'
-    if (s === 'error') return 'bg-red-50 text-red-700 border-red-200'
-    return 'bg-gray-50 text-gray-700 border-gray-200'
+    return statusBadgeClass(getConnectionEffective(conn) as any)
 }
 
 function getStatusLabel(conn: any) {
-    const s = getEffectiveStatus(conn)
-    if (s === 'success') return 'Connected'
-    if (s === 'error') return 'Not connected'
-    return 'Unknown'
+    return statusLabel(getConnectionEffective(conn) as any)
+}
+
+function isConnIndexing(conn: any) {
+    return isIndexingActive(conn?.indexing)
+}
+
+function indexingProgressPercent(conn: any) {
+    const idx = conn?.indexing
+    if (!idx) return 0
+    const total = idx.progress_total || 0
+    const done = idx.progress_done || 0
+    if (total <= 0) return 0
+    return Math.min(100, Math.floor((done / total) * 100))
+}
+
+function connIndexingSummary(conn: any) {
+    return indexingSummary(conn?.indexing)
+}
+
+async function reindexConnection(connectionId: string) {
+    try {
+        await useMyFetch(`/connections/${connectionId}/reindex`, { method: 'POST' })
+        await injectedFetchIntegration()
+    } catch (e: any) {
+        toast.add({ title: 'Failed to restart indexing', description: e?.message || '', color: 'red' })
+    }
 }
 
 function getLastChecked(conn: any) {

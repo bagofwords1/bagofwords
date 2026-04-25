@@ -107,19 +107,33 @@
             <Transition name="fade" mode="out-in">
               <div ref="chartContainerRef" v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)">
                 <div v-if="resolvedCompEl" :class="chartHeightClass" :style="chartHeightStyle">
-                  <component
-                    :is="resolvedCompEl"
-                    :widget="effectiveWidget"
-                    :data="filteredData"
-                    :data_model="effectiveStep?.data_model"
-                    :step="filteredStep"
-                    :view="normalizedView"
-                    :reportThemeName="reportThemeName"
-                    :reportOverrides="reportOverrides"
-                  />
+                  <Suspense>
+                    <component
+                      :is="resolvedCompEl"
+                      :widget="effectiveWidget"
+                      :data="filteredData"
+                      :data_model="effectiveStep?.data_model"
+                      :step="filteredStep"
+                      :view="normalizedView"
+                      :reportThemeName="reportThemeName"
+                      :reportOverrides="reportOverrides"
+                    />
+                    <template #fallback>
+                      <div class="flex items-center justify-center w-full h-full">
+                        <Spinner class="w-5 h-5 text-gray-400" />
+                      </div>
+                    </template>
+                  </Suspense>
                 </div>
                 <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
-                  <RenderVisual :widget="effectiveWidget" :data="filteredData" :data_model="effectiveStep?.data_model" :view="normalizedView" />
+                  <Suspense>
+                    <RenderVisual :widget="effectiveWidget" :data="filteredData" :data_model="effectiveStep?.data_model" :view="normalizedView" />
+                    <template #fallback>
+                      <div class="flex items-center justify-center w-full h-full">
+                        <Spinner class="w-5 h-5 text-gray-400" />
+                      </div>
+                    </template>
+                  </Suspense>
                 </div>
               </div>
             </Transition>
@@ -312,6 +326,7 @@ import { useMyFetch } from '~/composables/useMyFetch'
 import { useOrgSettings } from '~/composables/useOrgSettings'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
+import Spinner from '../Spinner.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
 import { useExcel } from '~/composables/useExcel'
