@@ -1,3 +1,4 @@
+import asyncio
 from typing import Callable, Optional
 
 from partialjson.json_parser import JSONParser
@@ -313,7 +314,7 @@ class Coder:
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
 
-        result = self.llm.inference(text)
+        result = await asyncio.to_thread(self.llm.inference, text)
 
         # Remove markdown code fence (with optional language tag) if present
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
@@ -512,7 +513,7 @@ class Coder:
 
             Now produce ONLY the Python function code as described. No markdown or extra text.
             """
-            result = self.llm.inference(text)
+            result = await asyncio.to_thread(self.llm.inference, text)
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
             result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
@@ -780,7 +781,7 @@ class Coder:
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
 
-        result = self.llm.inference(text)
+        result = await asyncio.to_thread(self.llm.inference, text)
 
         # Remove markdown code fence (with optional language tag) if present
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
@@ -897,7 +898,7 @@ class Coder:
         Return only the Python function code. No markdown. Keep it short.
         """
 
-        result = self.llm.inference(text)
+        result = await asyncio.to_thread(self.llm.inference, text)
         
         # Clean up code fences
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)

@@ -4,7 +4,6 @@ import uvicorn
 import argparse
 import uuid
 import time
-from datetime import datetime
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy import text
@@ -45,6 +44,7 @@ from app.services.maintenance_service import purge_step_payloads_keep_latest_per
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.data_sources.clients.powerbi_report_server_client import warm_all_pbirs_caches
 from app.core.otel import setup_telemetry, instrument_app
+from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
 from app.routes import (
     report,
@@ -339,6 +339,7 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
+    await start_tool_audit_worker()
     logger.info(
         "Application starting",
         extra={
@@ -383,16 +384,16 @@ async def startup_event():
         try:
             scheduler.add_job(
                 warm_all_qvd_caches,
-                trigger="interval",
-                hours=1,
+                trigger="cron",
+                hour=0,
+                minute=0,
                 id="qvd_warmup",
                 replace_existing=True,
                 coalesce=True,
                 max_instances=1,
-                misfire_grace_time=300,
-                next_run_time=datetime.now(),
+                misfire_grace_time=3600,
             )
-            logger.info("Scheduled job: qvd_warmup every 1h (runs once at startup)")
+            logger.info("Scheduled job: qvd_warmup @ 00:00 daily")
         except Exception as e:
             logger.error(f"Failed to schedule QVD warmup job: {e}")
 
@@ -402,16 +403,16 @@ async def startup_event():
         try:
             scheduler.add_job(
                 warm_all_pbirs_caches,
-                trigger="interval",
-                hours=1,
+                trigger="cron",
+                hour=0,
+                minute=0,
                 id="pbirs_warmup",
                 replace_existing=True,
                 coalesce=True,
                 max_instances=1,
-                misfire_grace_time=600,
-                next_run_time=datetime.now(),
+                misfire_grace_time=3600,
             )
-            logger.info("Scheduled job: pbirs_warmup every 1h (runs once at startup)")
+            logger.info("Scheduled job: pbirs_warmup @ 00:00 daily")
         except Exception as e:
             logger.error(f"Failed to schedule PBIRS warmup job: {e}")
 
@@ -473,6 +474,7 @@ Starting server with configuration:
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    await stop_tool_audit_worker()
     scheduler.shutdown()
 
 if __name__ == "__main__":
@@ -481,5 +483,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True,
+        reload_dirs=["app"],
+        reload_excludes=["uploads/*", "**/uploads/*", "*.parquet", "*.pbix", "*.qvd"],
         workers=20
     )

@@ -650,6 +650,14 @@ class StreamingCodeExecutor:
                     code=final_code, ds_clients=ds_clients, excel_files=excel_files, captured_timings=query_timings
                 )
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
+                yield {
+                    "type": "progress",
+                    "payload": {
+                        "stage": "post_execution",
+                        "attempt": retries,
+                        "execution_ms": execution_ms,
+                    },
+                }
                 executed_successfully = True
                 break
             except Exception as e:
@@ -795,6 +803,14 @@ class StreamingCodeExecutor:
                     captured_timings=query_timings, captured_queries=executed_queries,
                 )
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
+                yield {
+                    "type": "progress",
+                    "payload": {
+                        "stage": "post_execution",
+                        "attempt": retries,
+                        "execution_ms": execution_ms,
+                    },
+                }
                 # Treat None/empty-columns DataFrame as a soft failure so the
                 # LLM gets a chance to fix defensive stub code that never
                 # actually calls execute_query.
