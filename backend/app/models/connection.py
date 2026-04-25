@@ -84,7 +84,7 @@ class Connection(BaseSchema):
         "ConnectionIndexing",
         back_populates="connection",
         cascade="all, delete-orphan",
-        order_by="desc(ConnectionIndexing.created_at)",
+        order_by="ConnectionIndexing.created_at.desc()",
     )
 
     def get_client(self):

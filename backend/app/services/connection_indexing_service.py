@@ -121,8 +121,9 @@ class ConnectionIndexingService:
     ) -> None:
         """Block until any pending/running indexing for this connection reaches a
         terminal state. Used by sync paths (e.g. data-source-level refresh) that
-        need a deterministic post-condition. Polls the row's status — runs on the
-        request thread.
+        need a deterministic post-condition. Polls the row's status — runs on
+        the request thread. Raises on timeout so callers can surface a clear
+        error rather than proceeding on stale state.
         """
         deadline = time.perf_counter() + timeout_s
         while time.perf_counter() < deadline:
@@ -133,6 +134,9 @@ class ConnectionIndexingService:
         logger.warning(
             "indexing.wait_for_active.timeout",
             extra={"connection_id": str(connection_id), "timeout_s": timeout_s},
+        )
+        raise TimeoutError(
+            f"Indexing for connection {connection_id} did not finish within {timeout_s}s"
         )
 
     async def start(
@@ -236,13 +240,20 @@ class ConnectionIndexingService:
                     await db.commit()
                     return
 
-                # Progress callback with in-memory debouncing. We open a fresh
-                # session per flush so the flush never collides with the
-                # session `refresh_schema` is using mid-transaction.
+                # Progress state shared across the runner loop and worker
+                # thread (where the client's `get_schemas` runs). Reads/writes
+                # are guarded by a `threading.Lock` so we always observe a
+                # consistent (phase, item, done, total) tuple even when the
+                # callback fires mid-flush.
                 last_flush_at = 0.0
                 pending_state: dict = {"phase": None, "item": None, "done": 0, "total": 0}
+                state_lock = threading.Lock()
                 last_phase: dict = {"name": None}
                 flush_lock = asyncio.Lock()
+
+                def _state_snapshot() -> dict:
+                    with state_lock:
+                        return dict(pending_state)
 
                 async def _maybe_log_phase_event(phase: str | None, total: int) -> None:
                     if phase != last_phase["name"]:
@@ -260,16 +271,18 @@ class ConnectionIndexingService:
                     now = time.perf_counter()
                     if not force and (now - last_flush_at) < _PROGRESS_FLUSH_SECONDS:
                         return
+                    # Take a single consistent snapshot of progress state.
+                    snap = _state_snapshot()
                     async with flush_lock:
                         try:
                             async with async_session_maker() as flush_db:
                                 fresh = await flush_db.get(ConnectionIndexing, indexing_id)
                                 if fresh is None:
                                     return
-                                fresh.phase = pending_state["phase"]
-                                fresh.current_item = pending_state["item"]
-                                fresh.progress_done = pending_state["done"]
-                                fresh.progress_total = pending_state["total"]
+                                fresh.phase = snap["phase"]
+                                fresh.current_item = snap["item"]
+                                fresh.progress_done = snap["done"]
+                                fresh.progress_total = snap["total"]
                                 await flush_db.commit()
                         except Exception:
                             # Never let a failed flush kill the indexing run.
@@ -277,16 +290,17 @@ class ConnectionIndexingService:
                         last_flush_at = now
                     # Phase-transition events live on the same flush schedule —
                     # one row write only, no extra DB traffic per item.
-                    await _maybe_log_phase_event(pending_state["phase"], pending_state["total"])
+                    await _maybe_log_phase_event(snap["phase"], snap["total"])
 
                 def progress_cb(phase, current_item, done, total):
                     # Called from inside `asyncio.to_thread(get_schemas)` — a
-                    # worker thread. Post the async flush back onto the
-                    # runner's loop (the dedicated background-indexing loop).
-                    pending_state["phase"] = phase
-                    pending_state["item"] = current_item
-                    pending_state["done"] = done
-                    pending_state["total"] = total
+                    # worker thread. Update state under a lock so the runner
+                    # loop never reads a torn (phase, item, done, total).
+                    with state_lock:
+                        pending_state["phase"] = phase
+                        pending_state["item"] = current_item
+                        pending_state["done"] = done
+                        pending_state["total"] = total
                     if runner_loop.is_closed():
                         return
                     try:
@@ -313,7 +327,7 @@ class ConnectionIndexingService:
                             fresh.error = str(exc)[:4000]
                             fresh.finished_at = datetime.utcnow()
                             await err_db.commit()
-                    await _append_event("error", pending_state["phase"], f"Indexing failed: {exc}")
+                    await _append_event("error", _state_snapshot()["phase"], f"Indexing failed: {exc}")
                     return
 
                 # Force one final flush so progress ends at the true total.
@@ -344,7 +358,7 @@ class ConnectionIndexingService:
                 await db.commit()
 
                 await _append_event(
-                    "info", pending_state["phase"],
+                    "info", _state_snapshot()["phase"],
                     f"Completed: {table_count} table(s) in {elapsed_s}s",
                     done=table_count, total=table_count,
                 )
@@ -371,39 +385,83 @@ class ConnectionIndexingService:
         """After a successful refresh_schema, mirror the new ConnectionTable set
         onto every DataSource that links this connection.
 
-        Returns the number of data sources synced.
+        Each per-DS sync runs in its own session/transaction so that:
+          - a data source deleted mid-flight (concurrent test or user delete)
+            doesn't FK-violate the whole runner — we re-check existence per DS
+            and skip if gone, and catch any leftover IntegrityError on commit;
+          - one corrupt DS doesn't abort the sync for its peers.
+
+        Returns the number of data sources synced successfully.
         """
+        from sqlalchemy.exc import IntegrityError
         from sqlalchemy.orm import selectinload
 
+        from app.models.data_source import DataSource
         from app.services.data_source_service import DataSourceService
 
+        # Snapshot the connection's linked DS IDs from the runner's session,
+        # then close that scope — per-DS work happens in its own session.
         result = await db.execute(
             select(Connection)
             .options(selectinload(Connection.data_sources))
             .where(Connection.id == str(connection_id))
         )
-        connection = result.scalar_one_or_none()
-        if connection is None or not connection.data_sources:
+        connection_snapshot = result.scalar_one_or_none()
+        if connection_snapshot is None or not connection_snapshot.data_sources:
             return 0
+        ds_ids = [str(ds.id) for ds in connection_snapshot.data_sources]
 
         ds_service = DataSourceService()
         synced = 0
-        for ds in list(connection.data_sources):
+        for ds_id in ds_ids:
             try:
-                await ds_service.sync_domain_tables_from_connection(
-                    db,
-                    ds,
-                    connection,
-                    max_auto_select=ds_service.ONBOARDING_MAX_TABLES,
-                )
-                synced += 1
+                async with async_session_maker() as per_db:
+                    # Re-fetch the DS in the per-DS session. If it was deleted
+                    # (hard or soft) between snapshot and now, skip cleanly.
+                    ds_row = await per_db.execute(
+                        select(DataSource).where(
+                            DataSource.id == ds_id,
+                            DataSource.deleted_at.is_(None),
+                        )
+                    )
+                    ds = ds_row.scalar_one_or_none()
+                    if ds is None:
+                        continue
+                    # Same for the connection — guard against a delete here too.
+                    conn_row = await per_db.execute(
+                        select(Connection).where(
+                            Connection.id == str(connection_id),
+                            Connection.deleted_at.is_(None),
+                        )
+                    )
+                    connection = conn_row.scalar_one_or_none()
+                    if connection is None:
+                        continue
+                    try:
+                        await ds_service.sync_domain_tables_from_connection(
+                            per_db,
+                            ds,
+                            connection,
+                            max_auto_select=ds_service.ONBOARDING_MAX_TABLES,
+                        )
+                        await per_db.commit()
+                        synced += 1
+                    except IntegrityError:
+                        # Most likely cause: the DS was deleted between our
+                        # existence check and the INSERT (FK violation on
+                        # datasource_tables.datasource_id). Roll back this
+                        # DS and move on.
+                        await per_db.rollback()
+                        logger.info(
+                            "indexing.sync_domain_skipped_fk",
+                            extra={
+                                "connection_id": str(connection_id),
+                                "data_source_id": ds_id,
+                            },
+                        )
             except Exception:
                 logger.exception(
                     "indexing.sync_domain_failed",
-                    extra={"connection_id": str(connection_id), "data_source_id": str(ds.id)},
+                    extra={"connection_id": str(connection_id), "data_source_id": ds_id},
                 )
-        try:
-            await db.commit()
-        except Exception:
-            await db.rollback()
         return synced

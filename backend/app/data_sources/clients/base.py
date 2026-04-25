@@ -1,8 +1,26 @@
 import asyncio
+import inspect
 from abc import ABC, abstractmethod
 from typing import Optional
 
 from app.data_sources.clients.progress import ProgressCallback
+
+
+def _accepts_progress_callback(fn) -> bool:
+    """Inspect a `get_schemas`-like method to see if it accepts a
+    `progress_callback` kwarg. Used by the async wrapper so we don't catch a
+    bare `TypeError` raised from inside the call (which would mask real bugs
+    inside the client).
+    """
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    params = sig.parameters
+    if "progress_callback" in params:
+        return True
+    # Accept anything with **kwargs since it'll silently ignore the kwarg.
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 class DataSourceClient(ABC):
@@ -44,19 +62,16 @@ class DataSourceClient(ABC):
         return await asyncio.to_thread(self.test_connection)
 
     async def aget_schemas(self, progress_callback: Optional[ProgressCallback] = None):
-        """Default: forwards `progress_callback` to the sync `get_schemas`.
+        """Forwards `progress_callback` to the sync `get_schemas` only if it
+        accepts the kwarg, determined by signature introspection.
 
-        Subclasses whose `get_schemas()` accepts a `progress_callback` kwarg will
-        report progress; others receive the callback but ignore it. Either way
-        behavior is unchanged when no callback is supplied.
+        We do NOT catch a bare `TypeError` from the call: a real `TypeError`
+        from inside `get_schemas` (e.g. a bug in a client) should surface,
+        not be silently retried without progress.
         """
-        if progress_callback is None:
+        if progress_callback is None or not _accepts_progress_callback(self.get_schemas):
             return await asyncio.to_thread(self.get_schemas)
-        # Try the modern signature first; fall back to the legacy 0-arg form.
-        try:
-            return await asyncio.to_thread(self.get_schemas, progress_callback=progress_callback)
-        except TypeError:
-            return await asyncio.to_thread(self.get_schemas)
+        return await asyncio.to_thread(self.get_schemas, progress_callback=progress_callback)
 
     async def aget_schema(self, table_name):
         return await asyncio.to_thread(self.get_schema, table_name)

@@ -151,20 +151,16 @@ const isConnected = computed(() => {
     return c === 'success'
 })
 
-function getConnectionStatus(conn: any): string {
-    return conn?.user_status?.connection || conn?.status || 'unknown'
-}
-
 async function fetchIntegration() {
     if (!id.value) return
     isLoading.value = true
     fetchError.value = null
-    
+
     try {
         const config = useRuntimeConfig()
         const { token } = useAuth()
         const { organization } = useOrganization()
-        
+
         const data = await $fetch(`/data_sources/${id.value}`, {
             baseURL: config.public.baseURL,
             method: 'GET',
@@ -173,14 +169,18 @@ async function fetchIntegration() {
                 'X-Organization-Id': organization.value?.id || '',
             }
         })
-        
+
         integration.value = data as any
     } catch (e: any) {
         console.error('Failed to fetch integration:', e)
         fetchError.value = e?.response?.status || e?.status || e?.statusCode || 500
     }
-    
+
     isLoading.value = false
+    // Auto-manage the polling loop based on the fresh data so any caller —
+    // including child pages calling the injected fetcher after a reindex —
+    // gets progress updates without manually re-arming polling.
+    maybeStartPolling()
 }
 
 // Provide integration data to child pages
@@ -223,11 +223,11 @@ function maybeStartPolling() {
 
 watch(id, () => {
     stopPolling()
-    fetchIntegration().then(maybeStartPolling)
+    fetchIntegration()
 })
 
 onMounted(() => {
-    fetchIntegration().then(maybeStartPolling)
+    fetchIntegration()
 })
 
 onBeforeUnmount(() => {

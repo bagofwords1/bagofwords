@@ -69,10 +69,41 @@ class DataSourceService:
             return []
 
         from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
-        from app.services.connection_indexing_service import ConnectionIndexingService
+        from app.models.connection_indexing import ConnectionIndexing
         from app.models.connection_table import ConnectionTable
 
-        indexing_service = ConnectionIndexingService()
+        # One query for all connections' latest indexings — avoids N+1 on
+        # GET /data_sources/{id} which is polled every ~2s while indexing runs.
+        # Postgres has DISTINCT ON; we use a portable correlated subquery with
+        # MAX(created_at) so SQLite + Postgres + others all behave the same.
+        connection_ids = [str(c.id) for c in data_source.connections]
+        indexing_by_conn: dict[str, ConnectionIndexing] = {}
+        if connection_ids:
+            try:
+                latest_subq = (
+                    select(
+                        ConnectionIndexing.connection_id,
+                        func.max(ConnectionIndexing.created_at).label("max_created"),
+                    )
+                    .where(ConnectionIndexing.connection_id.in_(connection_ids))
+                    .group_by(ConnectionIndexing.connection_id)
+                    .subquery()
+                )
+                rows = await db.execute(
+                    select(ConnectionIndexing).join(
+                        latest_subq,
+                        (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
+                        & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+                    )
+                )
+                for idx in rows.scalars().all():
+                    indexing_by_conn[str(idx.connection_id)] = idx
+            except Exception:
+                logger.exception(
+                    "indexing.bulk_lookup_failed",
+                    extra={"data_source_id": str(data_source.id)},
+                )
+
         connections_list = []
 
         for conn in data_source.connections:
@@ -119,25 +150,22 @@ class DataSourceService:
                 table_count = legacy_count_result.scalar() or 0
 
             # Inline latest indexing row (for UI polling / status badge).
+            indexing_row = indexing_by_conn.get(str(conn.id))
             indexing_payload = None
-            try:
-                indexing_row = await indexing_service.get_latest(db, str(conn.id))
-                if indexing_row is not None:
-                    indexing_payload = {
-                        "id": str(indexing_row.id),
-                        "status": indexing_row.status,
-                        "phase": indexing_row.phase,
-                        "current_item": indexing_row.current_item,
-                        "progress_done": indexing_row.progress_done or 0,
-                        "progress_total": indexing_row.progress_total or 0,
-                        "started_at": indexing_row.started_at.isoformat() if indexing_row.started_at else None,
-                        "finished_at": indexing_row.finished_at.isoformat() if indexing_row.finished_at else None,
-                        "error": indexing_row.error,
-                        "stats": indexing_row.stats_json,
-                        "events": indexing_row.events_json or [],
-                    }
-            except Exception:
-                indexing_payload = None
+            if indexing_row is not None:
+                indexing_payload = {
+                    "id": str(indexing_row.id),
+                    "status": indexing_row.status,
+                    "phase": indexing_row.phase,
+                    "current_item": indexing_row.current_item,
+                    "progress_done": indexing_row.progress_done or 0,
+                    "progress_total": indexing_row.progress_total or 0,
+                    "started_at": indexing_row.started_at.isoformat() if indexing_row.started_at else None,
+                    "finished_at": indexing_row.finished_at.isoformat() if indexing_row.finished_at else None,
+                    "error": indexing_row.error,
+                    "stats": indexing_row.stats_json,
+                    "events": indexing_row.events_json or [],
+                }
 
             connections_list.append(ConnectionEmbedded(
                 id=str(conn.id),
@@ -2622,7 +2650,13 @@ class DataSourceService:
                 if conn.auth_policy == "system_only":
                     has_system_only_conn = True
                     # Wait for any active indexing run before refreshing synchronously.
-                    await indexing_service.wait_for_active(db, str(conn.id))
+                    try:
+                        await indexing_service.wait_for_active(db, str(conn.id))
+                    except TimeoutError as exc:
+                        raise HTTPException(
+                            status_code=504,
+                            detail=str(exc),
+                        ) from exc
                     logger.info(f"refresh_data_source_schema: Calling refresh_schema for connection {conn.id}")
                     await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
                     logger.info(f"refresh_data_source_schema: refresh_schema completed for connection {conn.id}")
