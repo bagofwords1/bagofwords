@@ -254,6 +254,52 @@
                           </div>
                           </div>
                         </template>
+
+                        <!-- Other rules (preserved through round-trip) -->
+                        <div v-if="otherRules.length" class="space-y-2 pt-2 border-t border-gray-100">
+                          <div class="text-[11px] text-gray-500">Other rules</div>
+                          <div v-for="(r, idx) in otherRules" :key="`other:${idx}`" class="rounded-md border border-blue-200 px-3 py-2 space-y-2">
+                            <div class="flex items-center gap-2">
+                              <span class="bg-blue-50 text-blue-700 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded">{{ r.type }}</span>
+                              <UButton class="ms-auto" color="gray" variant="ghost" size="xs" icon="i-heroicons-trash" @click="removeOtherRule(idx)" />
+                            </div>
+
+                            <template v-if="r.type === 'tool.calls'">
+                              <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center">
+                                <div class="md:col-span-3">
+                                  <div class="text-[11px] text-gray-500 mb-1">Tool</div>
+                                  <input type="text" v-model="r.tool" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" placeholder="e.g. create_data" />
+                                </div>
+                                <div class="md:col-span-2">
+                                  <div class="text-[11px] text-gray-500 mb-1">Min calls</div>
+                                  <input type="number" min="0" v-model.number="r.min_calls" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" />
+                                </div>
+                                <div class="md:col-span-3">
+                                  <div class="text-[11px] text-gray-500 mb-1">Max calls (optional)</div>
+                                  <input type="number" min="0" :value="r.max_calls ?? ''" @input="(e: any) => { const v = e.target.value; r.max_calls = v === '' ? null : Number(v) }" class="border border-gray-300 rounded px-2 py-1 text-xs w-full" />
+                                </div>
+                              </div>
+                            </template>
+
+                            <template v-else-if="r.type === 'ordering'">
+                              <div class="text-[11px] text-gray-600">
+                                Mode: <span class="font-medium">{{ r.mode || 'flexible' }}</span> · Sequence: <span class="font-mono">{{ (r.sequence || []).map((s: any) => s.tool_or_bind).join(' → ') }}</span>
+                              </div>
+                              <div class="text-[10px] text-gray-400">Read-only — edit via JSON for now.</div>
+                            </template>
+
+                            <template v-else-if="r.type === 'phase'">
+                              <div class="text-[11px] text-gray-600">
+                                Phase <span class="font-medium">{{ r.phase }}</span> {{ r.occurred === false ? 'did NOT run' : 'ran' }}{{ typeof r.turn === 'number' ? ` on turn ${r.turn}` : '' }}
+                              </div>
+                              <div class="text-[10px] text-gray-400">Read-only — edit via JSON for now.</div>
+                            </template>
+
+                            <template v-else>
+                              <pre class="text-[10px] bg-gray-50 p-2 rounded overflow-x-auto">{{ JSON.stringify(r, null, 2) }}</pre>
+                            </template>
+                          </div>
+                        </div>
                     </div>
                 </div>
                 </div>
@@ -348,6 +394,11 @@ type CategoryRuleUI = {
 }
 
 const categoryRules = ref<CategoryRuleUI[]>([])
+// Non-field rules (tool.calls / ordering / phase / unknown). Round-tripped
+// verbatim on save so create_eval-authored drafts don't lose data when an
+// admin opens them in this modal. `judge` (new shape) is converted to/from
+// the legacy judge category UI instead of living here.
+const otherRules = ref<any[]>([])
 const judgeModels = ref<any[]>([])
 
 const cmpOps = [
@@ -562,6 +613,10 @@ const removeCategory = (key: string) => {
   categoryRules.value = categoryRules.value.filter(c => c.key !== key)
 }
 
+const removeOtherRule = (idx: number) => {
+  otherRules.value = otherRules.value.filter((_, i) => i !== idx)
+}
+
 const onValuesCommaChange = (r: FieldRuleUI) => {
   const raw = (r.valuesComma || '').split(',').map(s => s.trim()).filter(Boolean)
   ;(r.matcher as any).values = raw
@@ -726,6 +781,33 @@ const normalizeMatcher = (m: any) => {
   return m
 }
 
+// Emit rules in the canonical schema shapes the backend expects:
+//   - judge category UI -> {type:"judge", prompt, model} (new shape)
+//   - other categories  -> {type:"field", target, matcher}
+//   - preserved rules from `otherRules` (tool.calls / ordering / phase /
+//     unknown) appended verbatim so create_eval-authored drafts survive
+//     a save round-trip without losing data.
+const serializeRules = (): any[] => {
+  const out: any[] = []
+  for (const cat of categoryRules.value) {
+    if (cat.categoryId === 'judge') {
+      const promptVal = (cat.fieldRules.find(fr => fr.target.field === 'prompt')?.matcher as any)?.value ?? ''
+      const modelVal = (cat.fieldRules.find(fr => fr.target.field === 'model_id')?.matcher as any)?.value ?? ''
+      const rule: any = { type: 'judge', prompt: String(promptVal || '') }
+      if (modelVal) rule.model = String(modelVal)
+      out.push(rule)
+      continue
+    }
+    for (const r of cat.fieldRules) {
+      out.push({ type: 'field', target: r.target, matcher: normalizeMatcher(r.matcher) })
+    }
+  }
+  for (const r of otherRules.value) {
+    out.push(r)
+  }
+  return out
+}
+
 const close = () => emit('update:modelValue', false)
 
 function resetFormForCreate() {
@@ -740,6 +822,7 @@ function resetFormForCreate() {
   selectedSuiteIdLocal.value = props.suiteId || ''
   // Reset rules to empty for new case
   categoryRules.value = []
+  otherRules.value = []
 }
 
 const save = async () => {
@@ -770,12 +853,7 @@ const save = async () => {
 
 // Helper used by both save() and runNow()
 const createCase = async (): Promise<{ case: any | null, raw: any } | null> => {
-  const flatRules: any[] = []
-  for (const cat of categoryRules.value) {
-    for (const r of cat.fieldRules) {
-      flatRules.push({ type: 'field', target: r.target, matcher: normalizeMatcher(r.matcher) })
-    }
-  }
+  const flatRules: any[] = serializeRules()
   const expectations = { spec_version: 1, rules: flatRules }
   const trimmed = promptText.value.trim()
   const name = (trimmed.length > 0 ? trimmed : 'Untitled test').slice(0, 60)
@@ -808,12 +886,7 @@ const createCase = async (): Promise<{ case: any | null, raw: any } | null> => {
 }
 
 const updateCase = async (caseId: string): Promise<{ case: any | null, raw: any } | null> => {
-  const flatRules: any[] = []
-  for (const cat of categoryRules.value) {
-    for (const r of cat.fieldRules) {
-      flatRules.push({ type: 'field', target: r.target, matcher: normalizeMatcher(r.matcher) })
-    }
-  }
+  const flatRules: any[] = serializeRules()
   const expectations = { spec_version: 1, rules: flatRules }
   const trimmed = promptText.value.trim()
   const name = (trimmed.length > 0 ? trimmed : 'Untitled test').slice(0, 60)
@@ -906,8 +979,39 @@ async function loadCaseForEdit(caseId: string) {
       return arr.find(g => !g.fieldRules.some(fr => fr.target.field === 'model_id'))
     }
 
+    // Reset preserved-other rules; we'll repopulate from this case's payload
+    otherRules.value = []
     for (const r of rules) {
-      if (r?.type !== 'field') continue
+      if (r?.type !== 'field') {
+        // create_eval (and any new authoring path) emits non-field rule
+        // shapes: tool.calls / judge / ordering / phase. The legacy
+        // field-only loop dropped them on the floor and the modal showed
+        // "No rules yet". Convert judge into the existing UI; preserve the
+        // rest verbatim so save round-trips them.
+        if (r?.type === 'judge' && typeof r?.prompt === 'string') {
+          const judgeMeta = categoryById.value['judge']
+          if (judgeMeta) {
+            const promptField = judgeMeta.fields.find((f: any) => f.key === 'prompt') || judgeMeta.fields[0]
+            const modelField = judgeMeta.fields.find((f: any) => f.key === 'model_id') || judgeMeta.fields[1]
+            const group = ensureGroup('judge', judgeMeta, true)
+            if (promptField) {
+              const fr = makeFieldRuleFor(judgeMeta, promptField)
+              ;(fr.matcher as any) = { type: 'text.equals', value: r.prompt }
+              group.fieldRules.push(fr)
+            }
+            if (modelField) {
+              const fr = makeFieldRuleFor(judgeMeta, modelField)
+              ;(fr.matcher as any) = { type: 'text.equals', value: r.model || '' }
+              group.fieldRules.push(fr)
+            }
+          } else {
+            otherRules.value.push(r)
+          }
+        } else if (r && typeof r === 'object') {
+          otherRules.value.push(r)
+        }
+        continue
+      }
       const catId = r?.target?.category
       const fieldKey = r?.target?.field
       if (!catId || !fieldKey) continue
