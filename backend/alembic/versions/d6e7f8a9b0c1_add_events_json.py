@@ -1,7 +1,7 @@
 """add events_json to connection_indexings
 
 Revision ID: d6e7f8a9b0c1
-Revises: c5d6e7f8a9b0
+Revises: f1a2b3c4d5e7
 Create Date: 2026-04-25 09:00:00.000000
 
 Per-run event log for indexing — phase transitions, item milestones, errors,
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'd6e7f8a9b0c1'
-down_revision: Union[str, None] = 'c5d6e7f8a9b0'
+down_revision: Union[str, None] = 'f1a2b3c4d5e7'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
