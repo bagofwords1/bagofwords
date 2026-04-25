@@ -1,11 +1,14 @@
 import json
 import asyncio
+import logging
+import time as _time
 from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
 from app.core.otel import get_tracer
 from app.ee.audit.tool_audit import log_tool_audit, _truncate_queries
 
 tracer = get_tracer(__name__)
+logger = logging.getLogger(__name__)
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -554,10 +557,22 @@ Include "filters" only when narrowing the data to a specific slice.
 Reminder: use exact column names from: {column_names}
 Do not use generic placeholders like "value" unless that is the actual column name."""
 
+        _viz_t0 = _time.perf_counter()
         try:
-            raw = llm.inference(prompt, usage_scope="create_data.viz_infer")
+            # Offload sync LLM call so we don't block the event loop for the
+            # full inference duration — other requests on this worker would
+            # otherwise stall behind every create_data viz inference.
+            raw = await asyncio.to_thread(
+                llm.inference, prompt, usage_scope="create_data.viz_infer"
+            )
         except Exception:
             raw = None
+        finally:
+            logger.info(
+                "create_data.viz_infer elapsed_ms=%.0f got_raw=%s",
+                (_time.perf_counter() - _viz_t0) * 1000.0,
+                raw is not None,
+            )
 
         candidate = {"type": "table", "series": []}
         view_options: Dict[str, Any] | None = None
@@ -642,9 +657,15 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         break
                 name_patterns = [f"(?i){re.escape(k)}" for k in keywords] if keywords else None
 
+                _t0 = _time.perf_counter()
                 ctx = await context_hub.schema_builder.build(
                     with_stats=True,
                     name_patterns=name_patterns,
+                )
+                logger.info(
+                    "create_data.schema_build stage=fallback_excerpt elapsed_ms=%.0f patterns=%d",
+                    (_time.perf_counter() - _t0) * 1000.0,
+                    len(name_patterns or []),
                 )
                 return ctx.render_combined(top_k_per_ds=top_k, index_limit=0, include_index=False)
             _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
@@ -704,10 +725,17 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
                 # Resolve via schema_builder (only returns active tables)
                 try:
+                    _t0 = _time.perf_counter()
                     ctx = await schema_builder.build(
                         with_stats=False,
                         data_source_ids=[ds_id] if ds_id else None,
                         name_patterns=name_patterns,
+                    )
+                    logger.info(
+                        "create_data.schema_build stage=resolve_active ds_id=%s elapsed_ms=%.0f patterns=%d",
+                        ds_id,
+                        (_time.perf_counter() - _t0) * 1000.0,
+                        len(name_patterns),
                     )
 
                     # Extract resolved table names per data source
@@ -973,10 +1001,17 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 import re
                 name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
                 
+                _t0 = _time.perf_counter()
                 ctx = await context_hub.schema_builder.build(
                     with_stats=True,
                     data_source_ids=ds_scope,
                     name_patterns=name_patterns,
+                )
+                logger.info(
+                    "create_data.schema_build stage=final_excerpt elapsed_ms=%.0f ds_count=%d patterns=%d",
+                    (_time.perf_counter() - _t0) * 1000.0,
+                    len(ds_scope or []),
+                    len(name_patterns or []),
                 )
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
             except Exception as e:

@@ -12,6 +12,13 @@
       <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ $t('tools.createData.creating') }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700">{{ $t('tools.createData.create') }}</span>
       <span v-else class="text-gray-700">{{ $t('tools.createData.create') }}</span>
+      <template v-if="groupedTables.length">
+        <template v-for="(group, gidx) in groupedTables" :key="gidx">
+          <span v-if="gidx > 0" class="ms-1 text-gray-300">|</span>
+          <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.names.join(', ')" />
+          <span class="ms-1 text-gray-500">{{ group.names.join(', ') }}</span>
+        </template>
+      </template>
       <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
@@ -140,6 +147,14 @@ import { computed, ref, reactive } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import Spinner from '~/components/Spinner.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+
+interface DataSource {
+  id: string
+  type?: string
+  data_source_type?: string
+  connections?: Array<{ id: string; type: string }>
+}
 
 interface Props {
   toolExecution: {
@@ -168,7 +183,7 @@ interface Props {
   }
 }
 
-const props = defineProps<Props & { readonly?: boolean }>()
+const props = defineProps<Props & { readonly?: boolean; dataSources?: DataSource[] }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
 const codeCollapsed = ref(true)
@@ -320,6 +335,26 @@ const formatDuration = computed(() => {
   return `${seconds}s`
 })
 
+
+const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
+  const aj = (props.toolExecution as any)?.arguments_json || {}
+  if (!Array.isArray(aj.tables_by_source)) return []
+  const groups: Record<string, string[]> = {}
+  for (const group of aj.tables_by_source) {
+    let connType = 'resource'
+    if (group.data_source_id && props.dataSources?.length) {
+      const ds = props.dataSources.find((d) => d.id === group.data_source_id)
+      if (ds) {
+        connType = ds.connections?.[0]?.type || ds.type || ds.data_source_type || 'resource'
+      }
+    }
+    if (!groups[connType]) groups[connType] = []
+    if (Array.isArray(group.tables)) {
+      groups[connType].push(...group.tables)
+    }
+  }
+  return Object.entries(groups).map(([type, names]) => ({ type, names }))
+})
 
 function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
 function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }

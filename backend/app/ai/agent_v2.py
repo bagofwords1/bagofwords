@@ -1464,9 +1464,44 @@ class AgentV2:
 
                 # Write-on-complete: no skeleton PlanDecision written here.
                 # The final PlanDecision + CompletionBlock are written once at planner.decision.final.
-                
+
+                async def _cancel_skeleton_block(reason: str):
+                    """Emit a cancelled block.upsert for the pre-created skeleton so the UI
+                    doesn't leave an empty 'Planning (action)' card hanging when a retry or
+                    interrupt path skips the decision.final persist."""
+                    if not current_block_id:
+                        return
+                    try:
+                        _c_seq = await self.project_manager.next_seq(
+                            self.db, self.current_execution
+                        )
+                        await self._emit_sse_event(SSEEvent(
+                            event="block.upsert",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=_c_seq,
+                            data={"block": {
+                                "id": current_block_id,
+                                "source_type": "decision",
+                                "loop_index": loop_index,
+                                "status": "cancelled",
+                                "title": "Planning (cancelled)",
+                                "icon": "🧠",
+                                "content": None,
+                                "reasoning": None,
+                                "plan_decision_id": None,
+                                "tool_execution_id": None,
+                                "started_at": None,
+                                "completed_at": None,
+                                "cancel_reason": reason,
+                            }}
+                        ))
+                    except Exception as _cexc:
+                        logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
+
                 async for evt in self.planner.execute(planner_input, self.sigkill_event):
                     if self.sigkill_event.is_set():
+                        await _cancel_skeleton_block("sigkill")
                         break
 
                     # Handle typed events
@@ -1527,6 +1562,7 @@ class AgentV2:
                             if invalid_retry_count >= max_invalid_retries:
                                 # Too many retries, treat as final error
                                 analysis_done = True
+                                await _cancel_skeleton_block("max_invalid_retries")
                                 break
                             observation = {
                                 "summary": "Planner output invalid; retrying",
@@ -1551,6 +1587,9 @@ class AgentV2:
                                 ))
                             except Exception:
                                 pass
+                            # Cancel the skeleton block so the UI doesn't keep an empty
+                            # "Planning (action)" card from the previous attempt.
+                            await _cancel_skeleton_block("validation_error")
                             # Stop streaming loop; outer loop will attempt again
                             break
                         
