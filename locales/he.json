@@ -579,6 +579,44 @@
       "empty": "לא נמצאו הנחיות תואמות.",
       "untitled": "ללא כותרת"
     },
+    "createEval": {
+      "drafting": "מנסח הערכה",
+      "draftingNamed": "מנסח הערכה \"{name}\"",
+      "created": "הערכה נוצרה",
+      "notCreated": "הערכה לא נוצרה",
+      "unnamed": "(ללא שם)",
+      "statusDraft": "טיוטה",
+      "statusActive": "פעילה",
+      "autoBadge": "אוטו",
+      "defaultMessage": "ההערכה לא נוצרה."
+    },
+    "runEval": {
+      "running": "מריץ הערכה",
+      "caseSingular": "מקרה",
+      "casePlural": "מקרים",
+      "totalLabel": " · {count} {label}",
+      "stopped": "ריצת הערכה הופסקה",
+      "finished": "ריצת הערכה הסתיימה",
+      "pass": "{count} עברו",
+      "fail": "{count} נכשלו",
+      "stop": "עצור",
+      "stopping": "עוצר…",
+      "stopTitle": "עצור את הריצה (גם עוצר את לולאת הסוכן)",
+      "openRun": "פתח ריצה"
+    },
+    "searchEvals": {
+      "searching": "מחפש הערכות",
+      "searchingFor": "מחפש הערכות עבור {query}",
+      "searched": "חיפש הערכות",
+      "searchedFor": "חיפש הערכות עבור {query}",
+      "matchSingular": "{count} תוצאה",
+      "matchPlural": "{count} תוצאות",
+      "empty": "לא נמצאו הערכות תואמות.",
+      "unnamed": "(ללא שם)",
+      "statusDraft": "טיוטה",
+      "statusArchived": "בארכיון",
+      "autoBadge": "אוטו"
+    },
     "describeEntity": {
       "dataProfile": "פרופיל נתונים"
     },

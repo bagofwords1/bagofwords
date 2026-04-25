@@ -4,22 +4,22 @@
     <div class="mb-2 flex items-center text-xs text-gray-500">
       <span v-if="status === 'running' || isInProgress" class="tool-shimmer flex items-center">
         <Icon name="heroicons-play" class="w-3 h-3 me-1 text-gray-400" />
-        Running eval{{ totalLabel }}
+        {{ t('tools.runEval.running') }}{{ totalLabel }}
       </span>
       <span v-else-if="status === 'stopped' || progress.status === 'stopped'" class="text-gray-700 flex items-center">
         <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-gray-400" />
-        <span class="align-middle">Eval run stopped</span>
+        <span class="align-middle">{{ t('tools.runEval.stopped') }}</span>
       </span>
       <span v-else class="text-gray-700 flex items-center">
         <Icon name="heroicons-check-circle" class="w-3 h-3 me-1 text-gray-400" />
-        <span class="align-middle">Eval run finished</span>
+        <span class="align-middle">{{ t('tools.runEval.finished') }}</span>
       </span>
 
       <!-- Live counters -->
       <span v-if="progress.total > 0" class="ms-2 text-[10px] text-gray-500">
         {{ progress.finished }} / {{ progress.total }}
-        <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ progress.passed }} pass</span><span
-          v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ progress.failed }} fail</span>
+        <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
+          v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ t('tools.runEval.fail', { count: progress.failed }) }}</span>
       </span>
 
       <!-- Stop button (only while in-flight) -->
@@ -28,10 +28,10 @@
         class="ms-auto inline-flex items-center gap-0.5 text-[10px] text-red-600 hover:text-red-800"
         @click="stopRun"
         :disabled="isStopping"
-        title="Stop the run (also stops the surrounding agent loop)"
+        :title="t('tools.runEval.stopTitle')"
       >
         <Icon name="heroicons-stop" class="w-3 h-3" />
-        <span>{{ isStopping ? 'Stopping…' : 'Stop' }}</span>
+        <span>{{ isStopping ? t('tools.runEval.stopping') : t('tools.runEval.stop') }}</span>
       </button>
     </div>
 
@@ -74,6 +74,9 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface ToolExecution {
   id: string
@@ -154,7 +157,8 @@ const pctFinished = computed(() => {
 const totalLabel = computed(() => {
   const total = progress.value.total
   if (!total) return ''
-  return ` · ${total} case${total === 1 ? '' : 's'}`
+  const label = total === 1 ? t('tools.runEval.caseSingular') : t('tools.runEval.casePlural')
+  return t('tools.runEval.totalLabel', { count: total, label })
 })
 
 function caseIcon(s: string): string {

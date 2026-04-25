@@ -81,13 +81,19 @@ def test_patch_case_status_rejects_unknown_value(
 
 
 @pytest.mark.e2e
-def test_run_suite_skips_draft_cases(
+@pytest.mark.asyncio
+async def test_get_cases_default_filter_skips_drafts(
     create_user, login_user, whoami,
     create_test_suite, create_test_case,
     test_client,
 ):
-    """``_get_cases`` defaults to ``status='active'``, so a draft case in
-    the same suite must not produce a TestResult on a suite-level run."""
+    """``TestRunService._get_cases`` defaults to ``status='active'`` so
+    suite-level / scheduled runs skip drafts. We test the filter directly
+    rather than through ``POST /tests/runs`` because the HTTP path
+    requires a configured default LLM model — orthogonal to filtering."""
+    from app.dependencies import async_session_maker
+    from app.services.test_run_service import TestRunService
+
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
@@ -99,34 +105,32 @@ def test_run_suite_skips_draft_cases(
     resp = _patch_status(test_client, draft_case["id"], TEST_CASE_STATUS_DRAFT, user_token=token, org_id=org_id)
     assert resp.status_code == 200
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "X-Organization-Id": str(org_id),
-    }
-    resp = test_client.post(
-        f"/api/tests/suites/{suite['id']}/runs",
-        headers=headers,
-    )
-    assert resp.status_code == 200, resp.json()
-    run_id = resp.json()["id"]
+    service = TestRunService()
+    async with async_session_maker() as db:
+        active_only = await service._get_cases(db, suite["id"])
+        all_cases = await service._get_cases(db, suite["id"], status=None)
 
-    results_resp = test_client.get(
-        f"/api/tests/runs/{run_id}/results",
-        headers=headers,
-    )
-    assert results_resp.status_code == 200, results_resp.json()
-    case_ids = {r["case_id"] for r in results_resp.json()}
-    assert active_case["id"] in case_ids
-    assert draft_case["id"] not in case_ids
+    active_ids = {str(c.id) for c in active_only}
+    all_ids = {str(c.id) for c in all_cases}
+
+    assert active_case["id"] in active_ids
+    assert draft_case["id"] not in active_ids
+    assert {active_case["id"], draft_case["id"]} <= all_ids
 
 
 @pytest.mark.e2e
-def test_explicit_case_ids_can_run_drafts(
+@pytest.mark.asyncio
+async def test_resolve_cases_inputs_includes_drafts_when_explicit(
     create_user, login_user, whoami,
     create_test_suite, create_test_case,
     test_client,
 ):
-    """Drafts must remain runnable on-demand when explicitly named."""
+    """Explicit ``case_ids`` must bypass the active-only default — drafts
+    remain runnable on demand. Tested at the service level for the same
+    reason as above (HTTP path needs an LLM model)."""
+    from app.dependencies import async_session_maker
+    from app.services.test_run_service import TestRunService
+
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
@@ -137,22 +141,14 @@ def test_explicit_case_ids_can_run_drafts(
     resp = _patch_status(test_client, draft_case["id"], TEST_CASE_STATUS_DRAFT, user_token=token, org_id=org_id)
     assert resp.status_code == 200
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "X-Organization-Id": str(org_id),
-    }
-    resp = test_client.post(
-        "/api/tests/runs",
-        json={"case_ids": [draft_case["id"]], "trigger_reason": "manual"},
-        headers=headers,
-    )
-    assert resp.status_code == 200, resp.json()
-    run_id = resp.json()["id"]
+    service = TestRunService()
+    async with async_session_maker() as db:
+        resolved = await service._resolve_cases_inputs(
+            db,
+            organization_id=str(org_id),
+            case_ids=[draft_case["id"]],
+            suite_id=None,
+        )
 
-    results_resp = test_client.get(
-        f"/api/tests/runs/{run_id}/results",
-        headers=headers,
-    )
-    assert results_resp.status_code == 200, results_resp.json()
-    case_ids = {r["case_id"] for r in results_resp.json()}
-    assert draft_case["id"] in case_ids
+    resolved_ids = {str(c.id) for c in resolved}
+    assert draft_case["id"] in resolved_ids

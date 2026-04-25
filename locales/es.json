@@ -579,6 +579,44 @@
       "empty": "No se encontraron instrucciones que coincidan.",
       "untitled": "Sin título"
     },
+    "createEval": {
+      "drafting": "Redactando evaluación",
+      "draftingNamed": "Redactando evaluación \"{name}\"",
+      "created": "Evaluación creada",
+      "notCreated": "Evaluación no creada",
+      "unnamed": "(sin nombre)",
+      "statusDraft": "borrador",
+      "statusActive": "activa",
+      "autoBadge": "auto",
+      "defaultMessage": "No se creó la evaluación."
+    },
+    "runEval": {
+      "running": "Ejecutando evaluación",
+      "caseSingular": "caso",
+      "casePlural": "casos",
+      "totalLabel": " · {count} {label}",
+      "stopped": "Ejecución de evaluación detenida",
+      "finished": "Ejecución de evaluación finalizada",
+      "pass": "{count} aprobados",
+      "fail": "{count} fallidos",
+      "stop": "Detener",
+      "stopping": "Deteniendo…",
+      "stopTitle": "Detener la ejecución (también detiene el bucle del agente)",
+      "openRun": "Abrir ejecución"
+    },
+    "searchEvals": {
+      "searching": "Buscando evaluaciones",
+      "searchingFor": "Buscando evaluaciones para {query}",
+      "searched": "Se buscó evaluaciones",
+      "searchedFor": "Se buscó evaluaciones para {query}",
+      "matchSingular": "{count} coincidencia",
+      "matchPlural": "{count} coincidencias",
+      "empty": "No hay evaluaciones que coincidan.",
+      "unnamed": "(sin nombre)",
+      "statusDraft": "borrador",
+      "statusArchived": "archivada",
+      "autoBadge": "auto"
+    },
     "describeEntity": {
       "dataProfile": "Perfil de datos"
     },
