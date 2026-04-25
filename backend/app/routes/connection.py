@@ -59,6 +59,7 @@ def _indexing_to_progress(row) -> "ConnectionIndexingProgress | None":
         finished_at=row.finished_at.isoformat() if row.finished_at else None,
         error=row.error,
         stats=row.stats_json,
+        events=row.events_json or [],
     )
 
 
@@ -153,6 +154,10 @@ async def list_connections(
                 )
                 table_count = fallback_result.scalar() or 0
 
+        # Inline latest indexing for the dot status / polling.
+        indexing_row = await indexing_service.get_latest(db, str(conn.id))
+        indexing_payload = _indexing_to_progress(indexing_row)
+
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,
@@ -164,6 +169,7 @@ async def list_connections(
             table_count=table_count,
             domain_count=len(conn.data_sources) if conn.data_sources else 0,
             domain_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
+            indexing=indexing_payload.model_dump() if indexing_payload else None,
         ))
     return result
 
@@ -189,6 +195,10 @@ async def create_connection(
         allowed_user_auth_modes=data.allowed_user_auth_modes,
     )
     
+    # Inline the latest indexing run so the modal can show progress
+    # immediately without a second roundtrip.
+    indexing_row = await indexing_service.get_latest(db, str(connection.id))
+    indexing_payload = _indexing_to_progress(indexing_row)
     return ConnectionSchema(
         id=str(connection.id),
         name=connection.name,
@@ -199,6 +209,7 @@ async def create_connection(
         organization_id=str(connection.organization_id),
         table_count=len(connection.connection_tables) if connection.connection_tables else 0,
         domain_count=len(connection.data_sources) if connection.data_sources else 0,
+        indexing=indexing_payload.model_dump() if indexing_payload else None,
     )
 
 

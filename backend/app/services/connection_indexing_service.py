@@ -70,6 +70,9 @@ def _get_background_loop() -> asyncio.AbstractEventLoop:
 # `_PROGRESS_FLUSH_SECONDS` (plus one final flush at end-of-phase).
 _PROGRESS_FLUSH_SECONDS = 0.25
 
+# Per-run event log cap. Keep enough to be useful, drop oldest beyond.
+_EVENT_LOG_MAX = 200
+
 
 class ConnectionIndexingService:
     """Create, poll, and (internally) run `ConnectionIndexing` rows."""
@@ -181,6 +184,35 @@ class ConnectionIndexingService:
         # and must post their flush coroutine BACK to this loop.
         runner_loop = asyncio.get_running_loop()
         start = time.perf_counter()
+
+        async def _append_event(level: str, phase: str | None, message: str,
+                                done: int = 0, total: int = 0) -> None:
+            """Append a single entry to the indexing row's events_json.
+
+            Best-effort: a failure to log must never affect the run. Events
+            are capped at `_EVENT_LOG_MAX` (oldest dropped).
+            """
+            try:
+                async with async_session_maker() as ev_db:
+                    fresh = await ev_db.get(ConnectionIndexing, indexing_id)
+                    if fresh is None:
+                        return
+                    events = list(fresh.events_json or [])
+                    events.append({
+                        "ts": datetime.utcnow().isoformat() + "Z",
+                        "level": level,
+                        "phase": phase,
+                        "message": message,
+                        "done": done,
+                        "total": total,
+                    })
+                    if len(events) > _EVENT_LOG_MAX:
+                        events = events[-_EVENT_LOG_MAX:]
+                    fresh.events_json = events
+                    await ev_db.commit()
+            except Exception:
+                logger.debug("indexing.event_append_failed", exc_info=True)
+
         try:
             async with async_session_maker() as db:
                 row = await db.get(ConnectionIndexing, indexing_id)
@@ -190,6 +222,8 @@ class ConnectionIndexingService:
                 row.status = ConnectionIndexingStatus.RUNNING.value
                 row.started_at = datetime.utcnow()
                 await db.commit()
+
+                await _append_event("info", None, "Indexing started")
 
                 conn_result = await db.execute(
                     select(Connection).where(Connection.id == row.connection_id)
@@ -207,7 +241,19 @@ class ConnectionIndexingService:
                 # session `refresh_schema` is using mid-transaction.
                 last_flush_at = 0.0
                 pending_state: dict = {"phase": None, "item": None, "done": 0, "total": 0}
+                last_phase: dict = {"name": None}
                 flush_lock = asyncio.Lock()
+
+                async def _maybe_log_phase_event(phase: str | None, total: int) -> None:
+                    if phase != last_phase["name"]:
+                        last_phase["name"] = phase
+                        if phase:
+                            label = (
+                                f"Phase: {phase} ({total} items)"
+                                if total > 0
+                                else f"Phase: {phase}"
+                            )
+                            await _append_event("info", phase, label, done=0, total=total)
 
                 async def _flush(force: bool = False) -> None:
                     nonlocal last_flush_at
@@ -229,6 +275,9 @@ class ConnectionIndexingService:
                             # Never let a failed flush kill the indexing run.
                             logger.debug("indexing.flush_failed", exc_info=True)
                         last_flush_at = now
+                    # Phase-transition events live on the same flush schedule —
+                    # one row write only, no extra DB traffic per item.
+                    await _maybe_log_phase_event(pending_state["phase"], pending_state["total"])
 
                 def progress_cb(phase, current_item, done, total):
                     # Called from inside `asyncio.to_thread(get_schemas)` — a
@@ -264,6 +313,7 @@ class ConnectionIndexingService:
                             fresh.error = str(exc)[:4000]
                             fresh.finished_at = datetime.utcnow()
                             await err_db.commit()
+                    await _append_event("error", pending_state["phase"], f"Indexing failed: {exc}")
                     return
 
                 # Force one final flush so progress ends at the true total.
@@ -281,15 +331,23 @@ class ConnectionIndexingService:
                 fresh.status = ConnectionIndexingStatus.COMPLETED.value
                 fresh.finished_at = datetime.utcnow()
                 fresh.error = None
+                table_count = len(tables) if tables else 0
+                elapsed_s = round(time.perf_counter() - start, 3)
                 fresh.stats_json = {
-                    "table_count": len(tables) if tables else 0,
+                    "table_count": table_count,
                     "synced_domains": synced_domains,
-                    "elapsed_s": round(time.perf_counter() - start, 3),
+                    "elapsed_s": elapsed_s,
                 }
                 # Ensure progress_done == progress_total so the UI settles at 100%.
                 if fresh.progress_total and fresh.progress_done < fresh.progress_total:
                     fresh.progress_done = fresh.progress_total
                 await db.commit()
+
+                await _append_event(
+                    "info", pending_state["phase"],
+                    f"Completed: {table_count} table(s) in {elapsed_s}s",
+                    done=table_count, total=table_count,
+                )
 
         except Exception as exc:  # pragma: no cover — last-ditch guard
             logger.exception("indexing.run.crash", extra={"indexing_id": indexing_id})

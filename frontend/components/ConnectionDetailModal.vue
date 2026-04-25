@@ -43,6 +43,28 @@
           <span class="text-xs text-gray-500">{{ $t('data.lastChecked') }}</span>
           <span class="text-xs text-gray-700">{{ lastCheckedDisplay || $t('data.never') }}</span>
         </div>
+
+        <!-- Last Indexed (terminal state) -->
+        <div v-if="indexingState && !isIndexingActive(indexingState) && indexingState.finished_at" class="flex items-center justify-between">
+          <span class="text-xs text-gray-500">Last indexed</span>
+          <span class="text-xs text-gray-700">
+            {{ lastIndexedDisplay }}
+            <span v-if="indexingState.stats?.elapsed_s != null" class="text-gray-400">
+              · {{ indexingState.stats.elapsed_s }}s
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Indexing block — live progress / completion / failure + logs toggle -->
+      <div v-if="indexingState" class="py-3 border-t border-gray-100">
+        <ConnectionIndexingProgress :indexing="indexingState" :show-logs="true" />
+        <div v-if="indexingState.status === 'failed' && canUpdateDataSource" class="mt-2">
+          <UButton size="xs" color="amber" variant="soft" :loading="reindexing" @click="reindex">
+            <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5 me-1" />
+            Retry
+          </UButton>
+        </div>
       </div>
 
       <!-- Actions -->
@@ -181,7 +203,9 @@
 import Spinner from '~/components/Spinner.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import { useCan } from '~/composables/usePermissions'
+import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 
 const props = defineProps<{
   modelValue: boolean
@@ -208,6 +232,10 @@ const connectionDetails = ref<any>(null)
 const showCredentialsModal = ref(false)
 const confirmingDelete = ref(false)
 const deleting = ref(false)
+const indexingState = ref<ConnectionIndexing | null>(null)
+const reindexing = ref(false)
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const POLL_INTERVAL_MS = 2000
 
 // Permission and auth checks
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
@@ -244,6 +272,62 @@ const lastCheckedDisplay = computed(() => {
   if (seconds < 86400) return t('data.hoursAgo', { n: Math.floor(seconds / 3600) })
   return t('data.daysAgo', { n: Math.floor(seconds / 86400) })
 })
+
+const lastIndexedDisplay = computed(() => {
+  const ts = indexingState.value?.finished_at
+  if (!ts) return ''
+  const seconds = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
+  if (seconds < 60) return t('data.justNow')
+  if (seconds < 3600) return t('data.minutesAgo', { n: Math.floor(seconds / 60) })
+  if (seconds < 86400) return t('data.hoursAgo', { n: Math.floor(seconds / 3600) })
+  return t('data.daysAgo', { n: Math.floor(seconds / 86400) })
+})
+
+async function fetchIndexing() {
+  if (!props.connection?.id) return
+  try {
+    const { data } = await useMyFetch(`/connections/${props.connection.id}/indexing`, { method: 'GET' })
+    if ((data as any).value) {
+      indexingState.value = (data as any).value as ConnectionIndexing
+    }
+  } catch {
+    // 404 = no indexing run ever; transient errors handled silently.
+  }
+}
+
+function startPollingIfActive() {
+  stopPolling()
+  if (!isIndexingActive(indexingState.value)) return
+  pollTimer = setInterval(() => {
+    if (!isOpen.value || !isIndexingActive(indexingState.value)) {
+      stopPolling()
+      return
+    }
+    fetchIndexing()
+  }, POLL_INTERVAL_MS)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function reindex() {
+  if (!props.connection?.id || reindexing.value) return
+  reindexing.value = true
+  try {
+    const { data } = await useMyFetch(`/connections/${props.connection.id}/reindex`, { method: 'POST' })
+    const result = (data as any).value
+    if (result?.indexing) {
+      indexingState.value = result.indexing as ConnectionIndexing
+    }
+    startPollingIfActive()
+  } finally {
+    reindexing.value = false
+  }
+}
 
 const editFormValues = computed(() => {
   if (!connectionDetails.value) return null
@@ -336,7 +420,22 @@ watch(isOpen, (val) => {
   if (!val) {
     testResult.value = null
     confirmingDelete.value = false
+    stopPolling()
+    return
   }
+  // Modal opened — seed indexing state from props, fetch fresh, then poll
+  // if active.
+  indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
+  fetchIndexing().then(() => startPollingIfActive())
 })
+
+// If the parent swaps the connection prop while the modal is open, refresh.
+watch(() => props.connection?.id, () => {
+  if (!isOpen.value) return
+  indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
+  fetchIndexing().then(() => startPollingIfActive())
+})
+
+onBeforeUnmount(() => stopPolling())
 </script>
 

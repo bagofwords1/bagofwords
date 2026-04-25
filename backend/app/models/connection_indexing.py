@@ -55,6 +55,7 @@ class ConnectionIndexing(BaseSchema):
 
     error = Column(Text, nullable=True)
     stats_json = Column(JSON, nullable=True)
+    events_json = Column(JSON, nullable=True)  # List[{ts, level, phase, message, done, total}]
 
     connection = relationship("Connection", back_populates="indexings")
 

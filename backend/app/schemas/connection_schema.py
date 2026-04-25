@@ -41,6 +41,7 @@ class ConnectionSchema(BaseModel):
     table_count: int = 0
     domain_count: int = 0
     domain_names: List[str] = []  # Names of linked domains (for delete confirmation)
+    indexing: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -108,6 +109,7 @@ class ConnectionIndexingProgress(BaseModel):
     finished_at: Optional[str] = None
     error: Optional[str] = None
     stats: Optional[Dict[str, Any]] = None
+    events: Optional[List[Dict[str, Any]]] = None
 
     class Config:
         from_attributes = True

@@ -81,36 +81,14 @@
                             </div>
                         </div>
 
-                        <!-- Indexing progress bar (when a background job is running) -->
-                        <div v-if="isConnIndexing(conn)" class="mt-3 ms-11">
-                            <div class="flex items-center justify-between text-xs text-blue-700 mb-1">
-                                <span class="font-medium">{{ connIndexingSummary(conn) }}</span>
-                                <span v-if="(conn.indexing?.progress_total || 0) > 0">{{ indexingProgressPercent(conn) }}%</span>
+                        <!-- Indexing progress / completion / failure (shared component, with logs toggle) -->
+                        <div v-if="conn.indexing" class="mt-3 ms-11">
+                            <ConnectionIndexingProgress :indexing="conn.indexing" :show-logs="true" />
+                            <div v-if="conn.indexing.status === 'failed' && canManageConnections" class="mt-2">
+                                <UButton size="xs" color="amber" variant="soft" @click="reindexConnection(conn.id)">
+                                    Retry
+                                </UButton>
                             </div>
-                            <div class="h-1.5 w-full bg-blue-100 rounded overflow-hidden">
-                                <div
-                                    class="h-full bg-blue-500 transition-all duration-300"
-                                    :class="{ 'animate-pulse w-1/3': (conn.indexing?.progress_total || 0) === 0 }"
-                                    :style="(conn.indexing?.progress_total || 0) > 0 ? { width: indexingProgressPercent(conn) + '%' } : {}"
-                                ></div>
-                            </div>
-                        </div>
-
-                        <!-- Indexing failed -->
-                        <div v-else-if="conn.indexing?.status === 'failed'" class="mt-3 ms-11 text-xs flex items-center gap-2">
-                            <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600" />
-                            <span class="text-amber-700">
-                                Indexing failed: {{ conn.indexing.error || 'Unknown error' }}
-                            </span>
-                            <UButton
-                                v-if="canManageConnections"
-                                size="xs"
-                                color="amber"
-                                variant="soft"
-                                @click="reindexConnection(conn.id)"
-                            >
-                                Retry
-                            </UButton>
                         </div>
 
                         <!-- Test result (inline) -->
@@ -287,6 +265,7 @@ definePageMeta({ auth: true, layout: 'data' })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import Spinner from '~/components/Spinner.vue'
+import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useOrganization } from '~/composables/useOrganization'
 import type { Ref } from 'vue'

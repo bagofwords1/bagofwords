@@ -134,6 +134,7 @@ class DataSourceService:
                         "finished_at": indexing_row.finished_at.isoformat() if indexing_row.finished_at else None,
                         "error": indexing_row.error,
                         "stats": indexing_row.stats_json,
+                        "events": indexing_row.events_json or [],
                     }
             except Exception:
                 indexing_payload = None
