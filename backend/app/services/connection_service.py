@@ -124,12 +124,18 @@ class ConnectionService:
                 detail=f"A connection named '{name}' already exists in this organization."
             )
 
-        # Discover and save tables/tools for system_only connections
+        # Discover and save tables/tools for system_only connections.
+        # Schema discovery is pushed to a background indexing job so POST
+        # returns in ~ms even for slow sources (QVD/PBIRS/large warehouses).
+        # Tool providers (MCP/custom_api) stay synchronous — they're fast.
         if auth_policy == "system_only":
             if type in self._TOOL_PROVIDER_TYPES:
                 await self.refresh_tools(db=db, connection=connection)
             else:
-                await self.refresh_schema(db=db, connection=connection)
+                from app.services.connection_indexing_service import (
+                    ConnectionIndexingService,
+                )
+                await ConnectionIndexingService().start(db=db, connection=connection)
 
         # Audit log
         try:
@@ -261,12 +267,16 @@ class ConnectionService:
         try:
             await db.commit()
 
-            # Refresh tables/tools if connection changed
+            # Refresh tables/tools if connection changed.
+            # Schema refresh is backgrounded; tool refresh stays synchronous.
             if connection_changed and connection.auth_policy == "system_only":
                 if connection.type in self._TOOL_PROVIDER_TYPES:
                     await self.refresh_tools(db=db, connection=connection)
                 else:
-                    await self.refresh_schema(db=db, connection=connection)
+                    from app.services.connection_indexing_service import (
+                        ConnectionIndexingService,
+                    )
+                    await ConnectionIndexingService().start(db=db, connection=connection)
 
             # Audit log
             try:
@@ -426,9 +436,16 @@ class ConnectionService:
         config_overrides: dict = None,
         credential_overrides: dict = None,
     ) -> dict:
-        """Test an existing connection, optionally with override config/credentials."""
+        """Test an existing connection, optionally with override config/credentials.
+
+        The response is always augmented with a `timings.total_ms` field and a
+        non-None `details` dict (may be empty). Clients that fill in richer
+        timings/details have them preserved.
+        """
+        import time as _time
         connection = await self.get_connection(db, connection_id, organization)
 
+        t0 = _time.perf_counter()
         try:
             client = await self.construct_client(
                 db, connection, current_user,
@@ -451,6 +468,12 @@ class ConnectionService:
                     connection.is_active = True
 
             await db.commit()
+            if isinstance(connection_status, dict):
+                timings = dict(connection_status.get("timings") or {})
+                timings.setdefault("total_ms", round((_time.perf_counter() - t0) * 1000, 1))
+                connection_status["timings"] = timings
+                if connection_status.get("details") is None:
+                    connection_status["details"] = {}
             return connection_status
 
         except Exception as e:
@@ -463,7 +486,9 @@ class ConnectionService:
             await db.commit()
             return {
                 "success": False,
-                "message": str(e)
+                "message": str(e),
+                "timings": {"total_ms": round((_time.perf_counter() - t0) * 1000, 1)},
+                "details": {},
             }
 
     async def test_user_connection(
@@ -505,13 +530,21 @@ class ConnectionService:
         db: AsyncSession,
         connection: Connection,
         current_user: User = None,
+        progress_callback=None,
     ) -> List[ConnectionTable]:
-        """Refresh schema and update ConnectionTable records."""
+        """Refresh schema and update ConnectionTable records.
+
+        `progress_callback`, if supplied, is forwarded to the client's
+        `aget_schemas` and invoked from inside its existing iteration loops.
+        """
         try:
             logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
             client = await self.construct_client(db, connection, current_user)
             logger.info(f"refresh_schema: Client constructed successfully, calling get_schemas()...")
-            fresh_tables = await client.aget_schemas()
+            if progress_callback is not None:
+                fresh_tables = await client.aget_schemas(progress_callback=progress_callback)
+            else:
+                fresh_tables = await client.aget_schemas()
 
             logger.info(f"refresh_schema: Got {len(fresh_tables) if fresh_tables else 0} tables from database")
             if fresh_tables and len(fresh_tables) > 0:

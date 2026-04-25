@@ -69,7 +69,40 @@ class DataSourceService:
             return []
 
         from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+        from app.models.connection_indexing import ConnectionIndexing
         from app.models.connection_table import ConnectionTable
+
+        # One query for all connections' latest indexings — avoids N+1 on
+        # GET /data_sources/{id} which is polled every ~2s while indexing runs.
+        # Postgres has DISTINCT ON; we use a portable correlated subquery with
+        # MAX(created_at) so SQLite + Postgres + others all behave the same.
+        connection_ids = [str(c.id) for c in data_source.connections]
+        indexing_by_conn: dict[str, ConnectionIndexing] = {}
+        if connection_ids:
+            try:
+                latest_subq = (
+                    select(
+                        ConnectionIndexing.connection_id,
+                        func.max(ConnectionIndexing.created_at).label("max_created"),
+                    )
+                    .where(ConnectionIndexing.connection_id.in_(connection_ids))
+                    .group_by(ConnectionIndexing.connection_id)
+                    .subquery()
+                )
+                rows = await db.execute(
+                    select(ConnectionIndexing).join(
+                        latest_subq,
+                        (ConnectionIndexing.connection_id == latest_subq.c.connection_id)
+                        & (ConnectionIndexing.created_at == latest_subq.c.max_created),
+                    )
+                )
+                for idx in rows.scalars().all():
+                    indexing_by_conn[str(idx.connection_id)] = idx
+            except Exception:
+                logger.exception(
+                    "indexing.bulk_lookup_failed",
+                    extra={"data_source_id": str(data_source.id)},
+                )
 
         connections_list = []
 
@@ -116,6 +149,24 @@ class DataSourceService:
                 )
                 table_count = legacy_count_result.scalar() or 0
 
+            # Inline latest indexing row (for UI polling / status badge).
+            indexing_row = indexing_by_conn.get(str(conn.id))
+            indexing_payload = None
+            if indexing_row is not None:
+                indexing_payload = {
+                    "id": str(indexing_row.id),
+                    "status": indexing_row.status,
+                    "phase": indexing_row.phase,
+                    "current_item": indexing_row.current_item,
+                    "progress_done": indexing_row.progress_done or 0,
+                    "progress_total": indexing_row.progress_total or 0,
+                    "started_at": indexing_row.started_at.isoformat() if indexing_row.started_at else None,
+                    "finished_at": indexing_row.finished_at.isoformat() if indexing_row.finished_at else None,
+                    "error": indexing_row.error,
+                    "stats": indexing_row.stats_json,
+                    "events": indexing_row.events_json or [],
+                }
+
             connections_list.append(ConnectionEmbedded(
                 id=str(conn.id),
                 name=conn.name,
@@ -127,6 +178,7 @@ class DataSourceService:
                 last_synced_at=conn.last_synced_at,
                 user_status=user_status,
                 table_count=table_count,
+                indexing=indexing_payload,
             ))
 
         return connections_list
@@ -239,9 +291,15 @@ class DataSourceService:
                 conn_table_count = conn_tables_result.scalar() or 0
 
                 if conn_table_count == 0 and conn.auth_policy == "system_only":
-                    # Refresh schema to populate ConnectionTable from the database
-                    connection_service = ConnectionService()
-                    await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
+                    # Kick off background indexing — the runner populates
+                    # ConnectionTable and then syncs DataSourceTable for every
+                    # linked data source. The create call returns without
+                    # waiting. The domain starts with zero tables; the UI
+                    # polls the indexing status and updates when ready.
+                    from app.services.connection_indexing_service import (
+                        ConnectionIndexingService,
+                    )
+                    await ConnectionIndexingService().start(db=db, connection=conn)
 
             # Use first connection's auth_policy for downstream logic
             auth_policy = connections_to_link[0].auth_policy
@@ -405,16 +463,18 @@ class DataSourceService:
                         max_auto_select=self.ONBOARDING_MAX_TABLES
                     )
             else:
-                # Mode 1: New connection - populate ConnectionTable first, then DataSourceTable
-                from app.services.connection_service import ConnectionService
-                connection_service = ConnectionService()
-                logger.info(f"create_data_source: Mode 1 - populating ConnectionTable for new connection {new_connection.id}")
-                await connection_service.refresh_schema(db=db, connection=new_connection, current_user=current_user)
-                logger.info(f"create_data_source: Mode 1 - syncing from ConnectionTable to DataSourceTable")
-                await self.sync_domain_tables_from_connection(
-                    db, new_data_source, new_connection,
-                    max_auto_select=self.ONBOARDING_MAX_TABLES
+                # Mode 1: New connection - schema discovery runs in the
+                # background. The indexing runner populates ConnectionTable
+                # and then syncs DataSourceTable for this data source
+                # (and any others linked to the connection).
+                from app.services.connection_indexing_service import (
+                    ConnectionIndexingService,
                 )
+                logger.info(
+                    f"create_data_source: Mode 1 - kicking off background indexing "
+                    f"for new connection {new_connection.id}"
+                )
+                await ConnectionIndexingService().start(db=db, connection=new_connection)
             await db.commit()
             await db.refresh(new_data_source)
 
@@ -2574,16 +2634,29 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # First, refresh ConnectionTable from the database (for all linked connections)
+        # First, refresh ConnectionTable from the database (for all linked connections).
+        # If a background indexing job is currently in flight for any connection,
+        # await it first — both to avoid duplicate work and to ensure deterministic
+        # state for the synchronous sync that follows.
         if data_source.connections:
             from app.services.connection_service import ConnectionService
+            from app.services.connection_indexing_service import ConnectionIndexingService
             connection_service = ConnectionService()
+            indexing_service = ConnectionIndexingService()
             logger.info(f"refresh_data_source_schema: Found {len(data_source.connections)} connections for data_source {data_source_id}")
             has_system_only_conn = False
             for conn in data_source.connections:
                 logger.info(f"refresh_data_source_schema: Connection {conn.id} has auth_policy={conn.auth_policy}")
                 if conn.auth_policy == "system_only":
                     has_system_only_conn = True
+                    # Wait for any active indexing run before refreshing synchronously.
+                    try:
+                        await indexing_service.wait_for_active(db, str(conn.id))
+                    except TimeoutError as exc:
+                        raise HTTPException(
+                            status_code=504,
+                            detail=str(exc),
+                        ) from exc
                     logger.info(f"refresh_data_source_schema: Calling refresh_schema for connection {conn.id}")
                     await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
                     logger.info(f"refresh_data_source_schema: refresh_schema completed for connection {conn.id}")

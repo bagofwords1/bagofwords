@@ -1,7 +1,7 @@
 """add composite index on datasource_tables(datasource_id, is_active)
 
 Revision ID: f1a2b3c4d5e7
-Revises: b4c5d6e7f8a9
+Revises: c5d6e7f8a9b0
 Create Date: 2026-04-24 00:00:00.000000
 
 Customers with thousands of datasource_tables per data source (mostly inactive)
@@ -16,7 +16,7 @@ from alembic import op
 
 
 revision: str = 'f1a2b3c4d5e7'
-down_revision: Union[str, None] = 'b4c5d6e7f8a9'
+down_revision: Union[str, None] = 'c5d6e7f8a9b0'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

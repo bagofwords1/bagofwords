@@ -113,6 +113,62 @@
         />
       </div>
 
+      <!-- Step 3: Indexing progress -->
+      <div v-else-if="step === 'indexing'">
+        <div class="flex items-center gap-2 mb-4">
+          <DataSourceIcon :type="selectedDataSource?.type" class="h-5" />
+          <h3 class="text-lg font-semibold">{{ createdConnection?.name || selectedDataSource?.title }}</h3>
+          <span
+            v-if="indexingState?.status === 'completed'"
+            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-green-50 text-green-700 border-green-200"
+          >
+            <UIcon name="heroicons-check-circle" class="w-3.5 h-3.5" />
+            Connected
+          </span>
+          <span
+            v-else-if="indexingState?.status === 'failed'"
+            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-red-50 text-red-700 border-red-200"
+          >
+            <UIcon name="heroicons-exclamation-triangle" class="w-3.5 h-3.5" />
+            Failed
+          </span>
+          <span
+            v-else
+            class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200"
+          >
+            <Spinner class="w-3 h-3" />
+            Indexing
+          </span>
+        </div>
+
+        <div class="border border-gray-100 rounded-lg p-4 bg-gray-50">
+          <div class="text-xs uppercase tracking-wide text-gray-400 mb-2">Schema discovery</div>
+          <ConnectionIndexingProgress :indexing="indexingState" :show-logs="true" />
+        </div>
+
+        <div class="flex items-center justify-end gap-2 mt-4">
+          <UButton
+            v-if="indexingState?.status === 'failed'"
+            color="amber"
+            variant="soft"
+            size="sm"
+            :loading="retrying"
+            @click="retryIndexing"
+          >
+            <UIcon name="heroicons-arrow-path" class="w-4 h-4 me-1" />
+            Retry
+          </UButton>
+          <UButton
+            color="blue"
+            size="sm"
+            :disabled="!isIndexingTerminal"
+            @click="finishConnect"
+          >
+            Connect
+          </UButton>
+        </div>
+      </div>
+
     </div>
   </UModal>
 </template>
@@ -120,7 +176,9 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
+import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
+import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 
 const props = defineProps<{
   modelValue: boolean
@@ -142,13 +200,22 @@ const { t } = useI18n()
 const toast = useToast()
 
 // State
-const step = ref<'select' | 'form'>('select')
+const step = ref<'select' | 'form' | 'indexing'>('select')
 const searchQuery = ref('')
 const dataSources = ref<any[]>([])
 const demos = ref<any[]>([])
 const loadingDataSources = ref(true)
 const selectedDataSource = ref<any>(null)
 const installingDemo = ref<string | null>(null)
+const createdConnection = ref<any | null>(null)
+const indexingState = ref<ConnectionIndexing | null>(null)
+const retrying = ref(false)
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const POLL_INTERVAL_MS = 2000
+
+const isIndexingTerminal = computed(() =>
+    !!indexingState.value && !isIndexingActive(indexingState.value)
+)
 
 // Computed
 const uninstalledDemos = computed(() => (demos.value || []).filter((demo: any) => !demo.installed))
@@ -218,15 +285,83 @@ function backToSelect() {
 }
 
 function handleConnectionSuccess(connection: any) {
-  emit('created', connection)
+  // Stash the created connection and switch to the indexing step. We do NOT
+  // close the modal — the user watches indexing run, then clicks Connect.
+  createdConnection.value = connection
+  // Some create endpoints inline a starter `indexing` payload; otherwise
+  // we fetch on first poll.
+  indexingState.value = (connection?.indexing as ConnectionIndexing) || null
+  step.value = 'indexing'
+  startPolling()
+}
 
-  toast.add({
-    title: t('data.connectionCreated'),
-    description: t('data.connectionCreatedDesc', { name: connection?.name || t('data.connectionFallback') }),
-    icon: 'i-heroicons-check-circle',
-    color: 'green'
+async function fetchIndexing() {
+  const id = createdConnection.value?.id
+  if (!id) return
+  try {
+    const { data } = await useMyFetch(`/connections/${id}/indexing`, { method: 'GET' })
+    if ((data as any).value) {
+      indexingState.value = (data as any).value as ConnectionIndexing
+    }
+  } catch {
+    // Transient — keep polling
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  // Initial fetch — if the create response didn't include indexing.
+  fetchIndexing().then(() => {
+    if (isIndexingActive(indexingState.value)) {
+      pollTimer = setInterval(() => {
+        if (!isIndexingActive(indexingState.value)) {
+          stopPolling()
+          return
+        }
+        fetchIndexing()
+      }, POLL_INTERVAL_MS)
+    }
   })
+}
 
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function retryIndexing() {
+  const id = createdConnection.value?.id
+  if (!id || retrying.value) return
+  retrying.value = true
+  try {
+    const { data } = await useMyFetch(`/connections/${id}/reindex`, { method: 'POST' })
+    const result = (data as any).value
+    if (result?.indexing) {
+      indexingState.value = result.indexing as ConnectionIndexing
+    }
+    startPolling()
+  } finally {
+    retrying.value = false
+  }
+}
+
+function finishConnect() {
+  // The Connect button is enabled only at terminal state. Emit `created`
+  // here (not on initial success) so the parent only refreshes once
+  // schema is in place.
+  if (createdConnection.value) {
+    emit('created', createdConnection.value)
+    if (indexingState.value?.status === 'completed') {
+      toast.add({
+        title: t('data.connectionCreated'),
+        description: t('data.connectionCreatedDesc', { name: createdConnection.value?.name || t('data.connectionFallback') }),
+        icon: 'i-heroicons-check-circle',
+        color: 'green',
+      })
+    }
+  }
   isOpen.value = false
 }
 
@@ -234,7 +369,14 @@ function reset() {
   step.value = 'select'
   searchQuery.value = ''
   selectedDataSource.value = null
+  createdConnection.value = null
+  indexingState.value = null
+  retrying.value = false
+  stopPolling()
 }
+
+onBeforeUnmount(() => stopPolling())
+watch(isOpen, (val) => { if (!val) stopPolling() })
 
 // Reset state when modal opens
 watch(isOpen, async (val) => {

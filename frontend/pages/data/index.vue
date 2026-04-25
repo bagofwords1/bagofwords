@@ -404,7 +404,44 @@ async function refreshData() {
         getConnections(),
         getDemoDataSources(),
     ])
+    maybeStartPolling()
 }
+
+// Poll while any connection (standalone or under a data source) is currently
+// indexing. The `/data_sources` and `/connections` endpoints both inline the
+// latest `indexing` row, so a single re-fetch updates badges everywhere.
+const POLL_INTERVAL_MS = 2000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function anyIndexingActive(): boolean {
+    const isActive = (idx: any) =>
+        idx && (idx.status === 'pending' || idx.status === 'running')
+    if ((connections.value || []).some((c: any) => isActive(c?.indexing))) return true
+    for (const ds of (connected_ds.value || [])) {
+        if ((ds.connections || []).some((c: any) => isActive(c?.indexing))) return true
+    }
+    return false
+}
+
+function maybeStartPolling() {
+    if (anyIndexingActive() && !pollTimer) {
+        pollTimer = setInterval(async () => {
+            await Promise.all([getConnectedDataSources(), getConnections()])
+            if (!anyIndexingActive()) stopPolling()
+        }, POLL_INTERVAL_MS)
+    } else if (!anyIndexingActive()) {
+        stopPolling()
+    }
+}
+
+function stopPolling() {
+    if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = null
+    }
+}
+
+onBeforeUnmount(() => stopPolling())
 
 const canCreateDataSource = computed(() => useCan('create_data_source'))
 

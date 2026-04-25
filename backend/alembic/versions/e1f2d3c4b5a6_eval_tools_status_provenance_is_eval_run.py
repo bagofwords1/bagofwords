@@ -1,7 +1,7 @@
 """eval-as-tools: status + provenance on test_cases, is_eval_run on agent_executions
 
-Revision ID: c5d6e7f8a9b0
-Revises: b4c5d6e7f8a9
+Revision ID: e1f2d3c4b5a6
+Revises: d6e7f8a9b0c1
 Create Date: 2026-04-25 00:00:00.000000
 
 Backs the eval-as-tools feature:
@@ -27,8 +27,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = 'c5d6e7f8a9b0'
-down_revision: Union[str, None] = 'b4c5d6e7f8a9'
+revision: str = 'e1f2d3c4b5a6'
+down_revision: Union[str, None] = 'd6e7f8a9b0c1'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
