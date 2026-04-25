@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.363 (April 25, 2026)
+## Version 0.0.364 (April 25, 2026)
 - feat: evals tools for training mode
 - loading mode to when adding new connectins with a large amount of objects
 - auto draft new evals when (admin) user thumbs up
