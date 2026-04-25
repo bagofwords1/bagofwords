@@ -5,6 +5,7 @@
 - loading mode to when adding new connectins with a large amount of objects
 - auto draft new evals when (admin) user thumbs up
 - fix bug when submitting a new prompt when completion ends but in agent knowledge harness mode 
+- added native support to GPT-5.5
 
 
 ## Version 0.0.363 (April 22, 2026)

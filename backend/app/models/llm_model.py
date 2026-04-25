@@ -4,12 +4,24 @@ from app.models.base import BaseSchema
 
 LLM_MODEL_DETAILS = [
     {
+        "name": "GPT-5.5",
+        "model_id": "gpt-5.5",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 30.00
+    },
+    {
         "name": "GPT-5.4",
         "model_id": "gpt-5.4",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 400000,
         "input_cost_per_million_tokens_usd": 2.50,
