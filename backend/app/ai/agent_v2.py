@@ -115,6 +115,7 @@ class AgentV2:
 
         # Streaming text state per block_id
         self._block_text_cache: dict[str, dict[str, str]] = {}
+        self._last_planner_prompt_tokens: int | None = None
 
         # Initialize ContextHub for centralized context management
         self.context_hub = ContextHub(
@@ -1561,6 +1562,7 @@ class AgentV2:
                     
                     elif evt.type == "planner.decision.final":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
+                        self._record_planner_token_metadata_from_decision(decision, view=view)
                         # Track whether analysis is complete
                         analysis_done = bool(getattr(decision, "analysis_complete", False))
                         
@@ -2525,20 +2527,47 @@ class AgentV2:
 
         return self.planner.prompt_builder.build_prompt(planner_input)
 
-    async def _update_context_token_metadata(self, view=None):
+    def _publish_context_metadata_to_view(self, view=None):
         try:
-            prompt_text = await self._build_planner_prompt_text(view=view)
-            prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
+            if view is not None and isinstance(getattr(view, "meta", None), dict):
+                view.meta.update(self.context_hub.metadata.model_dump())
+        except Exception:
+            pass
+
+    def _record_planner_token_metadata_from_decision(self, decision, view=None):
+        """Record prompt token metadata from the actual planner call.
+
+        This keeps live execution metadata useful without rebuilding the full
+        planner prompt just to count it.
+        """
+        try:
+            metrics = getattr(decision, "metrics", None)
+            token_usage = getattr(metrics, "token_usage", None) if metrics else None
+            prompt_tokens = getattr(token_usage, "prompt_tokens", None) if token_usage else None
+            if prompt_tokens is None:
+                return
+            prompt_tokens = int(prompt_tokens or 0)
+            self._last_planner_prompt_tokens = prompt_tokens
             metadata = self.context_hub.metadata
             section_sizes = dict(metadata.section_sizes or {})
             section_sizes["_planner_prompt_total"] = prompt_tokens
             metadata.section_sizes = section_sizes
             metadata.total_tokens = prompt_tokens
-            if view is not None and isinstance(getattr(view, "meta", None), dict):
-                try:
-                    view.meta.update(metadata.model_dump())
-                except Exception:
-                    pass
+            self._publish_context_metadata_to_view(view)
+        except Exception:
+            pass
+
+    async def _update_context_token_metadata(self, view=None):
+        try:
+            metadata = self.context_hub.metadata
+            section_sizes = dict(metadata.section_sizes or {})
+            if self._last_planner_prompt_tokens is not None:
+                section_sizes["_planner_prompt_total"] = self._last_planner_prompt_tokens
+                metadata.section_sizes = section_sizes
+                metadata.total_tokens = self._last_planner_prompt_tokens
+            elif not metadata.total_tokens and metadata.section_sizes:
+                metadata.total_tokens = sum(int(v or 0) for v in metadata.section_sizes.values())
+            self._publish_context_metadata_to_view(view)
         except Exception:
             pass
 

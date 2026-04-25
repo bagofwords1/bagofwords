@@ -9,7 +9,7 @@ from .clients.anthropic_client import Anthropic
 from .clients.azure_client import AzureClient
 from .clients.bedrock_client import BedrockClient
 from .types import LLMResponse, LLMUsage, ImageInput
-from app.ai.utils.token_counter import count_tokens
+from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.models.llm_model import LLMModel
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.settings.logging_config import get_logger
@@ -169,6 +169,7 @@ class LLM:
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
+        prompt_tokens_estimate: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
         with tracer.start_as_current_span("llm.inference_stream") as span:
             span.set_attribute("llm.model_id", self.model_id)
@@ -177,7 +178,7 @@ class LLM:
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             started_payload = False
             prefix = ""
-            prompt_tokens = self._count_tokens(prompt)
+            prompt_tokens = prompt_tokens_estimate if prompt_tokens_estimate is not None else self._estimate_tokens_fast(prompt)
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens)
             completion_tokens = 0
             streamed_chunks: list[str] = []
@@ -215,7 +216,7 @@ class LLM:
                                     span.set_attribute("llm.ttft_ms", ttft_ms)
                                     span.add_event("ttft", {"ttft_ms": ttft_ms})
                                     ttft_recorded = True
-                                completion_tokens += self._count_tokens(emission)
+                                completion_tokens += self._estimate_tokens_fast(emission)
                                 streamed_chunks.append(emission)
                                 yield emission
                             else:
@@ -229,13 +230,13 @@ class LLM:
                                 span.set_attribute("llm.ttft_ms", ttft_ms)
                                 span.add_event("ttft", {"ttft_ms": ttft_ms})
                                 ttft_recorded = True
-                            completion_tokens += self._count_tokens(emission)
+                            completion_tokens += self._estimate_tokens_fast(emission)
                             streamed_chunks.append(emission)
                             yield emission
                     else:
                         if "```" in chunk:
                             chunk = chunk.replace("```", "")
-                        completion_tokens += self._count_tokens(chunk)
+                        completion_tokens += self._estimate_tokens_fast(chunk)
                         streamed_chunks.append(chunk)
                         yield chunk
             except Exception as e:
@@ -249,7 +250,7 @@ class LLM:
                 prompt_tokens = usage.prompt_tokens or prompt_tokens
                 completion_tokens = usage.completion_tokens or completion_tokens
             else:
-                completion_tokens = self._count_tokens("".join(streamed_chunks)) or completion_tokens
+                completion_tokens = self._estimate_tokens_fast("".join(streamed_chunks)) or completion_tokens
 
             span.set_attribute("llm.prompt_tokens", prompt_tokens)
             span.set_attribute("llm.completion_tokens", completion_tokens)
@@ -332,6 +333,12 @@ class LLM:
             return 0
         try:
             return count_tokens(text, getattr(self.model, "model_id", None))
+        except Exception:
+            return 0
+
+    def _estimate_tokens_fast(self, text: str) -> int:
+        try:
+            return estimate_tokens_fast(text)
         except Exception:
             return 0
 

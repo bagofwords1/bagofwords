@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.365 (April 26, 2026)
+- Performance improvements
+- Change to a faster token counter approach
+
 ## Version 0.0.364 (April 25, 2026)
 - feat: evals tools for training mode
 - loading mode to when adding new connectins with a large amount of objects

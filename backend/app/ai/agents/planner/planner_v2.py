@@ -13,11 +13,28 @@ from app.schemas.ai.planner import (
     PlannerError,
 )
 from app.schemas.ai.planner_events import PlannerEvent, PlannerTokenEvent, PlannerDecisionEvent
-from app.ai.utils.token_counter import count_tokens
+from app.ai.utils.token_counter import estimate_tokens_fast
 from .planner_state import PlannerState
 from .prompt_builder import PromptBuilder
 from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def _coerce_decision_raw(raw) -> dict:
+    """Normalize partialjson output into the planner's object envelope."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                return item
+    return {
+        "__planner_parse_error": (
+            "Planner output must be a JSON object, "
+            f"got {type(raw).__name__}"
+        ),
+        "__planner_raw_type": type(raw).__name__,
+    }
 
 
 class PlannerV2:
@@ -52,8 +69,8 @@ class PlannerV2:
         )
         # Build prompt using dedicated builder
         prompt = self.prompt_builder.build_prompt(planner_input)
-        # Calculate prompt tokens
-        prompt_tokens = count_tokens(prompt, getattr(self.llm, "model_name", None))
+        # Estimate prompt tokens without invoking the tokenizer on the hot path.
+        prompt_tokens = estimate_tokens_fast(prompt)
         completion_tokens = 0
         # Stream LLM tokens and build decision snapshots
         async for chunk in self.llm.inference_stream(
@@ -61,6 +78,7 @@ class PlannerV2:
             images=planner_input.images,
             usage_scope="planner",
             usage_scope_ref_id=None,
+            prompt_tokens_estimate=prompt_tokens,
         ):
             if sigkill_event.is_set():
                 break
@@ -76,11 +94,11 @@ class PlannerV2:
             # Track first token timing
             if state.first_token_time is None:
                 state.first_token_time = time.monotonic()
-            completion_tokens += count_tokens(chunk, getattr(self.llm, "model_name", None))
+            completion_tokens += estimate_tokens_fast(chunk)
 
             # Try parsing partial decision (be resilient to JSON decode errors)
             try:
-                raw_decision = self.parser.parse(state.buffer)
+                raw_decision = _coerce_decision_raw(self.parser.parse(state.buffer))
             except Exception:
                 raw_decision = None
             if raw_decision:
@@ -108,7 +126,7 @@ class PlannerV2:
 
         # Finalize decision with complete metrics
         try:
-            final_raw = self.parser.parse(state.buffer) or {}
+            final_raw = _coerce_decision_raw(self.parser.parse(state.buffer))
         except Exception:
             final_raw = {}
         final_decision = self._create_decision(
@@ -164,6 +182,7 @@ class PlannerV2:
         # Note: Don't gate final_answer on analysis_complete during streaming - the partial JSON
         # parser may return final_answer before analysis_complete is fully parsed, and we want
         # to stream the final_answer content as it comes in.
+        parse_error = raw.get("__planner_parse_error")
         decision_data = {
             "analysis_complete": bool(raw.get("analysis_complete", False)),
             "plan_type": raw.get("plan_type"),  # Extract plan_type from LLM response
@@ -174,6 +193,12 @@ class PlannerV2:
             "streaming_complete": is_final,
             "metrics": metrics,
         }
+        if parse_error:
+            decision_data["error"] = PlannerError(
+                code="validation_error" if is_final else "partial_validation",
+                message=parse_error,
+                details={"raw_type": raw.get("__planner_raw_type")},
+            )
         
         # Validate with Pydantic, handling errors gracefully
         try:
