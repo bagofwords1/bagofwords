@@ -42,8 +42,22 @@ class CreateEvalInput(BaseModel):
         ...,
         description=(
             "Assertions for the case. Use ``tool.calls`` rules for set-membership "
-            "of expected tool calls and ``judge`` rules for LLM-as-judge rubrics. "
-            "Avoid ``field`` rules against raw SQL/data — those are brittle."
+            "of expected tool calls. Use ``judge`` rules for an LLM-as-judge rubric "
+            "— the rubric MUST be grounded in this specific successful run and name: "
+            "(1) the entity / output shape (e.g. 'a list of opportunities, one row "
+            "per opp; not a count'), (2) the filters/joins that defined correctness "
+            "(e.g. 'opps owned by the requesting user; joined to accounts via "
+            "account_id; open stages only — exclude Closed-Won and Closed-Lost'), "
+            "(3) any definitions the user implicitly approved (e.g. \"'my opps' = "
+            "owner_id = current_user\"), and (4) 1–2 negative criteria — plausible "
+            "but wrong variants to reject (e.g. 'reject if it returns a count "
+            "instead of a list', 'reject if it includes closed deals'). "
+            "Tautologies like 'reject if irrelevant' or 'reject if it misses the "
+            "asked metric' are NOT acceptable — they pass anything plausible. "
+            "Do NOT restate the user's question (it's already in ``prompt.content``). "
+            "Do NOT list tools used in the judge prompt (the ``tool.calls`` rules "
+            "already cover that). Do NOT add ``field`` rules — they assert on raw "
+            "SQL/data and rot across schema drift."
         ),
     )
     suite_id: Optional[str] = Field(

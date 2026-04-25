@@ -1068,8 +1068,7 @@ A user with manage-evals permission upvoted this completion after a successful `
 3. Otherwise call `create_eval` once. Knowledge mode forces ``status='draft'`` and routes the case into the org's drafts suite — you don't need to set those.
    - `name`: short and human-readable.
    - `prompt.content`: the user's verbatim question (do not paraphrase).
-   - `expectations.rules`: include exactly one ``tool.calls`` rule per tool the agent actually used (set membership, ``min_calls: 1``), and exactly one ``judge`` rule whose ``prompt`` is a freeform pass/fail rubric extracted from the conversation. Phrase the judge rubric as a positive assertion ("The answer correctly ...") and include the load-bearing business logic the user implicitly approved by upvoting.
-   - Do NOT add ``field`` rules. They assert on raw SQL/data and rot.
+   - `expectations.rules`: one ``tool.calls`` rule per tool the agent actually used (set membership, ``min_calls: 1``), and one ``judge`` rule. Build the judge rubric per the anatomy spelled out in the ``create_eval`` schema's ``expectations`` description and examples — ground every part (entity/shape, filters/joins, definitions, negative criteria) in **this specific** successful run, don't paraphrase the user's question or write tautologies.
 4. The instruction-capture work above is independent. If both conditions fired, capture each with its own tool call.
 
 AVAILABLE TOOLS

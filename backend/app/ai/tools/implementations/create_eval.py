@@ -77,13 +77,54 @@ class CreateEvalTool(Tool):
                                 {"type": "tool.calls", "tool": "create_data", "min_calls": 1},
                                 {
                                     "type": "judge",
-                                    "prompt": "The answer correctly counts users with at least one session in the last 30 days.",
+                                    "prompt": (
+                                        "The answer is a single count (one number), scoped to "
+                                        "users with at least one session event in the last 30 "
+                                        "days based on session.created_at. 'Active' = has a "
+                                        "session event; a login row alone does not count. "
+                                        "Reject if the answer returns a list of users instead "
+                                        "of a count. Reject if it includes users whose only "
+                                        "activity in the window was a login event."
+                                    ),
                                 },
                             ],
                             "order_mode": "flexible",
                         },
                     },
-                    "description": "Knowledge-harness draft after a thumbs-up on a successful create_data",
+                    "description": (
+                        "Anatomy: entity/shape (single count), filter ('session event in last "
+                        "30 days'), definition ('active' resolved to session events, not "
+                        "logins), 2 negative criteria (wrong shape, wrong inclusion)."
+                    ),
+                },
+                {
+                    "input": {
+                        "name": "My open opportunities",
+                        "prompt": {"content": "show me list of my opps"},
+                        "expectations": {
+                            "spec_version": 1,
+                            "rules": [
+                                {"type": "tool.calls", "tool": "create_data", "min_calls": 1},
+                                {
+                                    "type": "judge",
+                                    "prompt": (
+                                        "The answer is a list of opportunities (one row per "
+                                        "opp), scoped to opps where owner_id = the requesting "
+                                        "user and stage is open — Closed-Won and Closed-Lost "
+                                        "are excluded. 'My opps' means owned, not on the same "
+                                        "account team. Reject if it counts opps instead of "
+                                        "listing them. Reject if it includes any closed stages."
+                                    ),
+                                },
+                            ],
+                            "order_mode": "flexible",
+                        },
+                    },
+                    "description": (
+                        "Anatomy: entity/shape (list of opps, one row each), filter (owner = "
+                        "user, open stages only), definition ('my' = owned), 2 negative "
+                        "criteria (wrong shape, wrong stage inclusion)."
+                    ),
                 },
             ],
         )
