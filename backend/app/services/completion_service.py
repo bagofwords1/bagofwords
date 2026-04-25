@@ -2195,16 +2195,15 @@ class CompletionService:
         if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
 
-        # If the main analysis has already reached a terminal state (success/error/stopped),
-        # the user-facing result is final — the agent may still be running a background
-        # sub-loop (e.g. knowledge harness) but we must not flip the completion to 'stopped'
-        # or UI would show "Generation stopped" over a successful answer. Still stamp
-        # sigkill so the after_update websocket broadcast signals the agent to break its
-        # current sub-loop at its next cooperative checkpoint.
-        already_terminal = completion.status in ('success', 'error', 'stopped')
-
+        # If the main analysis has already left 'in_progress' (success/error/stopped or
+        # any future terminal state), the user-facing result is final — the agent may
+        # still be running a background sub-loop (e.g. knowledge harness) but we must
+        # not flip the completion to 'stopped' or UI would show "Generation stopped"
+        # over a successful answer. Still stamp sigkill so the after_update websocket
+        # broadcast signals the agent to break its current sub-loop at its next
+        # cooperative checkpoint.
         completion.sigkill = datetime.now()
-        if not already_terminal:
+        if completion.status == 'in_progress':
             completion.status = 'stopped'
 
         # Also update all in_progress completion blocks to stopped — regardless of the

@@ -2913,11 +2913,11 @@ async function startStreaming(requestBody: any, sysId: string) {
 				if (err.name === 'AbortError') {
 					// Check if this was a user-initiated stop (sigkill) vs connection abort
 					const sysMsg = messages.value[idx]
-					// If the main analysis already reached a terminal state (success/error),
-					// the SSE stream was only still open for the knowledge-harness tail.
-					// Aborting it on a new user submit should not downgrade the result to
-					// "Generation stopped" — preserve the terminal status the user has
-					// already seen (thumbs up, etc).
+					// If the main analysis already left 'in_progress', the SSE stream was
+					// only still open for the knowledge-harness tail. Aborting it on a new
+					// user submit should not downgrade the result to "Generation stopped" —
+					// preserve whatever status the user has already seen (success with
+					// thumbs up, error, or an existing 'stopped').
 					if (sysMsg && sysMsg.status && sysMsg.status !== 'in_progress') {
 						return
 					}
