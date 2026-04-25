@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.completion_feedback import CompletionFeedback
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
@@ -109,6 +110,8 @@ class InstructionTriggerEvaluator:
     - E) user_provided_code: User provided code after a create_data
     - F) inspect_then_create_data: successful inspect_data in same execution, then create_data succeeded (with table overlap)
     - G) training_mode_complete: Training mode completed with suggested instructions in final_answer
+    - H) positive_feedback_create_data: User upvoted a completion that successfully ran create_data
+        (drives the eval-as-tools path — harness uses search_evals + create_eval)
 
     Returns a structured result with decision and list of met conditions.
     """
@@ -121,6 +124,7 @@ class InstructionTriggerEvaluator:
         current_execution_id: Optional[str],
         user_message: Optional[str] = None,
         mode: Optional[str] = None,
+        completion_id: Optional[str] = None,
     ):
         self.db = db
         self.organization_settings = organization_settings
@@ -128,6 +132,10 @@ class InstructionTriggerEvaluator:
         self.current_execution_id = current_execution_id
         self.user_message = user_message or ""
         self.mode = mode
+        # Optional — when set, the eval condition (H) checks for positive
+        # feedback on this specific completion. Pass the SYSTEM completion
+        # id (the AI response the user thumbs-up's), not the head.
+        self.completion_id = completion_id
 
     async def evaluate(
         self, prev_tool_name_before_last_user: Optional[str] = None
@@ -140,9 +148,15 @@ class InstructionTriggerEvaluator:
                 "conditions": [{"name": str, "hint": str}, ...]
             }
         """
-        # Check if suggest_instructions is enabled (default to True if not configured)
-        config = self.organization_settings.get_config("suggest_instructions")
-        if config and config.value is False:
+        # Two independent gates: ``suggest_instructions`` covers conditions
+        # A-G; ``auto_suggest_evals`` covers H. If both are off there's
+        # nothing to do.
+        si_config = self.organization_settings.get_config("suggest_instructions")
+        si_on = (si_config is None) or (si_config.value is not False)
+        ase_config = self.organization_settings.get_config("auto_suggest_evals")
+        ase_on = (ase_config is None) or (ase_config.value is not False)
+
+        if not si_on and not ase_on:
             return {"decision": False, "conditions": []}
 
         if not self.report_id:
@@ -164,26 +178,32 @@ class InstructionTriggerEvaluator:
             }
 
         met_conditions: List[Dict[str, str]] = []
-        
+
         try:
             # Fetch user message if not provided
             if not self.user_message:
                 self.user_message = await self._get_user_message()
 
-            # Evaluate all conditions
-            condition_a = await self._check_clarify_then_create_data(
-                prev_tool_name_before_last_user
-            )
-            condition_b = await self._check_retry_recovery()
-            condition_c = await self._check_user_explicit_correction()
-            condition_d = await self._check_failed_then_fixed()
-            condition_e = await self._check_user_provided_code(prev_tool_name_before_last_user)
-            condition_f = await self._check_inspect_then_create_data()
+            # Instruction conditions (A-F) — gated by ``suggest_instructions``.
+            if si_on:
+                condition_a = await self._check_clarify_then_create_data(
+                    prev_tool_name_before_last_user
+                )
+                condition_b = await self._check_retry_recovery()
+                condition_c = await self._check_user_explicit_correction()
+                condition_d = await self._check_failed_then_fixed()
+                condition_e = await self._check_user_provided_code(prev_tool_name_before_last_user)
+                condition_f = await self._check_inspect_then_create_data()
 
-            # Collect met conditions
-            for condition in [condition_a, condition_b, condition_c, condition_d, condition_e, condition_f]:
-                if condition.met:
-                    met_conditions.append(condition.to_dict())
+                for condition in [condition_a, condition_b, condition_c, condition_d, condition_e, condition_f]:
+                    if condition.met:
+                        met_conditions.append(condition.to_dict())
+
+            # Eval condition (H) — gated by ``auto_suggest_evals``.
+            if ase_on:
+                condition_h = await self._check_positive_feedback_with_create_data()
+                if condition_h.met:
+                    met_conditions.append(condition_h.to_dict())
 
             decision = len(met_conditions) > 0
             return {"decision": decision, "conditions": met_conditions}
@@ -647,6 +667,73 @@ class InstructionTriggerEvaluator:
                         )
                         return condition
 
+            return condition
+
+        except Exception:
+            return condition
+
+    async def _check_positive_feedback_with_create_data(self) -> TriggerCondition:
+        """Condition H: a user upvoted this completion AND the execution
+        had at least one successful ``create_data``.
+
+        Drives the eval-as-tools path: when this fires, the knowledge
+        harness sees ``search_evals`` and ``create_eval`` in its catalog
+        and the prompt nudges it to dedupe-then-draft.
+        """
+        condition = TriggerCondition(
+            name="positive_feedback_create_data",
+            hint=(
+                "Eval-capture flow: A user upvoted a completion that "
+                "successfully ran create_data. Use search_evals to check "
+                "whether a similar test case already exists; if not, use "
+                "create_eval to draft a new case (it will land as a draft "
+                "in the org's drafts suite for review). Build the case "
+                "around tool.calls (set membership) and a judge rule with "
+                "a rubric extracted from the conversation. Do NOT assert "
+                "on raw SQL/data."
+            ),
+        )
+
+        try:
+            if not self.current_execution_id:
+                return condition
+
+            # Need a successful create_data in this execution.
+            te_stmt = (
+                select(ToolExecution.id)
+                .where(ToolExecution.agent_execution_id == self.current_execution_id)
+                .where(ToolExecution.tool_name == "create_data")
+                .where(
+                    (ToolExecution.success == True) | (ToolExecution.status == "success")
+                )
+                .limit(1)
+            )
+            if (await self.db.execute(te_stmt)).first() is None:
+                return condition
+
+            # Resolve the system completion id we should look for feedback on.
+            target_completion_id = self.completion_id
+            if not target_completion_id:
+                ae_stmt = (
+                    select(AgentExecution.completion_id)
+                    .where(AgentExecution.id == self.current_execution_id)
+                )
+                ae_row = (await self.db.execute(ae_stmt)).first()
+                if ae_row:
+                    target_completion_id = ae_row[0]
+            if not target_completion_id:
+                return condition
+
+            fb_stmt = (
+                select(CompletionFeedback.id)
+                .where(CompletionFeedback.completion_id == str(target_completion_id))
+                .where(CompletionFeedback.direction == 1)
+                .limit(1)
+            )
+            if (await self.db.execute(fb_stmt)).first() is None:
+                return condition
+
+            condition.met = True
             return condition
 
         except Exception:

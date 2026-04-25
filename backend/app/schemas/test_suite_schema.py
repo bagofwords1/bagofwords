@@ -42,6 +42,11 @@ class TestCaseSchema(BaseModel):
     prompt_json: Dict[str, Any]
     expectations_json: ExpectationsSpec
     data_source_ids_json: Optional[List[str]] = None
+    status: str = "active"
+    auto_generated: bool = False
+    source_completion_id: Optional[str] = None
+    source_agent_execution_id: Optional[str] = None
+    source_feedback_id: Optional[str] = None
     # Derived, not persisted: helpful projection for UI fallbacks
     model_summary: Optional[ModelSummary] = None
     created_at: UTCDatetime
@@ -49,6 +54,10 @@ class TestCaseSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TestCaseStatusUpdate(BaseModel):
+    status: str
 
 
 class TestCaseCreate(BaseModel):

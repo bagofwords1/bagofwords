@@ -252,6 +252,7 @@
 													:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
 													:tool-execution="block.tool_execution"
 													:data-sources="report?.data_sources"
+													:system-completion-id="m.system_completion_id"
 													@addWidget="handleAddWidgetFromPreview"
 													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
@@ -661,6 +662,9 @@ import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
+import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
+import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
+import RunEvalTool from '~/components/tools/RunEvalTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -1278,6 +1282,12 @@ function getToolComponent(toolName: string) {
 			return EditInstructionTool
 		case 'search_instructions':
 			return SearchInstructionsTool
+		case 'search_evals':
+			return SearchEvalsTool
+		case 'create_eval':
+			return CreateEvalTool
+		case 'run_eval':
+			return RunEvalTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -1864,6 +1874,55 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					// Visualization error for create_data tool
 					if (payload.tool_name === 'create_data' && payload.payload?.stage === 'visualization_error') {
 						;(lastBlock.tool_execution as any).progress_visualization_error = payload.payload.error
+					}
+
+					// Live progress for run_eval — case-by-case status updates
+					if (payload.tool_name === 'run_eval' && payload.payload && typeof payload.payload.kind === 'string' && payload.payload.kind.indexOf('eval.') === 0) {
+						const te: any = lastBlock.tool_execution
+						te.eval_progress = te.eval_progress || {
+							run_id: null,
+							total: 0,
+							finished: 0,
+							passed: 0,
+							failed: 0,
+							status: '',
+							cases: [],
+						}
+						const ep = te.eval_progress
+						const p = payload.payload
+						if (p.kind === 'eval.run_started') {
+							ep.run_id = p.run_id || null
+							ep.total = typeof p.total === 'number' ? p.total : (Array.isArray(p.case_ids) ? p.case_ids.length : 0)
+							ep.status = 'in_progress'
+							// Seed per-case rows so the list renders before any case finishes.
+							const ids: string[] = Array.isArray(p.case_ids) ? p.case_ids : []
+							const names: string[] = Array.isArray(p.case_names) ? p.case_names : []
+							ep.cases = ids.map((cid: string, i: number) => ({
+								case_id: cid,
+								case_name: names[i] || '',
+								status: 'init',
+							}))
+						} else if (p.kind === 'eval.case_started') {
+							const row = ep.cases.find((c: any) => c.case_id === p.case_id)
+							if (row) row.status = 'in_progress'
+							else ep.cases.push({ case_id: p.case_id, case_name: p.case_name || '', status: 'in_progress' })
+						} else if (p.kind === 'eval.case_finished') {
+							const row = ep.cases.find((c: any) => c.case_id === p.case_id)
+							if (row) {
+								row.status = p.status
+								row.failure_reason = p.failure_reason || null
+							} else {
+								ep.cases.push({ case_id: p.case_id, case_name: p.case_name || '', status: p.status, failure_reason: p.failure_reason || null })
+							}
+							if (typeof p.passed_so_far === 'number') ep.passed = p.passed_so_far
+							if (typeof p.failed_so_far === 'number') ep.failed = p.failed_so_far
+							if (typeof p.finished_so_far === 'number') ep.finished = p.finished_so_far
+						} else if (p.kind === 'eval.run_finished') {
+							ep.status = p.status || 'success'
+							if (typeof p.passed === 'number') ep.passed = p.passed
+							if (typeof p.failed === 'number') ep.failed = p.failed
+							if (typeof p.finished === 'number') ep.finished = p.finished
+						}
 					}
 
 					// Progressive instruction drafts for suggest_instructions tool

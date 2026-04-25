@@ -17,6 +17,7 @@ from app.schemas.test_suite_schema import (
     TestCaseSchema,
     TestCaseCreate,
     TestCaseUpdate,
+    TestCaseStatusUpdate,
     TestRunSchema,
     TestRunCreate,
 )
@@ -192,6 +193,22 @@ async def update_case(case_id: str, payload: TestCaseUpdate, db: AsyncSession = 
             "data_source", payload.data_source_ids_json, "manage_evals",
         )
     return await case_service.update_case(db, str(organization.id), current_user, case_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json)
+
+
+@router.patch("/cases/{case_id}/status", response_model=TestCaseSchema)
+@requires_permission('manage_evals')
+async def update_case_status(
+    case_id: str,
+    payload: TestCaseStatusUpdate,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Promote a draft to ``active`` or archive any case. Used by the
+    auto-suggest-evals review flow."""
+    return await case_service.update_case_status(
+        db, str(organization.id), current_user, case_id, payload.status,
+    )
 
 
 @router.delete("/cases/{case_id}")

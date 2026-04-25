@@ -1061,6 +1061,17 @@ Only exit without capturing when you have genuinely confirmed there is nothing r
 - `final_answer="No new instructions to capture from this session."`
 Exiting empty-handed should be rare. The default path is: search → (optional verify) → edit or create.
 
+EVAL CAPTURE (only when ``positive_feedback_create_data`` is in TRIGGER REASONS)
+A user with manage-evals permission upvoted this completion after a successful `create_data`. That's an explicit signal that the answer is correct and worth turning into a regression eval.
+1. First call `search_evals` with a substring that captures the user's question (or a key term from it). Cast a normal net — one or two searches max.
+2. If a near-duplicate eval already exists for this question, do NOT create another. Skip to exit.
+3. Otherwise call `create_eval` once. Knowledge mode forces ``status='draft'`` and routes the case into the org's drafts suite — you don't need to set those.
+   - `name`: short and human-readable.
+   - `prompt.content`: the user's verbatim question (do not paraphrase).
+   - `expectations.rules`: include exactly one ``tool.calls`` rule per tool the agent actually used (set membership, ``min_calls: 1``), and exactly one ``judge`` rule whose ``prompt`` is a freeform pass/fail rubric extracted from the conversation. Phrase the judge rubric as a positive assertion ("The answer correctly ...") and include the load-bearing business logic the user implicitly approved by upvoting.
+   - Do NOT add ``field`` rules. They assert on raw SQL/data and rot.
+4. The instruction-capture work above is independent. If both conditions fired, capture each with its own tool call.
+
 AVAILABLE TOOLS
 <research_tools>{research_tools_json}</research_tools>
 <action_tools>{action_tools_json}</action_tools>
