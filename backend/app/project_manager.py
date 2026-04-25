@@ -866,10 +866,15 @@ class ProjectManager:
     # Agent Execution Tracking Methods
     # ==============================
 
-    async def start_agent_execution(self, db, completion_id, organization_id=None, user_id=None, report_id=None, config_json=None, build_id=None):
-        """Start tracking an agent execution run."""
+    async def start_agent_execution(self, db, completion_id, organization_id=None, user_id=None, report_id=None, config_json=None, build_id=None, is_eval_run=False):
+        """Start tracking an agent execution run.
+
+        ``is_eval_run`` should be ``True`` when the execution is spawned by
+        ``TestRunService`` to evaluate a test case. The ``run_eval`` tool
+        reads this from runtime context and refuses to start a nested run.
+        """
         from app.settings.config import settings
-        
+
         execution = AgentExecution(
             completion_id=completion_id,
             organization_id=organization_id,
@@ -879,7 +884,8 @@ class ProjectManager:
             started_at=datetime.datetime.utcnow(),
             config_json=config_json or {},
             bow_version=settings.PROJECT_VERSION,
-            build_id=build_id
+            build_id=build_id,
+            is_eval_run=bool(is_eval_run),
         )
         db.add(execution)
         await db.commit()

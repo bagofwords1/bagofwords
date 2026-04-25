@@ -50,6 +50,11 @@ class AgentV2:
                  messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
         self.db = db
         self.build_id = build_id
+        # True when this AgentV2 instance is running inside a TestRun. The
+        # ``run_eval`` tool refuses nested invocations against this flag.
+        # Derived from report_type rather than plumbed through every call
+        # site — TestRunService stubs reports as ``report_type="test"``.
+        self.is_eval_run = bool(report and getattr(report, 'report_type', None) == 'test')
         self.organization = organization
         self.organization_settings = organization_settings
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
@@ -665,6 +670,7 @@ class AgentV2:
                     "training_build_id": self.training_build_id,
                     "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                     "mode": "knowledge",
+                    "is_eval_run": self.is_eval_run,
                     "platform": self.platform,
                     "platform_context": self.platform_context,
                     "tool_call_id": str(tool_execution.id) if tool_execution else None,
@@ -1110,6 +1116,7 @@ class AgentV2:
                 user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
                 report_id=str(self.report.id) if self.report else None,
                 build_id=self.build_id,
+                is_eval_run=self.is_eval_run,
             )
             _mlog("execution_tracking_started")
 
@@ -1854,6 +1861,7 @@ class AgentV2:
                             "training_build_id": self.training_build_id,  # For training mode instruction creation
                             "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                             "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
+                            "is_eval_run": self.is_eval_run,
                             "platform": self.platform,
                             "platform_context": self.platform_context,
                             "tool_call_id": str(tool_execution.id) if tool_execution else None,
@@ -2577,6 +2585,7 @@ class AgentV2:
                 current_execution_id=str(self.current_execution.id) if self.current_execution else None,
                 user_message=user_message,
                 mode=self.mode,
+                completion_id=str(self.system_completion.id) if self.system_completion else None,
             )
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:

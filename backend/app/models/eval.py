@@ -1,6 +1,21 @@
-from sqlalchemy import Column, String, JSON, ForeignKey, DateTime
+from sqlalchemy import Boolean, Column, String, JSON, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
+
+
+# Lifecycle states for a TestCase. Auto-generated cases land as ``draft``
+# (excluded from default/scheduled suite runs) and a manage-evals user
+# promotes them to ``active``. ``archived`` retires a case without
+# deletion so existing TestResult rows keep their FK target.
+TEST_CASE_STATUS_DRAFT = "draft"
+TEST_CASE_STATUS_ACTIVE = "active"
+TEST_CASE_STATUS_ARCHIVED = "archived"
+TEST_CASE_STATUSES = {TEST_CASE_STATUS_DRAFT, TEST_CASE_STATUS_ACTIVE, TEST_CASE_STATUS_ARCHIVED}
+
+# Per-org default suite that holds (a) auto-drafted cases from the
+# knowledge harness and (b) training-mode cases authored without an
+# explicit ``suite_id``. Lazy-created on first need.
+DEFAULT_DRAFTS_SUITE_NAME = "Drafts"
 
 
 class TestSuite(BaseSchema):
@@ -36,6 +51,23 @@ class TestCase(BaseSchema):
     # Free-form tags used by the pytest eval harness (and future UI) for
     # grouping / filtering cases. Stored as a list of normalized strings.
     tags_json = Column(JSON, nullable=True, default=None)
+
+    # Lifecycle: ``active`` cases run by default; ``draft`` cases are
+    # excluded from scheduled / suite-level runs but remain runnable on
+    # demand via explicit case_ids; ``archived`` retires a case.
+    status = Column(String, nullable=False, default=TEST_CASE_STATUS_ACTIVE, index=True)
+
+    # True for cases drafted by the auto-suggest-evals knowledge-harness
+    # path. Surfaces a badge in the UI and lets us filter draft queues
+    # without inspecting provenance FKs.
+    auto_generated = Column(Boolean, nullable=False, default=False)
+
+    # Provenance for auto-drafted cases — points back at the conversation
+    # that produced the eval. Kept nullable so manually authored cases
+    # don't need them.
+    source_completion_id = Column(String(36), ForeignKey('completions.id'), nullable=True, index=True)
+    source_agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True, index=True)
+    source_feedback_id = Column(String(36), ForeignKey('completion_feedbacks.id'), nullable=True, index=True)
 
     suite = relationship("TestSuite", back_populates="cases")
 
