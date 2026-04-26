@@ -2196,6 +2196,27 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 				}
 			}
+			// Tool kickoff: the planner emits action.name on ToolUseStart (~1s before
+			// tool.started fires). Paint a placeholder tool_execution so the widget
+			// renders immediately; the second decision.partial after ToolUseComplete
+			// brings full args, and tool.started later flips status to running.
+			if (payload.action?.name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock) {
+					const args = payload.action.arguments || {}
+					const hasArgs = args && Object.keys(args).length > 0
+					if (!lastBlock.tool_execution) {
+						lastBlock.tool_execution = {
+							id: `kickoff-${lastBlock.id}`,
+							tool_name: payload.action.name,
+							status: 'running',
+							arguments_json: hasArgs ? args : undefined,
+						} as any
+					} else if (hasArgs) {
+						;(lastBlock.tool_execution as any).arguments_json = args
+					}
+				}
+			}
 			break
 
 		case 'completion.finished':

@@ -1630,11 +1630,16 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Emit SSE event only if there is content in reasoning, assistant, or final_answer
+                        # Emit decision.partial when there's any new decision content:
+                        # text (reasoning / assistant / final_answer) OR an action block.
+                        # The action path matters because v3 may emit tool_use with no
+                        # narration — frontend uses action.name to paint the tool widget
+                        # ~1s before tool.started fires.
                         reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
                         assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
                         final_answer_text = (getattr(decision, "final_answer", None) or "").strip()
-                        if reasoning_text or assistant_text or final_answer_text:
+                        action_present = decision.action is not None
+                        if reasoning_text or assistant_text or final_answer_text or action_present:
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.partial",
                                 completion_id=str(self.system_completion.id),
