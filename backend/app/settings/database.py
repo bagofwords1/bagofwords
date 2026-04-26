@@ -16,6 +16,15 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     # Wait up to 30 seconds for locks to be released
     cursor.execute("PRAGMA busy_timeout = 30000")
+    # WAL mode lets readers proceed concurrently with one writer instead of
+    # blocking the whole DB on any open transaction. Sticks at the file
+    # level, so the first connection sets it and the rest inherit. Cuts
+    # 'database is locked' retries the agent's bg writers were hitting.
+    cursor.execute("PRAGMA journal_mode = WAL")
+    # NORMAL is the recommended sync level with WAL: durable across app
+    # crashes, only loses on OS/power crash mid-fsync. FULL (default)
+    # roughly doubles commit latency for marginal extra safety.
+    cursor.execute("PRAGMA synchronous = NORMAL")
     cursor.close()
 
 
@@ -221,6 +230,9 @@ def create_async_database_engine():
             else:
                 database_url = "sqlite+aiosqlite:///./app.db"
             engine = create_async_engine(database_url, echo=False)
+            # Apply busy_timeout + WAL pragmas on every new connection
+            # (matches the testing branch wiring at line 184).
+            event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
 
     # Instrument with OpenTelemetry
     instrument_db(engine, settings.bow_config.otel)
