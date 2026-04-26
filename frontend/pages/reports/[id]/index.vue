@@ -1628,8 +1628,19 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				// Find existing block or insert in-order by block_index (avoid resorting array)
 				const existingIndex = sysMessage.completion_blocks.findIndex(b => b.id === block.id)
 				if (existingIndex >= 0) {
-					// Update existing block in place
-					Object.assign(sysMessage.completion_blocks[existingIndex], block)
+					// Update existing block in place. Preserve any locally-populated
+					// tool_execution placeholder (from the kickoff stream's decision.partial
+					// handler) when the incoming payload doesn't carry a real one yet —
+					// the early sync upsert after decision.final serializes tool_execution
+					// as null because the bg INSERT hasn't landed, and a blind
+					// Object.assign would wipe the args/name we already painted.
+					const existing = sysMessage.completion_blocks[existingIndex]
+					const incomingHasTE = block.tool_execution && (block.tool_execution as any).id
+					const merged = { ...block }
+					if (!incomingHasTE && existing.tool_execution) {
+						delete (merged as any).tool_execution
+					}
+					Object.assign(existing, merged)
 				} else {
 					let insertPos = sysMessage.completion_blocks.length
 					for (let i = 0; i < sysMessage.completion_blocks.length; i++) {
