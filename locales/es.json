@@ -667,7 +667,7 @@
     "stepRequired": "Se requiere un paso para guardar"
   },
   "mentionInput": {
-    "placeholder": "Escribe @ para mencionar...",
+    "placeholder": "Escribe {'@'} para mencionar...",
     "loading": "Cargando…",
     "noResults": "No se encontraron resultados",
     "tables": "Tablas",
@@ -1849,7 +1849,7 @@
     "approvedBy": "Aprobado por:",
     "titlePlaceholder": "TÍTULO (opcional, ej. REVENUE_RULES)",
     "titleHint": "Identificador corto (1-4 palabras) que los usuarios pueden referenciar",
-    "textareaPlaceholder": "Describe la instrucción para el agente de IA...\n\nEjemplos:\n• Al consultar ingresos, filtrar siempre los pedidos cancelados\n• Usar la tabla customers_v2 en lugar de la tabla customers obsoleta\n• Calcular MRR como la suma de los montos de suscripciones activas\n\nConsejo: Escribe @ para referenciar otras instrucciones",
+    "textareaPlaceholder": "Describe la instrucción para el agente de IA...\n\nEjemplos:\n• Al consultar ingresos, filtrar siempre los pedidos cancelados\n• Usar la tabla customers_v2 en lugar de la tabla customers obsoleta\n• Calcular MRR como la suma de los montos de suscripciones activas\n\nConsejo: Escribe {'@'} para referenciar otras instrucciones",
     "typeToSearch": "Escribe para buscar...",
     "searchLabels": "Buscar etiquetas...",
     "searchReferences": "Buscar referencias...",

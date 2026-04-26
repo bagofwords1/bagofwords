@@ -667,7 +667,7 @@
     "stepRequired": "Step is required to save"
   },
   "mentionInput": {
-    "placeholder": "Type @ to mention...",
+    "placeholder": "Type {'@'} to mention...",
     "loading": "Loading…",
     "noResults": "No results found",
     "tables": "Tables",
@@ -1849,7 +1849,7 @@
     "approvedBy": "Approved by:",
     "titlePlaceholder": "TITLE (optional, e.g. REVENUE_RULES)",
     "titleHint": "Short identifier (1-4 words) that users can reference",
-    "textareaPlaceholder": "Describe the instruction for the AI agent...\n\nExamples:\n• When querying revenue, always filter out cancelled orders\n• Use the customers_v2 table instead of the deprecated customers table\n• Calculate MRR as sum of active subscription amounts\n\nTip: Type @ to reference other instructions",
+    "textareaPlaceholder": "Describe the instruction for the AI agent...\n\nExamples:\n• When querying revenue, always filter out cancelled orders\n• Use the customers_v2 table instead of the deprecated customers table\n• Calculate MRR as sum of active subscription amounts\n\nTip: Type {'@'} to reference other instructions",
     "typeToSearch": "Type to search...",
     "searchLabels": "Search labels...",
     "searchReferences": "Search references...",
