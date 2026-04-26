@@ -3,6 +3,7 @@ from app.models.text_widget import TextWidget
 from sqlalchemy.orm import Session
 import datetime
 import json
+import uuid
 from app.schemas.completion_schema import PromptSchema
 from typing import List, Optional
 from app.services.instruction_service import InstructionService
@@ -1039,6 +1040,47 @@ class ProjectManager:
         db.add(tool_execution)
         await self._commit_with_timeout(db, "commit_finished_tool_execution")
         return tool_execution
+
+    async def commit_tool_and_attach_block(self, db, completion, agent_execution, tool_execution):
+        """Atomically INSERT a finished ToolExecution and UPDATE the matching
+        CompletionBlock (FK + status + title + duration) in a single transaction.
+
+        Replaces the older two-commit pattern (commit_finished_tool_execution
+        then upsert_block_for_tool) which could leave block.tool_execution_id
+        NULL if the second commit failed: the block would render empty on
+        every subsequent GET. Both writes now land or roll back together.
+        """
+        # Pre-assign id so we can set the block FK before flush.
+        if not getattr(tool_execution, "id", None):
+            tool_execution.id = str(uuid.uuid4())
+        db.add(tool_execution)
+
+        block = None
+        if tool_execution.plan_decision_id:
+            stmt = select(CompletionBlock).where(
+                CompletionBlock.agent_execution_id == agent_execution.id,
+                CompletionBlock.plan_decision_id == tool_execution.plan_decision_id,
+            )
+            existing = (await db.execute(stmt)).scalar_one_or_none()
+            if existing is not None:
+                existing.tool_execution_id = str(tool_execution.id)
+                existing.title = f"{existing.title.split(' →')[0]} → {tool_execution.tool_name}"
+                if tool_execution.status == 'success':
+                    existing.status = 'completed'
+                elif tool_execution.status == 'error':
+                    existing.status = 'error'
+                else:
+                    existing.status = 'in_progress'
+                existing.completed_at = tool_execution.completed_at
+                if existing.started_at and existing.completed_at:
+                    existing.duration_ms = (existing.completed_at - existing.started_at).total_seconds() * 1000.0
+                db.add(existing)
+                block = existing
+
+        await self._commit_with_timeout(db, "commit_tool_and_attach_block")
+        if block is not None:
+            await self._refresh_with_timeout(db, block, "commit_tool_and_attach_block.block")
+        return block
 
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
                                    result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,

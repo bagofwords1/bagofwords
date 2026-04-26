@@ -2275,21 +2275,19 @@ class AgentV2:
                             from app.models.completion import Completion as _Comp
                             SessionLocal = _csf()
                             async with SessionLocal() as bg_db:
-                                # 1. INSERT tool_executions (write-on-complete)
-                                await self.project_manager.commit_finished_tool_execution(
-                                    bg_db, _bg_tool_exec
-                                )
-                                # 2. UPDATE completion_blocks with tool_execution_id FK
                                 bg_exec = await bg_db.get(_AE, _bg_exec_id)
                                 bg_comp = await bg_db.get(_Comp, _bg_comp_id)
                                 if not (bg_exec and bg_comp):
                                     return
-                                block = await self.project_manager.upsert_block_for_tool(
+                                # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
+                                # in a single transaction: previously these were two
+                                # separate commits, and a failure between them left the
+                                # block's FK NULL on every subsequent refresh.
+                                block = await self.project_manager.commit_tool_and_attach_block(
                                     bg_db, bg_comp, bg_exec, _bg_tool_exec,
                                 )
                                 if block is None:
                                     return
-                                # 3. Serialize + emit block.upsert SSE
                                 try:
                                     block_schema = await serialize_block_v2(bg_db, block)
                                     seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
