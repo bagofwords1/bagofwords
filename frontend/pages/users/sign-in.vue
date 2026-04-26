@@ -137,6 +137,15 @@
   // Extract the signIn function from useAuth
   const { signIn, getSession } = useAuth();
 
+  // Only honor redirects to same-origin paths to avoid open-redirect bugs
+  function safeRedirectTarget(value: unknown): string | null {
+    if (typeof value !== 'string' || !value) return null
+    if (!value.startsWith('/') || value.startsWith('//')) return null
+    return value
+  }
+
+  const OAUTH_REDIRECT_KEY = 'bow:postSignInRedirect'
+
   // Helper to extract error message from server response
   function extractErrorMessage(error: any, fallback: string): string {
     const data = error?.data
@@ -184,7 +193,12 @@
       if (!org || !org.id) {
         navigateTo('/organizations/new')
       } else {
-        navigateTo('/')
+        let pendingRedirect: string | null = null
+        try {
+          pendingRedirect = safeRedirectTarget(sessionStorage.getItem(OAUTH_REDIRECT_KEY))
+          sessionStorage.removeItem(OAUTH_REDIRECT_KEY)
+        } catch (_) {}
+        navigateTo(pendingRedirect || '/')
       }
       return
     }
@@ -192,11 +206,22 @@
   })
 
 
+  function persistRedirectForOAuth() {
+    const target = safeRedirectTarget(route.query.redirect)
+    try {
+      if (target) {
+        sessionStorage.setItem(OAUTH_REDIRECT_KEY, target)
+      } else {
+        sessionStorage.removeItem(OAUTH_REDIRECT_KEY)
+      }
+    } catch (_) {}
+  }
+
   async function signInWithCredentials() {
     isSubmitting.value = true
     error_message.value = ''
     const route = useRoute();
-    const redirectedFrom = route.query.redirect
+    const redirectedFrom = safeRedirectTarget(route.query.redirect)
 
     const credentials = {
       username: email.value,
@@ -243,6 +268,7 @@
   async function signInWithGoogle() {
     try {
       loadingProvider.value = 'google'
+      persistRedirectForOAuth()
       const response = await $fetch('/api/auth/google/authorize', {
         method: 'GET',
       });
@@ -259,6 +285,7 @@
   async function signInWithProvider(name: string) {
     try {
       loadingProvider.value = name
+      persistRedirectForOAuth()
       const response = await $fetch(`/api/auth/${name}/authorize`, { method: 'GET' })
       if ((response as any)?.authorization_url) {
         window.location.href = (response as any).authorization_url
