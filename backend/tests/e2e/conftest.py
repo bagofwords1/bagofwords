@@ -22,6 +22,7 @@ arm, which is the more thorough one.
 import pytest
 
 from app.ee import license as ee_license
+from app.services import connection_indexing_service as _cis
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -49,3 +50,17 @@ def _e2e_force_enterprise_license():
     finally:
         ee_license._cached_license = saved_cached
         ee_license._cache_initialized = saved_initialized
+
+
+@pytest.fixture(autouse=True)
+def _drain_connection_indexing_loop():
+    """Drain the connection-indexing background loop after each test.
+
+    PR #225 introduced a process-wide daemon-thread event loop that runs
+    fire-and-forget indexing jobs. Without an explicit drain, a job can be
+    mid-flight when the test ends, leaving an `idle in transaction` Postgres
+    session that blocks the next test's `DROP SCHEMA` for the connection's
+    full lifetime — the source of the 6h CI timeouts.
+    """
+    yield
+    _cis.shutdown_background_loop()

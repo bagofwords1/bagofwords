@@ -261,10 +261,20 @@ def alembic_config(db_backend):
 
 
 def _reset_postgres_schema(alembic_config):
-    """Drop and recreate public schema to clean up ENUMs, types, etc."""
+    """Drop and recreate public schema to clean up ENUMs, types, etc.
+
+    Terminates any other backends on this database first — without this,
+    a leaked `idle in transaction` session from a prior test holds locks
+    and the DROP SCHEMA blocks indefinitely (was the source of 6h CI hangs).
+    """
     from sqlalchemy import create_engine, text
     engine = create_engine(alembic_config.get_main_option("sqlalchemy.url"))
     with engine.connect() as conn:
+        conn.execute(text(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+        ))
+        conn.execute(text("SET statement_timeout = '60s'"))
         conn.execute(text("DROP SCHEMA public CASCADE"))
         conn.execute(text("CREATE SCHEMA public"))
         conn.execute(text("GRANT ALL ON SCHEMA public TO public"))

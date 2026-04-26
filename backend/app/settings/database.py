@@ -180,8 +180,21 @@ def create_async_database_engine():
             ).replace(
                 "postgresql://", "postgresql+asyncpg://"
             )
-            # NullPool: no connection pooling - avoids stale connection issues with TestClient
-            engine = create_async_engine(database_url, echo=False, future=True, poolclass=NullPool)
+            # NullPool: no connection pooling - avoids stale connection issues with TestClient.
+            # idle_in_transaction_session_timeout: if a leaked session stays idle
+            # in transaction for >60s, Postgres terminates it automatically — keeps
+            # a single bug from blocking DROP SCHEMA in the next test for hours.
+            engine = create_async_engine(
+                database_url,
+                echo=False,
+                future=True,
+                poolclass=NullPool,
+                connect_args={
+                    "server_settings": {
+                        "idle_in_transaction_session_timeout": "60000",
+                    },
+                },
+            )
     else:
         db_config = settings.bow_config.database
         database_url = _get_async_database_url()

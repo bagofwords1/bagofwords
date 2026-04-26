@@ -36,11 +36,21 @@ async def get_db():
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            # Belt-and-suspenders: ensure the connection isn't returned to the
+            # pool in `idle in transaction` state. Rollback on a committed
+            # session is a no-op; on a read-only session it ends the implicit
+            # transaction asyncpg opened for the SELECT.
+            await session.rollback()
 
 async def get_async_db() -> AsyncSession:
     async with async_session_maker() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            await session.rollback()
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)

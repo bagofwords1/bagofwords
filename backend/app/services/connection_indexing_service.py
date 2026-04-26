@@ -65,6 +65,38 @@ def _get_background_loop() -> asyncio.AbstractEventLoop:
         return _background_loop
 
 
+def shutdown_background_loop(timeout: float = 5.0) -> None:
+    """Cancel pending tasks on the bg loop and stop it. Used by tests to keep
+    a leaked indexing job from holding a Postgres `idle in transaction` lock
+    across test boundaries (which blocks the per-test schema reset).
+    """
+    global _background_loop
+    with _background_loop_lock:
+        loop = _background_loop
+        if loop is None or loop.is_closed():
+            _background_loop = None
+            return
+
+    async def _cancel_all() -> None:
+        tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        for t in tasks:
+            t.cancel()
+        for t in tasks:
+            try:
+                await asyncio.wait_for(asyncio.shield(t), timeout=timeout)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
+
+    try:
+        fut = asyncio.run_coroutine_threadsafe(_cancel_all(), loop)
+        fut.result(timeout=timeout + 1.0)
+    except Exception:
+        pass
+    loop.call_soon_threadsafe(loop.stop)
+    with _background_loop_lock:
+        _background_loop = None
+
+
 # How often we flush progress updates to the DB. Progress callbacks from the
 # client loop can fire thousands of times; we coalesce into one write per
 # `_PROGRESS_FLUSH_SECONDS` (plus one final flush at end-of-phase).
