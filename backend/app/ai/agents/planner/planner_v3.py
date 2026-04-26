@@ -244,17 +244,11 @@ class PlannerV3:
             else:
                 plan_type = "action"  # default for unknown tools
 
-        # reasoning_message: pre-tool text accumulated before tool_use_start
-        reasoning_message: Optional[str] = state.reasoning_buffer.strip() or None
-        if action is None and analysis_complete:
-            # When the model didn't call a tool, the buffered text IS the final answer,
-            # not "reasoning". Suppress reasoning to avoid duplicating into both fields.
-            reasoning_message = None
-
-        # final_answer: text accumulated when no tool call follows
-        final_answer: Optional[str] = None
-        if action is None and analysis_complete:
-            final_answer = state.final_buffer.strip() or None
+        # All assistant text — pre-tool or end_turn — flows into assistant_message.
+        # Distinction "is this final" lives on analysis_complete.
+        # reasoning_message and final_answer are kept on the schema for v2
+        # compatibility but are always None on the v3 path.
+        assistant_message: Optional[str] = state.reasoning_buffer.strip() or None
 
         metrics: Optional[PlannerMetrics] = None
         if is_final and state.start_time is not None:
@@ -281,10 +275,10 @@ class PlannerV3:
             return PlannerDecision(
                 analysis_complete=analysis_complete,
                 plan_type=plan_type,
-                reasoning_message=reasoning_message,
-                assistant_message=None,  # v3: always None (deprecated field)
+                reasoning_message=None,        # v3: collapsed into assistant_message
+                assistant_message=assistant_message,
                 action=action,
-                final_answer=final_answer,
+                final_answer=None,             # v3: collapsed into assistant_message
                 streaming_complete=is_final,
                 metrics=metrics,
             )

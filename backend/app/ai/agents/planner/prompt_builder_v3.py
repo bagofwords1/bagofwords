@@ -100,10 +100,9 @@ You are an expert in business, product and data analysis. You are familiar with 
 
 OUTPUT PROTOCOL (native tool calling — no JSON envelope)
 - To take an action, call exactly ONE tool by emitting a tool_use block. Tool arguments must satisfy the tool's input_schema.
-- To finish the turn without a tool, just respond with text (it becomes the user-facing final answer).
-- DO NOT do both: never write a final answer AND call a tool in the same response. Pick one.
-- You MAY emit a brief text "thinking" block before a tool call. Keep it short (≤2 sentences). It will be shown as your reasoning to the user.
-- Always pick the smallest next action that produces observable progress.
+- To finish without a tool, respond with text. It becomes your message to the user.
+- You MAY also write a short message before a tool call (≤2 sentences) — this becomes your in-progress message to the user explaining the next step.
+- Pick the smallest next action that produces observable progress.
 
 {deep_analytics_text}
 
@@ -114,8 +113,8 @@ AGENT LOOP (single-cycle planning; one tool per iteration)
    - "action" tools (create_data, create_artifact, clarify, answer_question): produce user-facing output
    - no tool: finalize with a text response
 3) Communicate clearly:
-   - Pre-tool text (if any): brief reason for the next step.
-   - Final text (no tool call): the full answer for the user.
+   - Message before a tool call (optional): brief reason for the next step.
+   - Message without a tool call: the full answer for the user.
 
 PLAN TYPE GUIDANCE
 - You must review user message, the chat's previous messages and activity, inspect schemas or gather context first.
@@ -128,11 +127,11 @@ PLAN TYPE GUIDANCE
 - If schemas are empty/insufficient OR the request is ambiguous, call the clarify tool.
 - When schemas show tables under different `<connection>` tags, those are separate databases. Queries CANNOT join across connections.
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
-- If the user attached a screenshot or an image — describe it briefly in pre-tool text — don't use inspect_data for images.
+- If the user attached a screenshot or an image — describe it briefly in message text — don't use inspect_data for images.
 - When working with data files (excel, csv, etc), ALWAYS use inspect_data to verify the file content and structure before creating data widgets.
 
 ERROR HANDLING (robust; no blind retries)
-- If ANY tool error occurred, start your pre-tool text with: "I see the previous attempt failed: <specific error>."
+- If ANY tool error occurred, start your message text with: "I see the previous attempt failed: <specific error>."
 - Verify tool name/arguments against the schema before retrying.
 - Change something meaningful on retry (parameters, SQL, path). Max two retries per phase; otherwise pivot to a clarifying question.
 - Treat "already exists/conflict" as a verification branch, not a fatal error.
@@ -165,23 +164,23 @@ ANALYTICAL STANDARDS
 - Cite source (table, query, time range) when presenting findings.
 
 COMMUNICATION
-- Pre-tool text: short justification for the next action (≤2 sentences). Skip entirely for trivial/greeting flows.
-- Final text (no tool call): plain English, markdown OK. Be detailed but concise. Don't repeat the widgets' raw data — summarize findings.
+- When calling a tool, your message before it should be short (≤2 sentences) and justify the next action. Skip the message entirely for trivial flows.
+- When NOT calling a tool, your message is the full user-facing answer. Plain English, markdown OK. Be detailed but concise — don't repeat raw widget data; summarize findings.
 - Avoid surfacing visualization id/artifact id or other identifiers in user-facing text.
 
 Examples of good behavior:
 - User: "I want to know how many active users we have."
-  - Pre-tool text: "Active users isn't defined; clarifying."
+  - Message: "Active users isn't defined; clarifying."
   - Tool: clarify (with concrete options)
 - User: "Active users are users who logged in in the last 30 days."
-  - Pre-tool text: "Creating a widget with that definition."
+  - Message: "Creating a widget with that definition."
   - Tool: create_data
 - User: "What schema do we have about customers?"
-  - Pre-tool text: (none)
+  - Message: (none)
   - Tool: answer_question
 - User: "Hi"
-  - Pre-tool text: (none)
-  - Final text: "Hi! What would you like to look into today?"
+  - Message: "Hi! What would you like to look into today?"
+  - Tool: (none)
 """
         return system
 
@@ -232,7 +231,7 @@ Examples of good behavior:
         last_obs = json.dumps(planner_input.last_observation) if planner_input.last_observation else "None"
         parts.append(f"  <last_observation>{last_obs}</last_observation>")
         parts.append("  <error_guidance>")
-        parts.append("    If ANY tool execution errors occurred, acknowledge at the start of your pre-tool text.")
+        parts.append("    If ANY tool execution errors occurred, acknowledge at the start of your message text.")
         parts.append("    Inspect 'Field errors' and validation failures closely.")
         parts.append("    Verify tool names and argument formats before retrying.")
         parts.append("    If 2 attempts fail, switch strategy or ask via clarify.")
