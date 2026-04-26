@@ -126,6 +126,32 @@ class UsageEvent:
     type: Literal["usage"] = "usage"
 
 
+@dataclass
+class ReasoningStartEvent:
+    """Provider has begun emitting a reasoning / thinking block."""
+    type: Literal["reasoning_start"] = "reasoning_start"
+
+
+@dataclass
+class ReasoningDeltaEvent:
+    """A fragment of reasoning / thinking text from the provider's
+    extended-thinking stream. Anthropic emits these as `thinking_delta`
+    blocks; OpenAI Responses API as `response.reasoning_summary_text.delta`;
+    Gemini as `Part(thought=true)` chunks.
+    """
+    text: str
+    type: Literal["reasoning_delta"] = "reasoning_delta"
+
+
+@dataclass
+class ReasoningCompleteEvent:
+    """Reasoning block finished. `signature` is provider-specific (Anthropic
+    returns a cryptographic signature for verification + multi-turn replay)."""
+    text: str
+    signature: Optional[str] = None
+    type: Literal["reasoning_complete"] = "reasoning_complete"
+
+
 LLMStreamEvent = Union[
     TextDeltaEvent,
     ToolUseStartEvent,
@@ -133,5 +159,8 @@ LLMStreamEvent = Union[
     ToolUseCompleteEvent,
     MessageStopEvent,
     UsageEvent,
+    ReasoningStartEvent,
+    ReasoningDeltaEvent,
+    ReasoningCompleteEvent,
 ]
 

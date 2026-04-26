@@ -11,6 +11,9 @@ from app.ai.llm.types import (
     LLMUsage,
     Message,
     MessageStopEvent,
+    ReasoningCompleteEvent,
+    ReasoningDeltaEvent,
+    ReasoningStartEvent,
     TextDeltaEvent,
     ToolSpec,
     ToolUseCompleteEvent,
@@ -211,6 +214,7 @@ class Anthropic(LLMClient):
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         enable_cache: bool = True,
+        thinking: Optional[dict] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         # If images supplied, attach them to the last user message as image blocks.
         # (Most callers will embed images directly in messages; this is a back-compat path.)
@@ -241,6 +245,24 @@ class Anthropic(LLMClient):
             "stream": True,
         }
 
+        # Extended thinking. The installed Anthropic SDK (<=0.40.0) doesn't
+        # expose `thinking` as a top-level kwarg, but the API server does
+        # accept it — pass via `extra_body` so it's appended to the request
+        # JSON. We also default display="summarized" so the UI gets readable
+        # text (Opus 4.7 defaults to "omitted" otherwise) and force
+        # temperature=1.0 (required by Anthropic when thinking is on).
+        if thinking:
+            t = dict(thinking)
+            t.setdefault("display", "summarized")
+            extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
+            extra_body["thinking"] = t
+            request_kwargs["extra_body"] = extra_body
+            request_kwargs["temperature"] = 1.0
+            # max_tokens must exceed budget_tokens; bump if needed.
+            budget = int(t.get("budget_tokens") or 0)
+            if budget and request_kwargs.get("max_tokens", 0) <= budget:
+                request_kwargs["max_tokens"] = budget + 4096
+
         # Prompt caching: place a cache_control breakpoint on the system block
         # and on the last tool. This caches the entire (system + tools) prefix.
         # Both blocks are static across iterations within a session, so the
@@ -264,6 +286,11 @@ class Anthropic(LLMClient):
         # Per-tool-call accumulators keyed by content_block index
         # value: {"id": str, "name": str, "input_buffer": str}
         open_tool_blocks: dict[int, dict] = {}
+
+        # Per-thinking-block accumulators keyed by content_block index.
+        # Anthropic streams thinking blocks BEFORE text/tool_use blocks.
+        # value: {"text_buffer": str, "signature": Optional[str]}
+        open_thinking_blocks: dict[int, dict] = {}
 
         prompt_tokens = 0
         completion_tokens = 0
@@ -302,6 +329,9 @@ class Anthropic(LLMClient):
                         id=open_tool_blocks[idx]["id"],
                         name=open_tool_blocks[idx]["name"],
                     )
+                elif btype == "thinking":
+                    open_thinking_blocks[idx] = {"text_buffer": "", "signature": None}
+                    yield ReasoningStartEvent()
                 # text blocks: nothing to emit at start; deltas will fire
                 continue
 
@@ -323,6 +353,16 @@ class Anthropic(LLMClient):
                             id=open_tool_blocks[idx]["id"],
                             partial_json=fragment,
                         )
+                elif dtype == "thinking_delta":
+                    text = getattr(delta, "thinking", "") or ""
+                    if idx in open_thinking_blocks and text:
+                        open_thinking_blocks[idx]["text_buffer"] += text
+                        yield ReasoningDeltaEvent(text=text)
+                elif dtype == "signature_delta":
+                    # Signature arrives as a delta on the thinking block
+                    sig = getattr(delta, "signature", "") or ""
+                    if idx in open_thinking_blocks and sig:
+                        open_thinking_blocks[idx]["signature"] = sig
                 continue
 
             if ctype == "content_block_stop":
@@ -338,6 +378,12 @@ class Anthropic(LLMClient):
                         id=pending["id"],
                         name=pending["name"],
                         input=parsed,
+                    )
+                elif idx in open_thinking_blocks:
+                    pending = open_thinking_blocks.pop(idx)
+                    yield ReasoningCompleteEvent(
+                        text=pending["text_buffer"],
+                        signature=pending.get("signature"),
                     )
                 continue
 

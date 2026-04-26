@@ -16,8 +16,11 @@ remains unchanged.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import AsyncIterator, Callable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +29,9 @@ from app.ai.llm.types import (
     LLMStreamEvent,
     Message,
     MessageStopEvent,
+    ReasoningCompleteEvent,
+    ReasoningDeltaEvent,
+    ReasoningStartEvent,
     TextDeltaEvent,
     ToolSpec,
     ToolUseCompleteEvent,
@@ -86,6 +92,7 @@ class PlannerV3:
         self,
         planner_input: PlannerInput,
         sigkill_event: asyncio.Event,
+        thinking: Optional[dict] = None,
     ) -> AsyncIterator[PlannerEvent]:
         v3_input = self.prompt_builder.build(planner_input)
 
@@ -131,6 +138,7 @@ class PlannerV3:
                 system=v3_input.system,
                 tools=tools,
                 images=v3_input.images,
+                thinking=thinking,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,
@@ -175,6 +183,35 @@ class PlannerV3:
                     # Not parsed yet — defer to ToolUseCompleteEvent
                     continue
 
+                if isinstance(evt, ReasoningStartEvent):
+                    if state.first_token_time is None:
+                        state.first_token_time = time.monotonic()
+                    if state.reasoning_start_time is None:
+                        state.reasoning_start_time = time.monotonic()
+                    continue
+
+                if isinstance(evt, ReasoningDeltaEvent):
+                    if state.first_token_time is None:
+                        state.first_token_time = time.monotonic()
+                    state.thinking_buffer += evt.text
+                    completion_tokens += estimate_tokens_fast(evt.text)
+                    # Emit a decision.partial so agent_v2's plan_streamer paints
+                    # the streaming reasoning into the UI's thinking-box. The
+                    # streamer reads decision.reasoning_message — see
+                    # _build_decision below.
+                    yield PlannerDecisionEvent(
+                        type="planner.decision.partial",
+                        data=self._build_decision(state, completed_action, stop_reason, is_final=False),
+                    )
+                    continue
+
+                if isinstance(evt, ReasoningCompleteEvent):
+                    # Buffer is already filled by deltas. Mark reasoning end so
+                    # metrics (thinking_ms) reflect the full block duration.
+                    if state.reasoning_end_time is None:
+                        state.reasoning_end_time = time.monotonic()
+                    continue
+
                 if isinstance(evt, ToolUseCompleteEvent):
                     completed_action = Action(
                         type="tool_call",
@@ -201,6 +238,10 @@ class PlannerV3:
                     continue
 
         except Exception as exc:
+            logger.warning(
+                "[planner_v3] stream loop failed: %r (thinking=%s)",
+                exc, thinking,
+            )
             err = PlannerError(code="stream_error", message=str(exc))
             decision = PlannerDecision(
                 analysis_complete=False,
@@ -256,9 +297,12 @@ class PlannerV3:
 
         # All assistant text — pre-tool or end_turn — flows into assistant_message.
         # Distinction "is this final" lives on analysis_complete.
-        # reasoning_message and final_answer are kept on the schema for v2
-        # compatibility but are always None on the v3 path.
+        # final_answer is kept on the schema for v2 compatibility but is None
+        # on v3. reasoning_message carries provider-native extended-thinking
+        # text (Anthropic thinking blocks) when the caller opted in via the
+        # ``thinking`` config; otherwise it stays None.
         assistant_message: Optional[str] = state.reasoning_buffer.strip() or None
+        reasoning_message: Optional[str] = state.thinking_buffer.strip() or None
 
         metrics: Optional[PlannerMetrics] = None
         if is_final and state.start_time is not None:
@@ -287,7 +331,7 @@ class PlannerV3:
             return PlannerDecision(
                 analysis_complete=analysis_complete,
                 plan_type=plan_type,
-                reasoning_message=None,        # v3: collapsed into assistant_message
+                reasoning_message=reasoning_message,  # provider-native thinking, when enabled
                 assistant_message=assistant_message,
                 action=action,
                 final_answer=None,             # v3: collapsed into assistant_message
@@ -295,6 +339,10 @@ class PlannerV3:
                 metrics=metrics,
             )
         except Exception as exc:
+            logger.warning(
+                "[planner_v3] decision build failed (is_final=%s): %r",
+                is_final, exc,
+            )
             return PlannerDecision(
                 analysis_complete=False,
                 streaming_complete=is_final,

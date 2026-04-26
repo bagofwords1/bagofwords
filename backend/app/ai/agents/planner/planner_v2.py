@@ -73,6 +73,7 @@ class PlannerV2:
         self,
         planner_input: PlannerInput,
         sigkill_event: asyncio.Event,
+        thinking: Optional[dict] = None,  # accepted for parity with v3; ignored on legacy path
     ) -> AsyncIterator[PlannerEvent]:
         # Initialize state with Pydantic input
         state = PlannerState(

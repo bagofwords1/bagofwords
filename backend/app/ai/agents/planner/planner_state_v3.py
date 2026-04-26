@@ -16,6 +16,9 @@ class PlannerStateV3:
     reasoning_buffer: str = ""
     # Final-answer text accumulator (text deltas when the model is finishing without a tool)
     final_buffer: str = ""
+    # Provider-native extended-thinking accumulator (Anthropic thinking blocks).
+    # Distinct from reasoning_buffer (which holds assistant text fragments).
+    thinking_buffer: str = ""
     # Have we seen a tool_use_start yet? Determines which buffer text deltas go to.
     saw_tool_use: bool = False
     # Reasoning timing

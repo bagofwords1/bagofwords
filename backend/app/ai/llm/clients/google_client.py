@@ -163,6 +163,7 @@ class Google(LLMClient):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
+        thinking: Optional[dict] = None,  # accepted for parity; not yet wired (uses fixed thinking_budget below)
     ) -> AsyncIterator[LLMStreamEvent]:
         thinking_budget = 128 if "pro" in model_id else 0
         config_kwargs: dict = {

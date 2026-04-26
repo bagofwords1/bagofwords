@@ -280,6 +280,7 @@ class LLM:
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
+        thinking: Optional[dict] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
@@ -315,6 +316,7 @@ class LLM:
                     system=system,
                     tools=tools,
                     images=images,
+                    thinking=thinking,
                 ):
                     if not ttft_recorded and getattr(evt, "type", None) in (
                         "text_delta",

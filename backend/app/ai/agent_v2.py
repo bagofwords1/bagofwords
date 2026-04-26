@@ -8,6 +8,69 @@ from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
+
+# Substring triggers that bump a completion's reasoning_effort to "high".
+# Matched case-insensitive against the user-submitted prompt text only —
+# not system prompts, instructions, or rendered context. See
+# _detect_thinking_trigger / _resolve_reasoning_effort below.
+THINKING_TRIGGERS = (
+    "think hard",
+    "think harder",
+    "ultrathink",
+    "think step by step",
+    "think carefully",
+    "think deeply",
+    "deep dive",
+    "be thorough",
+)
+
+# Map a user-facing effort level to the Anthropic ``thinking`` request param.
+# "off" returns None (no thinking sent). Anthropic 4.6+ supports
+# ``adaptive`` (model decides budget); older 4.x needs an explicit
+# budget_tokens. We use adaptive when reasonable so the model self-regulates.
+def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -> Optional[dict]:
+    if not effort or effort == "off":
+        return None
+    e = str(effort).lower()
+    supports_adaptive = bool(model_id) and any(
+        tag in model_id for tag in ("sonnet-4-6", "opus-4-6", "opus-4-7", "sonnet-4-7")
+    )
+    if e == "low":
+        if supports_adaptive:
+            return {"type": "adaptive"}
+        return {"type": "enabled", "budget_tokens": 1024}
+    if e == "medium":
+        if supports_adaptive:
+            return {"type": "adaptive"}
+        return {"type": "enabled", "budget_tokens": 5000}
+    if e == "high":
+        return {"type": "enabled", "budget_tokens": 15000}
+    return None
+
+
+def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
+    if not prompt_text:
+        return False
+    p = prompt_text.lower()
+    return any(kw in p for kw in THINKING_TRIGGERS)
+
+
+def _resolve_reasoning_effort(
+    *,
+    per_completion: Optional[str],
+    prompt_text: Optional[str],
+    model_default: Optional[str],
+) -> str:
+    """Resolution order: per-completion > trigger words > model default > off."""
+    if per_completion:
+        return per_completion.lower()
+    if _detect_thinking_trigger(prompt_text):
+        return "high"
+    if model_default:
+        return str(model_default).lower()
+    return "off"
+
+
 from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
@@ -1223,6 +1286,39 @@ class AgentV2:
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
 
+            # Resolve extended-thinking effort once per completion. Order:
+            #   per-completion prompt.reasoning_effort > trigger words > model.config.reasoning_effort > "off"
+            # Only Anthropic honors the resulting thinking config today;
+            # other providers receive None / ignore. See _effort_to_thinking_config.
+            _per_completion_effort = (
+                self.head_completion.prompt.get("reasoning_effort")
+                if self.head_completion.prompt else None
+            )
+            _model_default_effort = None
+            try:
+                _mcfg = getattr(self.model, "config", None) or {}
+                if isinstance(_mcfg, dict):
+                    _model_default_effort = _mcfg.get("reasoning_effort")
+            except Exception:
+                _model_default_effort = None
+            self._reasoning_effort = _resolve_reasoning_effort(
+                per_completion=_per_completion_effort,
+                prompt_text=prompt_text,
+                model_default=_model_default_effort,
+            )
+            _model_id = getattr(self.model, "model_id", None) if self.model else None
+            self._thinking_config = _effort_to_thinking_config(self._reasoning_effort, _model_id)
+            logger.info(
+                "[agent] reasoning_effort resolved=%s thinking=%s model=%s "
+                "(per_completion=%s trigger=%s model_default=%s)",
+                self._reasoning_effort,
+                self._thinking_config,
+                _model_id,
+                _per_completion_effort,
+                _detect_thinking_trigger(prompt_text),
+                _model_default_effort,
+            )
+
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
             await asyncio.gather(
@@ -1596,7 +1692,11 @@ class AgentV2:
                     except Exception as _cexc:
                         logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
 
-                async for evt in self.planner.execute(planner_input, self.sigkill_event):
+                async for evt in self.planner.execute(
+                    planner_input,
+                    self.sigkill_event,
+                    thinking=self._thinking_config,
+                ):
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
                         break

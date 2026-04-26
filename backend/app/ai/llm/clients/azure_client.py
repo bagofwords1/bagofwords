@@ -187,6 +187,7 @@ class AzureClient(LLMClient):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
+        thinking: Optional[dict] = None,  # accepted for parity; not yet wired
     ) -> AsyncIterator[LLMStreamEvent]:
         oai_messages: list[dict] = []
         if system:

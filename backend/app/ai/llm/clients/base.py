@@ -29,11 +29,19 @@ class LLMClient(ABC):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
+        thinking: Optional[dict] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming inference with native tool_use support.
 
         Default raises NotImplementedError so providers can opt in incrementally.
         Yields :class:`LLMStreamEvent` instances.
+
+        ``thinking`` is a provider-shaped dict opting into extended/adaptive
+        thinking. Only Anthropic honors it for now; other providers receive
+        the kwarg but ignore it. Shapes:
+          - {"type": "adaptive"}                          # Anthropic 4.6+
+          - {"type": "enabled", "budget_tokens": 5000}    # explicit budget
+        ``display`` defaults to "summarized" so the UI gets readable text.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement inference_stream_v2"
