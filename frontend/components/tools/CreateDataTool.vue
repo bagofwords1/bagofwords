@@ -12,13 +12,15 @@
       <span v-else-if="status === 'stopped'" class="text-gray-700 italic">{{ $t('tools.createData.creating') }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700">{{ $t('tools.createData.create') }}</span>
       <span v-else class="text-gray-700">{{ $t('tools.createData.create') }}</span>
-      <template v-if="groupedTables.length">
-        <template v-for="(group, gidx) in groupedTables" :key="gidx">
-          <span v-if="gidx > 0" class="ms-1 text-gray-300">|</span>
-          <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.names.join(', ')" />
-          <span class="ms-1 text-gray-500">{{ group.names.join(', ') }}</span>
-        </template>
-      </template>
+      <Transition name="fade-in" appear>
+        <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap">
+          <template v-for="(group, gidx) in groupedTables" :key="gidx">
+            <span v-if="gidx > 0" class="ms-1 text-gray-300">|</span>
+            <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.names.join(', ')" />
+            <span class="ms-1 text-gray-500">{{ group.names.join(', ') }}</span>
+          </template>
+        </span>
+      </Transition>
       <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 

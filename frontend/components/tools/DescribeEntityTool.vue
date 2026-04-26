@@ -6,7 +6,11 @@
         <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-gray-400" />
-          Loading from catalog: "{{ entityTitle }}"…
+          <span>Loading from catalog: "</span>
+          <Transition name="fade-in" mode="out-in">
+            <span :key="entityTitle || ''">{{ entityTitle }}</span>
+          </Transition>
+          <span>"…</span>
         </span>
         <span v-else class="flex items-center" :class="hasErrors ? 'text-red-600' : 'text-gray-700'">
           <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
