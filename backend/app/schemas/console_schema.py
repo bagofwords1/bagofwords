@@ -93,6 +93,8 @@ class LLMUsageItem(BaseModel):
     total_calls: int
     prompt_tokens: int
     completion_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
     total_tokens: int
     input_cost_usd: float
     output_cost_usd: float
@@ -103,6 +105,8 @@ class LLMUsageMetrics(BaseModel):
     total_calls: int
     total_prompt_tokens: int
     total_completion_tokens: int
+    total_cache_read_tokens: int
+    total_cache_creation_tokens: int
     total_cost_usd: float
     date_range: DateRange
 

@@ -935,6 +935,8 @@ class ConsoleService:
         output_cost_expr = func.coalesce(func.sum(LLMUsageRecord.output_cost_usd), 0)
         prompt_tokens_expr = func.coalesce(func.sum(LLMUsageRecord.prompt_tokens), 0)
         completion_tokens_expr = func.coalesce(func.sum(LLMUsageRecord.completion_tokens), 0)
+        cache_read_tokens_expr = func.coalesce(func.sum(LLMUsageRecord.cache_read_tokens), 0)
+        cache_creation_tokens_expr = func.coalesce(func.sum(LLMUsageRecord.cache_creation_tokens), 0)
 
         usage_query = (
             select(
@@ -945,6 +947,8 @@ class ConsoleService:
                 func.count(LLMUsageRecord.id).label('total_calls'),
                 prompt_tokens_expr.label('prompt_tokens'),
                 completion_tokens_expr.label('completion_tokens'),
+                cache_read_tokens_expr.label('cache_read_tokens'),
+                cache_creation_tokens_expr.label('cache_creation_tokens'),
                 input_cost_expr.label('input_cost'),
                 output_cost_expr.label('output_cost'),
                 total_cost_expr.label('total_cost'),
@@ -971,14 +975,20 @@ class ConsoleService:
         total_calls = 0
         total_prompt_tokens = 0
         total_completion_tokens = 0
+        total_cache_read_tokens = 0
+        total_cache_creation_tokens = 0
         total_cost_usd = 0.0
 
         for row in rows:
             prompt_tokens = int(row.prompt_tokens or 0)
             completion_tokens = int(row.completion_tokens or 0)
+            cache_read_tokens = int(row.cache_read_tokens or 0)
+            cache_creation_tokens = int(row.cache_creation_tokens or 0)
             total_calls += int(row.total_calls or 0)
             total_prompt_tokens += prompt_tokens
             total_completion_tokens += completion_tokens
+            total_cache_read_tokens += cache_read_tokens
+            total_cache_creation_tokens += cache_creation_tokens
             input_cost = float(row.input_cost or 0)
             output_cost = float(row.output_cost or 0)
             total_cost = float(row.total_cost or 0)
@@ -993,7 +1003,9 @@ class ConsoleService:
                     total_calls=int(row.total_calls or 0),
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
-                    total_tokens=prompt_tokens + completion_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_creation_tokens=cache_creation_tokens,
+                    total_tokens=prompt_tokens + completion_tokens + cache_read_tokens + cache_creation_tokens,
                     input_cost_usd=input_cost,
                     output_cost_usd=output_cost,
                     total_cost_usd=total_cost,
@@ -1005,6 +1017,8 @@ class ConsoleService:
             total_calls=total_calls,
             total_prompt_tokens=total_prompt_tokens,
             total_completion_tokens=total_completion_tokens,
+            total_cache_read_tokens=total_cache_read_tokens,
+            total_cache_creation_tokens=total_cache_creation_tokens,
             total_cost_usd=total_cost_usd,
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
         )

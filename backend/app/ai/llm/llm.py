@@ -303,6 +303,8 @@ class LLM:
                 else 0
             )
             completion_tokens = 0
+            cache_read_tokens = 0
+            cache_creation_tokens = 0
             stream_start = time.monotonic()
             ttft_recorded = False
 
@@ -328,13 +330,13 @@ class LLM:
                             prompt_tokens = evt.input_tokens
                         if evt.output_tokens:
                             completion_tokens = evt.output_tokens
-                        # Surface cache hit/write counts on the OTEL span so we
-                        # can observe cache effectiveness without a DB column.
                         if evt.cache_read_tokens:
-                            span.set_attribute("llm.cache_read_tokens", evt.cache_read_tokens)
+                            cache_read_tokens = evt.cache_read_tokens
+                            span.set_attribute("llm.cache_read_tokens", cache_read_tokens)
                         if evt.cache_creation_tokens:
+                            cache_creation_tokens = evt.cache_creation_tokens
                             span.set_attribute(
-                                "llm.cache_creation_tokens", evt.cache_creation_tokens
+                                "llm.cache_creation_tokens", cache_creation_tokens
                             )
 
                     yield evt
@@ -361,6 +363,8 @@ class LLM:
                 scope_ref_id=usage_scope_ref_id,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_creation_tokens=cache_creation_tokens,
                 should_record=should_record,
             )
 
@@ -449,6 +453,8 @@ class LLM:
         scope_ref_id: Optional[str],
         prompt_tokens: int,
         completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
         should_record: bool,
     ):
         if not should_record or not scope or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
@@ -466,6 +472,8 @@ class LLM:
                         llm_model=self.model,
                         prompt_tokens=prompt_tokens or 0,
                         completion_tokens=completion_tokens or 0,
+                        cache_read_tokens=cache_read_tokens or 0,
+                        cache_creation_tokens=cache_creation_tokens or 0,
                     )
                     await session.commit()
             coroutine = _record_usage()
