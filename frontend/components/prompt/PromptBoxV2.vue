@@ -792,7 +792,7 @@ const modeIcon = computed(() => {
 
 // Permission check for training mode - requires permission, allow_llm_see_data, and enable_training_mode enabled
 const { allowLlmSeeData, isTrainingModeEnabled } = useOrgSettings()
-const canUseTrainingMode = computed(() => useCan('train_mode') && allowLlmSeeData.value && isTrainingModeEnabled.value)
+const canUseTrainingMode = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
 
 // Model selector state - fetch from backend
 const models = ref<any[]>([])

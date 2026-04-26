@@ -136,6 +136,14 @@ class AgentV2:
         all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode, platform=self.platform)
         all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode, platform=self.platform))
 
+        # Hide tools that read raw data when the org has disabled LLM data access.
+        # The tool itself also self-blocks at runtime, but excluding it from the
+        # catalog keeps the planner from advertising/attempting it.
+        allow_llm_see_data_cfg = self.organization_settings.get_config("allow_llm_see_data") if self.organization_settings else None
+        allow_llm_see_data = getattr(allow_llm_see_data_cfg, "value", True) if allow_llm_see_data_cfg is not None else True
+        if not allow_llm_see_data:
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'inspect_data']
+
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
         unique_catalog = []

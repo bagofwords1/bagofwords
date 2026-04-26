@@ -478,20 +478,6 @@ class ReportService:
                             status_code=400,
                             detail="Training mode is not enabled for this organization"
                         )
-
-                    # Check allow_llm_see_data flag
-                    allow_llm_see_data = org_settings.get_config("allow_llm_see_data")
-                    llm_see_data_disabled = False
-                    if allow_llm_see_data is not None:
-                        if hasattr(allow_llm_see_data, 'value'):
-                            llm_see_data_disabled = allow_llm_see_data.value is False
-                        elif isinstance(allow_llm_see_data, dict):
-                            llm_see_data_disabled = allow_llm_see_data.get('value') is False
-                    if llm_see_data_disabled:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Training mode is not available when 'Allow LLM to see data' is disabled"
-                        )
             report.mode = report_data.mode
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
