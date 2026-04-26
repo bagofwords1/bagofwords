@@ -3,6 +3,10 @@
 ## Version 0.0.365 (April 26, 2026)
 - Performance improvements
 - Change to a faster token counter approach
+- Planner v3 (native Anthropic tool_use) is now the default; set `BOW_PLANNER=v2` to fall back to the legacy JSON-envelope planner
+- Anthropic prompt caching on planner system prompt + tool catalog; `cached_tokens` instrumentation for OpenAI/Azure
+- Async DB writes for `finish_tool_execution` + `upsert_block_for_tool` (next planner call no longer blocks on the prior turn's persistence)
+- Measured impact (3/3 trial pass rate, identical plans/SQL): per-trial cost -69% on both Haiku 4.5 and Sonnet 4.6; wall-clock -29% on Sonnet, -5% on Haiku; input tokens -73%
 
 ## Version 0.0.364 (April 25, 2026)
 - feat: evals tools for training mode

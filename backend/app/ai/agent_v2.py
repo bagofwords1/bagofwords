@@ -162,24 +162,24 @@ class AgentV2:
                 seen_tools.add(tool['name'])
 
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
-        # BOW_PLANNER selects the planner implementation. Default v2 (legacy
-        # JSON envelope). Set BOW_PLANNER=v3 to use the native tool_use
-        # planner. Other values fall back to v2 with a warning.
-        planner_version = os.environ.get("BOW_PLANNER", "v2").strip().lower()
-        if planner_version in ("v3", "3"):
-            logger.info("[agent] using planner_v3 (native tool_use)")
-            self.planner = PlannerV3(
+        # BOW_PLANNER selects the planner implementation. Default v3 (native
+        # tool_use). Set BOW_PLANNER=v2 to fall back to the legacy JSON
+        # envelope planner. Other values fall back to v3 with a warning.
+        planner_version = os.environ.get("BOW_PLANNER", "v3").strip().lower()
+        if planner_version in ("v2", "2"):
+            logger.info("[agent] using planner_v2 (legacy JSON envelope)")
+            self.planner = PlannerV2(
                 model=self.model,
                 tool_catalog=tool_catalog,
                 usage_session_maker=async_session_maker,
             )
         else:
-            if planner_version not in ("v2", "2", ""):
+            if planner_version not in ("v3", "3", ""):
                 logger.warning(
-                    "[agent] unknown BOW_PLANNER=%r, falling back to v2",
+                    "[agent] unknown BOW_PLANNER=%r, falling back to v3",
                     planner_version,
                 )
-            self.planner = PlannerV2(
+            self.planner = PlannerV3(
                 model=self.model,
                 tool_catalog=tool_catalog,
                 usage_session_maker=async_session_maker,
