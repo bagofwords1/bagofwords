@@ -121,6 +121,8 @@ class PlannerV3:
         stop_reason: Optional[str] = None
         final_prompt_tokens = prompt_tokens_est
         final_completion_tokens = 0
+        final_cache_read_tokens = 0
+        final_cache_creation_tokens = 0
 
         try:
             async for evt in self.llm.inference_stream_v2(
@@ -192,6 +194,10 @@ class PlannerV3:
                 if isinstance(evt, UsageEvent):
                     final_prompt_tokens = evt.input_tokens or final_prompt_tokens
                     final_completion_tokens = evt.output_tokens or final_completion_tokens
+                    if evt.cache_read_tokens:
+                        final_cache_read_tokens = evt.cache_read_tokens
+                    if evt.cache_creation_tokens:
+                        final_cache_creation_tokens = evt.cache_creation_tokens
                     continue
 
         except Exception as exc:
@@ -216,6 +222,8 @@ class PlannerV3:
             is_final=True,
             prompt_tokens=final_prompt_tokens or prompt_tokens_est,
             completion_tokens=final_completion_tokens or completion_tokens,
+            cache_read_tokens=final_cache_read_tokens,
+            cache_creation_tokens=final_cache_creation_tokens,
         )
         yield PlannerDecisionEvent(type="planner.decision.final", data=final_decision)
 
@@ -231,6 +239,8 @@ class PlannerV3:
         is_final: bool,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ) -> PlannerDecision:
         # analysis_complete: stop_reason="end_turn" AND no action
         analysis_complete = (stop_reason == "end_turn") and (action is None)
@@ -268,6 +278,8 @@ class PlannerV3:
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=prompt_tokens + completion_tokens,
+                    cache_read_tokens=cache_read_tokens or None,
+                    cache_creation_tokens=cache_creation_tokens or None,
                 ) if is_final else None,
             )
 

@@ -328,6 +328,14 @@ class LLM:
                             prompt_tokens = evt.input_tokens
                         if evt.output_tokens:
                             completion_tokens = evt.output_tokens
+                        # Surface cache hit/write counts on the OTEL span so we
+                        # can observe cache effectiveness without a DB column.
+                        if evt.cache_read_tokens:
+                            span.set_attribute("llm.cache_read_tokens", evt.cache_read_tokens)
+                        if evt.cache_creation_tokens:
+                            span.set_attribute(
+                                "llm.cache_creation_tokens", evt.cache_creation_tokens
+                            )
 
                     yield evt
             except Exception as e:

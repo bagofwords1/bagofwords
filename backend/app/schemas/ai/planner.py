@@ -24,6 +24,8 @@ class TokenUsage(BaseModel):
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    cache_creation_tokens: Optional[int] = None
 
 
 class PlannerMetrics(BaseModel):

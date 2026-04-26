@@ -115,10 +115,25 @@ class AzureClient(LLMClient):
     def _extract_usage(raw: Any) -> LLMUsage:
         if raw is None:
             return LLMUsage()
+        # Azure OpenAI runs on the same backend as OpenAI; prompt caching is
+        # automatic on prefixes >= 1024 tokens, exposed via
+        # prompt_tokens_details.cached_tokens. 50% input discount on hit.
         if isinstance(raw, dict):
             prompt = raw.get("prompt_tokens") or 0
             completion = raw.get("completion_tokens") or 0
-            return LLMUsage(prompt_tokens=int(prompt or 0), completion_tokens=int(completion or 0))
+            details = raw.get("prompt_tokens_details") or {}
+            cache_read = (details.get("cached_tokens") if isinstance(details, dict) else 0) or 0
+            return LLMUsage(
+                prompt_tokens=int(prompt or 0),
+                completion_tokens=int(completion or 0),
+                cache_read_tokens=int(cache_read or 0),
+            )
         prompt = getattr(raw, "prompt_tokens", 0) or getattr(raw, "prompt_tokens_cost", 0) or 0
         completion = getattr(raw, "completion_tokens", 0) or getattr(raw, "completion_tokens_cost", 0) or 0
-        return LLMUsage(prompt_tokens=int(prompt or 0), completion_tokens=int(completion or 0))
+        details = getattr(raw, "prompt_tokens_details", None)
+        cache_read = getattr(details, "cached_tokens", 0) if details is not None else 0
+        return LLMUsage(
+            prompt_tokens=int(prompt or 0),
+            completion_tokens=int(completion or 0),
+            cache_read_tokens=int(cache_read or 0),
+        )

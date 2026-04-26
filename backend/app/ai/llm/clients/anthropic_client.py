@@ -123,10 +123,19 @@ class Anthropic(LLMClient):
             return LLMUsage(
                 prompt_tokens=int(raw.get("input_tokens", 0) or 0),
                 completion_tokens=int(raw.get("output_tokens", 0) or 0),
+                cache_read_tokens=int(raw.get("cache_read_input_tokens", 0) or 0),
+                cache_creation_tokens=int(raw.get("cache_creation_input_tokens", 0) or 0),
             )
         prompt = getattr(raw, "input_tokens", 0)
         completion = getattr(raw, "output_tokens", 0)
-        return LLMUsage(prompt_tokens=int(prompt or 0), completion_tokens=int(completion or 0))
+        cache_read = getattr(raw, "cache_read_input_tokens", 0)
+        cache_create = getattr(raw, "cache_creation_input_tokens", 0)
+        return LLMUsage(
+            prompt_tokens=int(prompt or 0),
+            completion_tokens=int(completion or 0),
+            cache_read_tokens=int(cache_read or 0),
+            cache_creation_tokens=int(cache_create or 0),
+        )
 
     async def test_connection(self):
         return True
@@ -201,6 +210,7 @@ class Anthropic(LLMClient):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
+        enable_cache: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         # If images supplied, attach them to the last user message as image blocks.
         # (Most callers will embed images directly in messages; this is a back-compat path.)
@@ -230,10 +240,26 @@ class Anthropic(LLMClient):
             "temperature": self.temperature,
             "stream": True,
         }
+
+        # Prompt caching: place a cache_control breakpoint on the system block
+        # and on the last tool. This caches the entire (system + tools) prefix.
+        # Both blocks are static across iterations within a session, so the
+        # prefix is byte-identical → cache hits on iteration 2+.
+        # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
         if system:
-            request_kwargs["system"] = system
+            if enable_cache:
+                request_kwargs["system"] = [
+                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}},
+                ]
+            else:
+                request_kwargs["system"] = system
         if tools:
-            request_kwargs["tools"] = self._translate_tools(tools)
+            translated = self._translate_tools(tools)
+            if enable_cache and translated:
+                # Put the breakpoint on the LAST tool — Anthropic caches everything
+                # up to and including the marked block.
+                translated[-1] = {**translated[-1], "cache_control": {"type": "ephemeral"}}
+            request_kwargs["tools"] = translated
 
         # Per-tool-call accumulators keyed by content_block index
         # value: {"id": str, "name": str, "input_buffer": str}
@@ -241,6 +267,8 @@ class Anthropic(LLMClient):
 
         prompt_tokens = 0
         completion_tokens = 0
+        cache_read_tokens = 0
+        cache_creation_tokens = 0
 
         stream = await self.async_client.messages.create(**request_kwargs)
 
@@ -252,6 +280,10 @@ class Anthropic(LLMClient):
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
+                if usage.cache_read_tokens:
+                    cache_read_tokens = usage.cache_read_tokens
+                if usage.cache_creation_tokens:
+                    cache_creation_tokens = usage.cache_creation_tokens
                 continue
 
             if ctype == "content_block_start":
@@ -317,6 +349,10 @@ class Anthropic(LLMClient):
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
+                if usage.cache_read_tokens:
+                    cache_read_tokens = usage.cache_read_tokens
+                if usage.cache_creation_tokens:
+                    cache_creation_tokens = usage.cache_creation_tokens
                 if stop_reason:
                     yield MessageStopEvent(
                         stop_reason=_STOP_REASON_MAP.get(stop_reason, "other")
@@ -328,7 +364,17 @@ class Anthropic(LLMClient):
                 continue
 
         # Emit final usage event after the stream ends
-        yield UsageEvent(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        yield UsageEvent(
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
         self._set_last_usage(
-            LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+            LLMUsage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_creation_tokens=cache_creation_tokens,
+            )
         )

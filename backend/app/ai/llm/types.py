@@ -6,6 +6,13 @@ from typing import Any, Literal, Optional, Union
 class LLMUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Prompt caching (Anthropic native, OpenAI/Azure automatic, Bedrock-Claude).
+    # cache_read_tokens: tokens served from cache (billed at provider's reduced rate).
+    # cache_creation_tokens: tokens written to cache on this call (Anthropic charges
+    # 1.25x normal input for these). Both are subsets of prompt_tokens conceptually,
+    # though providers report them differently — see per-client _extract_usage.
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -114,6 +121,8 @@ class MessageStopEvent:
 class UsageEvent:
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
     type: Literal["usage"] = "usage"
 
 

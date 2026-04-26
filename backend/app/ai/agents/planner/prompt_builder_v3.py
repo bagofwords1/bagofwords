@@ -86,8 +86,12 @@ class PromptBuilderV3:
         if row_limit and row_limit > 0:
             row_limit_text = f"ROW LIMIT POLICY SET BY ORG: {row_limit}\n"
 
+        # NOTE: do NOT embed wall-clock time in the system prompt — it would
+        # invalidate Anthropic's prompt cache on every call. The current date
+        # is rendered into the per-turn user message instead (see
+        # _build_user_message). Date-level granularity is sufficient for the
+        # model's "what is today" reasoning and changes rarely.
         system = f"""SYSTEM
-Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
 Mode: {mode_label}
 
 You are an AI Analytics Agent. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
@@ -199,7 +203,13 @@ Examples of good behavior:
 
         platform = planner_input.external_platform or "default"
 
-        parts: List[str] = []
+        # Per-turn timestamp — lives in the user message (which is below the
+        # cache breakpoint) so it doesn't invalidate the cached system prefix.
+        now = datetime.now()
+        tz = now.astimezone().tzinfo
+        time_block = f"<time>{now.strftime('%Y-%m-%d %H:%M:%S')} ({tz})</time>"
+
+        parts: List[str] = [time_block]
         parts.append(PromptBuilder._format_user_prompt(planner_input))
         if images_context:
             parts.append(images_context)
