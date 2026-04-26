@@ -2,6 +2,7 @@ from app.models.completion import Completion
 from app.models.text_widget import TextWidget
 from sqlalchemy.orm import Session
 import datetime
+import json
 from app.schemas.completion_schema import PromptSchema
 from typing import List, Optional
 from app.services.instruction_service import InstructionService
@@ -961,6 +962,83 @@ class ProjectManager:
         )
         # Not added to db — finish_tool_execution will do the single INSERT.
         return tool_exec
+
+    @staticmethod
+    def _configure_finished_tool_execution(
+        tool_execution,
+        result_model=None,
+        summary: str | None = None,
+        created_widget_id: str | None = None,
+        created_step_id: str | None = None,
+        created_visualization_ids: list[str] | None = None,
+        error_message: str | None = None,
+        success: bool = True,
+        sub_timings_json: dict | None = None,
+        context_snapshot_id: str | None = None,
+        token_usage_json: dict | None = None,
+    ):
+        """Mutate an in-memory ToolExecution to its finished state (no DB I/O).
+
+        Used by the agent loop to set fields synchronously so downstream
+        sync code (e.g. tool.finished SSE) can read final values like
+        duration_ms, while the actual DB INSERT is performed in a
+        background task. Mirrors the field-setting half of
+        :meth:`finish_tool_execution`.
+        """
+        # Normalize result_model -> dict (mirrors finish_tool_execution_from_models)
+        if result_model and hasattr(result_model, 'model_dump'):
+            result_json = result_model.model_dump()
+        elif isinstance(result_model, dict):
+            try:
+                json.dumps(result_model, default=str)
+                result_json = result_model
+            except Exception:
+                result_json = {"summary": summary or ""}
+        else:
+            result_json = None
+
+        status = 'success' if success else 'error'
+        tool_execution.status = status
+        tool_execution.success = success
+        tool_execution.completed_at = datetime.datetime.utcnow()
+        if tool_execution.started_at:
+            tool_execution.duration_ms = (
+                tool_execution.completed_at - tool_execution.started_at
+            ).total_seconds() * 1000.0
+        tool_execution.result_summary = summary
+        if result_json is not None and created_visualization_ids and isinstance(result_json, dict):
+            result_json = {**result_json, "created_visualization_ids": created_visualization_ids}
+        tool_execution.result_json = result_json
+        tool_execution.created_widget_id = created_widget_id
+        tool_execution.created_step_id = created_step_id
+        try:
+            if created_visualization_ids:
+                refs = tool_execution.artifact_refs_json or {}
+                vis_list = list(refs.get('visualizations') or [])
+                for vid in created_visualization_ids:
+                    if vid and vid not in vis_list:
+                        vis_list.append(vid)
+                refs['visualizations'] = vis_list
+                tool_execution.artifact_refs_json = refs
+        except Exception:
+            pass
+        tool_execution.error_message = error_message
+        tool_execution.token_usage_json = token_usage_json
+        tool_execution.context_snapshot_id = context_snapshot_id
+        tool_execution.sub_timings_json = sub_timings_json
+        return tool_execution
+
+    async def commit_finished_tool_execution(self, db, tool_execution):
+        """Commit a pre-configured (in-memory) ToolExecution to the DB.
+
+        Pairs with :meth:`_configure_finished_tool_execution` to support
+        the agent loop's split sync-mutate / async-commit pattern. The
+        ToolExecution is added to the supplied (background) session and
+        committed there.
+        """
+        db.add(tool_execution)
+        await self._commit_with_timeout(db, "commit_finished_tool_execution")
+        return tool_execution
 
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
                                    result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,

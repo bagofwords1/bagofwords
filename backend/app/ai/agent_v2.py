@@ -94,13 +94,21 @@ class AgentV2:
 
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
-        
+
         # SSE event queue for streaming
         self.event_queue = event_queue
-        
+
         # Agent execution tracking
         self.project_manager = ProjectManager()
         self.current_execution = None
+
+        # Background DB writes scheduled during the loop. Drained before the
+        # final `completion.finished` SSE so the API doesn't return a "done"
+        # signal while writes are still in flight. Failed bg writes are
+        # logged with `[agent.bg_write]` and counted in
+        # `_bg_write_failures` for observability.
+        self._pending_writes: list[asyncio.Task] = []
+        self._bg_write_failures: int = 0
         
         # Widget/step state management
         self.current_widget = None
@@ -1127,6 +1135,61 @@ class AgentV2:
         except Exception:
             pass
 
+    def _schedule_bg_write(self, label: str, coro):
+        """Schedule a background DB write coroutine.
+
+        The coroutine is wrapped so failures are logged with
+        `[agent.bg_write]` rather than escaping (which would crash the
+        event loop). The task is tracked in ``self._pending_writes`` so
+        ``_drain_bg_writes`` can wait on it before
+        ``completion.finished`` is emitted.
+        """
+        async def _runner():
+            try:
+                await coro
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._bg_write_failures += 1
+                logger.error(
+                    "[agent.bg_write] %s failed: %r (failures so far: %d)",
+                    label, exc, self._bg_write_failures,
+                    exc_info=True,
+                )
+        task = asyncio.create_task(_runner(), name=f"agent.bg_write.{label}")
+        self._pending_writes.append(task)
+        return task
+
+    async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
+        """Wait for all scheduled background writes to complete.
+
+        Called before emitting ``completion.finished`` so the API doesn't
+        return a "done" signal while writes are still in flight.
+        Bounded by ``timeout_s`` to avoid hanging the user-facing response
+        on a stuck DB; any tasks still pending after the timeout are
+        logged but not awaited further (they continue running on the loop).
+        """
+        if not self._pending_writes:
+            return
+        pending = list(self._pending_writes)
+        self._pending_writes = []
+        try:
+            done, still_pending = await asyncio.wait(
+                pending,
+                timeout=timeout_s,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            if still_pending:
+                names = [t.get_name() for t in still_pending]
+                logger.warning(
+                    "[agent.bg_write] drain timeout after %.1fs; %d task(s) still pending: %s",
+                    timeout_s, len(still_pending), names,
+                )
+                # Re-park them so the next drain (or another caller) can wait
+                self._pending_writes.extend(still_pending)
+        except Exception as exc:
+            logger.error("[agent.bg_write] drain failed: %r", exc, exc_info=True)
+
     async def main_execution(self):
         try:
             import time as _time
@@ -1770,11 +1833,14 @@ class AgentV2:
                             invalid_retry_count = 0
                             
                             # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
-                            # This unblocks thumbs up/debug icons and stop→submit button
+                            # This unblocks thumbs up/debug icons and stop→submit button.
+                            # Drain pending background writes first so a follow-up
+                            # GET on this completion sees consistent DB state.
                             if self.system_completion and not completion_finished_emitted:
+                                await self._drain_bg_writes()
                                 await self.project_manager.update_completion_status(
-                                    self.db, 
-                                    self.system_completion, 
+                                    self.db,
+                                    self.system_completion,
                                     'success'
                                 )
                                 if self.event_queue:
@@ -1784,7 +1850,7 @@ class AgentV2:
                                         data={"status": "success"}
                                     ))
                                 completion_finished_emitted = True
-                            
+
                             break
                         # Retry flow: action plan with missing action
                         if (getattr(decision, "plan_type", None) == "action") and not action:
@@ -2052,11 +2118,14 @@ class AgentV2:
                                     except Exception:
                                         pass
 
-                            # Emit completion.finished immediately so UI updates
+                            # Emit completion.finished immediately so UI updates.
+                            # Drain pending bg writes first so a follow-up GET
+                            # sees consistent state.
                             if self.system_completion and not completion_finished_emitted:
+                                await self._drain_bg_writes()
                                 await self.project_manager.update_completion_status(
-                                    self.db, 
-                                    self.system_completion, 
+                                    self.db,
+                                    self.system_completion,
                                     'success'
                                 )
                                 if self.event_queue:
@@ -2092,21 +2161,57 @@ class AgentV2:
                         if not created_visualization_ids and getattr(self, 'current_visualization', None):
                             created_visualization_ids = [str(self.current_visualization.id)]
 
-                        # Finish tool execution tracking — single INSERT (write-on-complete).
-                        # context_snapshot_id is written in background below; pass None here.
-                        await self.project_manager.finish_tool_execution_from_models(
-                            self.db,
-                            tool_execution=tool_execution,
-                            result_model=tool_output,
-                            summary=observation.get("summary", "") if observation else "",
-                            created_widget_id=created_widget_id,
-                            created_step_id=created_step_id,
-                            created_visualization_ids=created_visualization_ids,
-                            error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
-                            context_snapshot_id=None,
-                            success=bool(observation and not observation.get("error") and not (observation and observation.get("stopped"))),
-                            sub_timings_json=tool_sub_timings,
+                        # Finish tool execution tracking + update the related
+                        # completion block — both run in one background task so
+                        # the next loop iteration's planner call can start
+                        # immediately. Order matters: the tool_executions INSERT
+                        # must land before the completion_blocks UPDATE (which
+                        # sets the FK to tool_executions.id).
+                        # We set the tool_execution fields here first so the
+                        # synchronous tool.finished SSE below can read in-memory
+                        # values like duration_ms; the bg task only handles the
+                        # DB writes and the block.upsert SSE.
+                        _success_flag = bool(
+                            observation
+                            and not observation.get("error")
+                            and not (observation and observation.get("stopped"))
                         )
+                        _error_msg = (
+                            observation.get("error", {}).get("message")
+                            if observation and observation.get("error") else None
+                        )
+                        _summary = observation.get("summary", "") if observation else ""
+
+                        # Mutate the in-memory tool_execution synchronously so
+                        # downstream sync code (tool.finished SSE) can read its
+                        # final fields. The actual DB INSERT happens in bg.
+                        try:
+                            self.project_manager._configure_finished_tool_execution(
+                                tool_execution,
+                                result_model=tool_output,
+                                summary=_summary,
+                                created_widget_id=created_widget_id,
+                                created_step_id=created_step_id,
+                                created_visualization_ids=created_visualization_ids,
+                                error_message=_error_msg,
+                                success=_success_flag,
+                                sub_timings_json=tool_sub_timings,
+                            )
+                        except AttributeError:
+                            # Fallback if helper isn't wired yet — keep behavior
+                            await self.project_manager.finish_tool_execution_from_models(
+                                self.db,
+                                tool_execution=tool_execution,
+                                result_model=tool_output,
+                                summary=_summary,
+                                created_widget_id=created_widget_id,
+                                created_step_id=created_step_id,
+                                created_visualization_ids=created_visualization_ids,
+                                error_message=_error_msg,
+                                context_snapshot_id=None,
+                                success=_success_flag,
+                                sub_timings_json=tool_sub_timings,
+                            )
 
                         # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
                         _post_snap_exec_id = str(self.current_execution.id)
@@ -2153,25 +2258,54 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Upsert block for tool (synchronous — needed before tool.finished SSE),
-                        # then rebuild transcript in background (aggregation only, not user-facing).
-                        try:
-                            block = await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
-                            if block is not None:
+                        # Persist tool_executions (INSERT) + completion_blocks
+                        # (UPDATE with FK → tool_executions.id) in one bg task.
+                        # Order matters: the INSERT must land first or the
+                        # FK reference fails on Postgres. Both run in the same
+                        # bg session so they share a transaction-ish boundary.
+                        # The block.upsert SSE moves into the bg task too —
+                        # serialize_block_v2 needs the block in DB.
+                        _bg_comp_id = str(self.system_completion.id)
+                        _bg_exec_id = str(self.current_execution.id)
+                        _bg_tool_exec = tool_execution  # in-memory, configured
+
+                        async def _bg_persist_tool():
+                            from app.settings.database import create_async_session_factory as _csf
+                            from app.models.agent_execution import AgentExecution as _AE
+                            from app.models.completion import Completion as _Comp
+                            SessionLocal = _csf()
+                            async with SessionLocal() as bg_db:
+                                # 1. INSERT tool_executions (write-on-complete)
+                                await self.project_manager.commit_finished_tool_execution(
+                                    bg_db, _bg_tool_exec
+                                )
+                                # 2. UPDATE completion_blocks with tool_execution_id FK
+                                bg_exec = await bg_db.get(_AE, _bg_exec_id)
+                                bg_comp = await bg_db.get(_Comp, _bg_comp_id)
+                                if not (bg_exec and bg_comp):
+                                    return
+                                block = await self.project_manager.upsert_block_for_tool(
+                                    bg_db, bg_comp, bg_exec, _bg_tool_exec,
+                                )
+                                if block is None:
+                                    return
+                                # 3. Serialize + emit block.upsert SSE
                                 try:
-                                    block_schema = await serialize_block_v2(self.db, block)
-                                    seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    block_schema = await serialize_block_v2(bg_db, block)
+                                    seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
                                     await self._emit_sse_event(SSEEvent(
                                         event="block.upsert",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
+                                        completion_id=_bg_comp_id,
+                                        agent_execution_id=_bg_exec_id,
                                         seq=seq_blk,
-                                        data={"block": block_schema.model_dump()}
+                                        data={"block": block_schema.model_dump()},
                                     ))
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
+                                except Exception as _e:
+                                    logger.warning(
+                                        f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
+                                    )
+
+                        self._schedule_bg_write("persist_tool", _bg_persist_tool())
                         _rb_tool_comp_id = str(self.system_completion.id)
                         _rb_tool_exec_id = str(self.current_execution.id)
                         async def _bg_rebuild_tool():
@@ -2402,16 +2536,18 @@ class AgentV2:
             except Exception:
                 pass
             
-            # Update system completion status and emit event if not already done
-            # Success case is typically handled earlier in the analysis_complete block for faster UI response
+            # Update system completion status and emit event if not already done.
+            # Success case is typically handled earlier in the analysis_complete block for faster UI response.
+            # Drain pending bg writes so a follow-up GET sees consistent state.
             if self.system_completion and not completion_finished_emitted:
+                await self._drain_bg_writes()
                 completion_status = 'stopped' if self.sigkill_event.is_set() else 'success'
                 await self.project_manager.update_completion_status(
-                    self.db, 
-                    self.system_completion, 
+                    self.db,
+                    self.system_completion,
                     completion_status
                 )
-                
+
                 # Emit completion finished event
                 if self.event_queue:
                     finished_event = SSEEvent(
@@ -2463,7 +2599,12 @@ class AgentV2:
                     self.system_completion, 
                     'error'
                 )
-            # Emit a final completion.finished event with error details for UI consumption
+            # Emit a final completion.finished event with error details for UI consumption.
+            # Best-effort drain of bg writes — bounded so we don't hang the error path.
+            try:
+                await self._drain_bg_writes(timeout_s=3.0)
+            except Exception:
+                pass
             try:
                 if self.event_queue:
                     await self.event_queue.put(SSEEvent(
