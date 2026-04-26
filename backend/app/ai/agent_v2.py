@@ -2278,35 +2278,51 @@ class AgentV2:
                             from app.settings.database import create_async_session_factory as _csf
                             from app.models.agent_execution import AgentExecution as _AE
                             from app.models.completion import Completion as _Comp
-                            SessionLocal = _csf()
-                            async with SessionLocal() as bg_db:
-                                bg_exec = await bg_db.get(_AE, _bg_exec_id)
-                                bg_comp = await bg_db.get(_Comp, _bg_comp_id)
-                                if not (bg_exec and bg_comp):
-                                    return
-                                # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
-                                # in a single transaction: previously these were two
-                                # separate commits, and a failure between them left the
-                                # block's FK NULL on every subsequent refresh.
-                                block = await self.project_manager.commit_tool_and_attach_block(
-                                    bg_db, bg_comp, bg_exec, _bg_tool_exec,
-                                )
-                                if block is None:
-                                    return
+                            _max_retries = 5
+                            _retry_delay = 0.5
+                            for _attempt in range(_max_retries):
                                 try:
-                                    block_schema = await serialize_block_v2(bg_db, block)
-                                    seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
-                                        completion_id=_bg_comp_id,
-                                        agent_execution_id=_bg_exec_id,
-                                        seq=seq_blk,
-                                        data={"block": block_schema.model_dump()},
-                                    ))
-                                except Exception as _e:
-                                    logger.warning(
-                                        f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
-                                    )
+                                    SessionLocal = _csf()
+                                    async with SessionLocal() as bg_db:
+                                        bg_exec = await bg_db.get(_AE, _bg_exec_id)
+                                        bg_comp = await bg_db.get(_Comp, _bg_comp_id)
+                                        if not (bg_exec and bg_comp):
+                                            return
+                                        # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
+                                        # in a single transaction: previously these were two
+                                        # separate commits, and a failure between them left the
+                                        # block's FK NULL on every subsequent refresh.
+                                        block = await self.project_manager.commit_tool_and_attach_block(
+                                            bg_db, bg_comp, bg_exec, _bg_tool_exec,
+                                        )
+                                        if block is None:
+                                            return
+                                        try:
+                                            block_schema = await serialize_block_v2(bg_db, block)
+                                            seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="block.upsert",
+                                                completion_id=_bg_comp_id,
+                                                agent_execution_id=_bg_exec_id,
+                                                seq=seq_blk,
+                                                data={"block": block_schema.model_dump()},
+                                            ))
+                                        except Exception as _e:
+                                            logger.warning(
+                                                f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
+                                            )
+                                        return  # success
+                                except Exception as _retry_exc:
+                                    _is_lock = "database is locked" in str(_retry_exc) or "PendingRollback" in type(_retry_exc).__name__
+                                    if _is_lock and _attempt < _max_retries - 1:
+                                        logger.warning(
+                                            "[agent.bg_write] persist_tool locked, retry %d/%d in %.1fs",
+                                            _attempt + 1, _max_retries, _retry_delay,
+                                        )
+                                        await asyncio.sleep(_retry_delay)
+                                        _retry_delay = min(_retry_delay * 2, 4.0)
+                                        continue
+                                    raise
 
                         self._schedule_bg_write("persist_tool", _bg_persist_tool())
                         _rb_tool_comp_id = str(self.system_completion.id)
