@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import os
 import uuid as _uuid_mod
 from typing import Dict, Optional
 from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
-from app.ai.agents.planner import PlannerV2
+from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
@@ -153,11 +154,28 @@ class AgentV2:
                 seen_tools.add(tool['name'])
 
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
-        self.planner = PlannerV2(
-            model=self.model,
-            tool_catalog=tool_catalog,
-            usage_session_maker=async_session_maker,
-        )
+        # BOW_PLANNER selects the planner implementation. Default v2 (legacy
+        # JSON envelope). Set BOW_PLANNER=v3 to use the native tool_use
+        # planner. Other values fall back to v2 with a warning.
+        planner_version = os.environ.get("BOW_PLANNER", "v2").strip().lower()
+        if planner_version in ("v3", "3"):
+            logger.info("[agent] using planner_v3 (native tool_use)")
+            self.planner = PlannerV3(
+                model=self.model,
+                tool_catalog=tool_catalog,
+                usage_session_maker=async_session_maker,
+            )
+        else:
+            if planner_version not in ("v2", "2", ""):
+                logger.warning(
+                    "[agent] unknown BOW_PLANNER=%r, falling back to v2",
+                    planner_version,
+                )
+            self.planner = PlannerV2(
+                model=self.model,
+                tool_catalog=tool_catalog,
+                usage_session_maker=async_session_maker,
+            )
         
         # Tool runner with enhanced policies
         self.tool_runner = ToolRunner(

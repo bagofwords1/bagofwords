@@ -114,3 +114,20 @@ class PlannerInput(BaseModel):
     platform_context: Optional[Dict[str, Any]] = None
 
 
+class PlannerInputV3(BaseModel):
+    """Structured planner input for planner_v3 (native tool_use path).
+
+    Built by PromptBuilderV3 from a PlannerInput. Same context content, but
+    split into the shape providers' tool_use APIs expect: a system string,
+    a list of structured messages, and a list of tool specs.
+    """
+    system: str
+    messages: List[Dict[str, Any]] = []   # serialized Message objects (role + content)
+    tools: List[Dict[str, Any]] = []      # serialized ToolSpec objects
+
+    # Carry-through fields used by the planner (NOT sent to the LLM as JSON)
+    images: Optional[List[Any]] = None
+    tool_catalog: Optional[List[ToolDescriptor]] = None  # for plan_type derivation
+    mode: Optional[str] = "chat"
+
+

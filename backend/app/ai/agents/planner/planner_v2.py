@@ -1,3 +1,15 @@
+"""Planner v2 — legacy JSON envelope output (DEPRECATED).
+
+Scheduled for deletion at v3 release. Do not extend.
+
+The active planner is :mod:`planner_v3` (native tool_use). v2 remains as a
+fallback gated by the ``BOW_PLANNER`` env var (default v2 today). Once v3 is
+the default and has soaked in prod for one release, this file and
+``prompt_builder.py`` will be removed.
+
+If you need to fix something here that also affects v3, fix it in v3 only —
+v2 stays frozen.
+"""
 import asyncio
 import json
 import time

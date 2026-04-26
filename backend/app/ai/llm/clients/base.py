@@ -1,7 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import AsyncIterator, Optional
 
-from app.ai.llm.types import LLMUsage, ImageInput
+from app.ai.llm.types import (
+    ImageInput,
+    LLMStreamEvent,
+    LLMUsage,
+    Message,
+    ToolSpec,
+)
 
 
 class LLMClient(ABC):
@@ -15,6 +21,26 @@ class LLMClient(ABC):
     @abstractmethod
     def inference_stream(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None):
         pass
+
+    async def inference_stream_v2(
+        self,
+        model_id: str,
+        messages: list[Message],
+        system: Optional[str] = None,
+        tools: Optional[list[ToolSpec]] = None,
+        images: Optional[list[ImageInput]] = None,
+    ) -> AsyncIterator[LLMStreamEvent]:
+        """Streaming inference with native tool_use support.
+
+        Default raises NotImplementedError so providers can opt in incrementally.
+        Yields :class:`LLMStreamEvent` instances.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement inference_stream_v2"
+        )
+        # Make this an async generator for static type checkers
+        if False:  # pragma: no cover
+            yield  # type: ignore[misc]
 
     def _set_last_usage(self, usage: LLMUsage):
         self._last_usage = usage or LLMUsage()
