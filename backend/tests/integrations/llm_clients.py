@@ -423,7 +423,7 @@ async def test_llm_inference_stream_v2_reasoning(provider: str) -> None:
 
     client = get_llm_client(provider, **cfg)
     messages = [Message(role="user", content="Think carefully: what is 15 * 17?")]
-    thinking_config = {"type": "enabled", "budget_tokens": 2000}
+    thinking_config = {"type": "enabled", "budget_tokens": 5000}
 
     logger.info(f"{provider}: Testing inference_stream_v2 reasoning with {model_id}...")
 
