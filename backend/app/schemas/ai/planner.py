@@ -52,7 +52,8 @@ class PlannerDecision(BaseModel):
     plan_type: Optional[Literal["research", "action"]] = None
     reasoning_message: Optional[str] = None
     assistant_message: Optional[str] = None
-    action: Optional[Action] = None
+    action: Optional[Action] = None  # legacy: first action; kept for SSE/UI streaming compatibility
+    actions: List[Action] = []       # all actions when the model emits parallel tool_uses
     final_answer: Optional[str] = None
     streaming_complete: bool = False
     metrics: Optional[PlannerMetrics] = None

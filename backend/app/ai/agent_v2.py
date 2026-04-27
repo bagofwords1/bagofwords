@@ -1760,18 +1760,75 @@ class AgentV2:
                         # Track whether analysis is complete
                         analysis_done = bool(getattr(decision, "analysis_complete", False))
                         
-                        # Retry flow: invalid planner output
+                        # Retry flow: invalid planner output OR underlying LLM error
                         if getattr(decision, "error", None):
+                            err_code = getattr(decision.error, "code", "validation_error")
+                            err_msg = getattr(decision.error, "message", "Invalid planner output")
+                            # If the underlying error is an LLM call failure
+                            # (auth/rate_limit/etc), surface a structured
+                            # llm.error SSE so the UI can show a real toast
+                            # instead of the user seeing a "completed" run
+                            # with empty blocks.
+                            llm_err_payload = None
+                            if err_code == "stream_error":
+                                try:
+                                    from app.ai.llm.errors import classify as _llm_classify
+                                    _provider = getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown"
+                                    _classified = _llm_classify(
+                                        Exception(err_msg),
+                                        provider=_provider,
+                                        model=getattr(self.model, "model_id", None) if self.model else None,
+                                    )
+                                    llm_err_payload = _classified.to_dict()
+                                except Exception as _classify_exc:
+                                    logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+
+                            if llm_err_payload:
+                                try:
+                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="llm.error",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={**llm_err_payload, "context": "planner", "attempt": invalid_retry_count + 1},
+                                    ))
+                                except Exception:
+                                    pass
+
                             if invalid_retry_count >= max_invalid_retries:
-                                # Too many retries, treat as final error
+                                # Too many retries, treat as final error.
+                                # Also flip completion to error status with a
+                                # human-readable message so refresh shows it.
                                 analysis_done = True
                                 await _cancel_skeleton_block("max_invalid_retries")
+                                if self.system_completion:
+                                    try:
+                                        _final_msg = (llm_err_payload or {}).get("message") or err_msg or "Planner failed"
+                                        await self.project_manager.update_completion_status(
+                                            self.db, self.system_completion, 'error'
+                                        )
+                                        await self.project_manager.update_message(
+                                            self.db, self.system_completion, message=_final_msg
+                                        )
+                                        if not completion_finished_emitted and self.event_queue:
+                                            await self.event_queue.put(SSEEvent(
+                                                event="completion.finished",
+                                                completion_id=str(self.system_completion.id),
+                                                data={
+                                                    "status": "error",
+                                                    "error": llm_err_payload or {"code": "validation_error", "message": _final_msg},
+                                                },
+                                            ))
+                                            completion_finished_emitted = True
+                                    except Exception as _stop_exc:
+                                        logger.warning(f"[agent] terminal-error completion update failed: {_stop_exc!r}")
                                 break
                             observation = {
                                 "summary": "Planner output invalid; retrying",
                                 "error": {
-                                    "code": getattr(decision.error, "code", "validation_error"),
-                                    "message": getattr(decision.error, "message", "Invalid planner output"),
+                                    "code": err_code,
+                                    "message": err_msg,
                                 },
                             }
                             invalid_retry_count += 1
@@ -1928,9 +1985,23 @@ class AgentV2:
                                 pass
                         
                         # IMPORTANT: Check for action FIRST before checking analysis_complete.
-                        # The LLM sometimes sets analysis_complete=true when it means "this is the 
+                        # The LLM sometimes sets analysis_complete=true when it means "this is the
                         # final step" rather than "no action needed". If there's an action, execute it.
                         action = decision.action
+                        # If the model ignored the "one tool per turn" rule and emitted
+                        # multiple tool_use blocks, we currently dispatch only the first
+                        # and the model re-emits the rest across subsequent turns.
+                        # Log so the regression is visible in product logs and can be
+                        # tracked. True parallel multi-tool dispatch is a follow-up.
+                        _extra_actions = getattr(decision, "actions", None) or []
+                        if len(_extra_actions) > 1:
+                            logger.warning(
+                                "[agent] planner emitted %d parallel tool_use blocks; "
+                                "running first (%s) only — extras will be retried on subsequent turns: %s",
+                                len(_extra_actions),
+                                action.name if action else "?",
+                                ", ".join(a.name for a in _extra_actions[1:]),
+                            )
                         
                         # Only treat analysis_complete as terminal if there's NO action
                         if decision.analysis_complete and not action:

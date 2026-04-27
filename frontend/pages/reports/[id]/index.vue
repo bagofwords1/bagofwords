@@ -2270,6 +2270,58 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'llm.error':
+			// Structured LLM-call failure (auth / rate_limit / context_length / provider_error / network / unknown).
+			// Show a toast immediately so the user knows something is wrong even
+			// if retries continue. The terminal completion.finished/error event
+			// (if it follows) will flip status; this case just notifies.
+			try {
+				const err = payload || {}
+				const code = String(err.code || 'unknown')
+				const provider = String(err.provider || 'LLM provider')
+				const ctx = String(err.context || 'planner')
+				const msg = String(err.message || `${provider} call failed`)
+				// Dedupe by code+provider+context so a 5-attempt retry storm
+				// doesn't fire 5 toasts.
+				const key = `${ctx}:${provider}:${code}`
+				const seen = (window as any).__bowLlmErrorSeen ||= new Set<string>()
+				if (!seen.has(key)) {
+					seen.add(key)
+					setTimeout(() => seen.delete(key), 30_000)
+					try {
+						const toast = (typeof useToast === 'function') ? useToast() : null
+						if (toast?.add) {
+							toast.add({
+								id: `llm-error-${Date.now()}`,
+								title: code === 'auth'
+									? 'LLM API key invalid'
+									: code === 'rate_limit'
+									? 'LLM provider rate-limiting'
+									: code === 'context_length'
+									? 'Conversation too long for model'
+									: code === 'network'
+									? 'Cannot reach LLM provider'
+									: 'LLM provider error',
+								description: msg,
+								color: code === 'rate_limit' ? 'amber' : 'red',
+								timeout: 10000,
+							})
+						} else {
+							console.warn('[llm.error]', code, msg)
+						}
+					} catch (e) {
+						console.warn('[llm.error] toast failed', e)
+					}
+				}
+				// Stash on the system message so refresh / scrollback shows it
+				if (!sysMessage.error_message) {
+					sysMessage.error_message = msg
+				}
+			} catch (e) {
+				console.warn('llm.error handler failed', e)
+			}
+			break
+
 		default:
 			// Handle unknown events gracefully
 			break

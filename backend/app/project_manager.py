@@ -1335,11 +1335,17 @@ class ProjectManager:
     # Completion Blocks (Timeline Projection)
     # ==============================
 
-    async def upsert_block_for_decision(self, db, completion, agent_execution, plan_decision: PlanDecision, preferred_id: str | None = None):
+    async def upsert_block_for_decision(self, db, completion, agent_execution, plan_decision: PlanDecision, preferred_id: str | None = None, force_insert: bool = False):
         """Create or update a render-ready block for a plan decision.
 
         preferred_id: if no existing block is found, create with this ID so the
         frontend's pre-emitted placeholder block.upsert stays consistent.
+
+        force_insert: when True, skip the (agent_execution_id, loop_index,
+        source_type='decision') upsert lookup and always insert a fresh
+        block. Used by the multi-tool agent path where one planner turn
+        produces multiple sequential tool blocks under the same loop_index
+        — each needs its own block keyed by its own plan_decision_id.
         """
         # Determine ordering and presentation
         block_index = int((plan_decision.seq or 0) * 10)
@@ -1355,13 +1361,18 @@ class ProjectManager:
             content = plan_decision.assistant or None
         reasoning = plan_decision.reasoning or None
 
-        # Try to find an existing block for this loop iteration
-        stmt = select(CompletionBlock).where(
-            CompletionBlock.agent_execution_id == agent_execution.id,
-            CompletionBlock.loop_index == plan_decision.loop_index,
-            CompletionBlock.source_type == 'decision',
-        )
-        existing = (await db.execute(stmt)).scalar_one_or_none()
+        # Try to find an existing block for this loop iteration. Skip the
+        # lookup when force_insert is True so multi-tool sub-decisions get
+        # their own distinct block instead of stomping on the primary one.
+        if force_insert:
+            existing = None
+        else:
+            stmt = select(CompletionBlock).where(
+                CompletionBlock.agent_execution_id == agent_execution.id,
+                CompletionBlock.loop_index == plan_decision.loop_index,
+                CompletionBlock.source_type == 'decision',
+            )
+            existing = (await db.execute(stmt)).scalar_one_or_none()
 
         if existing:
             # Update existing block with latest decision info

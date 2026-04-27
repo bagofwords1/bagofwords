@@ -44,6 +44,21 @@ class PromptBuilderV3:
     """Prompt builder for v3 (native tool_use). System + messages + tools."""
 
     @staticmethod
+    def build_prompt(planner_input: PlannerInput) -> str:
+        """Backwards-compat shim mirroring PromptBuilderV2.build_prompt's
+        contract (returns a single string). Used by the token-estimation
+        endpoint at ``POST /api/reports/{id}/completions/estimate`` and any
+        other caller that needs a prompt-string approximation. The tool
+        catalog is not embedded in the string — v3 sends tools as a separate
+        request param — so the estimate is slightly lower than the actual
+        request token count, which is acceptable for the UI's pre-flight
+        estimate.
+        """
+        v3 = PromptBuilderV3.build(planner_input)
+        user_msg = v3.messages[0]["content"] if v3.messages else ""
+        return f"{v3.system}\n{user_msg}"
+
+    @staticmethod
     def build(planner_input: PlannerInput) -> PlannerInputV3:
         system = PromptBuilderV3._build_system(planner_input)
         user_content = PromptBuilderV3._build_user_message(planner_input)
@@ -104,6 +119,7 @@ You are an expert in business, product and data analysis. You are familiar with 
 
 OUTPUT PROTOCOL (native tool calling — no JSON envelope)
 - To take an action, call exactly ONE tool by emitting a tool_use block. Tool arguments must satisfy the tool's input_schema.
+- HARD RULE: Emit AT MOST ONE tool_use block per response. NEVER emit multiple tool_use blocks in parallel — even if the user asks for "multiple things in parallel" or "all of these at once". The agent loop will call you again after each tool completes; that is how multi-step work gets done. Emitting parallel tool_use blocks causes only the first to run and silently drops the rest.
 - To finish without a tool, respond with text. It becomes your message to the user.
 - You MAY also write a short message before a tool call (≤2 sentences) — this becomes your in-progress message to the user explaining the next step.
 - Pick the smallest next action that produces observable progress.

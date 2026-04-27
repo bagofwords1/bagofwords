@@ -121,10 +121,13 @@ class PlannerV3:
             for t in v3_input.tools
         ]
 
-        # Per-tool accumulators (Anthropic supports multiple tool_use blocks per
-        # response; v3 only consumes the first since the planner contract is
-        # one action per turn).
-        completed_action: Optional[Action] = None
+        # Per-tool accumulators. Anthropic supports multiple tool_use blocks
+        # per response (parallel tool calls); we now collect ALL of them so
+        # the agent loop can dispatch each. Indexed by tool_use_id so
+        # ToolUseStart and ToolUseComplete events can match up reliably even
+        # when the model emits them out of order.
+        completed_actions: list[Action] = []
+        action_id_index: dict[str, int] = {}  # tool_use_id -> index in completed_actions
         stop_reason: Optional[str] = None
         final_prompt_tokens = prompt_tokens_est
         final_completion_tokens = 0
@@ -161,7 +164,7 @@ class PlannerV3:
                     yield PlannerTokenEvent(type="planner.tokens", delta=evt.text)
                     yield PlannerDecisionEvent(
                         type="planner.decision.partial",
-                        data=self._build_decision(state, completed_action, stop_reason, is_final=False),
+                        data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
                     )
                     continue
 
@@ -171,11 +174,14 @@ class PlannerV3:
                         state.reasoning_end_time = time.monotonic()
                     if state.first_token_time is None:
                         state.first_token_time = time.monotonic()
-                    # Best-effort partial: we don't have args yet but we know the tool name
-                    completed_action = Action(type="tool_call", name=evt.name, arguments={})
+                    # Append a placeholder action; ToolUseComplete will fill its arguments.
+                    placeholder = Action(type="tool_call", name=evt.name, arguments={})
+                    completed_actions.append(placeholder)
+                    if evt.id:
+                        action_id_index[evt.id] = len(completed_actions) - 1
                     yield PlannerDecisionEvent(
                         type="planner.decision.partial",
-                        data=self._build_decision(state, completed_action, stop_reason, is_final=False),
+                        data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
                     )
                     continue
 
@@ -201,7 +207,7 @@ class PlannerV3:
                     # _build_decision below.
                     yield PlannerDecisionEvent(
                         type="planner.decision.partial",
-                        data=self._build_decision(state, completed_action, stop_reason, is_final=False),
+                        data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
                     )
                     continue
 
@@ -213,14 +219,30 @@ class PlannerV3:
                     continue
 
                 if isinstance(evt, ToolUseCompleteEvent):
-                    completed_action = Action(
+                    finished = Action(
                         type="tool_call",
                         name=evt.name,
                         arguments=evt.input or {},
                     )
+                    # Replace placeholder by tool_use_id when possible; fall
+                    # back to "last placeholder for this name" or append.
+                    idx = action_id_index.get(evt.id) if evt.id else None
+                    if idx is not None and 0 <= idx < len(completed_actions):
+                        completed_actions[idx] = finished
+                    else:
+                        # Best-effort: replace last placeholder with empty args + matching name
+                        replaced = False
+                        for i in range(len(completed_actions) - 1, -1, -1):
+                            a = completed_actions[i]
+                            if a.name == evt.name and not a.arguments:
+                                completed_actions[i] = finished
+                                replaced = True
+                                break
+                        if not replaced:
+                            completed_actions.append(finished)
                     yield PlannerDecisionEvent(
                         type="planner.decision.partial",
-                        data=self._build_decision(state, completed_action, stop_reason, is_final=False),
+                        data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
                     )
                     continue
 
@@ -258,7 +280,7 @@ class PlannerV3:
         # Emit final decision with metrics
         final_decision = self._build_decision(
             state,
-            completed_action,
+            completed_actions,
             stop_reason,
             is_final=True,
             prompt_tokens=final_prompt_tokens or prompt_tokens_est,
@@ -275,7 +297,7 @@ class PlannerV3:
     def _build_decision(
         self,
         state: PlannerStateV3,
-        action: Optional[Action],
+        actions: list[Action],
         stop_reason: Optional[str],
         is_final: bool,
         prompt_tokens: int = 0,
@@ -283,13 +305,18 @@ class PlannerV3:
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
     ) -> PlannerDecision:
-        # analysis_complete: stop_reason="end_turn" AND no action
-        analysis_complete = (stop_reason == "end_turn") and (action is None)
+        # First action drives single-action SSE compatibility (UI streaming kickoff).
+        first_action: Optional[Action] = actions[0] if actions else None
 
-        # plan_type: derived from the chosen tool's category, or None when finishing
+        # analysis_complete: stop_reason="end_turn" AND no actions emitted
+        analysis_complete = (stop_reason == "end_turn") and (not actions)
+
+        # plan_type: derived from the FIRST tool's category. With multi-tool
+        # responses, the loop iterates all of them; the plan_type tag is
+        # primarily a per-block label so first-action's category is fine.
         plan_type: Optional[str] = None
-        if action is not None:
-            cat = self._tool_category.get(action.name)
+        if first_action is not None:
+            cat = self._tool_category.get(first_action.name)
             if cat in ("research", "action"):
                 plan_type = cat
             else:
@@ -333,7 +360,8 @@ class PlannerV3:
                 plan_type=plan_type,
                 reasoning_message=reasoning_message,  # provider-native thinking, when enabled
                 assistant_message=assistant_message,
-                action=action,
+                action=first_action,
+                actions=list(actions),
                 final_answer=None,             # v3: collapsed into assistant_message
                 streaming_complete=is_final,
                 metrics=metrics,
