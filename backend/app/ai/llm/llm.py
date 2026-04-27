@@ -4,6 +4,7 @@ import time
 from typing import AsyncGenerator, Optional, Callable
 
 from .clients.openai_client import OpenAi
+from .clients.openai_responses_client import OpenAIResponsesClient
 from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
 from .clients.azure_client import AzureClient
@@ -72,7 +73,12 @@ class LLM:
             base_url = None
             if self.model.provider.additional_config:
                 base_url = self.model.provider.additional_config.get("base_url")
-            self.client = OpenAi(api_key=self.api_key, base_url=base_url or "https://api.openai.com/v1")
+            if base_url:
+                # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url)
+            else:
+                # Default OpenAI → Responses API (supports reasoning content)
+                self.client = OpenAIResponsesClient(api_key=self.api_key)
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key)
         elif self.provider == "google":

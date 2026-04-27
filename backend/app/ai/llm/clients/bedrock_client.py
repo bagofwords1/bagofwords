@@ -14,6 +14,9 @@ from app.ai.llm.types import (
     LLMUsage,
     Message,
     MessageStopEvent,
+    ReasoningCompleteEvent,
+    ReasoningDeltaEvent,
+    ReasoningStartEvent,
     TextDeltaEvent,
     ToolSpec,
     ToolUseCompleteEvent,
@@ -245,7 +248,7 @@ class BedrockClient(LLMClient):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
-        thinking: Optional[dict] = None,  # accepted for parity; not yet wired
+        thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         loop = asyncio.get_running_loop()
@@ -255,15 +258,15 @@ class BedrockClient(LLMClient):
         request_kwargs: dict = {"modelId": model_id, "messages": bedrock_messages}
         if system:
             request_kwargs["system"] = [{"text": system}]
+        if thinking:
+            budget = int(thinking.get("budget_tokens") or 5000)
+            request_kwargs["additionalModelRequestFields"] = {
+                "thinking": {"type": "enabled", "budget_tokens": budget}
+            }
         if tools:
             tc = self._translate_tools(tools)
-            # Restrict Anthropic-on-Bedrock to one tool_use per response.
-            # Bedrock's Converse API accepts toolChoice on the toolConfig
-            # block; the disableParallelToolUse field is forwarded to the
-            # underlying Anthropic model (no-op on non-Anthropic Bedrock
-            # models which don't support parallel tool calls anyway).
-            if disable_parallel_tools and isinstance(tc, dict):
-                tc.setdefault("toolChoice", {"auto": {"disableParallelToolUse": True}})
+            # disableParallelToolUse in toolChoice.auto requires botocore ≥ 1.37;
+            # skip it to keep compatibility with older botocore versions.
             request_kwargs["toolConfig"] = tc
 
         def _sync_stream():
@@ -276,8 +279,9 @@ class BedrockClient(LLMClient):
 
         future = loop.run_in_executor(_STREAM_EXECUTOR, _sync_stream)
 
-        # State for tracking open tool calls
+        # State for tracking open tool calls and reasoning blocks
         open_calls: dict[int, dict] = {}  # block_index → {id, name, args_buffer}
+        open_reasoning: set[int] = set()  # block indices that are reasoning blocks
         current_block_index: int = -1
         prompt_tokens = 0
         completion_tokens = 0
@@ -291,7 +295,9 @@ class BedrockClient(LLMClient):
             if "contentBlockStart" in event:
                 block_start = event["contentBlockStart"]
                 current_block_index = block_start.get("contentBlockIndex", current_block_index + 1)
-                tool_use = block_start.get("start", {}).get("toolUse")
+                start = block_start.get("start", {})
+                tool_use = start.get("toolUse")
+                reasoning = start.get("reasoningContent")
                 if tool_use:
                     open_calls[current_block_index] = {
                         "id": tool_use["toolUseId"],
@@ -302,6 +308,9 @@ class BedrockClient(LLMClient):
                         id=tool_use["toolUseId"],
                         name=tool_use["name"],
                     )
+                elif reasoning is not None:
+                    open_reasoning.add(current_block_index)
+                    yield ReasoningStartEvent()
 
             elif "contentBlockDelta" in event:
                 block_delta = event["contentBlockDelta"]
@@ -320,6 +329,12 @@ class BedrockClient(LLMClient):
                             partial_json=fragment,
                         )
 
+                if "reasoningContent" in delta:
+                    rc = delta["reasoningContent"]
+                    text = rc.get("text", "")
+                    if text and idx in open_reasoning:
+                        yield ReasoningDeltaEvent(text=text)
+
             elif "contentBlockStop" in event:
                 idx = event["contentBlockStop"].get("contentBlockIndex", current_block_index)
                 if idx in open_calls:
@@ -334,6 +349,9 @@ class BedrockClient(LLMClient):
                         name=pending["name"],
                         input=parsed,
                     )
+                elif idx in open_reasoning:
+                    open_reasoning.discard(idx)
+                    yield ReasoningCompleteEvent(text="")
 
             elif "messageStop" in event:
                 bedrock_stop = event["messageStop"].get("stopReason", "end_turn")

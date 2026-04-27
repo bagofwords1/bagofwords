@@ -13,6 +13,9 @@ from app.ai.llm.types import (
     LLMUsage,
     Message,
     MessageStopEvent,
+    ReasoningCompleteEvent,
+    ReasoningDeltaEvent,
+    ReasoningStartEvent,
     TextDeltaEvent,
     ToolSpec,
     ToolUseCompleteEvent,
@@ -145,12 +148,34 @@ class Google(LLMClient):
         return out
 
     @staticmethod
+    def _resolve_schema_refs(schema: dict) -> dict:
+        """Inline all $ref references so Google's SDK doesn't reject them."""
+        defs = schema.get("$defs", {})
+
+        def _resolve(node: any) -> any:
+            if isinstance(node, dict):
+                if "$ref" in node:
+                    ref = node["$ref"]
+                    # "#/$defs/Foo" → look up in defs
+                    if ref.startswith("#/$defs/"):
+                        def_name = ref[len("#/$defs/"):]
+                        resolved = defs.get(def_name, {})
+                        return _resolve(resolved)
+                    return {"type": "string"}  # unresolvable ref → fallback
+                return {k: _resolve(v) for k, v in node.items() if k != "$defs"}
+            if isinstance(node, list):
+                return [_resolve(i) for i in node]
+            return node
+
+        return _resolve(schema)
+
+    @staticmethod
     def _translate_tools(tools: list[ToolSpec]) -> list[types.Tool]:
         declarations = [
             types.FunctionDeclaration(
                 name=t.name,
                 description=t.description,
-                parameters=t.input_schema,
+                parameters=Google._resolve_schema_refs(t.input_schema),
             )
             for t in tools
         ]
@@ -163,12 +188,17 @@ class Google(LLMClient):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
-        thinking: Optional[dict] = None,  # accepted for parity; not yet wired (uses fixed thinking_budget below)
-        disable_parallel_tools: bool = True,  # accepted for parity; Gemini doesn't parallel by default
+        thinking: Optional[dict] = None,
+        disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
-        thinking_budget = 128 if "pro" in model_id else 0
+        if thinking:
+            budget = int(thinking.get("budget_tokens") or 1024)
+            thinking_config = types.ThinkingConfig(thinking_budget=budget, include_thoughts=True)
+        else:
+            default_budget = 128 if "pro" in model_id else 0
+            thinking_config = types.ThinkingConfig(thinking_budget=default_budget, include_thoughts=False)
         config_kwargs: dict = {
-            "thinking_config": types.ThinkingConfig(thinking_budget=thinking_budget),
+            "thinking_config": thinking_config,
             "temperature": self.temperature,
         }
         if system:
@@ -198,6 +228,7 @@ class Google(LLMClient):
         chunks = await loop.run_in_executor(None, _collect)
 
         tool_call_counter = 0
+        reasoning_started = False
         for chunk in chunks:
             usage_meta = getattr(chunk, "usage_metadata", None)
             if usage_meta:
@@ -217,7 +248,16 @@ class Google(LLMClient):
                     stop_reason = "max_tokens"
 
             for part in (candidate.content.parts if candidate.content else []):
-                if part.text:
+                is_thought = getattr(part, "thought", False)
+                if part.text and is_thought:
+                    if not reasoning_started:
+                        reasoning_started = True
+                        yield ReasoningStartEvent()
+                    yield ReasoningDeltaEvent(text=part.text)
+                elif part.text and not is_thought:
+                    if reasoning_started:
+                        reasoning_started = False
+                        yield ReasoningCompleteEvent(text="")
                     yield TextDeltaEvent(text=part.text)
                 fc = getattr(part, "function_call", None)
                 if fc:
@@ -228,6 +268,9 @@ class Google(LLMClient):
                     args_json = json.dumps(dict(fc.args))
                     yield ToolUseInputDeltaEvent(id=call_id, partial_json=args_json)
                     yield ToolUseCompleteEvent(id=call_id, name=fc.name, input=dict(fc.args))
+
+        if reasoning_started:
+            yield ReasoningCompleteEvent(text="")
 
         yield MessageStopEvent(stop_reason=stop_reason)
         yield UsageEvent(input_tokens=prompt_tokens, output_tokens=completion_tokens)

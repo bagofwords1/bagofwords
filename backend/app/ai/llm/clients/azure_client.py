@@ -187,7 +187,7 @@ class AzureClient(LLMClient):
         system: Optional[str] = None,
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
-        thinking: Optional[dict] = None,  # accepted for parity; not yet wired
+        thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         oai_messages: list[dict] = []
@@ -208,6 +208,17 @@ class AzureClient(LLMClient):
             request_kwargs["tool_choice"] = "auto"
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
+        _reasoning_model_prefixes = ("o1", "o3", "o4", "gpt-5")
+        if thinking and any(model_id.startswith(p) or f"/{p}" in model_id for p in _reasoning_model_prefixes):
+            budget = thinking.get("budget_tokens")
+            if thinking.get("type") == "adaptive" or not budget:
+                request_kwargs["reasoning_effort"] = "medium"
+            elif budget >= 10000:
+                request_kwargs["reasoning_effort"] = "high"
+            elif budget >= 3000:
+                request_kwargs["reasoning_effort"] = "medium"
+            else:
+                request_kwargs["reasoning_effort"] = "low"
 
         open_calls: dict[int, dict] = {}
         prompt_tokens = 0
