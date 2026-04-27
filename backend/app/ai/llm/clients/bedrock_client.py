@@ -297,6 +297,8 @@ class BedrockClient(LLMClient):
                 current_block_index = block_start.get("contentBlockIndex", current_block_index + 1)
                 start = block_start.get("start", {})
                 tool_use = start.get("toolUse")
+                # reasoningContent may be stripped by old botocore as an unknown
+                # tagged-union member; we also detect it lazily from delta events.
                 reasoning = start.get("reasoningContent")
                 if tool_use:
                     open_calls[current_block_index] = {
@@ -331,8 +333,13 @@ class BedrockClient(LLMClient):
 
                 if "reasoningContent" in delta:
                     rc = delta["reasoningContent"]
-                    text = rc.get("text", "")
-                    if text and idx in open_reasoning:
+                    # botocore ≥1.37 exposes "text"; older raw API used "thinkingDelta"
+                    text = rc.get("text", "") or rc.get("thinkingDelta", "")
+                    if text:
+                        # Lazily open a reasoning block if botocore stripped the start event
+                        if idx not in open_reasoning:
+                            open_reasoning.add(idx)
+                            yield ReasoningStartEvent()
                         yield ReasoningDeltaEvent(text=text)
 
             elif "contentBlockStop" in event:

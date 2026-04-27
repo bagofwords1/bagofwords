@@ -5,6 +5,7 @@ Tests connectivity and basic inference for LLM provider clients.
 Run locally: pytest backend/tests/integrations/llm_clients.py -v
 Run specific: pytest backend/tests/integrations/llm_clients.py -k "openai" -v
 Run vision tests: pytest backend/tests/integrations/llm_clients.py -k "vision" -v
+Run v2 tests: pytest backend/tests/integrations/llm_clients.py -k "v2" -v
 """
 import os
 import json
@@ -12,7 +13,19 @@ import pytest
 import logging
 from typing import Dict, Any
 
-from app.ai.llm.types import ImageInput
+from app.ai.llm.types import (
+    ImageInput,
+    Message,
+    ToolSpec,
+    MessageStopEvent,
+    ReasoningDeltaEvent,
+    ReasoningStartEvent,
+    ReasoningCompleteEvent,
+    TextDeltaEvent,
+    ToolUseCompleteEvent,
+    ToolUseStartEvent,
+    UsageEvent,
+)
 from app.models.llm_model import LLM_MODEL_DETAILS
 
 # Configure logging
@@ -106,11 +119,15 @@ def get_llm_client(provider: str, **kwargs):
     Instantiate an LLM client by provider name.
     """
     if provider == "openai":
-        from app.ai.llm.clients.openai_client import OpenAi
-        return OpenAi(
-            api_key=kwargs["api_key"],
-            base_url=kwargs.get("base_url", "https://api.openai.com/v1"),
-        )
+        base_url = kwargs.get("base_url")
+        if base_url:
+            # Custom base URL → Chat Completions compatible endpoint
+            from app.ai.llm.clients.openai_client import OpenAi
+            return OpenAi(api_key=kwargs["api_key"], base_url=base_url)
+        else:
+            # Standard OpenAI → Responses API (supports reasoning)
+            from app.ai.llm.clients.openai_responses_client import OpenAIResponsesClient
+            return OpenAIResponsesClient(api_key=kwargs["api_key"])
     
     elif provider == "anthropic":
         from app.ai.llm.clients.anthropic_client import Anthropic
@@ -302,4 +319,148 @@ async def test_llm_vision_inference_stream(provider: str) -> None:
     assert "BOW" in full_response.upper(), f"{provider}: Expected 'BOW' in response, got: {full_response}"
 
     logger.info(f"{provider}: Streaming vision inference successful")
+
+
+# =============================================================================
+# inference_stream_v2: tool use
+# =============================================================================
+
+# A minimal tool the model can call. All providers support this schema shape.
+_CALCULATE_TOOL = ToolSpec(
+    name="calculate",
+    description="Evaluate an arithmetic expression and return the numeric result.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "expression": {
+                "type": "string",
+                "description": "Arithmetic expression to evaluate, e.g. '15 * 17'",
+            }
+        },
+        "required": ["expression"],
+    },
+)
+
+
+@pytest.mark.parametrize("provider", LLM_PROVIDERS)
+@pytest.mark.asyncio
+async def test_llm_inference_stream_v2_tools(provider: str) -> None:
+    """
+    Test inference_stream_v2 tool-use flow.
+
+    Sends a message that forces tool use and verifies:
+    - ToolUseStartEvent + ToolUseCompleteEvent are emitted
+    - stop_reason is "tool_use"
+    - the tool input contains the expected argument key
+    - UsageEvent has non-zero token counts
+    """
+    cfg = llm_kwargs(provider)
+    model_id = cfg.pop("model_id", None)
+    if not model_id:
+        pytest.skip(f"{provider}: no model_id configured")
+
+    client = get_llm_client(provider, **cfg)
+    messages = [Message(role="user", content="Use the calculate tool to compute 15 * 17.")]
+
+    logger.info(f"{provider}: Testing inference_stream_v2 tool use with {model_id}...")
+
+    events = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id,
+        messages=messages,
+        tools=[_CALCULATE_TOOL],
+    ):
+        events.append(evt)
+
+    tool_starts = [e for e in events if isinstance(e, ToolUseStartEvent)]
+    tool_completes = [e for e in events if isinstance(e, ToolUseCompleteEvent)]
+    stop_evt = next((e for e in events if isinstance(e, MessageStopEvent)), None)
+    usage_evt = next((e for e in events if isinstance(e, UsageEvent)), None)
+
+    assert tool_starts, f"{provider}: No ToolUseStartEvent emitted"
+    assert tool_completes, f"{provider}: No ToolUseCompleteEvent emitted"
+    assert stop_evt is not None, f"{provider}: No MessageStopEvent emitted"
+    assert stop_evt.stop_reason == "tool_use", (
+        f"{provider}: Expected stop_reason=tool_use, got {stop_evt.stop_reason}"
+    )
+    assert usage_evt is not None, f"{provider}: No UsageEvent emitted"
+    assert usage_evt.input_tokens > 0, f"{provider}: input_tokens is 0"
+
+    tool = tool_completes[0]
+    assert tool.name == "calculate", f"{provider}: Expected tool name 'calculate', got {tool.name!r}"
+    assert "expression" in tool.input, (
+        f"{provider}: Expected 'expression' in tool input, got {tool.input}"
+    )
+
+    logger.info(f"{provider}: tool input={tool.input}, stop_reason={stop_evt.stop_reason}")
+    logger.info(f"{provider}: v2 tool use successful")
+
+
+# =============================================================================
+# inference_stream_v2: reasoning / thinking
+# Each provider entry may specify an optional "reasoning_model_id" for a model
+# that supports extended thinking.  The test is skipped if none is configured.
+# =============================================================================
+
+@pytest.mark.parametrize("provider", LLM_PROVIDERS)
+@pytest.mark.asyncio
+async def test_llm_inference_stream_v2_reasoning(provider: str) -> None:
+    """
+    Test inference_stream_v2 reasoning / extended-thinking flow.
+
+    Uses "reasoning_model_id" from integrations.json (falls back to "model_id").
+    Verifies:
+    - ReasoningStartEvent, ReasoningDeltaEvent, ReasoningCompleteEvent are emitted
+    - Accumulated reasoning text is non-trivial (> 20 chars)
+    - The correct numeric answer (255) appears in the text response
+    - UsageEvent has non-zero token counts
+    """
+    cfg = llm_kwargs(provider)
+    model_id = cfg.pop("reasoning_model_id", None) or cfg.pop("model_id", None)
+    cfg.pop("model_id", None)  # discard if reasoning_model_id was used
+    if not model_id:
+        pytest.skip(f"{provider}: no model_id configured")
+
+    client = get_llm_client(provider, **cfg)
+    messages = [Message(role="user", content="Think carefully: what is 15 * 17?")]
+    thinking_config = {"type": "enabled", "budget_tokens": 2000}
+
+    logger.info(f"{provider}: Testing inference_stream_v2 reasoning with {model_id}...")
+
+    events = []
+    async for evt in client.inference_stream_v2(
+        model_id=model_id,
+        messages=messages,
+        thinking=thinking_config,
+    ):
+        events.append(evt)
+
+    reasoning_starts = [e for e in events if isinstance(e, ReasoningStartEvent)]
+    reasoning_deltas = [e for e in events if isinstance(e, ReasoningDeltaEvent)]
+    reasoning_completes = [e for e in events if isinstance(e, ReasoningCompleteEvent)]
+    text_chunks = [e for e in events if isinstance(e, TextDeltaEvent)]
+    usage_evt = next((e for e in events if isinstance(e, UsageEvent)), None)
+
+    reasoning_text = "".join(e.text for e in reasoning_deltas)
+    response_text = "".join(e.text for e in text_chunks)
+
+    if not reasoning_starts:
+        pytest.skip(f"{provider}: model {model_id} did not emit reasoning events — use a reasoning-capable reasoning_model_id")
+
+    assert reasoning_deltas, f"{provider}: ReasoningStartEvent fired but no ReasoningDeltaEvent"
+    assert reasoning_completes, f"{provider}: No ReasoningCompleteEvent emitted"
+    assert len(reasoning_text) > 20, (
+        f"{provider}: Reasoning text too short ({len(reasoning_text)} chars): {reasoning_text!r}"
+    )
+    assert "255" in response_text, (
+        f"{provider}: Expected '255' in response, got: {response_text!r}"
+    )
+    assert usage_evt is not None, f"{provider}: No UsageEvent emitted"
+    assert usage_evt.input_tokens > 0, f"{provider}: input_tokens is 0"
+
+    logger.info(
+        f"{provider}: reasoning_len={len(reasoning_text)}, "
+        f"response={response_text[:80]!r}, usage={usage_evt.input_tokens}/{usage_evt.output_tokens}"
+    )
+    logger.info(f"{provider}: v2 reasoning successful")
 

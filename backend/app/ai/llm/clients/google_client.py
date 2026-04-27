@@ -147,22 +147,43 @@ class Google(LLMClient):
                 out.append(types.Content(role=role, parts=[types.Part.from_text(text=text)]))
         return out
 
+    # Fields not accepted by Google's FunctionDeclaration schema validator
+    _GOOGLE_SCHEMA_STRIP = frozenset({
+        "$defs", "$schema", "choices", "examples", "default", "title",
+        "additionalProperties",
+    })
+
     @staticmethod
     def _resolve_schema_refs(schema: dict) -> dict:
-        """Inline all $ref references so Google's SDK doesn't reject them."""
+        """Inline $ref references and strip / convert fields Google's SDK doesn't accept."""
         defs = schema.get("$defs", {})
 
         def _resolve(node: any) -> any:
             if isinstance(node, dict):
                 if "$ref" in node:
                     ref = node["$ref"]
-                    # "#/$defs/Foo" → look up in defs
                     if ref.startswith("#/$defs/"):
                         def_name = ref[len("#/$defs/"):]
                         resolved = defs.get(def_name, {})
                         return _resolve(resolved)
                     return {"type": "string"}  # unresolvable ref → fallback
-                return {k: _resolve(v) for k, v in node.items() if k != "$defs"}
+                # Convert JSON Schema "const" → "enum" (Google supports enum, not const)
+                if "const" in node:
+                    result = {k: _resolve(v) for k, v in node.items() if k not in Google._GOOGLE_SCHEMA_STRIP and k != "const"}
+                    result["enum"] = [node["const"]]
+                    return result
+                result = {
+                    k: _resolve(v)
+                    for k, v in node.items()
+                    if k not in Google._GOOGLE_SCHEMA_STRIP
+                }
+                # Drop required entries that reference undefined properties
+                if "required" in result and "properties" in result:
+                    defined = set(result["properties"].keys())
+                    result["required"] = [r for r in result["required"] if r in defined]
+                    if not result["required"]:
+                        del result["required"]
+                return result
             if isinstance(node, list):
                 return [_resolve(i) for i in node]
             return node

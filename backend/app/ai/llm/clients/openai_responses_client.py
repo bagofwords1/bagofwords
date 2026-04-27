@@ -199,9 +199,12 @@ class OpenAIResponsesClient(LLMClient):
                     continue
                 itype = getattr(item, "type", None)
                 if itype == "function_call":
+                    # item.id  → key used by subsequent delta/done events (item_id)
+                    # item.call_id → the model-assigned call ID we expose externally
+                    item_id = getattr(item, "id", "") or ""
                     call_id = getattr(item, "call_id", "") or ""
                     name = getattr(item, "name", "") or ""
-                    open_calls[call_id] = {"name": name, "args_buffer": ""}
+                    open_calls[item_id] = {"call_id": call_id, "name": name, "args_buffer": ""}
                     yield ToolUseStartEvent(id=call_id, name=name)
                 elif itype == "reasoning":
                     reasoning_active = True
@@ -227,23 +230,23 @@ class OpenAIResponsesClient(LLMClient):
                     yield ReasoningDeltaEvent(text=text)
 
             elif etype == "response.function_call_arguments.delta":
-                call_id = getattr(event, "item_id", "") or ""
+                item_id = getattr(event, "item_id", "") or ""
                 delta = getattr(event, "delta", "") or ""
-                if delta and call_id in open_calls:
-                    open_calls[call_id]["args_buffer"] += delta
-                    yield ToolUseInputDeltaEvent(id=call_id, partial_json=delta)
+                if delta and item_id in open_calls:
+                    open_calls[item_id]["args_buffer"] += delta
+                    yield ToolUseInputDeltaEvent(id=open_calls[item_id]["call_id"], partial_json=delta)
 
             elif etype == "response.function_call_arguments.done":
-                call_id = getattr(event, "item_id", "") or ""
-                if call_id in open_calls:
-                    pending = open_calls.pop(call_id)
+                item_id = getattr(event, "item_id", "") or ""
+                if item_id in open_calls:
+                    pending = open_calls.pop(item_id)
                     raw = getattr(event, "arguments", "") or pending["args_buffer"]
                     try:
                         parsed = json.loads(raw) if raw.strip() else {}
                     except Exception:
                         parsed = {"_unparsable": True, "_raw": raw}
                     stop_reason = "tool_use"
-                    yield ToolUseCompleteEvent(id=call_id, name=pending["name"], input=parsed)
+                    yield ToolUseCompleteEvent(id=pending["call_id"], name=pending["name"], input=parsed)
 
             elif etype == "response.completed":
                 response = getattr(event, "response", None)
