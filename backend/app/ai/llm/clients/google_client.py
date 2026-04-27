@@ -164,6 +164,7 @@ class Google(LLMClient):
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,  # accepted for parity; not yet wired (uses fixed thinking_budget below)
+        disable_parallel_tools: bool = True,  # accepted for parity; Gemini doesn't parallel by default
     ) -> AsyncIterator[LLMStreamEvent]:
         thinking_budget = 128 if "pro" in model_id else 0
         config_kwargs: dict = {

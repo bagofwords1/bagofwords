@@ -215,6 +215,7 @@ class Anthropic(LLMClient):
         images: Optional[list[ImageInput]] = None,
         enable_cache: bool = True,
         thinking: Optional[dict] = None,
+        disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         # If images supplied, attach them to the last user message as image blocks.
         # (Most callers will embed images directly in messages; this is a back-compat path.)
@@ -282,6 +283,18 @@ class Anthropic(LLMClient):
                 # up to and including the marked block.
                 translated[-1] = {**translated[-1], "cache_control": {"type": "ephemeral"}}
             request_kwargs["tools"] = translated
+            # Force-disable parallel tool_use at the API level. The model is
+            # capable of emitting multiple tool_use blocks in one response,
+            # which our agent loop currently dispatches one-at-a-time —
+            # silently dropping the rest. This flag tells Anthropic to
+            # restrict the response to at most ONE tool_use block.
+            # SDK 0.40 doesn't expose disable_parallel_tool_use as a typed
+            # field on tool_choice, so route via extra_body which is appended
+            # to the request JSON unchanged.
+            if disable_parallel_tools:
+                _eb = dict(request_kwargs.pop("extra_body", {}) or {})
+                _eb["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
+                request_kwargs["extra_body"] = _eb
 
         # Per-tool-call accumulators keyed by content_block index
         # value: {"id": str, "name": str, "input_buffer": str}

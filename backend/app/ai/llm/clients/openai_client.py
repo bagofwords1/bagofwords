@@ -235,6 +235,7 @@ class OpenAi(LLMClient):
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,  # accepted for parity; reasoning needs Responses-API migration
+        disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         oai_messages: list[dict] = []
         if system:
@@ -252,6 +253,13 @@ class OpenAi(LLMClient):
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
             request_kwargs["tool_choice"] = "auto"
+            # Restrict the response to one tool_call at a time. OpenAI defaults
+            # to allowing parallel tool calls; flip off so the agent loop
+            # never has to silently drop extras. Setting also passes through
+            # LiteLLM unchanged (LiteLLM honors parallel_tool_calls=False
+            # for OpenAI/Anthropic/Azure backends).
+            if disable_parallel_tools:
+                request_kwargs["parallel_tool_calls"] = False
         if model_id.startswith(("o1", "o3")) or model_id in {"o1", "o3"}:
             request_kwargs["reasoning_effort"] = "medium"
 

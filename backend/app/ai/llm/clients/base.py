@@ -30,6 +30,7 @@ class LLMClient(ABC):
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
+        disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming inference with native tool_use support.
 

@@ -188,6 +188,7 @@ class AzureClient(LLMClient):
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,  # accepted for parity; not yet wired
+        disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         oai_messages: list[dict] = []
         if system:
@@ -205,6 +206,8 @@ class AzureClient(LLMClient):
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
             request_kwargs["tool_choice"] = "auto"
+            if disable_parallel_tools:
+                request_kwargs["parallel_tool_calls"] = False
 
         open_calls: dict[int, dict] = {}
         prompt_tokens = 0

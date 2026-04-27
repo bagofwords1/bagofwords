@@ -1804,7 +1804,16 @@ class AgentV2:
                                 await _cancel_skeleton_block("max_invalid_retries")
                                 if self.system_completion:
                                     try:
-                                        _final_msg = (llm_err_payload or {}).get("message") or err_msg or "Planner failed"
+                                        # Compose a persisted message that preserves the actual
+                                        # provider error text — never abstract-only. Prefer
+                                        # `summary: provider_message` so refresh shows both
+                                        # the friendly headline and what really came back.
+                                        _summary = (llm_err_payload or {}).get("summary")
+                                        _pmsg = (llm_err_payload or {}).get("provider_message")
+                                        if _summary and _pmsg:
+                                            _final_msg = f"{_summary}: {_pmsg}"
+                                        else:
+                                            _final_msg = _summary or _pmsg or err_msg or "Planner failed"
                                         await self.project_manager.update_completion_status(
                                             self.db, self.system_completion, 'error'
                                         )
@@ -1817,7 +1826,7 @@ class AgentV2:
                                                 completion_id=str(self.system_completion.id),
                                                 data={
                                                     "status": "error",
-                                                    "error": llm_err_payload or {"code": "validation_error", "message": _final_msg},
+                                                    "error": llm_err_payload or {"code": "validation_error", "summary": _final_msg, "provider_message": err_msg or ""},
                                                 },
                                             ))
                                             completion_finished_emitted = True

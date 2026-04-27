@@ -2271,51 +2271,59 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'llm.error':
-			// Structured LLM-call failure (auth / rate_limit / context_length / provider_error / network / unknown).
-			// Show a toast immediately so the user knows something is wrong even
-			// if retries continue. The terminal completion.finished/error event
-			// (if it follows) will flip status; this case just notifies.
+			// Structured LLM-call failure. Always shows the provider's actual
+			// error text — never an abstraction-only. The summary is a friendly
+			// headline for known codes (auth / rate_limit / context_length /
+			// network / provider_error); for `unknown` the provider_message
+			// is the only signal so we surface it verbatim.
 			try {
 				const err = payload || {}
 				const code = String(err.code || 'unknown')
 				const provider = String(err.provider || 'LLM provider')
 				const ctx = String(err.context || 'planner')
-				const msg = String(err.message || `${provider} call failed`)
+				const summary = String(err.summary || `${provider} call failed`)
+				const providerMessage = String(err.provider_message || '')
+				const requestId = err.request_id ? String(err.request_id) : ''
+				const status = err.status != null ? Number(err.status) : null
+				const rawTail = String(err.raw_tail || '')
 				// Dedupe by code+provider+context so a 5-attempt retry storm
 				// doesn't fire 5 toasts.
-				const key = `${ctx}:${provider}:${code}`
+				const key = `${ctx}:${provider}:${code}:${status ?? ''}`
 				const seen = (window as any).__bowLlmErrorSeen ||= new Set<string>()
 				if (!seen.has(key)) {
 					seen.add(key)
 					setTimeout(() => seen.delete(key), 30_000)
+					// Title: friendly summary. Body: the actual provider message
+					// (always shown — even for 'unknown' code). raw_tail goes into
+					// console for now (could be wired into a toast action later).
+					const description = providerMessage || summary
+					if (rawTail && rawTail !== providerMessage) {
+						console.warn('[llm.error] details', { code, provider, status, requestId, raw: rawTail })
+					}
 					try {
 						const toast = (typeof useToast === 'function') ? useToast() : null
 						if (toast?.add) {
 							toast.add({
 								id: `llm-error-${Date.now()}`,
-								title: code === 'auth'
-									? 'LLM API key invalid'
-									: code === 'rate_limit'
-									? 'LLM provider rate-limiting'
-									: code === 'context_length'
-									? 'Conversation too long for model'
-									: code === 'network'
-									? 'Cannot reach LLM provider'
-									: 'LLM provider error',
-								description: msg,
+								title: summary,
+								description,
 								color: code === 'rate_limit' ? 'amber' : 'red',
-								timeout: 10000,
+								timeout: code === 'rate_limit' ? 6000 : 12000,
 							})
 						} else {
-							console.warn('[llm.error]', code, msg)
+							console.warn('[llm.error]', code, summary, '—', description)
 						}
 					} catch (e) {
 						console.warn('[llm.error] toast failed', e)
 					}
 				}
-				// Stash on the system message so refresh / scrollback shows it
+				// Stash on the system message so refresh / scrollback shows it.
+				// Compose summary + provider_message so the persisted text
+				// preserves the actual provider signal, not just our headline.
 				if (!sysMessage.error_message) {
-					sysMessage.error_message = msg
+					sysMessage.error_message = providerMessage
+						? (summary && summary !== providerMessage ? `${summary}: ${providerMessage}` : providerMessage)
+						: summary
 				}
 			} catch (e) {
 				console.warn('llm.error handler failed', e)

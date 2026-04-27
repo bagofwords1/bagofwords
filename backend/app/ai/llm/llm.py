@@ -281,6 +281,7 @@ class LLM:
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
+        disable_parallel_tools: bool = True,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
@@ -317,6 +318,7 @@ class LLM:
                     tools=tools,
                     images=images,
                     thinking=thinking,
+                    disable_parallel_tools=disable_parallel_tools,
                 ):
                     if not ttft_recorded and getattr(evt, "type", None) in (
                         "text_delta",

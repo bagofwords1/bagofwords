@@ -246,6 +246,7 @@ class BedrockClient(LLMClient):
         tools: Optional[list[ToolSpec]] = None,
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,  # accepted for parity; not yet wired
+        disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
         loop = asyncio.get_running_loop()
         event_queue: asyncio.Queue = asyncio.Queue()
@@ -255,7 +256,15 @@ class BedrockClient(LLMClient):
         if system:
             request_kwargs["system"] = [{"text": system}]
         if tools:
-            request_kwargs["toolConfig"] = self._translate_tools(tools)
+            tc = self._translate_tools(tools)
+            # Restrict Anthropic-on-Bedrock to one tool_use per response.
+            # Bedrock's Converse API accepts toolChoice on the toolConfig
+            # block; the disableParallelToolUse field is forwarded to the
+            # underlying Anthropic model (no-op on non-Anthropic Bedrock
+            # models which don't support parallel tool calls anyway).
+            if disable_parallel_tools and isinstance(tc, dict):
+                tc.setdefault("toolChoice", {"auto": {"disableParallelToolUse": True}})
+            request_kwargs["toolConfig"] = tc
 
         def _sync_stream():
             try:
