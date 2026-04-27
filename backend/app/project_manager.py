@@ -296,17 +296,12 @@ class ProjectManager:
         return completion
     
     async def update_message(self, db, completion, message=None, reasoning=None):
-        # Handle the case where completion.completion might be a string
-        if isinstance(completion.completion, str):
-            completion.completion = {'content': message, 'reasoning': reasoning}
-        else:
-            # Create a new dictionary to ensure SQLAlchemy detects the change
-            completion.completion = {
-                **completion.completion,  # Spread existing completion data
-                'content': message,
-                'reasoning': reasoning
-            }
-        #  Mark as modified to ensure SQLAlchemy picks up the change
+        from sqlalchemy.orm.attributes import flag_modified
+        new_completion = {'content': message, 'reasoning': reasoning}
+        if isinstance(completion.completion, dict):
+            new_completion = {**completion.completion, **new_completion}
+        completion.completion = new_completion
+        flag_modified(completion, 'completion')
         db.add(completion)
         await db.commit()
         await db.refresh(completion)

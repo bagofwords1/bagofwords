@@ -367,12 +367,8 @@
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
 									</div>
-									<div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
-										<Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
-										<span v-if="getMessageError(m)" class="pre-wrap">
-											<Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
-											{{ getMessageError(m) }}</span>
-										<span v-else class="italic">An error occurred</span>
+									<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2">
+										{{ getMessageError(m) || 'An error occurred' }}
 									</div>
 								</div>
 							</template>
@@ -1206,10 +1202,9 @@ function isRealCompletion(m: ChatMessage): boolean {
 }
 
 function getMessageError(m: any): string | null {
-  // Prefer a content message stored on the completion (backend persisted), else last error block content
+  if (typeof m?.error_message === 'string' && m.error_message.trim()) return m.error_message.trim()
   try {
-    // Some backends put message into completion.completion.content
-    const content = (m?.completion?.content) || (m?.prompt?.content && m.status==='error' ? null : null)
+    const content = m?.completion?.content
     if (typeof content === 'string' && content.trim()) return content.trim()
   } catch {}
   const blocks = m?.completion_blocks || []
@@ -2231,16 +2226,24 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'completion.finished':
-			// Mark completion as finished with proper status if provided; don't default to success
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			if (completionStatus) {
-				sysMessage.status = completionStatus as any
-				if (completionStatus === 'error' && payload?.error?.message) {
-					sysMessage.error_message = String(payload.error.message)
-					// Ensure a single error block exists for history (won't render duplicate due to block suppression)
+				if (sysMessage.status !== 'error' && sysMessage.status !== 'stopped') {
+					sysMessage.status = completionStatus as any
+				} else if (completionStatus === 'error') {
+					sysMessage.status = 'error' as any
+				}
+				if (completionStatus === 'error') {
+					const errPayload = payload?.error || {}
+					const errMsg: string = (typeof errPayload === 'string' ? errPayload : null)
+						|| errPayload.message
+						|| (errPayload.summary && errPayload.provider_message ? `${errPayload.summary}: ${errPayload.provider_message}` : (errPayload.summary || errPayload.provider_message))
+						|| sysMessage.error_message
+						|| ''
+					if (errMsg) sysMessage.error_message = errMsg
 					if (!sysMessage.completion_blocks?.some((b: any) => b.status === 'error')) {
 						sysMessage.completion_blocks = sysMessage.completion_blocks || []
-						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
+						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message || '' })
 					}
 				}
 				// NOTE: do NOT flip isStreaming here. The knowledge harness continues
@@ -2271,55 +2274,10 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'llm.error':
-			// Structured LLM-call failure. Always shows the provider's actual
-			// error text — never an abstraction-only. The summary is a friendly
-			// headline for known codes (auth / rate_limit / context_length /
-			// network / provider_error); for `unknown` the provider_message
-			// is the only signal so we surface it verbatim.
 			try {
 				const err = payload || {}
-				const code = String(err.code || 'unknown')
-				const provider = String(err.provider || 'LLM provider')
-				const ctx = String(err.context || 'planner')
-				const summary = String(err.summary || `${provider} call failed`)
+				const summary = String(err.summary || `${err.provider || 'LLM provider'} call failed`)
 				const providerMessage = String(err.provider_message || '')
-				const requestId = err.request_id ? String(err.request_id) : ''
-				const status = err.status != null ? Number(err.status) : null
-				const rawTail = String(err.raw_tail || '')
-				// Dedupe by code+provider+context so a 5-attempt retry storm
-				// doesn't fire 5 toasts.
-				const key = `${ctx}:${provider}:${code}:${status ?? ''}`
-				const seen = (window as any).__bowLlmErrorSeen ||= new Set<string>()
-				if (!seen.has(key)) {
-					seen.add(key)
-					setTimeout(() => seen.delete(key), 30_000)
-					// Title: friendly summary. Body: the actual provider message
-					// (always shown — even for 'unknown' code). raw_tail goes into
-					// console for now (could be wired into a toast action later).
-					const description = providerMessage || summary
-					if (rawTail && rawTail !== providerMessage) {
-						console.warn('[llm.error] details', { code, provider, status, requestId, raw: rawTail })
-					}
-					try {
-						const toast = (typeof useToast === 'function') ? useToast() : null
-						if (toast?.add) {
-							toast.add({
-								id: `llm-error-${Date.now()}`,
-								title: summary,
-								description,
-								color: code === 'rate_limit' ? 'amber' : 'red',
-								timeout: code === 'rate_limit' ? 6000 : 12000,
-							})
-						} else {
-							console.warn('[llm.error]', code, summary, '—', description)
-						}
-					} catch (e) {
-						console.warn('[llm.error] toast failed', e)
-					}
-				}
-				// Stash on the system message so refresh / scrollback shows it.
-				// Compose summary + provider_message so the persisted text
-				// preserves the actual provider signal, not just our headline.
 				if (!sysMessage.error_message) {
 					sysMessage.error_message = providerMessage
 						? (summary && summary !== providerMessage ? `${summary}: ${providerMessage}` : providerMessage)

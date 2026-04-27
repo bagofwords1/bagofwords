@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.366 (April 27, 2026)
+- 70% speed improvements
+- better caching for tokens
+
 ## Version 0.0.365 (April 26, 2026)
 - Performance improvements
 - Change to a faster token counter approach

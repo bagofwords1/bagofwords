@@ -1802,6 +1802,10 @@ class AgentV2:
                                 # human-readable message so refresh shows it.
                                 analysis_done = True
                                 await _cancel_skeleton_block("max_invalid_retries")
+                                # Mark completion_finished_emitted before the try so that even
+                                # if update_message fails, the success path at the end of the
+                                # outer loop is NOT taken (which would emit status='success').
+                                completion_finished_emitted = True
                                 if self.system_completion:
                                     try:
                                         # Compose a persisted message that preserves the actual
@@ -1820,18 +1824,30 @@ class AgentV2:
                                         await self.project_manager.update_message(
                                             self.db, self.system_completion, message=_final_msg
                                         )
-                                        if not completion_finished_emitted and self.event_queue:
+                                        if self.event_queue:
                                             await self.event_queue.put(SSEEvent(
                                                 event="completion.finished",
                                                 completion_id=str(self.system_completion.id),
                                                 data={
                                                     "status": "error",
-                                                    "error": llm_err_payload or {"code": "validation_error", "summary": _final_msg, "provider_message": err_msg or ""},
+                                                    "error": {**(llm_err_payload or {"code": "validation_error", "summary": _final_msg, "provider_message": err_msg or ""}), "message": _final_msg},
                                                 },
                                             ))
-                                            completion_finished_emitted = True
                                     except Exception as _stop_exc:
                                         logger.warning(f"[agent] terminal-error completion update failed: {_stop_exc!r}")
+                                        # Still emit completion.finished with error so the UI doesn't hang
+                                        try:
+                                            if self.event_queue:
+                                                await self.event_queue.put(SSEEvent(
+                                                    event="completion.finished",
+                                                    completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                                    data={
+                                                        "status": "error",
+                                                        "error": {**(llm_err_payload or {}), "message": err_msg or "Planner failed"},
+                                                    },
+                                                ))
+                                        except Exception:
+                                            pass
                                 break
                             observation = {
                                 "summary": "Planner output invalid; retrying",
