@@ -147,7 +147,7 @@ requests-oauthlib==2.0.0
 requests-toolbelt==1.0.0
 rpds-py==0.22.3
 rsa==4.9
-s3transfer==0.10.4
+s3transfer==0.11.3
 setuptools==78.1.1
 jaraco.context==6.1.0
 wheel==0.46.2
