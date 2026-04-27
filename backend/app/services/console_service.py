@@ -994,6 +994,14 @@ class ConsoleService:
             total_cost = float(row.total_cost or 0)
             total_cost_usd += total_cost
 
+            # Anthropic reports cache tokens separately from prompt_tokens, so
+            # add them in. OpenAI/Azure already include cache_read in prompt_tokens
+            # (and don't bill cache_creation), so adding them would double-count.
+            if row.provider_type == "anthropic":
+                total_tokens = prompt_tokens + completion_tokens + cache_read_tokens + cache_creation_tokens
+            else:
+                total_tokens = prompt_tokens + completion_tokens
+
             items.append(
                 LLMUsageItem(
                     llm_model_id=str(row.llm_model_id),
@@ -1005,7 +1013,7 @@ class ConsoleService:
                     completion_tokens=completion_tokens,
                     cache_read_tokens=cache_read_tokens,
                     cache_creation_tokens=cache_creation_tokens,
-                    total_tokens=prompt_tokens + completion_tokens + cache_read_tokens + cache_creation_tokens,
+                    total_tokens=total_tokens,
                     input_cost_usd=input_cost,
                     output_cost_usd=output_cost,
                     total_cost_usd=total_cost,

@@ -364,6 +364,14 @@ class LLM:
                     prompt_tokens = usage.prompt_tokens
                 if usage.completion_tokens:
                     completion_tokens = usage.completion_tokens
+                if usage.cache_read_tokens:
+                    cache_read_tokens = usage.cache_read_tokens
+                    span.set_attribute("llm.cache_read_tokens", cache_read_tokens)
+                if usage.cache_creation_tokens:
+                    cache_creation_tokens = usage.cache_creation_tokens
+                    span.set_attribute(
+                        "llm.cache_creation_tokens", cache_creation_tokens
+                    )
 
             span.set_attribute("llm.prompt_tokens", prompt_tokens)
             span.set_attribute("llm.completion_tokens", completion_tokens)

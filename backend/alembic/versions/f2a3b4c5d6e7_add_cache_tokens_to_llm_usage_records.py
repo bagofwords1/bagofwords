@@ -1,7 +1,7 @@
 """add cache_read_tokens and cache_creation_tokens to llm_usage_records
 
-Revision ID: a3b4c5d6e7f8
-Revises: z1a2b3c4d5e6
+Revision ID: f2a3b4c5d6e7
+Revises: e1f2d3c4b5a6
 Create Date: 2026-04-26 00:00:00.000000
 
 Stores per-call cache token counts alongside prompt/completion tokens so the

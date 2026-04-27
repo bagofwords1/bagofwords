@@ -2458,11 +2458,14 @@ class AgentV2:
                             from app.settings.database import create_async_session_factory as _csf
                             from app.models.agent_execution import AgentExecution as _AE
                             from app.models.completion import Completion as _Comp
+                            # Build the session factory once: create_async_session_factory()
+                            # spins up a new engine + pool, so calling it per retry
+                            # under lock contention burns connection slots fast.
+                            SessionLocal = _csf()
                             _max_retries = 5
                             _retry_delay = 0.5
                             for _attempt in range(_max_retries):
                                 try:
-                                    SessionLocal = _csf()
                                     async with SessionLocal() as bg_db:
                                         bg_exec = await bg_db.get(_AE, _bg_exec_id)
                                         bg_comp = await bg_db.get(_Comp, _bg_comp_id)
