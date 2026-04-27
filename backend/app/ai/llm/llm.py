@@ -4,11 +4,20 @@ import time
 from typing import AsyncGenerator, Optional, Callable
 
 from .clients.openai_client import OpenAi
+from .clients.openai_responses_client import OpenAIResponsesClient
 from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
 from .clients.azure_client import AzureClient
 from .clients.bedrock_client import BedrockClient
-from .types import LLMResponse, LLMUsage, ImageInput
+from .types import (
+    ImageInput,
+    LLMResponse,
+    LLMStreamEvent,
+    LLMUsage,
+    Message,
+    ToolSpec,
+    UsageEvent,
+)
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.models.llm_model import LLMModel
 from app.services.llm_usage_recorder import LLMUsageRecorderService
@@ -64,7 +73,12 @@ class LLM:
             base_url = None
             if self.model.provider.additional_config:
                 base_url = self.model.provider.additional_config.get("base_url")
-            self.client = OpenAi(api_key=self.api_key, base_url=base_url or "https://api.openai.com/v1")
+            if base_url:
+                # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url)
+            else:
+                # Default OpenAI → Responses API (supports reasoning content)
+                self.client = OpenAIResponsesClient(api_key=self.api_key)
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key)
         elif self.provider == "google":
@@ -264,6 +278,106 @@ class LLM:
                 should_record=should_record,
             )
 
+    async def inference_stream_v2(
+        self,
+        *,
+        model_id: Optional[str] = None,
+        messages: list[Message],
+        system: Optional[str] = None,
+        tools: Optional[list[ToolSpec]] = None,
+        images: Optional[list[ImageInput]] = None,
+        thinking: Optional[dict] = None,
+        disable_parallel_tools: bool = True,
+        usage_scope: Optional[str] = None,
+        usage_scope_ref_id: Optional[str] = None,
+        should_record: bool = True,
+        prompt_tokens_estimate: Optional[int] = None,
+    ):
+        """Streaming inference with native tool_use support.
+
+        Forwards :class:`LLMStreamEvent`s from the underlying client and records
+        token usage after the stream ends (using either provider-reported usage
+        or, as fallback, the prompt_tokens_estimate plus a UsageEvent count).
+        """
+        target_model_id = model_id or self.model_id
+        with tracer.start_as_current_span("llm.inference_stream_v2") as span:
+            span.set_attribute("llm.model_id", target_model_id)
+            span.set_attribute("llm.provider", self.provider)
+            self._validate_vision_support(images)
+
+            prompt_tokens = (
+                prompt_tokens_estimate
+                if prompt_tokens_estimate is not None
+                else 0
+            )
+            completion_tokens = 0
+            cache_read_tokens = 0
+            cache_creation_tokens = 0
+            stream_start = time.monotonic()
+            ttft_recorded = False
+
+            try:
+                async for evt in self.client.inference_stream_v2(
+                    model_id=target_model_id,
+                    messages=messages,
+                    system=system,
+                    tools=tools,
+                    images=images,
+                    thinking=thinking,
+                    disable_parallel_tools=disable_parallel_tools,
+                ):
+                    if not ttft_recorded and getattr(evt, "type", None) in (
+                        "text_delta",
+                        "tool_use_start",
+                    ):
+                        ttft_ms = (time.monotonic() - stream_start) * 1000
+                        span.set_attribute("llm.ttft_ms", ttft_ms)
+                        span.add_event("ttft", {"ttft_ms": ttft_ms})
+                        ttft_recorded = True
+
+                    if isinstance(evt, UsageEvent):
+                        if evt.input_tokens:
+                            prompt_tokens = evt.input_tokens
+                        if evt.output_tokens:
+                            completion_tokens = evt.output_tokens
+                        if evt.cache_read_tokens:
+                            cache_read_tokens = evt.cache_read_tokens
+                            span.set_attribute("llm.cache_read_tokens", cache_read_tokens)
+                        if evt.cache_creation_tokens:
+                            cache_creation_tokens = evt.cache_creation_tokens
+                            span.set_attribute(
+                                "llm.cache_creation_tokens", cache_creation_tokens
+                            )
+
+                    yield evt
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise RuntimeError(
+                    f"LLM v2 streaming failed (provider={self.provider}, model={target_model_id}): {e}"
+                ) from e
+
+            # Pull final usage from client if it didn't emit a UsageEvent
+            if hasattr(self.client, "pop_last_usage"):
+                usage = self.client.pop_last_usage()
+                if usage.prompt_tokens:
+                    prompt_tokens = usage.prompt_tokens
+                if usage.completion_tokens:
+                    completion_tokens = usage.completion_tokens
+
+            span.set_attribute("llm.prompt_tokens", prompt_tokens)
+            span.set_attribute("llm.completion_tokens", completion_tokens)
+
+            self._schedule_usage_record(
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_creation_tokens=cache_creation_tokens,
+                should_record=should_record,
+            )
+
     async def test_connection(self, prompt: str = "Hello, how are you?"):
         logger.info("Testing LLM connection: provider=%s, model=%s", self.provider, self.model_id)
         try:
@@ -349,6 +463,8 @@ class LLM:
         scope_ref_id: Optional[str],
         prompt_tokens: int,
         completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
         should_record: bool,
     ):
         if not should_record or not scope or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
@@ -366,6 +482,8 @@ class LLM:
                         llm_model=self.model,
                         prompt_tokens=prompt_tokens or 0,
                         completion_tokens=completion_tokens or 0,
+                        cache_read_tokens=cache_read_tokens or 0,
+                        cache_creation_tokens=cache_creation_tokens or 0,
                     )
                     await session.commit()
             coroutine = _record_usage()

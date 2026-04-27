@@ -15,17 +15,19 @@
       <span v-else class="text-gray-700">{{ $t('tools.createArtifact.create') }}</span>
 
       <!-- Mode Badge -->
-      <span
-        v-if="artifactMode"
-        :class="[
-          'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
-          artifactMode === 'slides'
-            ? 'bg-purple-100 text-purple-700'
-            : 'bg-blue-100 text-blue-700'
-        ]"
-      >
-        {{ artifactMode === 'slides' ? $t('tools.createArtifact.slides') : $t('tools.createArtifact.dashboard') }}
-      </span>
+      <Transition name="fade-in" appear>
+        <span
+          v-if="artifactMode"
+          :class="[
+            'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
+            artifactMode === 'slides'
+              ? 'bg-purple-100 text-purple-700'
+              : 'bg-blue-100 text-blue-700'
+          ]"
+        >
+          {{ artifactMode === 'slides' ? $t('tools.createArtifact.slides') : $t('tools.createArtifact.dashboard') }}
+        </span>
+      </Transition>
 
       <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>

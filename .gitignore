@@ -1,6 +1,7 @@
 # Node.js (Frontend)
 
 backend/uploads/
+backend/*.db
 backend/db/
 backend/*.db
 backend/venv/

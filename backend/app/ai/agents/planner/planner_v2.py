@@ -1,3 +1,15 @@
+"""Planner v2 — legacy JSON envelope output (DEPRECATED).
+
+Scheduled for deletion at v3 release. Do not extend.
+
+The active planner is :mod:`planner_v3` (native tool_use, default). v2
+remains reachable as a fallback via ``BOW_PLANNER=v2``. Once v3 has soaked
+in prod for one release, this file and ``prompt_builder.py`` will be
+removed.
+
+If you need to fix something here that also affects v3, fix it in v3 only —
+v2 stays frozen.
+"""
 import asyncio
 import json
 import time
@@ -61,6 +73,7 @@ class PlannerV2:
         self,
         planner_input: PlannerInput,
         sigkill_event: asyncio.Event,
+        thinking: Optional[dict] = None,  # accepted for parity with v3; ignored on legacy path
     ) -> AsyncIterator[PlannerEvent]:
         # Initialize state with Pydantic input
         state = PlannerState(

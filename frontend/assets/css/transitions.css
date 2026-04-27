@@ -1,0 +1,19 @@
+/*
+ * Vue <Transition> classes used across tool widgets to soften the moment
+ * a tool kickoff (just tool_name) gets enriched mid-stream with arguments
+ * (table list, query, title, etc). Fade-in only — args appear, they don't
+ * swap, so out animation would be misleading.
+ */
+
+.fade-in-enter-active,
+.fade-in-leave-active {
+  transition: opacity 200ms ease;
+}
+.fade-in-enter-from,
+.fade-in-leave-to {
+  opacity: 0;
+}
+.fade-in-enter-to,
+.fade-in-leave-from {
+  opacity: 1;
+}

@@ -19,8 +19,8 @@ azure-kusto-data==4.6.2
 azure-identity==1.19.0
 bcrypt==4.1.2
 blinker==1.9.0
-boto3==1.35.70
-botocore==1.35.70
+boto3==1.37.0
+botocore==1.37.0
 cachetools==5.5.0
 certifi==2024.7.4
 cffi==1.16.0
@@ -147,7 +147,7 @@ requests-oauthlib==2.0.0
 requests-toolbelt==1.0.0
 rpds-py==0.22.3
 rsa==4.9
-s3transfer==0.10.4
+s3transfer==0.11.3
 setuptools==78.1.1
 jaraco.context==6.1.0
 wheel==0.46.2

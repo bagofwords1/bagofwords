@@ -18,6 +18,8 @@ class LLMUsageRecord(BaseSchema):
 
     prompt_tokens = Column(Integer, nullable=False, default=0)
     completion_tokens = Column(Integer, nullable=False, default=0)
+    cache_read_tokens = Column(Integer, nullable=False, default=0)
+    cache_creation_tokens = Column(Integer, nullable=False, default=0)
 
     input_cost_usd = Column(Numeric(18, 6), nullable=False, default=0)
     output_cost_usd = Column(Numeric(18, 6), nullable=False, default=0)

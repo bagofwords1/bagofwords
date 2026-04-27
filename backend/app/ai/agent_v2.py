@@ -1,13 +1,77 @@
 import asyncio
 import json
 import logging
+import os
 import uuid as _uuid_mod
 from typing import Dict, Optional
 from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
-from app.ai.agents.planner import PlannerV2
+
+# Substring triggers that bump a completion's reasoning_effort to "high".
+# Matched case-insensitive against the user-submitted prompt text only —
+# not system prompts, instructions, or rendered context. See
+# _detect_thinking_trigger / _resolve_reasoning_effort below.
+THINKING_TRIGGERS = (
+    "think hard",
+    "think harder",
+    "ultrathink",
+    "think step by step",
+    "think carefully",
+    "think deeply",
+    "deep dive",
+    "be thorough",
+)
+
+# Map a user-facing effort level to the Anthropic ``thinking`` request param.
+# "off" returns None (no thinking sent). Anthropic 4.6+ supports
+# ``adaptive`` (model decides budget); older 4.x needs an explicit
+# budget_tokens. We use adaptive when reasonable so the model self-regulates.
+def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -> Optional[dict]:
+    if not effort or effort == "off":
+        return None
+    e = str(effort).lower()
+    supports_adaptive = bool(model_id) and any(
+        tag in model_id for tag in ("sonnet-4-6", "opus-4-6", "opus-4-7", "sonnet-4-7")
+    )
+    if e == "low":
+        if supports_adaptive:
+            return {"type": "adaptive"}
+        return {"type": "enabled", "budget_tokens": 1024}
+    if e == "medium":
+        if supports_adaptive:
+            return {"type": "adaptive"}
+        return {"type": "enabled", "budget_tokens": 5000}
+    if e == "high":
+        return {"type": "enabled", "budget_tokens": 15000}
+    return None
+
+
+def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
+    if not prompt_text:
+        return False
+    p = prompt_text.lower()
+    return any(kw in p for kw in THINKING_TRIGGERS)
+
+
+def _resolve_reasoning_effort(
+    *,
+    per_completion: Optional[str],
+    prompt_text: Optional[str],
+    model_default: Optional[str],
+) -> str:
+    """Resolution order: per-completion > trigger words > model default > off."""
+    if per_completion:
+        return per_completion.lower()
+    if _detect_thinking_trigger(prompt_text):
+        return "high"
+    if model_default:
+        return str(model_default).lower()
+    return "off"
+
+
+from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
@@ -93,13 +157,21 @@ class AgentV2:
 
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
-        
+
         # SSE event queue for streaming
         self.event_queue = event_queue
-        
+
         # Agent execution tracking
         self.project_manager = ProjectManager()
         self.current_execution = None
+
+        # Background DB writes scheduled during the loop. Drained before the
+        # final `completion.finished` SSE so the API doesn't return a "done"
+        # signal while writes are still in flight. Failed bg writes are
+        # logged with `[agent.bg_write]` and counted in
+        # `_bg_write_failures` for observability.
+        self._pending_writes: list[asyncio.Task] = []
+        self._bg_write_failures: int = 0
         
         # Widget/step state management
         self.current_widget = None
@@ -153,11 +225,28 @@ class AgentV2:
                 seen_tools.add(tool['name'])
 
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
-        self.planner = PlannerV2(
-            model=self.model,
-            tool_catalog=tool_catalog,
-            usage_session_maker=async_session_maker,
-        )
+        # BOW_PLANNER selects the planner implementation. Default v3 (native
+        # tool_use). Set BOW_PLANNER=v2 to fall back to the legacy JSON
+        # envelope planner. Other values fall back to v3 with a warning.
+        planner_version = os.environ.get("BOW_PLANNER", "v3").strip().lower()
+        if planner_version in ("v2", "2"):
+            logger.info("[agent] using planner_v2 (legacy JSON envelope)")
+            self.planner = PlannerV2(
+                model=self.model,
+                tool_catalog=tool_catalog,
+                usage_session_maker=async_session_maker,
+            )
+        else:
+            if planner_version not in ("v3", "3", ""):
+                logger.warning(
+                    "[agent] unknown BOW_PLANNER=%r, falling back to v3",
+                    planner_version,
+                )
+            self.planner = PlannerV3(
+                model=self.model,
+                tool_catalog=tool_catalog,
+                usage_session_maker=async_session_maker,
+            )
         
         # Tool runner with enhanced policies
         self.tool_runner = ToolRunner(
@@ -1109,6 +1198,61 @@ class AgentV2:
         except Exception:
             pass
 
+    def _schedule_bg_write(self, label: str, coro):
+        """Schedule a background DB write coroutine.
+
+        The coroutine is wrapped so failures are logged with
+        `[agent.bg_write]` rather than escaping (which would crash the
+        event loop). The task is tracked in ``self._pending_writes`` so
+        ``_drain_bg_writes`` can wait on it before
+        ``completion.finished`` is emitted.
+        """
+        async def _runner():
+            try:
+                await coro
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._bg_write_failures += 1
+                logger.error(
+                    "[agent.bg_write] %s failed: %r (failures so far: %d)",
+                    label, exc, self._bg_write_failures,
+                    exc_info=True,
+                )
+        task = asyncio.create_task(_runner(), name=f"agent.bg_write.{label}")
+        self._pending_writes.append(task)
+        return task
+
+    async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
+        """Wait for all scheduled background writes to complete.
+
+        Called before emitting ``completion.finished`` so the API doesn't
+        return a "done" signal while writes are still in flight.
+        Bounded by ``timeout_s`` to avoid hanging the user-facing response
+        on a stuck DB; any tasks still pending after the timeout are
+        logged but not awaited further (they continue running on the loop).
+        """
+        if not self._pending_writes:
+            return
+        pending = list(self._pending_writes)
+        self._pending_writes = []
+        try:
+            done, still_pending = await asyncio.wait(
+                pending,
+                timeout=timeout_s,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            if still_pending:
+                names = [t.get_name() for t in still_pending]
+                logger.warning(
+                    "[agent.bg_write] drain timeout after %.1fs; %d task(s) still pending: %s",
+                    timeout_s, len(still_pending), names,
+                )
+                # Re-park them so the next drain (or another caller) can wait
+                self._pending_writes.extend(still_pending)
+        except Exception as exc:
+            logger.error("[agent.bg_write] drain failed: %r", exc, exc_info=True)
+
     async def main_execution(self):
         try:
             import time as _time
@@ -1141,6 +1285,39 @@ class AgentV2:
 
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
+
+            # Resolve extended-thinking effort once per completion. Order:
+            #   per-completion prompt.reasoning_effort > trigger words > model.config.reasoning_effort > "off"
+            # Only Anthropic honors the resulting thinking config today;
+            # other providers receive None / ignore. See _effort_to_thinking_config.
+            _per_completion_effort = (
+                self.head_completion.prompt.get("reasoning_effort")
+                if self.head_completion.prompt else None
+            )
+            _model_default_effort = None
+            try:
+                _mcfg = getattr(self.model, "config", None) or {}
+                if isinstance(_mcfg, dict):
+                    _model_default_effort = _mcfg.get("reasoning_effort")
+            except Exception:
+                _model_default_effort = None
+            self._reasoning_effort = _resolve_reasoning_effort(
+                per_completion=_per_completion_effort,
+                prompt_text=prompt_text,
+                model_default=_model_default_effort,
+            )
+            _model_id = getattr(self.model, "model_id", None) if self.model else None
+            self._thinking_config = _effort_to_thinking_config(self._reasoning_effort, _model_id)
+            logger.info(
+                "[agent] reasoning_effort resolved=%s thinking=%s model=%s "
+                "(per_completion=%s trigger=%s model_default=%s)",
+                self._reasoning_effort,
+                self._thinking_config,
+                _model_id,
+                _per_completion_effort,
+                _detect_thinking_trigger(prompt_text),
+                _model_default_effort,
+            )
 
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
@@ -1515,7 +1692,11 @@ class AgentV2:
                     except Exception as _cexc:
                         logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
 
-                async for evt in self.planner.execute(planner_input, self.sigkill_event):
+                async for evt in self.planner.execute(
+                    planner_input,
+                    self.sigkill_event,
+                    thinking=self._thinking_config,
+                ):
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
                         break
@@ -1549,11 +1730,16 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Emit SSE event only if there is content in reasoning, assistant, or final_answer
+                        # Emit decision.partial when there's any new decision content:
+                        # text (reasoning / assistant / final_answer) OR an action block.
+                        # The action path matters because v3 may emit tool_use with no
+                        # narration — frontend uses action.name to paint the tool widget
+                        # ~1s before tool.started fires.
                         reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
                         assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
                         final_answer_text = (getattr(decision, "final_answer", None) or "").strip()
-                        if reasoning_text or assistant_text or final_answer_text:
+                        action_present = decision.action is not None
+                        if reasoning_text or assistant_text or final_answer_text or action_present:
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.partial",
                                 completion_id=str(self.system_completion.id),
@@ -1574,18 +1760,100 @@ class AgentV2:
                         # Track whether analysis is complete
                         analysis_done = bool(getattr(decision, "analysis_complete", False))
                         
-                        # Retry flow: invalid planner output
+                        # Retry flow: invalid planner output OR underlying LLM error
                         if getattr(decision, "error", None):
+                            err_code = getattr(decision.error, "code", "validation_error")
+                            err_msg = getattr(decision.error, "message", "Invalid planner output")
+                            # If the underlying error is an LLM call failure
+                            # (auth/rate_limit/etc), surface a structured
+                            # llm.error SSE so the UI can show a real toast
+                            # instead of the user seeing a "completed" run
+                            # with empty blocks.
+                            llm_err_payload = None
+                            if err_code == "stream_error":
+                                try:
+                                    from app.ai.llm.errors import classify as _llm_classify
+                                    _provider = getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown"
+                                    _classified = _llm_classify(
+                                        Exception(err_msg),
+                                        provider=_provider,
+                                        model=getattr(self.model, "model_id", None) if self.model else None,
+                                    )
+                                    llm_err_payload = _classified.to_dict()
+                                except Exception as _classify_exc:
+                                    logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+
+                            if llm_err_payload:
+                                try:
+                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="llm.error",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={**llm_err_payload, "context": "planner", "attempt": invalid_retry_count + 1},
+                                    ))
+                                except Exception:
+                                    pass
+
                             if invalid_retry_count >= max_invalid_retries:
-                                # Too many retries, treat as final error
+                                # Too many retries, treat as final error.
+                                # Also flip completion to error status with a
+                                # human-readable message so refresh shows it.
                                 analysis_done = True
                                 await _cancel_skeleton_block("max_invalid_retries")
+                                # Mark completion_finished_emitted before the try so that even
+                                # if update_message fails, the success path at the end of the
+                                # outer loop is NOT taken (which would emit status='success').
+                                completion_finished_emitted = True
+                                if self.system_completion:
+                                    try:
+                                        # Compose a persisted message that preserves the actual
+                                        # provider error text — never abstract-only. Prefer
+                                        # `summary: provider_message` so refresh shows both
+                                        # the friendly headline and what really came back.
+                                        _summary = (llm_err_payload or {}).get("summary")
+                                        _pmsg = (llm_err_payload or {}).get("provider_message")
+                                        if _summary and _pmsg:
+                                            _final_msg = f"{_summary}: {_pmsg}"
+                                        else:
+                                            _final_msg = _summary or _pmsg or err_msg or "Planner failed"
+                                        await self.project_manager.update_completion_status(
+                                            self.db, self.system_completion, 'error'
+                                        )
+                                        await self.project_manager.update_message(
+                                            self.db, self.system_completion, message=_final_msg
+                                        )
+                                        if self.event_queue:
+                                            await self.event_queue.put(SSEEvent(
+                                                event="completion.finished",
+                                                completion_id=str(self.system_completion.id),
+                                                data={
+                                                    "status": "error",
+                                                    "error": {**(llm_err_payload or {"code": "validation_error", "summary": _final_msg, "provider_message": err_msg or ""}), "message": _final_msg},
+                                                },
+                                            ))
+                                    except Exception as _stop_exc:
+                                        logger.warning(f"[agent] terminal-error completion update failed: {_stop_exc!r}")
+                                        # Still emit completion.finished with error so the UI doesn't hang
+                                        try:
+                                            if self.event_queue:
+                                                await self.event_queue.put(SSEEvent(
+                                                    event="completion.finished",
+                                                    completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                                    data={
+                                                        "status": "error",
+                                                        "error": {**(llm_err_payload or {}), "message": err_msg or "Planner failed"},
+                                                    },
+                                                ))
+                                        except Exception:
+                                            pass
                                 break
                             observation = {
                                 "summary": "Planner output invalid; retrying",
                                 "error": {
-                                    "code": getattr(decision.error, "code", "validation_error"),
-                                    "message": getattr(decision.error, "message", "Invalid planner output"),
+                                    "code": err_code,
+                                    "message": err_msg,
                                 },
                             }
                             invalid_retry_count += 1
@@ -1742,9 +2010,23 @@ class AgentV2:
                                 pass
                         
                         # IMPORTANT: Check for action FIRST before checking analysis_complete.
-                        # The LLM sometimes sets analysis_complete=true when it means "this is the 
+                        # The LLM sometimes sets analysis_complete=true when it means "this is the
                         # final step" rather than "no action needed". If there's an action, execute it.
                         action = decision.action
+                        # If the model ignored the "one tool per turn" rule and emitted
+                        # multiple tool_use blocks, we currently dispatch only the first
+                        # and the model re-emits the rest across subsequent turns.
+                        # Log so the regression is visible in product logs and can be
+                        # tracked. True parallel multi-tool dispatch is a follow-up.
+                        _extra_actions = getattr(decision, "actions", None) or []
+                        if len(_extra_actions) > 1:
+                            logger.warning(
+                                "[agent] planner emitted %d parallel tool_use blocks; "
+                                "running first (%s) only — extras will be retried on subsequent turns: %s",
+                                len(_extra_actions),
+                                action.name if action else "?",
+                                ", ".join(a.name for a in _extra_actions[1:]),
+                            )
                         
                         # Only treat analysis_complete as terminal if there's NO action
                         if decision.analysis_complete and not action:
@@ -1752,11 +2034,14 @@ class AgentV2:
                             invalid_retry_count = 0
                             
                             # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
-                            # This unblocks thumbs up/debug icons and stop→submit button
+                            # This unblocks thumbs up/debug icons and stop→submit button.
+                            # Drain pending background writes first so a follow-up
+                            # GET on this completion sees consistent DB state.
                             if self.system_completion and not completion_finished_emitted:
+                                await self._drain_bg_writes()
                                 await self.project_manager.update_completion_status(
-                                    self.db, 
-                                    self.system_completion, 
+                                    self.db,
+                                    self.system_completion,
                                     'success'
                                 )
                                 if self.event_queue:
@@ -1766,7 +2051,7 @@ class AgentV2:
                                         data={"status": "success"}
                                     ))
                                 completion_finished_emitted = True
-                            
+
                             break
                         # Retry flow: action plan with missing action
                         if (getattr(decision, "plan_type", None) == "action") and not action:
@@ -2034,11 +2319,14 @@ class AgentV2:
                                     except Exception:
                                         pass
 
-                            # Emit completion.finished immediately so UI updates
+                            # Emit completion.finished immediately so UI updates.
+                            # Drain pending bg writes first so a follow-up GET
+                            # sees consistent state.
                             if self.system_completion and not completion_finished_emitted:
+                                await self._drain_bg_writes()
                                 await self.project_manager.update_completion_status(
-                                    self.db, 
-                                    self.system_completion, 
+                                    self.db,
+                                    self.system_completion,
                                     'success'
                                 )
                                 if self.event_queue:
@@ -2074,21 +2362,57 @@ class AgentV2:
                         if not created_visualization_ids and getattr(self, 'current_visualization', None):
                             created_visualization_ids = [str(self.current_visualization.id)]
 
-                        # Finish tool execution tracking — single INSERT (write-on-complete).
-                        # context_snapshot_id is written in background below; pass None here.
-                        await self.project_manager.finish_tool_execution_from_models(
-                            self.db,
-                            tool_execution=tool_execution,
-                            result_model=tool_output,
-                            summary=observation.get("summary", "") if observation else "",
-                            created_widget_id=created_widget_id,
-                            created_step_id=created_step_id,
-                            created_visualization_ids=created_visualization_ids,
-                            error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
-                            context_snapshot_id=None,
-                            success=bool(observation and not observation.get("error") and not (observation and observation.get("stopped"))),
-                            sub_timings_json=tool_sub_timings,
+                        # Finish tool execution tracking + update the related
+                        # completion block — both run in one background task so
+                        # the next loop iteration's planner call can start
+                        # immediately. Order matters: the tool_executions INSERT
+                        # must land before the completion_blocks UPDATE (which
+                        # sets the FK to tool_executions.id).
+                        # We set the tool_execution fields here first so the
+                        # synchronous tool.finished SSE below can read in-memory
+                        # values like duration_ms; the bg task only handles the
+                        # DB writes and the block.upsert SSE.
+                        _success_flag = bool(
+                            observation
+                            and not observation.get("error")
+                            and not (observation and observation.get("stopped"))
                         )
+                        _error_msg = (
+                            observation.get("error", {}).get("message")
+                            if observation and observation.get("error") else None
+                        )
+                        _summary = observation.get("summary", "") if observation else ""
+
+                        # Mutate the in-memory tool_execution synchronously so
+                        # downstream sync code (tool.finished SSE) can read its
+                        # final fields. The actual DB INSERT happens in bg.
+                        try:
+                            self.project_manager._configure_finished_tool_execution(
+                                tool_execution,
+                                result_model=tool_output,
+                                summary=_summary,
+                                created_widget_id=created_widget_id,
+                                created_step_id=created_step_id,
+                                created_visualization_ids=created_visualization_ids,
+                                error_message=_error_msg,
+                                success=_success_flag,
+                                sub_timings_json=tool_sub_timings,
+                            )
+                        except AttributeError:
+                            # Fallback if helper isn't wired yet — keep behavior
+                            await self.project_manager.finish_tool_execution_from_models(
+                                self.db,
+                                tool_execution=tool_execution,
+                                result_model=tool_output,
+                                summary=_summary,
+                                created_widget_id=created_widget_id,
+                                created_step_id=created_step_id,
+                                created_visualization_ids=created_visualization_ids,
+                                error_message=_error_msg,
+                                context_snapshot_id=None,
+                                success=_success_flag,
+                                sub_timings_json=tool_sub_timings,
+                            )
 
                         # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
                         _post_snap_exec_id = str(self.current_execution.id)
@@ -2135,25 +2459,68 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Upsert block for tool (synchronous — needed before tool.finished SSE),
-                        # then rebuild transcript in background (aggregation only, not user-facing).
-                        try:
-                            block = await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
-                            if block is not None:
+                        # Persist tool_executions (INSERT) + completion_blocks
+                        # (UPDATE with FK → tool_executions.id) in one bg task.
+                        # Order matters: the INSERT must land first or the
+                        # FK reference fails on Postgres. Both run in the same
+                        # bg session so they share a transaction-ish boundary.
+                        # The block.upsert SSE moves into the bg task too —
+                        # serialize_block_v2 needs the block in DB.
+                        _bg_comp_id = str(self.system_completion.id)
+                        _bg_exec_id = str(self.current_execution.id)
+                        _bg_tool_exec = tool_execution  # in-memory, configured
+
+                        async def _bg_persist_tool():
+                            from app.settings.database import create_async_session_factory as _csf
+                            from app.models.agent_execution import AgentExecution as _AE
+                            from app.models.completion import Completion as _Comp
+                            _max_retries = 5
+                            _retry_delay = 0.5
+                            for _attempt in range(_max_retries):
                                 try:
-                                    block_schema = await serialize_block_v2(self.db, block)
-                                    seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=seq_blk,
-                                        data={"block": block_schema.model_dump()}
-                                    ))
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
+                                    SessionLocal = _csf()
+                                    async with SessionLocal() as bg_db:
+                                        bg_exec = await bg_db.get(_AE, _bg_exec_id)
+                                        bg_comp = await bg_db.get(_Comp, _bg_comp_id)
+                                        if not (bg_exec and bg_comp):
+                                            return
+                                        # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
+                                        # in a single transaction: previously these were two
+                                        # separate commits, and a failure between them left the
+                                        # block's FK NULL on every subsequent refresh.
+                                        block = await self.project_manager.commit_tool_and_attach_block(
+                                            bg_db, bg_comp, bg_exec, _bg_tool_exec,
+                                        )
+                                        if block is None:
+                                            return
+                                        try:
+                                            block_schema = await serialize_block_v2(bg_db, block)
+                                            seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="block.upsert",
+                                                completion_id=_bg_comp_id,
+                                                agent_execution_id=_bg_exec_id,
+                                                seq=seq_blk,
+                                                data={"block": block_schema.model_dump()},
+                                            ))
+                                        except Exception as _e:
+                                            logger.warning(
+                                                f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
+                                            )
+                                        return  # success
+                                except Exception as _retry_exc:
+                                    _is_lock = "database is locked" in str(_retry_exc) or "PendingRollback" in type(_retry_exc).__name__
+                                    if _is_lock and _attempt < _max_retries - 1:
+                                        logger.warning(
+                                            "[agent.bg_write] persist_tool locked, retry %d/%d in %.1fs",
+                                            _attempt + 1, _max_retries, _retry_delay,
+                                        )
+                                        await asyncio.sleep(_retry_delay)
+                                        _retry_delay = min(_retry_delay * 2, 4.0)
+                                        continue
+                                    raise
+
+                        self._schedule_bg_write("persist_tool", _bg_persist_tool())
                         _rb_tool_comp_id = str(self.system_completion.id)
                         _rb_tool_exec_id = str(self.current_execution.id)
                         async def _bg_rebuild_tool():
@@ -2384,16 +2751,18 @@ class AgentV2:
             except Exception:
                 pass
             
-            # Update system completion status and emit event if not already done
-            # Success case is typically handled earlier in the analysis_complete block for faster UI response
+            # Update system completion status and emit event if not already done.
+            # Success case is typically handled earlier in the analysis_complete block for faster UI response.
+            # Drain pending bg writes so a follow-up GET sees consistent state.
             if self.system_completion and not completion_finished_emitted:
+                await self._drain_bg_writes()
                 completion_status = 'stopped' if self.sigkill_event.is_set() else 'success'
                 await self.project_manager.update_completion_status(
-                    self.db, 
-                    self.system_completion, 
+                    self.db,
+                    self.system_completion,
                     completion_status
                 )
-                
+
                 # Emit completion finished event
                 if self.event_queue:
                     finished_event = SSEEvent(
@@ -2445,7 +2814,12 @@ class AgentV2:
                     self.system_completion, 
                     'error'
                 )
-            # Emit a final completion.finished event with error details for UI consumption
+            # Emit a final completion.finished event with error details for UI consumption.
+            # Best-effort drain of bg writes — bounded so we don't hang the error path.
+            try:
+                await self._drain_bg_writes(timeout_s=3.0)
+            except Exception:
+                pass
             try:
                 if self.event_queue:
                     await self.event_queue.put(SSEEvent(

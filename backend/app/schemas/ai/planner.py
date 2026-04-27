@@ -24,6 +24,8 @@ class TokenUsage(BaseModel):
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    cache_creation_tokens: Optional[int] = None
 
 
 class PlannerMetrics(BaseModel):
@@ -50,7 +52,8 @@ class PlannerDecision(BaseModel):
     plan_type: Optional[Literal["research", "action"]] = None
     reasoning_message: Optional[str] = None
     assistant_message: Optional[str] = None
-    action: Optional[Action] = None
+    action: Optional[Action] = None  # legacy: first action; kept for SSE/UI streaming compatibility
+    actions: List[Action] = []       # all actions when the model emits parallel tool_uses
     final_answer: Optional[str] = None
     streaming_complete: bool = False
     metrics: Optional[PlannerMetrics] = None
@@ -112,5 +115,22 @@ class PlannerInput(BaseModel):
 
     # Platform-specific context (e.g. Excel selection data) — injected into prompt, not part of user message
     platform_context: Optional[Dict[str, Any]] = None
+
+
+class PlannerInputV3(BaseModel):
+    """Structured planner input for planner_v3 (native tool_use path).
+
+    Built by PromptBuilderV3 from a PlannerInput. Same context content, but
+    split into the shape providers' tool_use APIs expect: a system string,
+    a list of structured messages, and a list of tool specs.
+    """
+    system: str
+    messages: List[Dict[str, Any]] = []   # serialized Message objects (role + content)
+    tools: List[Dict[str, Any]] = []      # serialized ToolSpec objects
+
+    # Carry-through fields used by the planner (NOT sent to the LLM as JSON)
+    images: Optional[List[Any]] = None
+    tool_catalog: Optional[List[ToolDescriptor]] = None  # for plan_type derivation
+    mode: Optional[str] = "chat"
 
 

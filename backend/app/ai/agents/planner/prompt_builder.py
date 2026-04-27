@@ -1,3 +1,11 @@
+"""Prompt builder for planner_v2 (DEPRECATED).
+
+Scheduled for deletion at v3 release. Do not extend.
+
+The active prompt builder is :mod:`prompt_builder_v3`, which produces a
+structured (system, messages, tools) input for native tool_use. This module
+remains only while ``BOW_PLANNER=v2`` is supported as a fallback.
+"""
 import json
 from typing import List, Dict, Any, Optional
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
@@ -332,6 +340,7 @@ CRITICAL: If you are calling a tool (action is not null), set analysis_complete=
 The tool needs to execute first before analysis can be complete.
 CRITICAL: assistant_message and final_answer are mutually exclusive. Never set both in the same response.
 """
+        
         return prompt
     
     @staticmethod

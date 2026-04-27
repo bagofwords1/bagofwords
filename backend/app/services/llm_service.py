@@ -473,7 +473,7 @@ class LLMService:
             
             # Check if this model would be default according to config
             model_details = next(
-                (m for m in LLM_MODEL_DETAILS if m["model_id"] == model["model_id"]),
+                (m for m in LLM_MODEL_DETAILS if m["model_id"] == model["model_id"] and m["provider_type"] == provider.provider_type),
                 None
             )
             
@@ -513,8 +513,22 @@ class LLMService:
                     db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
                 db_model.supports_vision = model_details.get("supports_vision", False)
             elif db_model.is_custom:
-                # For custom models: use value from model dict (defaults to False)
-                db_model.supports_vision = model.get("supports_vision", False)
+                # Inherit catalog fields when model_id+provider_type match; user values take precedence.
+                if model_details:
+                    if not model.get("name"):
+                        db_model.name = model_details["name"]
+                    if db_model.context_window_tokens is None and model_details.get("context_window_tokens") is not None:
+                        db_model.context_window_tokens = model_details["context_window_tokens"]
+                    if db_model.input_cost_per_million_tokens_usd is None and model_details.get("input_cost_per_million_tokens_usd") is not None:
+                        db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
+                    if db_model.output_cost_per_million_tokens_usd is None and model_details.get("output_cost_per_million_tokens_usd") is not None:
+                        db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
+                    if not model.get("supports_vision"):
+                        db_model.supports_vision = model_details.get("supports_vision", False)
+                    else:
+                        db_model.supports_vision = True
+                else:
+                    db_model.supports_vision = model.get("supports_vision", False)
 
             db.add(db_model)
 
@@ -662,29 +676,39 @@ class LLMService:
                 # Optional token/pricing/vision fields
                 # For preset models: sync from LLM_MODEL_DETAILS (not updatable by clients)
                 # For custom models: allow clients to optionally set these values
+                catalog = next(
+                    (m for m in LLM_MODEL_DETAILS if m["model_id"] == db_model.model_id and m["provider_type"] == provider.provider_type),
+                    None
+                )
                 if db_model.is_preset:
-                    model_details = next(
-                        (m for m in LLM_MODEL_DETAILS if m["model_id"] == db_model.model_id),
-                        None
-                    )
-                    if model_details:
-                        if model_details.get("context_window_tokens") is not None:
-                            db_model.context_window_tokens = model_details["context_window_tokens"]
-                        if model_details.get("input_cost_per_million_tokens_usd") is not None:
-                            db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
-                        if model_details.get("output_cost_per_million_tokens_usd") is not None:
-                            db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
-                        db_model.supports_vision = model_details.get("supports_vision", False)
+                    if catalog:
+                        if catalog.get("context_window_tokens") is not None:
+                            db_model.context_window_tokens = catalog["context_window_tokens"]
+                        if catalog.get("input_cost_per_million_tokens_usd") is not None:
+                            db_model.input_cost_per_million_tokens_usd = catalog["input_cost_per_million_tokens_usd"]
+                        if catalog.get("output_cost_per_million_tokens_usd") is not None:
+                            db_model.output_cost_per_million_tokens_usd = catalog["output_cost_per_million_tokens_usd"]
+                        db_model.supports_vision = catalog.get("supports_vision", False)
                 else:
-                    # Custom models: allow clients to optionally update these fields
+                    # Custom models: user values take precedence; fall back to catalog when model_id+provider_type match.
                     if getattr(model, "context_window_tokens", None) is not None:
                         db_model.context_window_tokens = model.context_window_tokens
+                    elif catalog and catalog.get("context_window_tokens") is not None:
+                        db_model.context_window_tokens = catalog["context_window_tokens"]
                     if getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
                         db_model.input_cost_per_million_tokens_usd = model.input_cost_per_million_tokens_usd
+                    elif catalog and catalog.get("input_cost_per_million_tokens_usd") is not None:
+                        db_model.input_cost_per_million_tokens_usd = catalog["input_cost_per_million_tokens_usd"]
                     if getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
                         db_model.output_cost_per_million_tokens_usd = model.output_cost_per_million_tokens_usd
-                    # For custom models, update supports_vision if provided
-                    db_model.supports_vision = getattr(model, "supports_vision", False)
+                    elif catalog and catalog.get("output_cost_per_million_tokens_usd") is not None:
+                        db_model.output_cost_per_million_tokens_usd = catalog["output_cost_per_million_tokens_usd"]
+                    if getattr(model, "supports_vision", False):
+                        db_model.supports_vision = True
+                    elif catalog:
+                        db_model.supports_vision = catalog.get("supports_vision", False)
+                    else:
+                        db_model.supports_vision = False
                 
                 if getattr(model, "max_output_tokens", None) is not None:
                     db_model.max_output_tokens = model.max_output_tokens
@@ -698,32 +722,32 @@ class LLMService:
                 output_cost = None
                 supports_vision = False
 
+                catalog = next(
+                    (m for m in LLM_MODEL_DETAILS if m["model_id"] == model.model_id and m["provider_type"] == provider.provider_type),
+                    None
+                )
                 if model.is_preset:
-                    model_details = next(
-                        (m for m in LLM_MODEL_DETAILS if m["model_id"] == model.model_id),
-                        None
-                    )
-                    if model_details:
-                        if model_details.get("context_window_tokens") is not None:
-                            context_window_tokens = model_details["context_window_tokens"]
-                        if model_details.get("input_cost_per_million_tokens_usd") is not None:
-                            input_cost = model_details["input_cost_per_million_tokens_usd"]
-                        if model_details.get("output_cost_per_million_tokens_usd") is not None:
-                            output_cost = model_details["output_cost_per_million_tokens_usd"]
-                        supports_vision = model_details.get("supports_vision", False)
+                    if catalog:
+                        if catalog.get("context_window_tokens") is not None:
+                            context_window_tokens = catalog["context_window_tokens"]
+                        if catalog.get("input_cost_per_million_tokens_usd") is not None:
+                            input_cost = catalog["input_cost_per_million_tokens_usd"]
+                        if catalog.get("output_cost_per_million_tokens_usd") is not None:
+                            output_cost = catalog["output_cost_per_million_tokens_usd"]
+                        supports_vision = catalog.get("supports_vision", False)
                 else:
-                    # Custom models: allow clients to optionally provide these values
-                    context_window_tokens = getattr(model, "context_window_tokens", None)
-                    input_cost = getattr(model, "input_cost_per_million_tokens_usd", None)
-                    output_cost = getattr(model, "output_cost_per_million_tokens_usd", None)
-                    supports_vision = getattr(model, "supports_vision", False)
+                    # User values take precedence; fall back to catalog when model_id+provider_type match.
+                    context_window_tokens = getattr(model, "context_window_tokens", None) or (catalog.get("context_window_tokens") if catalog else None)
+                    input_cost = getattr(model, "input_cost_per_million_tokens_usd", None) or (catalog.get("input_cost_per_million_tokens_usd") if catalog else None)
+                    output_cost = getattr(model, "output_cost_per_million_tokens_usd", None) or (catalog.get("output_cost_per_million_tokens_usd") if catalog else None)
+                    supports_vision = getattr(model, "supports_vision", False) or (catalog.get("supports_vision", False) if catalog else False)
 
                 # Set as default if org has no default and this model is enabled
                 should_be_default = not has_default_model and model.is_enabled
                 should_be_small_default = not has_small_default_model and model.is_enabled
 
                 db_model = LLMModel(
-                    name=model.name or model.model_id,
+                    name=model.name or (catalog["name"] if catalog else None) or model.model_id,
                     model_id=model.model_id,
                     provider=provider,
                     organization_id=organization.id,

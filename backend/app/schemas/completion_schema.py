@@ -12,6 +12,10 @@ class PromptSchema(BaseModel):
     mentions: Optional[List[dict]] = None  # Default to None
     model_id: Optional[str] = None  # Optional model override
     mode: Optional[str] = None  # Optional mode for agent execution
+    # Per-completion override for extended-thinking effort. Resolution order:
+    #   per-completion > trigger words in prompt > LLMModel.config default > "off"
+    # Currently honored on Anthropic only; ignored on other providers.
+    reasoning_effort: Optional[str] = None  # off|low|medium|high
 
     class Config:
         from_attributes = True

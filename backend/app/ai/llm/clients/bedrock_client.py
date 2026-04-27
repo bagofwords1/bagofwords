@@ -1,12 +1,29 @@
 import asyncio
 import base64
+import json
 from concurrent.futures import ThreadPoolExecutor
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, AsyncIterator, Optional
 
 import boto3
 
 from app.ai.llm.clients.base import LLMClient
-from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
+from app.ai.llm.types import (
+    ImageInput,
+    LLMResponse,
+    LLMStreamEvent,
+    LLMUsage,
+    Message,
+    MessageStopEvent,
+    ReasoningCompleteEvent,
+    ReasoningDeltaEvent,
+    ReasoningStartEvent,
+    TextDeltaEvent,
+    ToolSpec,
+    ToolUseCompleteEvent,
+    ToolUseInputDeltaEvent,
+    ToolUseStartEvent,
+    UsageEvent,
+)
 
 _STREAM_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 
@@ -162,3 +179,199 @@ class BedrockClient(LLMClient):
                 completion_tokens=usage_holder["outputTokens"],
             )
         )
+
+    @staticmethod
+    def _translate_messages(messages: list[Message]) -> list[dict]:
+        out: list[dict] = []
+        for msg in messages:
+            role = "assistant" if msg.role == "assistant" else "user"
+            if isinstance(msg.content, str):
+                out.append({"role": role, "content": [{"text": msg.content}]})
+                continue
+
+            blocks = msg.content
+            text_blocks = [b for b in blocks if b.get("type") == "text"]
+            tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
+            tool_results = [b for b in blocks if b.get("type") == "tool_result"]
+
+            if tool_results:
+                content = []
+                for tr in tool_results:
+                    tr_content = tr.get("content", "")
+                    if not isinstance(tr_content, str):
+                        tr_content = json.dumps(tr_content, default=str)
+                    content.append({
+                        "toolResult": {
+                            "toolUseId": tr["tool_use_id"],
+                            "content": [{"text": tr_content}],
+                        }
+                    })
+                out.append({"role": "user", "content": content})
+            elif tool_uses:
+                content = []
+                for tc in tool_uses:
+                    content.append({
+                        "toolUse": {
+                            "toolUseId": tc["id"],
+                            "name": tc["name"],
+                            "input": tc.get("input", {}),
+                        }
+                    })
+                if text_blocks:
+                    text = " ".join(b.get("text", "") for b in text_blocks)
+                    content.insert(0, {"text": text})
+                out.append({"role": "assistant", "content": content})
+            else:
+                text = " ".join(b.get("text", "") for b in text_blocks)
+                out.append({"role": role, "content": [{"text": text}]})
+        return out
+
+    @staticmethod
+    def _translate_tools(tools: list[ToolSpec]) -> dict:
+        return {
+            "tools": [
+                {
+                    "toolSpec": {
+                        "name": t.name,
+                        "description": t.description,
+                        "inputSchema": {"json": t.input_schema},
+                    }
+                }
+                for t in tools
+            ]
+        }
+
+    async def inference_stream_v2(
+        self,
+        model_id: str,
+        messages: list[Message],
+        system: Optional[str] = None,
+        tools: Optional[list[ToolSpec]] = None,
+        images: Optional[list[ImageInput]] = None,
+        thinking: Optional[dict] = None,
+        disable_parallel_tools: bool = True,
+    ) -> AsyncIterator[LLMStreamEvent]:
+        loop = asyncio.get_running_loop()
+        event_queue: asyncio.Queue = asyncio.Queue()
+
+        bedrock_messages = self._translate_messages(messages)
+        request_kwargs: dict = {"modelId": model_id, "messages": bedrock_messages}
+        if system:
+            request_kwargs["system"] = [{"text": system}]
+        if thinking:
+            budget = int(thinking.get("budget_tokens") or 5000)
+            request_kwargs["additionalModelRequestFields"] = {
+                "thinking": {"type": "enabled", "budget_tokens": budget}
+            }
+        if tools:
+            tc = self._translate_tools(tools)
+            # disableParallelToolUse in toolChoice.auto requires botocore ≥ 1.37;
+            # skip it to keep compatibility with older botocore versions.
+            request_kwargs["toolConfig"] = tc
+
+        def _sync_stream():
+            try:
+                response = self.client.converse_stream(**request_kwargs)
+                for event in response["stream"]:
+                    loop.call_soon_threadsafe(event_queue.put_nowait, event)
+            finally:
+                loop.call_soon_threadsafe(event_queue.put_nowait, None)
+
+        future = loop.run_in_executor(_STREAM_EXECUTOR, _sync_stream)
+
+        # State for tracking open tool calls and reasoning blocks
+        open_calls: dict[int, dict] = {}  # block_index → {id, name, args_buffer}
+        open_reasoning: set[int] = set()  # block indices that are reasoning blocks
+        current_block_index: int = -1
+        prompt_tokens = 0
+        completion_tokens = 0
+        stop_reason = "end_turn"
+
+        while True:
+            event = await event_queue.get()
+            if event is None:
+                break
+
+            if "contentBlockStart" in event:
+                block_start = event["contentBlockStart"]
+                current_block_index = block_start.get("contentBlockIndex", current_block_index + 1)
+                start = block_start.get("start", {})
+                tool_use = start.get("toolUse")
+                # reasoningContent may be stripped by old botocore as an unknown
+                # tagged-union member; we also detect it lazily from delta events.
+                reasoning = start.get("reasoningContent")
+                if tool_use:
+                    open_calls[current_block_index] = {
+                        "id": tool_use["toolUseId"],
+                        "name": tool_use["name"],
+                        "args_buffer": "",
+                    }
+                    yield ToolUseStartEvent(
+                        id=tool_use["toolUseId"],
+                        name=tool_use["name"],
+                    )
+                elif reasoning is not None:
+                    open_reasoning.add(current_block_index)
+                    yield ReasoningStartEvent()
+
+            elif "contentBlockDelta" in event:
+                block_delta = event["contentBlockDelta"]
+                idx = block_delta.get("contentBlockIndex", current_block_index)
+                delta = block_delta.get("delta", {})
+
+                if "text" in delta:
+                    yield TextDeltaEvent(text=delta["text"])
+
+                if "toolUse" in delta:
+                    fragment = delta["toolUse"].get("input", "")
+                    if fragment and idx in open_calls:
+                        open_calls[idx]["args_buffer"] += fragment
+                        yield ToolUseInputDeltaEvent(
+                            id=open_calls[idx]["id"],
+                            partial_json=fragment,
+                        )
+
+                if "reasoningContent" in delta:
+                    rc = delta["reasoningContent"]
+                    # botocore ≥1.37 exposes "text"; older raw API used "thinkingDelta"
+                    text = rc.get("text", "") or rc.get("thinkingDelta", "")
+                    if text:
+                        # Lazily open a reasoning block if botocore stripped the start event
+                        if idx not in open_reasoning:
+                            open_reasoning.add(idx)
+                            yield ReasoningStartEvent()
+                        yield ReasoningDeltaEvent(text=text)
+
+            elif "contentBlockStop" in event:
+                idx = event["contentBlockStop"].get("contentBlockIndex", current_block_index)
+                if idx in open_calls:
+                    pending = open_calls[idx]
+                    raw = pending["args_buffer"]
+                    try:
+                        parsed = json.loads(raw) if raw.strip() else {}
+                    except Exception:
+                        parsed = {"_unparsable": True, "_raw": raw}
+                    yield ToolUseCompleteEvent(
+                        id=pending["id"],
+                        name=pending["name"],
+                        input=parsed,
+                    )
+                elif idx in open_reasoning:
+                    open_reasoning.discard(idx)
+                    yield ReasoningCompleteEvent(text="")
+
+            elif "messageStop" in event:
+                bedrock_stop = event["messageStop"].get("stopReason", "end_turn")
+                _stop_map = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}
+                stop_reason = _stop_map.get(bedrock_stop, "other")
+
+            elif "metadata" in event:
+                usage = event["metadata"].get("usage", {})
+                prompt_tokens = usage.get("inputTokens", prompt_tokens)
+                completion_tokens = usage.get("outputTokens", completion_tokens)
+
+        await future
+
+        yield MessageStopEvent(stop_reason=stop_reason)
+        yield UsageEvent(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))

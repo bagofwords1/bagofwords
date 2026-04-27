@@ -9,26 +9,30 @@
         <span v-if="status === 'running'" class="tool-shimmer flex items-center flex-wrap gap-1">
           <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ $t('tools.inspectData.inspecting') }}</span>
-          <template v-if="groupedTables.length">
-            <template v-for="(group, gidx) in groupedTables" :key="gidx">
-              <span v-if="gidx > 0" class="text-gray-300">|</span>
-              <DataSourceIcon :type="group.type" class="h-2" />
-              <span>{{ group.names.join(', ') }}</span>
-            </template>
-          </template>
-          <span v-else>{{ $t('tools.inspectData.dataRunning') }}</span>
+          <Transition name="fade-in" appear>
+            <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap gap-1">
+              <template v-for="(group, gidx) in groupedTables" :key="gidx">
+                <span v-if="gidx > 0" class="text-gray-300">|</span>
+                <DataSourceIcon :type="group.type" class="h-2" />
+                <span>{{ group.names.join(', ') }}</span>
+              </template>
+            </span>
+            <span v-else>{{ $t('tools.inspectData.dataRunning') }}</span>
+          </Transition>
         </span>
         <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
           <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-gray-400" />
           <span>{{ $t('tools.inspectData.inspected') }}</span>
-          <template v-if="groupedTables.length">
-            <template v-for="(group, gidx) in groupedTables" :key="gidx">
-              <span v-if="gidx > 0" class="text-gray-300">|</span>
-              <DataSourceIcon :type="group.type" class="h-2.5" />
-              <span>{{ group.names.join(', ') }}</span>
-            </template>
-          </template>
-          <span v-else>{{ $t('tools.inspectData.data') }}</span>
+          <Transition name="fade-in" appear>
+            <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap gap-1">
+              <template v-for="(group, gidx) in groupedTables" :key="gidx">
+                <span v-if="gidx > 0" class="text-gray-300">|</span>
+                <DataSourceIcon :type="group.type" class="h-2.5" />
+                <span>{{ group.names.join(', ') }}</span>
+              </template>
+            </span>
+            <span v-else>{{ $t('tools.inspectData.data') }}</span>
+          </Transition>
           <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"

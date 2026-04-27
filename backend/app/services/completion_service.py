@@ -1227,7 +1227,7 @@ class CompletionService:
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
                 fork_asset_refs=getattr(c, 'fork_asset_refs', None),
-                completion=c.completion if getattr(c, 'is_fork_summary', None) else None,
+                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error') else None,
             )
             v2_completions.append(v2)
 

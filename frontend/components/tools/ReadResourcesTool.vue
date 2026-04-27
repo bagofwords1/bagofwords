@@ -5,11 +5,18 @@
     <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
         <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-        Searching {{ queryLabel }}…
+        <span>Searching&nbsp;</span>
+        <Transition name="fade-in" mode="out-in">
+          <span :key="queryLabel || ''">{{ queryLabel }}</span>
+        </Transition>
+        <span>…</span>
       </span>
       <span v-else class="text-gray-700 flex items-center">
         <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-        <span class="align-middle">Searched {{ queryLabel }}</span>
+        <span class="align-middle">Searched&nbsp;</span>
+        <Transition name="fade-in" mode="out-in">
+          <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
+        </Transition>
       </span>
     </div>
     </Transition>

@@ -55,6 +55,10 @@ class PromptSchema(BaseModel):
     model_id: Optional[str] = None
     platform: Optional[str] = None  # 'excel', 'slack', 'teams', etc. None = web
     platform_context: Optional[Dict[str, Any]] = None  # Platform-specific context (e.g. Excel selection data)
+    # Per-completion override for extended-thinking effort. Resolution order:
+    #   per-completion > trigger words > LLMModel.config default > "off"
+    # Currently honored on Anthropic only; ignored on other providers.
+    reasoning_effort: Optional[str] = None  # off|low|medium|high
 
     class Config:
         from_attributes = True

@@ -367,12 +367,8 @@
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
 									</div>
-									<div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
-										<Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
-										<span v-if="getMessageError(m)" class="pre-wrap">
-											<Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
-											{{ getMessageError(m) }}</span>
-										<span v-else class="italic">An error occurred</span>
+									<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2">
+										{{ getMessageError(m) || 'An error occurred' }}
 									</div>
 								</div>
 							</template>
@@ -1206,10 +1202,9 @@ function isRealCompletion(m: ChatMessage): boolean {
 }
 
 function getMessageError(m: any): string | null {
-  // Prefer a content message stored on the completion (backend persisted), else last error block content
+  if (typeof m?.error_message === 'string' && m.error_message.trim()) return m.error_message.trim()
   try {
-    // Some backends put message into completion.completion.content
-    const content = (m?.completion?.content) || (m?.prompt?.content && m.status==='error' ? null : null)
+    const content = m?.completion?.content
     if (typeof content === 'string' && content.trim()) return content.trim()
   } catch {}
   const blocks = m?.completion_blocks || []
@@ -1628,8 +1623,19 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				// Find existing block or insert in-order by block_index (avoid resorting array)
 				const existingIndex = sysMessage.completion_blocks.findIndex(b => b.id === block.id)
 				if (existingIndex >= 0) {
-					// Update existing block in place
-					Object.assign(sysMessage.completion_blocks[existingIndex], block)
+					// Update existing block in place. Preserve any locally-populated
+					// tool_execution placeholder (from the kickoff stream's decision.partial
+					// handler) when the incoming payload doesn't carry a real one yet —
+					// the early sync upsert after decision.final serializes tool_execution
+					// as null because the bg INSERT hasn't landed, and a blind
+					// Object.assign would wipe the args/name we already painted.
+					const existing = sysMessage.completion_blocks[existingIndex]
+					const incomingHasTE = block.tool_execution && (block.tool_execution as any).id
+					const merged = { ...block }
+					if (!incomingHasTE && existing.tool_execution) {
+						delete (merged as any).tool_execution
+					}
+					Object.assign(existing, merged)
 				} else {
 					let insertPos = sysMessage.completion_blocks.length
 					for (let i = 0; i < sysMessage.completion_blocks.length; i++) {
@@ -2196,19 +2202,48 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 				}
 			}
+			// Tool kickoff: the planner emits action.name on ToolUseStart (~1s before
+			// tool.started fires). Paint a placeholder tool_execution so the widget
+			// renders immediately; the second decision.partial after ToolUseComplete
+			// brings full args, and tool.started later flips status to running.
+			if (payload.action?.name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock) {
+					const args = payload.action.arguments || {}
+					const hasArgs = args && Object.keys(args).length > 0
+					if (!lastBlock.tool_execution) {
+						lastBlock.tool_execution = {
+							id: `kickoff-${lastBlock.id}`,
+							tool_name: payload.action.name,
+							status: 'running',
+							arguments_json: hasArgs ? args : undefined,
+						} as any
+					} else if (hasArgs) {
+						;(lastBlock.tool_execution as any).arguments_json = args
+					}
+				}
+			}
 			break
 
 		case 'completion.finished':
-			// Mark completion as finished with proper status if provided; don't default to success
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			if (completionStatus) {
-				sysMessage.status = completionStatus as any
-				if (completionStatus === 'error' && payload?.error?.message) {
-					sysMessage.error_message = String(payload.error.message)
-					// Ensure a single error block exists for history (won't render duplicate due to block suppression)
+				if (sysMessage.status !== 'error' && sysMessage.status !== 'stopped') {
+					sysMessage.status = completionStatus as any
+				} else if (completionStatus === 'error') {
+					sysMessage.status = 'error' as any
+				}
+				if (completionStatus === 'error') {
+					const errPayload = payload?.error || {}
+					const errMsg: string = (typeof errPayload === 'string' ? errPayload : null)
+						|| errPayload.message
+						|| (errPayload.summary && errPayload.provider_message ? `${errPayload.summary}: ${errPayload.provider_message}` : (errPayload.summary || errPayload.provider_message))
+						|| sysMessage.error_message
+						|| ''
+					if (errMsg) sysMessage.error_message = errMsg
 					if (!sysMessage.completion_blocks?.some((b: any) => b.status === 'error')) {
 						sysMessage.completion_blocks = sysMessage.completion_blocks || []
-						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
+						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message || '' })
 					}
 				}
 				// NOTE: do NOT flip isStreaming here. The knowledge harness continues
@@ -2235,6 +2270,21 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					sysMessage.completion_blocks = sysMessage.completion_blocks || []
 					sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
 				}
+			}
+			break
+
+		case 'llm.error':
+			try {
+				const err = payload || {}
+				const summary = String(err.summary || `${err.provider || 'LLM provider'} call failed`)
+				const providerMessage = String(err.provider_message || '')
+				if (!sysMessage.error_message) {
+					sysMessage.error_message = providerMessage
+						? (summary && summary !== providerMessage ? `${summary}: ${providerMessage}` : providerMessage)
+						: summary
+				}
+			} catch (e) {
+				console.warn('llm.error handler failed', e)
 			}
 			break
 

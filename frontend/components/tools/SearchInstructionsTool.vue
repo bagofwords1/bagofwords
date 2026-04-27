@@ -5,11 +5,15 @@
       <div class="mb-2 flex items-center text-xs text-gray-500">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          {{ $t('tools.searchInstructions.searching', { query: queryLabel }) }}
+          <Transition name="fade-in" mode="out-in">
+            <span :key="queryLabel || ''">{{ $t('tools.searchInstructions.searching', { query: queryLabel }) }}</span>
+          </Transition>
         </span>
         <span v-else class="text-gray-700 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
-          <span class="align-middle">{{ $t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
+          <Transition name="fade-in" mode="out-in">
+            <span :key="queryLabel || ''" class="align-middle">{{ $t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
+          </Transition>
           <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? $t('tools.searchInstructions.matchSingular', { count: total }) : $t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
         </span>
       </div>
