@@ -2761,9 +2761,56 @@ class AgentV2:
                 completion_finished_emitted = True
             
         except Exception as e:
-            # Handle errors and finish execution with error status
-            if self.current_execution:
+            # Handle errors and finish execution with error status.
+            # Classify the exception so unknown / non-planner failures still
+            # surface a structured llm.error to the UI (toast + persisted
+            # message) instead of a silent error completion. classify() is a
+            # catch-all: its `unknown` branch keeps the raw provider message
+            # verbatim so the user always sees what actually went wrong.
+            llm_err_payload = None
+            try:
+                from app.ai.llm.errors import classify as _llm_classify
+                _provider = getattr(getattr(self.model, "provider", None), "provider_type", None) or "unknown"
+                _classified = _llm_classify(
+                    e,
+                    provider=_provider,
+                    model=getattr(self.model, "model_id", None) if self.model else None,
+                )
+                llm_err_payload = _classified.to_dict()
+            except Exception as _classify_exc:
+                logger.warning(f"[agent] llm error classification failed: {_classify_exc!r}")
+
+            # Compose the persisted message: prefer "summary: provider_message"
+            # so DB rows and refresh show both the friendly headline and the
+            # actual provider signal — never abstract-only.
+            if llm_err_payload:
+                _summary = llm_err_payload.get("summary") or ""
+                _pmsg = llm_err_payload.get("provider_message") or ""
+                if _summary and _pmsg and _summary != _pmsg:
+                    _composed_msg = f"{_summary}: {_pmsg}"
+                else:
+                    _composed_msg = _summary or _pmsg or str(e)
+                error_payload = {**llm_err_payload, "message": _composed_msg, "type": type(e).__name__}
+            else:
                 error_payload = {"message": str(e), "type": type(e).__name__}
+
+            # Emit llm.error BEFORE completion.finished so the toast pops while
+            # the completion lifecycle event still acts as the end-of-stream
+            # signal. Frontend dedupes on ctx:provider:code:status.
+            if llm_err_payload and self.event_queue and self.system_completion:
+                try:
+                    seq = await self.project_manager.next_seq(self.db, self.current_execution) if self.current_execution else None
+                    await self._emit_sse_event(SSEEvent(
+                        event="llm.error",
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id) if self.current_execution else None,
+                        seq=seq,
+                        data={**llm_err_payload, "context": "agent"},
+                    ))
+                except Exception as _emit_exc:
+                    logger.warning(f"[agent] llm.error emit failed: {_emit_exc!r}")
+
+            if self.current_execution:
                 await self.project_manager.finish_agent_execution(
                     self.db,
                     agent_execution=self.current_execution,
