@@ -168,7 +168,11 @@ class OpenAIResponsesClient(LLMClient):
             request_kwargs["tools"] = self._translate_tools(tools)
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        if thinking:
+        is_reasoning_model = (
+            model_id.startswith(("o1", "o3", "o4", "gpt-5"))
+            or model_id in {"o1", "o3"}
+        )
+        if thinking and is_reasoning_model:
             effort = thinking.get("type")
             budget = thinking.get("budget_tokens")
             if effort == "adaptive" or not budget:
