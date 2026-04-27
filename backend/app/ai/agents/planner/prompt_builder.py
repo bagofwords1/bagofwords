@@ -340,6 +340,7 @@ CRITICAL: If you are calling a tool (action is not null), set analysis_complete=
 The tool needs to execute first before analysis can be complete.
 CRITICAL: assistant_message and final_answer are mutually exclusive. Never set both in the same response.
 """
+        
         return prompt
     
     @staticmethod

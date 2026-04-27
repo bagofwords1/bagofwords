@@ -37,11 +37,21 @@ class OpenAIResponsesClient(LLMClient):
         self.client = OpenAI(api_key=api_key)
         self.async_client = AsyncOpenAI(api_key=api_key)
 
+    @staticmethod
+    def _build_chat_content(prompt: str, images: Optional[list[ImageInput]] = None):
+        if not images:
+            return prompt.strip()
+        content: list[dict] = [{"type": "text", "text": prompt.strip()}]
+        for img in images:
+            url = img.data if img.source_type == "url" else f"data:{img.media_type};base64,{img.data}"
+            content.append({"type": "image_url", "image_url": {"url": url}})
+        return content
+
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
         temperature = 1.0 if "gpt-5" in model_id else 0.3
         chat_completion = self.client.chat.completions.create(
             model=model_id,
-            messages=[{"role": "user", "content": prompt.strip()}],
+            messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
             temperature=temperature,
         )
         content = chat_completion.choices[0].message.content or ""
@@ -58,7 +68,7 @@ class OpenAIResponsesClient(LLMClient):
         temperature = 1.0 if "gpt-5" in model_id else 0.3
         stream = await self.async_client.chat.completions.create(
             model=model_id,
-            messages=[{"role": "user", "content": prompt.strip()}],
+            messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
             temperature=temperature,
             stream=True,
             stream_options={"include_usage": True},
@@ -78,14 +88,26 @@ class OpenAIResponsesClient(LLMClient):
         self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
 
     @staticmethod
-    def _translate_messages(messages: list[Message]) -> list[dict]:
+    def _translate_messages(
+        messages: list[Message],
+        images: Optional[list[ImageInput]] = None,
+    ) -> list[dict]:
         """Translate provider-agnostic Messages to Responses API input items."""
         out: list[dict] = []
-        for msg in messages:
+        for i, msg in enumerate(messages):
             role = msg.role  # "user" or "assistant"
+            is_last = i == len(messages) - 1
 
             if isinstance(msg.content, str):
-                out.append({"type": "message", "role": role, "content": msg.content})
+                # Attach images to the last user message via multipart content.
+                if is_last and role == "user" and images:
+                    content: list[dict] = [{"type": "input_text", "text": msg.content}]
+                    for img in images:
+                        url = img.data if img.source_type == "url" else f"data:{img.media_type};base64,{img.data}"
+                        content.append({"type": "input_image", "image_url": url, "detail": "auto"})
+                    out.append({"type": "message", "role": role, "content": content})
+                else:
+                    out.append({"type": "message", "role": role, "content": msg.content})
                 continue
 
             blocks = msg.content
@@ -94,7 +116,6 @@ class OpenAIResponsesClient(LLMClient):
             text_blocks = [b for b in blocks if b.get("type") == "text"]
 
             if tool_results:
-                # Each tool result becomes a function_call_output item
                 for tr in tool_results:
                     content = tr.get("content", "")
                     if not isinstance(content, str):
@@ -105,7 +126,6 @@ class OpenAIResponsesClient(LLMClient):
                         "output": content,
                     })
             elif tool_uses:
-                # Text prefix first (if any), then each tool call as its own item
                 if text_blocks:
                     text = " ".join(b.get("text", "") for b in text_blocks)
                     if text.strip():
@@ -155,7 +175,7 @@ class OpenAIResponsesClient(LLMClient):
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
-        input_items = self._translate_messages(messages)
+        input_items = self._translate_messages(messages, images=images)
 
         request_kwargs: dict[str, Any] = {
             "model": model_id,
