@@ -253,6 +253,13 @@ class OpenAIResponsesClient(LLMClient):
                 if text:
                     yield ReasoningDeltaEvent(text=text)
 
+            elif etype == "response.reasoning_summary_text.done":
+                # Reasoning summaries arrive as multiple "summary parts," each a
+                # self-contained markdown section starting with a bold header.
+                # Insert a paragraph break so consecutive parts don't render as
+                # one inline blob (`…task.**Next section**`).
+                yield ReasoningDeltaEvent(text="\n\n")
+
             elif etype == "response.function_call_arguments.delta":
                 item_id = getattr(event, "item_id", "") or ""
                 delta = getattr(event, "delta", "") or ""
