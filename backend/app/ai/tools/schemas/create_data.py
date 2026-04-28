@@ -1,9 +1,26 @@
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
 from pydantic import BaseModel, Field
 
 # Reuse per-source targeting schema for consistent behavior
 from .create_widget import TablesBySource
 from .create_data_model import DataModel
+
+
+VisualizationType = Literal[
+    "table",
+    "bar_chart",
+    "line_chart",
+    "pie_chart",
+    "area_chart",
+    "count",
+    "metric_card",
+    "heatmap",
+    "map",
+    "candlestick",
+    "treemap",
+    "radar_chart",
+    "scatter_plot",
+]
 
 
 class CreateDataInput(BaseModel):
@@ -28,24 +45,9 @@ class CreateDataInput(BaseModel):
             "For file analysis only, keep this empty."
         ),
     )
-    visualization_type: Optional[str] = Field(
+    visualization_type: Optional[VisualizationType] = Field(
         default=None,
         description="Type of visualization to create. If not provided, a table will be created.",
-        choices=[
-            "table",
-            "bar_chart",
-            "line_chart",
-            "pie_chart",
-            "area_chart",
-            "count",
-            "metric_card",
-            "heatmap",
-            "map",
-            "candlestick",
-            "treemap",
-            "radar_chart",
-            "scatter_plot",
-        ]
     )
 
 
