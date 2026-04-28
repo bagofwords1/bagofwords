@@ -202,6 +202,18 @@ Examples of good behavior:
   - Message: "Hi! What would you like to look into today?"
   - Tool: (none)
 """
+        # TEMP debug toggle: BOW_FORCE_PARALLEL_TOOLS=true relaxes the
+        # one-tool-per-turn rule so the multi-tool dispatch loop can be
+        # exercised end-to-end. Default behavior unchanged.
+        import os as _os_for_parallel_dbg
+        if _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
+            system = system.replace(
+                "HARD RULE: Emit AT MOST ONE tool_use block per response.",
+                "MULTI-TOOL OK: You MAY emit multiple tool_use blocks in one response when the requests are independent.",
+            ).replace(
+                "at most one tool call per turn",
+                "you may emit multiple tool calls per turn when independent",
+            )
         return system
 
     # ------------------------------------------------------------------
