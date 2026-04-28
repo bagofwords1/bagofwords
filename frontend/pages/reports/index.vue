@@ -28,16 +28,15 @@
                     </div>
 
                     <div class="flex items-center justify-end gap-2 w-full md:w-auto">
-                        <UButton
-                            color="blue"
-                            variant="solid"
-                            size="xs"
-                            icon="i-heroicons-plus"
-                            class="w-full md:w-auto"
+                        <button
                             @click="createNewReport"
+                            :disabled="creatingReport"
+                            class="flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed w-full md:w-auto justify-center"
                         >
-                            {{ $t('reports.newReport') }}
-                        </UButton>
+                            <Spinner v-if="creatingReport" class="animate-spin w-3.5 h-3.5" />
+                            <UIcon v-else name="i-heroicons-plus" class="w-3.5 h-3.5" />
+                            {{ creatingReport ? $t('common.loading') : $t('reports.newReport') }}
+                        </button>
                     </div>
                 </div>
 
@@ -399,11 +398,13 @@
 <script setup lang="ts">
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import Spinner from '@/components/Spinner.vue'
+const creatingReport = ref(false)
 
 const { t } = useI18n()
 const { data: currentUser } = useAuth()
 const toast = useToast()
 const router = useRouter()
+const { selectedDomainObjects } = useDomain()
 
 definePageMeta({ auth: true })
 
@@ -744,22 +745,17 @@ const actionsDropdownItems = computed(() => {
 })
 
 const createNewReport = async () => {
+    if (creatingReport.value) return
+    creatingReport.value = true
     try {
-        // Match default layout behavior: pre-fetch data sources and attach them
-        const dsResponse: any = await useMyFetch('/data_sources', {
-            method: 'GET',
-        })
-        if (dsResponse?.error?.value) {
-            throw new Error('Could not fetch data sources')
-        }
-        const list = ((dsResponse?.data?.value || []) as Array<{ id: string | number }>)
+        const dataSourceIds = selectedDomainObjects.value.map((ds: any) => ds.id)
 
         const response: any = await useMyFetch('/reports', {
             method: 'POST',
             body: JSON.stringify({
                 title: 'untitled report',
                 files: [],
-                data_sources: list.map((ds) => ds.id),
+                data_sources: dataSourceIds,
             }),
         })
 
@@ -783,6 +779,8 @@ const createNewReport = async () => {
             description: String(message),
             color: 'red',
         })
+    } finally {
+        creatingReport.value = false
     }
 }
 

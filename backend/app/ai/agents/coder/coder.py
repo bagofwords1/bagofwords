@@ -634,8 +634,14 @@ class Coder:
         Return only the Python function code. No markdown. Keep it short.
         """
 
-        result = await asyncio.to_thread(self.llm.inference, text)
-        
+        chunks: list[str] = []
+        async for evt in self.llm.inference_stream_v2(
+            messages=[Message(role="user", content=text)],
+        ):
+            if isinstance(evt, TextDeltaEvent):
+                chunks.append(evt.text)
+        result = "".join(chunks)
+
         # Clean up code fences
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
         result = re.sub(r'(?m)^\s*```\s*$', '', result)
