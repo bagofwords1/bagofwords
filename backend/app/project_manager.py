@@ -1036,7 +1036,7 @@ class ProjectManager:
         await self._commit_with_timeout(db, "commit_finished_tool_execution")
         return tool_execution
 
-    async def commit_tool_and_attach_block(self, db, completion, agent_execution, tool_execution):
+    async def commit_tool_and_attach_block(self, db, completion, agent_execution, tool_execution, block_id: str | None = None):
         """Atomically INSERT a finished ToolExecution and UPDATE the matching
         CompletionBlock (FK + status + title + duration) in a single transaction.
 
@@ -1044,6 +1044,12 @@ class ProjectManager:
         then upsert_block_for_tool) which could leave block.tool_execution_id
         NULL if the second commit failed: the block would render empty on
         every subsequent GET. Both writes now land or roll back together.
+
+        block_id: when provided, look up the target block by its primary key
+        instead of (agent_execution_id, plan_decision_id). The fallback
+        lookup-by-plan_decision_id was unique under one-tool-per-turn, but
+        the multi-tool dispatch path emits N blocks per plan_decision; pass
+        the per-action block id to disambiguate.
         """
         # Pre-assign id so we can set the block FK before flush.
         if not getattr(tool_execution, "id", None):
@@ -1051,26 +1057,31 @@ class ProjectManager:
         db.add(tool_execution)
 
         block = None
-        if tool_execution.plan_decision_id:
+        if block_id:
+            stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
+            existing = (await db.execute(stmt)).scalar_one_or_none()
+        elif tool_execution.plan_decision_id:
             stmt = select(CompletionBlock).where(
                 CompletionBlock.agent_execution_id == agent_execution.id,
                 CompletionBlock.plan_decision_id == tool_execution.plan_decision_id,
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
-            if existing is not None:
-                existing.tool_execution_id = str(tool_execution.id)
-                existing.title = f"{existing.title.split(' →')[0]} → {tool_execution.tool_name}"
-                if tool_execution.status == 'success':
-                    existing.status = 'completed'
-                elif tool_execution.status == 'error':
-                    existing.status = 'error'
-                else:
-                    existing.status = 'in_progress'
-                existing.completed_at = tool_execution.completed_at
-                if existing.started_at and existing.completed_at:
-                    existing.duration_ms = (existing.completed_at - existing.started_at).total_seconds() * 1000.0
-                db.add(existing)
-                block = existing
+        else:
+            existing = None
+        if existing is not None:
+            existing.tool_execution_id = str(tool_execution.id)
+            existing.title = f"{existing.title.split(' →')[0]} → {tool_execution.tool_name}"
+            if tool_execution.status == 'success':
+                existing.status = 'completed'
+            elif tool_execution.status == 'error':
+                existing.status = 'error'
+            else:
+                existing.status = 'in_progress'
+            existing.completed_at = tool_execution.completed_at
+            if existing.started_at and existing.completed_at:
+                existing.duration_ms = (existing.completed_at - existing.started_at).total_seconds() * 1000.0
+            db.add(existing)
+            block = existing
 
         await self._commit_with_timeout(db, "commit_tool_and_attach_block")
         if block is not None:
@@ -1330,7 +1341,7 @@ class ProjectManager:
     # Completion Blocks (Timeline Projection)
     # ==============================
 
-    async def upsert_block_for_decision(self, db, completion, agent_execution, plan_decision: PlanDecision, preferred_id: str | None = None, force_insert: bool = False):
+    async def upsert_block_for_decision(self, db, completion, agent_execution, plan_decision: PlanDecision, preferred_id: str | None = None, force_insert: bool = False, tool_index: int = 0, tool_execution_id: str | None = None):
         """Create or update a render-ready block for a plan decision.
 
         preferred_id: if no existing block is found, create with this ID so the
@@ -1341,9 +1352,24 @@ class ProjectManager:
         block. Used by the multi-tool agent path where one planner turn
         produces multiple sequential tool blocks under the same loop_index
         — each needs its own block keyed by its own plan_decision_id.
+
+        tool_index: sub-index within the decision (0..N-1) used to
+        derive a stable block_index that orders multi-tool sub-blocks under
+        their parent decision. With one-tool-per-turn this stays 0 and is
+        a no-op for ordering.
+
+        tool_execution_id: optionally pre-assign the FK to tool_executions
+        at insert time. Avoids a transient (NULL tool_execution_id, same
+        plan_decision_id) duplicate when fanning out N tools in a single
+        turn — the unique constraint treats NULLs as distinct so it is not
+        a hard collision today, but pre-assigning keeps the row coherent
+        from creation.
         """
-        # Determine ordering and presentation
-        block_index = int((plan_decision.seq or 0) * 10)
+        # Determine ordering and presentation. seq*100 leaves 100 sub-slots
+        # per decision for multi-tool sub-blocks (tool_index 0..99). Old
+        # rows that used seq*10 still order correctly within their own
+        # agent_execution since we never mix old/new ids for the same run.
+        block_index = int((plan_decision.seq or 0) * 100 + (tool_index or 0))
         title = f"Planning ({plan_decision.plan_type or 'unknown'})"
         status = 'completed' if plan_decision.analysis_complete else 'in_progress'
         icon = '🧠'
@@ -1391,7 +1417,7 @@ class ProjectManager:
             agent_execution_id=str(agent_execution.id),
             source_type='decision',
             plan_decision_id=str(plan_decision.id),
-            tool_execution_id=None,
+            tool_execution_id=tool_execution_id,
             block_index=block_index,
             loop_index=plan_decision.loop_index,
             title=title,

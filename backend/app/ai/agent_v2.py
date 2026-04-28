@@ -2012,22 +2012,26 @@ class AgentV2:
                         # IMPORTANT: Check for action FIRST before checking analysis_complete.
                         # The LLM sometimes sets analysis_complete=true when it means "this is the
                         # final step" rather than "no action needed". If there's an action, execute it.
-                        action = decision.action
-                        # If the model ignored the "one tool per turn" rule and emitted
-                        # multiple tool_use blocks, we currently dispatch only the first
-                        # and the model re-emits the rest across subsequent turns.
-                        # Log so the regression is visible in product logs and can be
-                        # tracked. True parallel multi-tool dispatch is a follow-up.
-                        _extra_actions = getattr(decision, "actions", None) or []
-                        if len(_extra_actions) > 1:
-                            logger.warning(
-                                "[agent] planner emitted %d parallel tool_use blocks; "
-                                "running first (%s) only — extras will be retried on subsequent turns: %s",
-                                len(_extra_actions),
-                                action.name if action else "?",
-                                ", ".join(a.name for a in _extra_actions[1:]),
+                        # Multi-tool: planner_v3 already collects all tool_use blocks emitted in
+                        # one assistant message into decision.actions. Today we keep
+                        # parallel_tool_calls=False / disable_parallel_tool_use=True at the
+                        # provider level, so this list almost always has length 1 — but
+                        # Bedrock and Gemini do not honor those flags, and Anthropic can
+                        # occasionally violate them, so dispatch the full list correctly
+                        # instead of dropping the tail. Order is preserved (model intent).
+                        actions_list: list = list(getattr(decision, "actions", None) or [])
+                        if not actions_list and decision.action is not None:
+                            actions_list = [decision.action]
+                        if len(actions_list) > 1:
+                            logger.info(
+                                "[agent] dispatching %d tool_use blocks sequentially: %s",
+                                len(actions_list),
+                                ", ".join(a.name for a in actions_list),
                             )
-                        
+                        # `action` keeps its name for back-compat with downstream branches
+                        # below that haven't been moved into the per-action loop.
+                        action = actions_list[0] if actions_list else None
+
                         # Only treat analysis_complete as terminal if there's NO action
                         if decision.analysis_complete and not action:
                             # Final answer path (no tool to execute)
@@ -2083,564 +2087,605 @@ class AgentV2:
                         if not action:
                             continue
 
-                        tool_name = action.name
-                        tool_input = action.arguments
+                        # === Multi-tool dispatch loop ===
+                        # parallel_tool_calls=False / disable_parallel_tool_use=True keep
+                        # actions_list at length 1 in the common case. The loop is here so
+                        # that if a model violates the flag (Bedrock and Gemini do not
+                        # honor it) every emitted tool runs with its own block + tool_execution
+                        # row, instead of being silently dropped.
+                        if not actions_list:
+                            continue
+                        _action_block_ids: list = [current_block_id]
+                        # Pre-create extra blocks (one per additional action) so each
+                        # action has a stable block id we can attach the tool_execution to.
+                        for _ai in range(1, len(actions_list)):
+                            try:
+                                _extra_block = await self.project_manager.upsert_block_for_decision(
+                                    self.db, self.system_completion, self.current_execution,
+                                    current_plan_decision, force_insert=True, tool_index=_ai,
+                                )
+                                _action_block_ids.append(str(_extra_block.id) if _extra_block else None)
+                                if _extra_block is not None:
+                                    try:
+                                        _eb_schema = await serialize_block_v2(self.db, _extra_block)
+                                        _eb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="block.upsert",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=_eb_seq,
+                                            data={"block": _eb_schema.model_dump()},
+                                        ))
+                                    except Exception as _ebx:
+                                        logger.warning(f"[agent] extra-block emit failed: {_ebx!r}")
+                            except Exception as _eb_exc:
+                                logger.warning(f"[agent] extra-block upsert failed: {_eb_exc!r}")
+                                _action_block_ids.append(None)
+                        for tool_index, action in enumerate(actions_list):
+                            _block_id_for_action = _action_block_ids[tool_index] if tool_index < len(_action_block_ids) else None
+                            tool_name = action.name
+                            tool_input = action.arguments
 
-                        # Validate tool availability for chosen plan_type
-                        if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
-                            observation = {
-                                "summary": f"Tool '{tool_name}' not available for plan_type '{decision.plan_type}'",
-                                "error": {"code": "resolve_error", "message": "tool/plan_type mismatch"},
-                            }
-                            continue  # Continue to next iteration with error observation
+                            # Validate tool availability for chosen plan_type
+                            if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
+                                observation = {
+                                    "summary": f"Tool '{tool_name}' not available for plan_type '{decision.plan_type}'",
+                                    "error": {"code": "resolve_error", "message": "tool/plan_type mismatch"},
+                                }
+                                continue  # Continue to next iteration with error observation
 
-                        tool = self.registry.get(tool_name)
-                        if not tool:
-                            observation = {
-                                "summary": f"Tool '{tool_name}' unavailable",
-                                "error": {"code": "resolve_error", "message": "not registered"},
-                            }
-                            continue  # Continue to next iteration with error observation
+                            tool = self.registry.get(tool_name)
+                            if not tool:
+                                observation = {
+                                    "summary": f"Tool '{tool_name}' unavailable",
+                                    "error": {"code": "resolve_error", "message": "not registered"},
+                                }
+                                continue  # Continue to next iteration with error observation
 
-                        # Reset artifact state for tools that can create/update steps/visualizations
-                        try:
-                            if tool_name in [
-                                "create_widget",
-                                "create_data",
-                                "describe_entity",
-                            ]:
-                                self.current_query = None
-                                self.current_step = None
-                                self.current_step_id = None
-                                self.current_visualization = None
-                        except Exception:
-                            pass
+                            # Reset artifact state for tools that can create/update steps/visualizations
+                            try:
+                                if tool_name in [
+                                    "create_widget",
+                                    "create_data",
+                                    "describe_entity",
+                                ]:
+                                    self.current_query = None
+                                    self.current_step = None
+                                    self.current_step_id = None
+                                    self.current_visualization = None
+                            except Exception:
+                                pass
 
-                        # Start tool execution tracking
-                        tool_execution = await self.project_manager.start_tool_execution_from_models(
-                            self.db,
-                            agent_execution=self.current_execution,
-                            plan_decision_id=current_plan_decision.id if current_plan_decision else None,
-                            tool_name=tool_name,
-                            tool_action=action.type,
-                            tool_input_model=tool_input,
-                        )
-                        # Telemetry: tool started
-                        try:
-                            await telemetry.capture(
-                                "agent_tool_started",
-                                {
-                                    "agent_execution_id": str(self.current_execution.id),
-                                    "tool_name": tool_name,
-                                    "tool_action": action.type,
-                                },
-                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                                org_id=str(self.organization.id) if self.organization else None,
+                            # Start tool execution tracking
+                            tool_execution = await self.project_manager.start_tool_execution_from_models(
+                                self.db,
+                                agent_execution=self.current_execution,
+                                plan_decision_id=current_plan_decision.id if current_plan_decision else None,
+                                tool_name=tool_name,
+                                tool_action=action.type,
+                                tool_input_model=tool_input,
                             )
-                        except Exception:
-                            pass
-                        
-                        # Emit tool start event
-                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event(SSEEvent(
-                            event="tool.started",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq,
-                            data={
-                                "tool_name": tool_name,
-                                "arguments": tool_input,
-                            }
-                        ))
-                        
-                        # Refresh warm context to include the latest planner decision blocks in messages
-                        try:
-                            await self.context_hub.refresh_warm()
-                            view = self.context_hub.get_view()
-                        except Exception:
-                            pass
-                        try:
-                            schemas_ctx = await self.context_hub.schema_builder.build(
-                                with_stats=True,
-                            )
-                            schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
-                        except Exception:
-                            schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
-                        # Refresh history summary with updated context
-                        history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
-
-                        # RUN TOOL with enhanced context tracking
-                        runtime_ctx = {
-                            "db": self.db,
-                            "organization": self.organization,
-                            "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
-                            "settings": self.organization_settings,
-                            "report": self.report,
-                            "head_completion": self.head_completion,
-                            "system_completion": self.system_completion,
-                            "widget": self.widget,
-                            "step": self.step,
-                            "current_widget": self.current_widget,
-                            "current_query": self.current_query,
-                            "current_step": self.current_step,
-                            "current_step_id": self.current_step_id,
-                            "project_manager": self.project_manager,
-                            "model": self.model,
-                            "sigkill_event": self.sigkill_event,
-                            "observation_context": self.context_hub.observation_builder.to_dict(),
-                            "context_view": view,
-                            "context_hub": self.context_hub,
-                            "ds_clients": self.clients,
-                            "excel_files": self.analysis_files,
-                            "training_build_id": self.training_build_id,  # For training mode instruction creation
-                            "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
-                            "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
-                            "is_eval_run": self.is_eval_run,
-                            "platform": self.platform,
-                            "platform_context": self.platform_context,
-                            "tool_call_id": str(tool_execution.id) if tool_execution else None,
-                            "pending_officejs_registry": pending_officejs_registry,
-                        }
-
-                        # Emit generic output event for tools that stream results (inspect_data, answer_question)
-                        if tool_name == "inspect_data":
-                            # Ensure streaming stdout is enabled by default for this tool
-                            pass
-
-                        async def emit(ev: dict):
-                            # Handle streaming side-effects
-                            await self._handle_streaming_event(tool_name, ev, tool_input)
-                            # Forward events to UI
-                            if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"]:
-                                seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event=ev.get("type", "tool.progress"),
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq_ev,
-                                    data={
+                            # Telemetry: tool started
+                            try:
+                                await telemetry.capture(
+                                    "agent_tool_started",
+                                    {
+                                        "agent_execution_id": str(self.current_execution.id),
                                         "tool_name": tool_name,
-                                        "payload": ev.get("payload", {}),
-                                    }
-                                ))
+                                        "tool_action": action.type,
+                                    },
+                                    user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                                    org_id=str(self.organization.id) if self.organization else None,
+                                )
+                            except Exception:
+                                pass
+                        
+                            # Emit tool start event
+                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="tool.started",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={
+                                    "tool_name": tool_name,
+                                    "arguments": tool_input,
+                                }
+                            ))
+                        
+                            # Refresh warm context to include the latest planner decision blocks in messages
+                            try:
+                                await self.context_hub.refresh_warm()
+                                view = self.context_hub.get_view()
+                            except Exception:
+                                pass
+                            try:
+                                schemas_ctx = await self.context_hub.schema_builder.build(
+                                    with_stats=True,
+                                )
+                                schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
+                            except Exception:
+                                schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+                            # Refresh history summary with updated context
+                            history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
-                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                            # RUN TOOL with enhanced context tracking
+                            runtime_ctx = {
+                                "db": self.db,
+                                "organization": self.organization,
+                                "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
+                                "settings": self.organization_settings,
+                                "report": self.report,
+                                "head_completion": self.head_completion,
+                                "system_completion": self.system_completion,
+                                "widget": self.widget,
+                                "step": self.step,
+                                "current_widget": self.current_widget,
+                                "current_query": self.current_query,
+                                "current_step": self.current_step,
+                                "current_step_id": self.current_step_id,
+                                "project_manager": self.project_manager,
+                                "model": self.model,
+                                "sigkill_event": self.sigkill_event,
+                                "observation_context": self.context_hub.observation_builder.to_dict(),
+                                "context_view": view,
+                                "context_hub": self.context_hub,
+                                "ds_clients": self.clients,
+                                "excel_files": self.analysis_files,
+                                "training_build_id": self.training_build_id,  # For training mode instruction creation
+                                "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                                "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
+                                "is_eval_run": self.is_eval_run,
+                                "platform": self.platform,
+                                "platform_context": self.platform_context,
+                                "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                                "pending_officejs_registry": pending_officejs_registry,
+                            }
 
-                        # Capture training_build_id if set by create_instruction tool
-                        if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                            self.training_build_id = runtime_ctx["training_build_id"]
+                            # Emit generic output event for tools that stream results (inspect_data, answer_question)
+                            if tool_name == "inspect_data":
+                                # Ensure streaming stdout is enabled by default for this tool
+                                pass
 
-                        # Extract observation, output, and sub_timings from tool result
-                        if isinstance(tool_result, dict) and "observation" in tool_result:
-                            observation = tool_result["observation"]
-                            tool_output = tool_result.get("output")
-                            tool_sub_timings = tool_result.get("sub_timings")
-                        else:
-                            observation = tool_result
-                            tool_output = None
-                            tool_sub_timings = None
+                            async def emit(ev: dict):
+                                # Handle streaming side-effects
+                                await self._handle_streaming_event(tool_name, ev, tool_input)
+                                # Forward events to UI
+                                if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout", "tool.confirmation"]:
+                                    seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event=ev.get("type", "tool.progress"),
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq_ev,
+                                        data={
+                                            "tool_name": tool_name,
+                                            "payload": ev.get("payload", {}),
+                                        }
+                                    ))
 
-                        # Handle tool outputs and manage widget/step state
-                        await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
+                            tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
 
-                        # Circuit breaker: track repeated tool failures
-                        if observation and observation.get("error"):
-                            failed_tool_count[tool_name] = failed_tool_count.get(tool_name, 0) + 1
-                            if failed_tool_count[tool_name] >= max_tool_failures:
-                                analysis_done = True
-                                observation.update({
-                                    "analysis_complete": True,
-                                    "final_answer": f"Unable to complete the task. The {tool_name} tool failed {failed_tool_count[tool_name]} times with errors. Please check the tool configuration or try a different approach."
-                                })
-                        else:
-                            if tool_name in failed_tool_count:
-                                del failed_tool_count[tool_name]
-                            action_signature = f"{tool_name}:{json.dumps(tool_input, sort_keys=True)}"
-                            successful_tool_actions.append(action_signature)
-                            if len(successful_tool_actions) >= max_repeated_successes:
-                                recent_actions = successful_tool_actions[-max_repeated_successes:]
-                                if len(set(recent_actions)) == 1:
+                            # Capture training_build_id if set by create_instruction tool
+                            if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                                self.training_build_id = runtime_ctx["training_build_id"]
+
+                            # Extract observation, output, and sub_timings from tool result
+                            if isinstance(tool_result, dict) and "observation" in tool_result:
+                                observation = tool_result["observation"]
+                                tool_output = tool_result.get("output")
+                                tool_sub_timings = tool_result.get("sub_timings")
+                            else:
+                                observation = tool_result
+                                tool_output = None
+                                tool_sub_timings = None
+
+                            # Handle tool outputs and manage widget/step state
+                            await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
+
+                            # Circuit breaker: track repeated tool failures
+                            if observation and observation.get("error"):
+                                failed_tool_count[tool_name] = failed_tool_count.get(tool_name, 0) + 1
+                                if failed_tool_count[tool_name] >= max_tool_failures:
                                     analysis_done = True
                                     observation.update({
                                         "analysis_complete": True,
-                                        "final_answer": f"Task completed successfully. The {tool_name} tool has been executed {max_repeated_successes} times with the same parameters, indicating the goal has been achieved."
-                                    })
-
-                            # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
-                            if tool_name in ("create_artifact", "edit_artifact"):
-                                total_artifact_calls += 1
-                                if tool_name == last_artifact_tool_name:
-                                    consecutive_artifact_tool_count += 1
-                                else:
-                                    consecutive_artifact_tool_count = 1
-                                    last_artifact_tool_name = tool_name
-                                if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
-                                    analysis_done = True
-                                    observation.update({
-                                        "analysis_complete": True,
-                                        "final_answer": f"The dashboard has been created successfully."
+                                        "final_answer": f"Unable to complete the task. The {tool_name} tool failed {failed_tool_count[tool_name]} times with errors. Please check the tool configuration or try a different approach."
                                     })
                             else:
-                                consecutive_artifact_tool_count = 0
-                                last_artifact_tool_name = None
+                                if tool_name in failed_tool_count:
+                                    del failed_tool_count[tool_name]
+                                action_signature = f"{tool_name}:{json.dumps(tool_input, sort_keys=True)}"
+                                successful_tool_actions.append(action_signature)
+                                if len(successful_tool_actions) >= max_repeated_successes:
+                                    recent_actions = successful_tool_actions[-max_repeated_successes:]
+                                    if len(set(recent_actions)) == 1:
+                                        analysis_done = True
+                                        observation.update({
+                                            "analysis_complete": True,
+                                            "final_answer": f"Task completed successfully. The {tool_name} tool has been executed {max_repeated_successes} times with the same parameters, indicating the goal has been achieved."
+                                        })
 
-                        if observation and observation.get("analysis_complete"):
-                            analysis_done = True
+                                # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
+                                if tool_name in ("create_artifact", "edit_artifact"):
+                                    total_artifact_calls += 1
+                                    if tool_name == last_artifact_tool_name:
+                                        consecutive_artifact_tool_count += 1
+                                    else:
+                                        consecutive_artifact_tool_count = 1
+                                        last_artifact_tool_name = tool_name
+                                    if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
+                                        analysis_done = True
+                                        observation.update({
+                                            "analysis_complete": True,
+                                            "final_answer": f"The dashboard has been created successfully."
+                                        })
+                                else:
+                                    consecutive_artifact_tool_count = 0
+                                    last_artifact_tool_name = None
 
-                            # If tool provides final_answer, update completion and block content
-                            final_answer_from_tool = observation.get("final_answer")
-                            if final_answer_from_tool and self.system_completion:
-                                # Update completion message
-                                await self.project_manager.update_message(
-                                    self.db, self.system_completion, message=final_answer_from_tool
-                                )
-                                # Update block content so UI shows it
-                                if current_plan_decision:
-                                    current_plan_decision.final_answer = final_answer_from_tool
-                                    current_plan_decision.analysis_complete = True
-                                    try:
-                                        block = await self.project_manager.upsert_block_for_decision(
-                                            self.db, self.system_completion, self.current_execution, current_plan_decision
-                                        )
-                                        await self.project_manager.rebuild_completion_from_blocks(
-                                            self.db, self.system_completion, self.current_execution
-                                        )
-                                        # Emit updated block to frontend
-                                        if block:
-                                            block_schema = await serialize_block_v2(self.db, block)
-                                            seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
-                                            await self._emit_sse_event(SSEEvent(
-                                                event="block.upsert",
-                                                completion_id=str(self.system_completion.id),
-                                                agent_execution_id=str(self.current_execution.id),
-                                                seq=seq_blk,
-                                                data={"block": block_schema.model_dump()}
-                                            ))
-                                    except Exception:
-                                        pass
+                            if observation and observation.get("analysis_complete"):
+                                analysis_done = True
 
-                            # Emit completion.finished immediately so UI updates.
-                            # Drain pending bg writes first so a follow-up GET
-                            # sees consistent state.
-                            if self.system_completion and not completion_finished_emitted:
-                                await self._drain_bg_writes()
-                                await self.project_manager.update_completion_status(
-                                    self.db,
-                                    self.system_completion,
-                                    'success'
-                                )
-                                if self.event_queue:
-                                    await self.event_queue.put(SSEEvent(
-                                        event="completion.finished",
-                                        completion_id=str(self.system_completion.id),
-                                        data={"status": "success"}
-                                    ))
-                                completion_finished_emitted = True
-
-                        # Extract created objects from observation, with fallback to orchestrator state
-                        created_widget_id = None
-                        created_step_id = None
-                        if observation and "widget_id" in observation:
-                            created_widget_id = observation["widget_id"]
-                        if observation and "step_id" in observation:
-                            created_step_id = observation["step_id"]
-                        # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
-                        if not created_step_id and self.current_step_id:
-                            created_step_id = self.current_step_id
-
-                        # Refresh context (needed for next planner iteration — in-memory, no DB write here)
-                        await self.context_hub.refresh_warm()
-                        try:
-                            await self.context_hub.build_context()
-                        except Exception:
-                            pass
-                        post_view = self.context_hub.get_view()
-                        await self._update_context_token_metadata(post_view)
-
-                        # Build created_visualization_ids with fallback to orchestrator state
-                        created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
-                        if not created_visualization_ids and getattr(self, 'current_visualization', None):
-                            created_visualization_ids = [str(self.current_visualization.id)]
-
-                        # Finish tool execution tracking + update the related
-                        # completion block — both run in one background task so
-                        # the next loop iteration's planner call can start
-                        # immediately. Order matters: the tool_executions INSERT
-                        # must land before the completion_blocks UPDATE (which
-                        # sets the FK to tool_executions.id).
-                        # We set the tool_execution fields here first so the
-                        # synchronous tool.finished SSE below can read in-memory
-                        # values like duration_ms; the bg task only handles the
-                        # DB writes and the block.upsert SSE.
-                        _success_flag = bool(
-                            observation
-                            and not observation.get("error")
-                            and not (observation and observation.get("stopped"))
-                        )
-                        _error_msg = (
-                            observation.get("error", {}).get("message")
-                            if observation and observation.get("error") else None
-                        )
-                        _summary = observation.get("summary", "") if observation else ""
-
-                        # Mutate the in-memory tool_execution synchronously so
-                        # downstream sync code (tool.finished SSE) can read its
-                        # final fields. The actual DB INSERT happens in bg.
-                        try:
-                            self.project_manager._configure_finished_tool_execution(
-                                tool_execution,
-                                result_model=tool_output,
-                                summary=_summary,
-                                created_widget_id=created_widget_id,
-                                created_step_id=created_step_id,
-                                created_visualization_ids=created_visualization_ids,
-                                error_message=_error_msg,
-                                success=_success_flag,
-                                sub_timings_json=tool_sub_timings,
-                            )
-                        except AttributeError:
-                            # Fallback if helper isn't wired yet — keep behavior
-                            await self.project_manager.finish_tool_execution_from_models(
-                                self.db,
-                                tool_execution=tool_execution,
-                                result_model=tool_output,
-                                summary=_summary,
-                                created_widget_id=created_widget_id,
-                                created_step_id=created_step_id,
-                                created_visualization_ids=created_visualization_ids,
-                                error_message=_error_msg,
-                                context_snapshot_id=None,
-                                success=_success_flag,
-                                sub_timings_json=tool_sub_timings,
-                            )
-
-                        # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
-                        _post_snap_exec_id = str(self.current_execution.id)
-                        _post_snap_tool_exec_id = str(tool_execution.id)
-                        _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
-
-                        async def _bg_post_snap():
-                            try:
-                                from app.settings.database import create_async_session_factory as _csf
-                                from app.models.agent_execution import AgentExecution as _AE
-                                from app.models.tool_execution import ToolExecution as _TE
-                                SessionLocal = _csf()
-                                async with SessionLocal() as bg_db:
-                                    bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
-                                    if bg_exec:
-                                        snap = await self.project_manager.save_context_snapshot(
-                                            bg_db, agent_execution=bg_exec,
-                                            kind="post_tool", context_view_json=_post_snap_data,
-                                        )
-                                        # Back-fill context_snapshot_id onto the tool execution row
-                                        bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
-                                        if bg_te and snap:
-                                            bg_te.context_snapshot_id = str(snap.id)
-                                            bg_db.add(bg_te)
-                                            await bg_db.commit()
-                            except Exception as _e:
-                                logger.warning(f"[agent] Background post_snap failed: {_e!r}")
-
-                        asyncio.create_task(_bg_post_snap())
-
-                        # Telemetry: tool finished
-                        try:
-                            await telemetry.capture(
-                                "agent_tool_finished",
-                                {
-                                    "agent_execution_id": str(self.current_execution.id),
-                                    "tool_name": tool_name,
-                                    "status": "success" if observation and not observation.get("error") else "error",
-                                    "duration_ms": getattr(tool_execution, "duration_ms", None),
-                                },
-                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                                org_id=str(self.organization.id) if self.organization else None,
-                            )
-                        except Exception:
-                            pass
-
-                        # Persist tool_executions (INSERT) + completion_blocks
-                        # (UPDATE with FK → tool_executions.id) in one bg task.
-                        # Order matters: the INSERT must land first or the
-                        # FK reference fails on Postgres. Both run in the same
-                        # bg session so they share a transaction-ish boundary.
-                        # The block.upsert SSE moves into the bg task too —
-                        # serialize_block_v2 needs the block in DB.
-                        _bg_comp_id = str(self.system_completion.id)
-                        _bg_exec_id = str(self.current_execution.id)
-                        _bg_tool_exec = tool_execution  # in-memory, configured
-
-                        async def _bg_persist_tool():
-                            from app.settings.database import create_async_session_factory as _csf
-                            from app.models.agent_execution import AgentExecution as _AE
-                            from app.models.completion import Completion as _Comp
-                            _max_retries = 5
-                            _retry_delay = 0.5
-                            for _attempt in range(_max_retries):
-                                try:
-                                    SessionLocal = _csf()
-                                    async with SessionLocal() as bg_db:
-                                        bg_exec = await bg_db.get(_AE, _bg_exec_id)
-                                        bg_comp = await bg_db.get(_Comp, _bg_comp_id)
-                                        if not (bg_exec and bg_comp):
-                                            return
-                                        # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
-                                        # in a single transaction: previously these were two
-                                        # separate commits, and a failure between them left the
-                                        # block's FK NULL on every subsequent refresh.
-                                        block = await self.project_manager.commit_tool_and_attach_block(
-                                            bg_db, bg_comp, bg_exec, _bg_tool_exec,
-                                        )
-                                        if block is None:
-                                            return
+                                # If tool provides final_answer, update completion and block content
+                                final_answer_from_tool = observation.get("final_answer")
+                                if final_answer_from_tool and self.system_completion:
+                                    # Update completion message
+                                    await self.project_manager.update_message(
+                                        self.db, self.system_completion, message=final_answer_from_tool
+                                    )
+                                    # Update block content so UI shows it
+                                    if current_plan_decision:
+                                        current_plan_decision.final_answer = final_answer_from_tool
+                                        current_plan_decision.analysis_complete = True
                                         try:
-                                            block_schema = await serialize_block_v2(bg_db, block)
-                                            seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
-                                            await self._emit_sse_event(SSEEvent(
-                                                event="block.upsert",
-                                                completion_id=_bg_comp_id,
-                                                agent_execution_id=_bg_exec_id,
-                                                seq=seq_blk,
-                                                data={"block": block_schema.model_dump()},
-                                            ))
-                                        except Exception as _e:
-                                            logger.warning(
-                                                f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
+                                            block = await self.project_manager.upsert_block_for_decision(
+                                                self.db, self.system_completion, self.current_execution, current_plan_decision
                                             )
-                                        return  # success
-                                except Exception as _retry_exc:
-                                    _is_lock = "database is locked" in str(_retry_exc) or "PendingRollback" in type(_retry_exc).__name__
-                                    if _is_lock and _attempt < _max_retries - 1:
-                                        logger.warning(
-                                            "[agent.bg_write] persist_tool locked, retry %d/%d in %.1fs",
-                                            _attempt + 1, _max_retries, _retry_delay,
-                                        )
-                                        await asyncio.sleep(_retry_delay)
-                                        _retry_delay = min(_retry_delay * 2, 4.0)
-                                        continue
-                                    raise
+                                            await self.project_manager.rebuild_completion_from_blocks(
+                                                self.db, self.system_completion, self.current_execution
+                                            )
+                                            # Emit updated block to frontend
+                                            if block:
+                                                block_schema = await serialize_block_v2(self.db, block)
+                                                seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                                                await self._emit_sse_event(SSEEvent(
+                                                    event="block.upsert",
+                                                    completion_id=str(self.system_completion.id),
+                                                    agent_execution_id=str(self.current_execution.id),
+                                                    seq=seq_blk,
+                                                    data={"block": block_schema.model_dump()}
+                                                ))
+                                        except Exception:
+                                            pass
 
-                        self._schedule_bg_write("persist_tool", _bg_persist_tool())
-                        _rb_tool_comp_id = str(self.system_completion.id)
-                        _rb_tool_exec_id = str(self.current_execution.id)
-                        async def _bg_rebuild_tool():
-                            import asyncio as _aio
-                            _max_attempts = 4
-                            for _attempt in range(_max_attempts):
+                                # Emit completion.finished immediately so UI updates.
+                                # Drain pending bg writes first so a follow-up GET
+                                # sees consistent state.
+                                if self.system_completion and not completion_finished_emitted:
+                                    await self._drain_bg_writes()
+                                    await self.project_manager.update_completion_status(
+                                        self.db,
+                                        self.system_completion,
+                                        'success'
+                                    )
+                                    if self.event_queue:
+                                        await self.event_queue.put(SSEEvent(
+                                            event="completion.finished",
+                                            completion_id=str(self.system_completion.id),
+                                            data={"status": "success"}
+                                        ))
+                                    completion_finished_emitted = True
+
+                            # Extract created objects from observation, with fallback to orchestrator state
+                            created_widget_id = None
+                            created_step_id = None
+                            if observation and "widget_id" in observation:
+                                created_widget_id = observation["widget_id"]
+                            if observation and "step_id" in observation:
+                                created_step_id = observation["step_id"]
+                            # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
+                            if not created_step_id and self.current_step_id:
+                                created_step_id = self.current_step_id
+
+                            # Refresh context (needed for next planner iteration — in-memory, no DB write here)
+                            await self.context_hub.refresh_warm()
+                            try:
+                                await self.context_hub.build_context()
+                            except Exception:
+                                pass
+                            post_view = self.context_hub.get_view()
+                            await self._update_context_token_metadata(post_view)
+
+                            # Build created_visualization_ids with fallback to orchestrator state
+                            created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
+                            if not created_visualization_ids and getattr(self, 'current_visualization', None):
+                                created_visualization_ids = [str(self.current_visualization.id)]
+
+                            # Finish tool execution tracking + update the related
+                            # completion block — both run in one background task so
+                            # the next loop iteration's planner call can start
+                            # immediately. Order matters: the tool_executions INSERT
+                            # must land before the completion_blocks UPDATE (which
+                            # sets the FK to tool_executions.id).
+                            # We set the tool_execution fields here first so the
+                            # synchronous tool.finished SSE below can read in-memory
+                            # values like duration_ms; the bg task only handles the
+                            # DB writes and the block.upsert SSE.
+                            _success_flag = bool(
+                                observation
+                                and not observation.get("error")
+                                and not (observation and observation.get("stopped"))
+                            )
+                            _error_msg = (
+                                observation.get("error", {}).get("message")
+                                if observation and observation.get("error") else None
+                            )
+                            _summary = observation.get("summary", "") if observation else ""
+
+                            # Mutate the in-memory tool_execution synchronously so
+                            # downstream sync code (tool.finished SSE) can read its
+                            # final fields. The actual DB INSERT happens in bg.
+                            try:
+                                self.project_manager._configure_finished_tool_execution(
+                                    tool_execution,
+                                    result_model=tool_output,
+                                    summary=_summary,
+                                    created_widget_id=created_widget_id,
+                                    created_step_id=created_step_id,
+                                    created_visualization_ids=created_visualization_ids,
+                                    error_message=_error_msg,
+                                    success=_success_flag,
+                                    sub_timings_json=tool_sub_timings,
+                                )
+                            except AttributeError:
+                                # Fallback if helper isn't wired yet — keep behavior
+                                await self.project_manager.finish_tool_execution_from_models(
+                                    self.db,
+                                    tool_execution=tool_execution,
+                                    result_model=tool_output,
+                                    summary=_summary,
+                                    created_widget_id=created_widget_id,
+                                    created_step_id=created_step_id,
+                                    created_visualization_ids=created_visualization_ids,
+                                    error_message=_error_msg,
+                                    context_snapshot_id=None,
+                                    success=_success_flag,
+                                    sub_timings_json=tool_sub_timings,
+                                )
+
+                            # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
+                            _post_snap_exec_id = str(self.current_execution.id)
+                            _post_snap_tool_exec_id = str(tool_execution.id)
+                            _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
+
+                            async def _bg_post_snap():
                                 try:
                                     from app.settings.database import create_async_session_factory as _csf
                                     from app.models.agent_execution import AgentExecution as _AE
-                                    from app.models.completion import Completion as _Comp
+                                    from app.models.tool_execution import ToolExecution as _TE
                                     SessionLocal = _csf()
                                     async with SessionLocal() as bg_db:
-                                        bg_exec = await bg_db.get(_AE, _rb_tool_exec_id)
-                                        bg_comp = await bg_db.get(_Comp, _rb_tool_comp_id)
-                                        if bg_exec and bg_comp:
-                                            await self.project_manager.rebuild_completion_from_blocks(bg_db, bg_comp, bg_exec)
-                                    return
+                                        bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
+                                        if bg_exec:
+                                            snap = await self.project_manager.save_context_snapshot(
+                                                bg_db, agent_execution=bg_exec,
+                                                kind="post_tool", context_view_json=_post_snap_data,
+                                            )
+                                            # Back-fill context_snapshot_id onto the tool execution row
+                                            bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
+                                            if bg_te and snap:
+                                                bg_te.context_snapshot_id = str(snap.id)
+                                                bg_db.add(bg_te)
+                                                await bg_db.commit()
                                 except Exception as _e:
-                                    if "database is locked" in str(_e).lower() and _attempt < _max_attempts - 1:
-                                        _backoff = 2 ** _attempt
-                                        logger.warning(f"[agent] SQLite locked in _bg_rebuild_tool (attempt {_attempt + 1}), retrying in {_backoff}s")
-                                        await _aio.sleep(_backoff)
-                                        continue
-                                    logger.warning(f"[agent] Background rebuild (tool) failed: {_e!r}")
-                                    return
-                        asyncio.create_task(_bg_rebuild_tool())
+                                    logger.warning(f"[agent] Background post_snap failed: {_e!r}")
 
-                        # Emit tool.finished with result
-                        _is_stopped = bool(observation and observation.get("stopped"))
-                        _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
-                        seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
-                        safe_result_json = None
-                        if tool_output is not None:
+                            asyncio.create_task(_bg_post_snap())
+
+                            # Telemetry: tool finished
                             try:
-                                safe_result_json = json.loads(json.dumps(tool_output, default=str))
-                            except Exception:
-                                safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
-                        await self._emit_sse_event(SSEEvent(
-                            event="tool.finished",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq_fin,
-                            data={
-                                "tool_name": tool_name,
-                                "status": _tool_status,
-                                "result_summary": observation.get("summary", "") if observation else "",
-                                # Include query_id for hydration in frontend previews when available
-                                "result_json": ({**safe_result_json, "query_id": (str(self.current_query.id) if getattr(self, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
-                                "duration_ms": tool_execution.duration_ms,
-                                "created_widget_id": created_widget_id,
-                                "created_step_id": created_step_id,
-                                "created_visualization_ids": created_visualization_ids,
-                            }
-                        ))
-
-                        # Emit instructions.context if the tool loaded related instructions
-                        try:
-                            _tool_instructions = (safe_result_json or {}).get("related_instructions") if isinstance(safe_result_json, dict) else None
-                            if _tool_instructions:
-                                _tool_instr_items = [
+                                await telemetry.capture(
+                                    "agent_tool_finished",
                                     {
-                                        "id": i.get("id"),
-                                        "title": i.get("title"),
-                                        "category": i.get("category"),
-                                        "load_mode": i.get("load_mode"),
-                                        "load_reason": "table_reference",
-                                        "source_type": i.get("source_type"),
-                                    }
-                                    for i in _tool_instructions
-                                ]
-                                seq_ti = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="instructions.context",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq_ti,
-                                    data={
-                                        "source": f"tool:{tool_name}",
-                                        "instructions": _tool_instr_items,
-                                    }
-                                ))
-                                # Persist tool-loaded instructions to completion JSON (append, deduplicate)
+                                        "agent_execution_id": str(self.current_execution.id),
+                                        "tool_name": tool_name,
+                                        "status": "success" if observation and not observation.get("error") else "error",
+                                        "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                    },
+                                    user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                                    org_id=str(self.organization.id) if self.organization else None,
+                                )
+                            except Exception:
+                                pass
+
+                            # Persist tool_executions (INSERT) + completion_blocks
+                            # (UPDATE with FK → tool_executions.id) in one bg task.
+                            # Order matters: the INSERT must land first or the
+                            # FK reference fails on Postgres. Both run in the same
+                            # bg session so they share a transaction-ish boundary.
+                            # The block.upsert SSE moves into the bg task too —
+                            # serialize_block_v2 needs the block in DB.
+                            _bg_comp_id = str(self.system_completion.id)
+                            _bg_exec_id = str(self.current_execution.id)
+                            _bg_tool_exec = tool_execution  # in-memory, configured
+
+                            # Bind per-action block_id eagerly so the bg closure sees this iteration's value
+                            _bg_block_id_local = _block_id_for_action
+                            async def _bg_persist_tool(_block_id=_bg_block_id_local):
+                                from app.settings.database import create_async_session_factory as _csf
+                                from app.models.agent_execution import AgentExecution as _AE
+                                from app.models.completion import Completion as _Comp
+                                _max_retries = 5
+                                _retry_delay = 0.5
+                                for _attempt in range(_max_retries):
+                                    try:
+                                        SessionLocal = _csf()
+                                        async with SessionLocal() as bg_db:
+                                            bg_exec = await bg_db.get(_AE, _bg_exec_id)
+                                            bg_comp = await bg_db.get(_Comp, _bg_comp_id)
+                                            if not (bg_exec and bg_comp):
+                                                return
+                                            # Atomic INSERT(tool_executions) + UPDATE(completion_blocks)
+                                            # in a single transaction: previously these were two
+                                            # separate commits, and a failure between them left the
+                                            # block's FK NULL on every subsequent refresh.
+                                            block = await self.project_manager.commit_tool_and_attach_block(
+                                                bg_db, bg_comp, bg_exec, _bg_tool_exec,
+                                                block_id=_block_id,
+                                            )
+                                            if block is None:
+                                                return
+                                            try:
+                                                block_schema = await serialize_block_v2(bg_db, block)
+                                                seq_blk = await self.project_manager.next_seq(bg_db, bg_exec)
+                                                await self._emit_sse_event(SSEEvent(
+                                                    event="block.upsert",
+                                                    completion_id=_bg_comp_id,
+                                                    agent_execution_id=_bg_exec_id,
+                                                    seq=seq_blk,
+                                                    data={"block": block_schema.model_dump()},
+                                                ))
+                                            except Exception as _e:
+                                                logger.warning(
+                                                    f"[agent.bg_write] block.upsert serialize/emit failed: {_e!r}"
+                                                )
+                                            return  # success
+                                    except Exception as _retry_exc:
+                                        _is_lock = "database is locked" in str(_retry_exc) or "PendingRollback" in type(_retry_exc).__name__
+                                        if _is_lock and _attempt < _max_retries - 1:
+                                            logger.warning(
+                                                "[agent.bg_write] persist_tool locked, retry %d/%d in %.1fs",
+                                                _attempt + 1, _max_retries, _retry_delay,
+                                            )
+                                            await asyncio.sleep(_retry_delay)
+                                            _retry_delay = min(_retry_delay * 2, 4.0)
+                                            continue
+                                        raise
+
+                            self._schedule_bg_write("persist_tool", _bg_persist_tool())
+                            _rb_tool_comp_id = str(self.system_completion.id)
+                            _rb_tool_exec_id = str(self.current_execution.id)
+                            async def _bg_rebuild_tool():
+                                import asyncio as _aio
+                                _max_attempts = 4
+                                for _attempt in range(_max_attempts):
+                                    try:
+                                        from app.settings.database import create_async_session_factory as _csf
+                                        from app.models.agent_execution import AgentExecution as _AE
+                                        from app.models.completion import Completion as _Comp
+                                        SessionLocal = _csf()
+                                        async with SessionLocal() as bg_db:
+                                            bg_exec = await bg_db.get(_AE, _rb_tool_exec_id)
+                                            bg_comp = await bg_db.get(_Comp, _rb_tool_comp_id)
+                                            if bg_exec and bg_comp:
+                                                await self.project_manager.rebuild_completion_from_blocks(bg_db, bg_comp, bg_exec)
+                                        return
+                                    except Exception as _e:
+                                        if "database is locked" in str(_e).lower() and _attempt < _max_attempts - 1:
+                                            _backoff = 2 ** _attempt
+                                            logger.warning(f"[agent] SQLite locked in _bg_rebuild_tool (attempt {_attempt + 1}), retrying in {_backoff}s")
+                                            await _aio.sleep(_backoff)
+                                            continue
+                                        logger.warning(f"[agent] Background rebuild (tool) failed: {_e!r}")
+                                        return
+                            asyncio.create_task(_bg_rebuild_tool())
+
+                            # Emit tool.finished with result
+                            _is_stopped = bool(observation and observation.get("stopped"))
+                            _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
+                            seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
+                            safe_result_json = None
+                            if tool_output is not None:
                                 try:
-                                    from sqlalchemy.orm.attributes import flag_modified
-                                    comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
-                                    existing = comp_data.get("loaded_instructions") or []
-                                    existing_ids = {li.get("id") for li in existing}
-                                    for ti in _tool_instr_items:
-                                        if ti.get("id") and ti["id"] not in existing_ids:
-                                            existing.append({"id": ti["id"], "load_mode": ti.get("load_mode"), "load_reason": ti.get("load_reason")})
-                                            existing_ids.add(ti["id"])
-                                    comp_data["loaded_instructions"] = existing
-                                    self.system_completion.completion = comp_data
-                                    flag_modified(self.system_completion, "completion")
+                                    safe_result_json = json.loads(json.dumps(tool_output, default=str))
                                 except Exception:
-                                    pass
-                        except Exception:
-                            pass
+                                    safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
+                            await self._emit_sse_event(SSEEvent(
+                                event="tool.finished",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq_fin,
+                                data={
+                                    "tool_name": tool_name,
+                                    "status": _tool_status,
+                                    "result_summary": observation.get("summary", "") if observation else "",
+                                    # Include query_id for hydration in frontend previews when available
+                                    "result_json": ({**safe_result_json, "query_id": (str(self.current_query.id) if getattr(self, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
+                                    "duration_ms": tool_execution.duration_ms,
+                                    "created_widget_id": created_widget_id,
+                                    "created_step_id": created_step_id,
+                                    "created_visualization_ids": created_visualization_ids,
+                                }
+                            ))
 
-                        # Track tool observation for history
-                        try:
-                            meta = self.registry.get_metadata(tool_name)
-                            if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
-                                self.context_hub.observation_builder.add_tool_observation(tool_name, tool_input, observation)
-                        except Exception:
-                            pass
+                            # Emit instructions.context if the tool loaded related instructions
+                            try:
+                                _tool_instructions = (safe_result_json or {}).get("related_instructions") if isinstance(safe_result_json, dict) else None
+                                if _tool_instructions:
+                                    _tool_instr_items = [
+                                        {
+                                            "id": i.get("id"),
+                                            "title": i.get("title"),
+                                            "category": i.get("category"),
+                                            "load_mode": i.get("load_mode"),
+                                            "load_reason": "table_reference",
+                                            "source_type": i.get("source_type"),
+                                        }
+                                        for i in _tool_instructions
+                                    ]
+                                    seq_ti = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="instructions.context",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq_ti,
+                                        data={
+                                            "source": f"tool:{tool_name}",
+                                            "instructions": _tool_instr_items,
+                                        }
+                                    ))
+                                    # Persist tool-loaded instructions to completion JSON (append, deduplicate)
+                                    try:
+                                        from sqlalchemy.orm.attributes import flag_modified
+                                        comp_data = self.system_completion.completion if isinstance(self.system_completion.completion, dict) else {}
+                                        existing = comp_data.get("loaded_instructions") or []
+                                        existing_ids = {li.get("id") for li in existing}
+                                        for ti in _tool_instr_items:
+                                            if ti.get("id") and ti["id"] not in existing_ids:
+                                                existing.append({"id": ti["id"], "load_mode": ti.get("load_mode"), "load_reason": ti.get("load_reason")})
+                                                existing_ids.add(ti["id"])
+                                        comp_data["loaded_instructions"] = existing
+                                        self.system_completion.completion = comp_data
+                                        flag_modified(self.system_completion, "completion")
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
 
-                        # Reset invalid retry counter
-                        invalid_retry_count = 0
+                            # Track tool observation for history
+                            try:
+                                meta = self.registry.get_metadata(tool_name)
+                                if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
+                                    self.context_hub.observation_builder.add_tool_observation(tool_name, tool_input, observation)
+                            except Exception:
+                                pass
 
-                        # Refresh for next iteration
-                        await self.context_hub.refresh_warm()
-                        view = self.context_hub.get_view()
-                        schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
-                        history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+                            # Reset invalid retry counter
+                            invalid_retry_count = 0
 
-                        # Refresh active_artifact after tools that create/edit artifacts
-                        if tool_name in ("create_artifact", "edit_artifact"):
-                            active_artifact = await self._get_active_artifact()
+                            # Refresh for next iteration
+                            await self.context_hub.refresh_warm()
+                            view = self.context_hub.get_view()
+                            schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+                            history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
+                            # Refresh active_artifact after tools that create/edit artifacts
+                            if tool_name in ("create_artifact", "edit_artifact"):
+                                active_artifact = await self._get_active_artifact()
+
+                        # End of multi-tool for-loop — exit the planner stream
+                        # so the outer agent loop runs the next planner iteration.
                         break
 
                 # If planner finalized analysis, stop the outer loop as well

@@ -291,6 +291,13 @@ class Anthropic(LLMClient):
             # SDK 0.40 doesn't expose disable_parallel_tool_use as a typed
             # field on tool_choice, so route via extra_body which is appended
             # to the request JSON unchanged.
+            # TEMP debug toggle: BOW_FORCE_PARALLEL_TOOLS=true overrides the
+            # caller's request and lets the model emit multiple tool_use
+            # blocks in one response. Used to exercise the multi-tool
+            # dispatch loop in agent_v2 without changing default behavior.
+            import os as _os_for_parallel_dbg
+            if _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
+                disable_parallel_tools = False
             if disable_parallel_tools:
                 _eb = dict(request_kwargs.pop("extra_body", {}) or {})
                 _eb["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
