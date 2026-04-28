@@ -161,7 +161,7 @@
             </button>
           </UDropdown>
         </li>
-        <li v-if="version">
+        <li v-if="version && !isCollapsed">
           <UTooltip :text="$t('nav.version')" :popper="{ placement: tooltipPlacement }">
             <div class="text-[10px] text-gray-400 px-3 cursor-pointer hover:text-gray-900">
               {{ version }}

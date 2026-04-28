@@ -26,7 +26,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArtifactOutput
 from app.ai.llm import LLM
-from app.ai.llm.types import ImageInput
+from app.ai.llm.types import ImageInput, Message, TextDeltaEvent
 from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
@@ -397,12 +397,15 @@ Fix the errors while keeping the same design and functionality. Output the corre
                 images.append(ImageInput(data=screenshot_base64, media_type="image/png", source_type="base64"))
 
         try:
-            response = llm.inference(
-                fix_prompt,
+            chunks: list[str] = []
+            async for evt in llm.inference_stream_v2(
+                messages=[Message(role="user", content=fix_prompt)],
                 images=images if images else None,
                 usage_scope="create_artifact_fix",
-                usage_scope_ref_id=None,
-            )
+            ):
+                if isinstance(evt, TextDeltaEvent):
+                    chunks.append(evt.text)
+            response = "".join(chunks)
             return self._extract_code(response, mode=mode)
         except Exception as e:
             logger.exception("Error fixing code")
@@ -796,15 +799,16 @@ Fix the errors while keeping the same design and functionality. Output the corre
         buffer = ""
         slides_detected = 0  # Track number of slides detected during streaming
 
-        async for chunk in llm.inference_stream(
-            prompt,
+        async for evt in llm.inference_stream_v2(
+            messages=[Message(role="user", content=prompt)],
             images=completion_images if completion_images else None,
             usage_scope="create_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
         ):
             if sigkill_event and sigkill_event.is_set():
                 break
-            buffer += chunk
+            if isinstance(evt, TextDeltaEvent):
+                buffer += evt.text
 
             # For slides mode, detect new slides as they're generated
             if data.mode == "slides":

@@ -24,6 +24,7 @@ from app.ai.tools.schemas import (
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.llm import LLM
+from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
 from app.ai.tools.schemas import DataModel
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
@@ -558,13 +559,16 @@ Reminder: use exact column names from: {column_names}
 Do not use generic placeholders like "value" unless that is the actual column name."""
 
         _viz_t0 = _time.perf_counter()
+        raw = None
         try:
-            # Offload sync LLM call so we don't block the event loop for the
-            # full inference duration — other requests on this worker would
-            # otherwise stall behind every create_data viz inference.
-            raw = await asyncio.to_thread(
-                llm.inference, prompt, usage_scope="create_data.viz_infer"
-            )
+            chunks: list[str] = []
+            async for evt in llm.inference_stream_v2(
+                messages=[Message(role="user", content=prompt)],
+                usage_scope="create_data.viz_infer",
+            ):
+                if isinstance(evt, TextDeltaEvent):
+                    chunks.append(evt.text)
+            raw = "".join(chunks) or None
         except Exception:
             raw = None
         finally:

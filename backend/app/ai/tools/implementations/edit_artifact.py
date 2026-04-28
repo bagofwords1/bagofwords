@@ -26,6 +26,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.llm import LLM
+from app.ai.llm.types import Message, TextDeltaEvent
 from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
@@ -822,15 +823,16 @@ Apply the edit now:"""
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
 
-        async for chunk in llm.inference_stream(
-            prompt,
+        async for evt in llm.inference_stream_v2(
+            messages=[Message(role="user", content=prompt)],
             images=completion_images if completion_images else None,
             usage_scope="edit_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
         ):
             if sigkill_event and sigkill_event.is_set():
                 break
-            buffer += chunk
+            if isinstance(evt, TextDeltaEvent):
+                buffer += evt.text
             if len(buffer) % 100 == 0:
                 yield ToolProgressEvent(
                     type="tool.progress",
