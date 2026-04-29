@@ -188,17 +188,26 @@ class RBACService:
             .order_by(Group.name)
         )
         groups = result.scalars().all()
+        if not groups:
+            return []
+
+        group_ids = [g.id for g in groups]
+        memberships_result = await db.execute(
+            select(GroupMembership.group_id, GroupMembership.user_id)
+            .where(
+                GroupMembership.group_id.in_(group_ids),
+                GroupMembership.deleted_at.is_(None),
+            )
+        )
+        memberships_by_group: dict[str, list[str]] = {g.id: [] for g in groups}
+        for group_id, user_id in memberships_result.all():
+            memberships_by_group[group_id].append(user_id)
+
         schemas = []
         for g in groups:
-            count_result = await db.execute(
-                select(func.count()).select_from(GroupMembership).where(
-                    GroupMembership.group_id == g.id,
-                    GroupMembership.deleted_at.is_(None),
-                )
-            )
-            member_count = count_result.scalar() or 0
             schema = GroupSchema.model_validate(g)
-            schema.member_count = member_count
+            schema.member_user_ids = memberships_by_group[g.id]
+            schema.member_count = len(schema.member_user_ids)
             schemas.append(schema)
         return schemas
 

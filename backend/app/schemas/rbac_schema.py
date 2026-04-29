@@ -76,6 +76,7 @@ class GroupSchema(GroupCreate):
     external_id: Optional[str] = None
     external_provider: Optional[str] = None
     member_count: int = 0
+    member_user_ids: List[str] = []
 
     class Config:
         from_attributes = True

@@ -437,23 +437,10 @@ async function loadGroups() {
         if (data.value) {
             const groupList = data.value as any[]
             groups.value = groupList.map(g => ({ id: g.id, name: g.name, description: g.description }))
-
-            // Load memberships for each group
             const membershipsMap: Record<string, string[]> = {}
-            await Promise.all(
-                groupList.map(async (group) => {
-                    try {
-                        const { data: membersData } = await useMyFetch(
-                            `/organizations/${organizationId}/groups/${group.id}/members`
-                        )
-                        if (membersData.value) {
-                            membershipsMap[group.id] = (membersData.value as any[]).map(m => m.user_id)
-                        }
-                    } catch (e) {
-                        // Individual group member load failure is non-fatal
-                    }
-                })
-            )
+            for (const group of groupList) {
+                membershipsMap[group.id] = group.member_user_ids ?? []
+            }
             groupMemberships.value = membershipsMap
         }
     } catch (e) {
