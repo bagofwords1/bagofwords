@@ -30,7 +30,8 @@ class UserSchema(BaseModel):
     name: str
     email: str
     external_user_mappings: List[ExternalUserMappingMinimalSchema] = []
-    # last_login: datetime
+    last_login: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
 
     class Config:
         from_attributes = True

@@ -250,6 +250,8 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
             details={"provider": provider, "email": str(account_email)},
         )
 
+        await _record_login(user)
+
         strategy = get_jwt_strategy()
         jwt_token = await strategy.write_token(user)
         return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
@@ -397,9 +399,27 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
         except Exception as e:
             _auth_logger.warning(f"OBO auto-provision after login failed for user {user.id}: {e}")
 
+    await _record_login(user)
+
     strategy = get_jwt_strategy()
     jwt_token = await strategy.write_token(user)
     return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
+
+
+async def _record_login(user) -> None:
+    from datetime import datetime, timezone
+    from app.dependencies import async_session_maker
+    from app.models.user import User as UserModel
+    from sqlalchemy import update
+    try:
+        now = datetime.now(timezone.utc)
+        async with async_session_maker() as db:
+            await db.execute(
+                update(UserModel).where(UserModel.id == str(user.id)).values(last_login=now)
+            )
+            await db.commit()
+    except Exception as e:
+        _auth_logger.warning(f"Failed to record last_login for user {user.id}: {e}")
 
 
 async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) -> None:

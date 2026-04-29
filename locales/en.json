@@ -916,6 +916,7 @@
       "colDate": "Date",
       "colActions": "Actions",
       "emptyNone": "None",
+      "moreGroups": "groups",
       "statusActive": "Active",
       "statusPending": "Pending",
       "noMembers": "No members found",

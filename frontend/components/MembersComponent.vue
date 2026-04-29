@@ -81,8 +81,8 @@
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colGroups') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colStatus') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colExternalPlatforms') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colLastSeen') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colDate') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Last Login</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
                             <th
                                 v-if="useCan('remove_organization_members')"
                                 class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider"
@@ -155,9 +155,9 @@
                                     </template>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="flex gap-1 flex-wrap">
+                                    <div class="flex gap-1 flex-wrap items-center">
                                         <UBadge
-                                            v-for="group in getMemberGroups(member)"
+                                            v-for="group in getMemberGroups(member).slice(0, 3)"
                                             :key="group.id"
                                             size="xs"
                                             color="blue"
@@ -165,6 +165,28 @@
                                         >
                                             {{ group.name }}
                                         </UBadge>
+                                        <UPopover
+                                            v-if="getMemberGroups(member).length > 3"
+                                            mode="hover"
+                                            :popper="{ placement: 'bottom-start' }"
+                                        >
+                                            <UBadge size="xs" color="gray" variant="subtle" class="cursor-default">
+                                                +{{ getMemberGroups(member).length - 3 }} {{ $t('settings.members.moreGroups') }}
+                                            </UBadge>
+                                            <template #panel>
+                                                <div class="p-2 max-h-48 overflow-y-auto flex flex-col gap-1 min-w-32">
+                                                    <UBadge
+                                                        v-for="group in getMemberGroups(member).slice(3)"
+                                                        :key="group.id"
+                                                        size="xs"
+                                                        color="blue"
+                                                        variant="subtle"
+                                                    >
+                                                        {{ group.name }}
+                                                    </UBadge>
+                                                </div>
+                                            </template>
+                                        </UPopover>
                                         <span v-if="getMemberGroups(member).length === 0" class="text-gray-400 text-sm italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
@@ -191,10 +213,10 @@
                                     </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {{ member.user?.last_seen || '-' }}
+                                    {{ member.user?.last_login ? new Date(member.user.last_login).toLocaleDateString() : '-' }}
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {{ member.created_at }}
+                                    {{ member.user?.last_seen ? new Date(member.user.last_seen).toLocaleDateString() : '-' }}
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm"
                                     v-if="useCan('remove_organization_members')"
@@ -296,6 +318,7 @@ interface MemberUser {
     id: string
     name?: string
     email: string
+    last_login?: string
     last_seen?: string
     external_user_mappings: { id: string; platform_type: string; is_verified: boolean }[]
 }

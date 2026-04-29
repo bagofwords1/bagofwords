@@ -1,8 +1,10 @@
 import uuid
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Any, List, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
 
 import httpx
 
@@ -143,11 +145,21 @@ class UserManager(BaseUserManager[User, str]):
             return "success"
 
     async def on_after_login(
-        self, 
-        user: User, 
+        self,
+        user: User,
         request: Optional[Request] = None,
         json_body: Optional[dict] = None
     ) -> None:
+        try:
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as session:
+                await session.execute(
+                    update(User).where(User.id == str(user.id)).values(last_login=datetime.now(timezone.utc))
+                )
+                await session.commit()
+        except Exception:
+            pass
+
         # Handle redirect for any OAuth/OIDC callback
         if request and request.url.path.endswith("/callback"):
             import json
@@ -585,6 +597,19 @@ _jwt_current_user = fapi.current_user(active=True, optional=True)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
+_LAST_SEEN_DEBOUNCE = timedelta(hours=1)
+
+async def _update_last_seen(user: User, db: AsyncSession) -> None:
+    now = datetime.now(timezone.utc)
+    if user.last_seen and now - user.last_seen.replace(tzinfo=timezone.utc) < _LAST_SEEN_DEBOUNCE:
+        return
+    try:
+        await db.execute(update(User).where(User.id == str(user.id)).values(last_seen=now))
+        await db.commit()
+    except Exception:
+        pass
+
+
 async def current_user(
     request: Request,
     jwt_user: Optional[User] = Depends(_jwt_current_user),
@@ -593,12 +618,13 @@ async def current_user(
 ) -> User:
     """
     Get the current user from either JWT token or API key.
-    
+
     Tries JWT first, then falls back to API key authentication.
     API keys can be passed via X-API-Key header or Authorization: Bearer <key> (for bow_ prefixed keys).
     """
     # Try JWT first
     if jwt_user is not None:
+        await _update_last_seen(jwt_user, db)
         return jwt_user
     
     # Try API key from X-API-Key header
