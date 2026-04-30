@@ -600,6 +600,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.timbr_a2a_client.TimbrA2aClient",
         requires_license="enterprise",
+        dev_only=True,
     ),
     "sisense": DataSourceRegistryEntry(
         type="sisense",
