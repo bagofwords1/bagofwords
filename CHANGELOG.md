@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.367 (May 1, 2026)
+- add a new reindexing connection button
+- enable mcp tools by default in org settings
+- strengthen clarify tool
+
 ## Version 0.0.366 (April 27, 2026)
 - 70% speed improvements
 - better caching for tokens

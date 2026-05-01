@@ -418,14 +418,21 @@ async def reindex_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Alias of `/refresh` that matches the new naming. Kicks off a background
-    indexing job and returns the indexing row.
+    """Kicks off a fresh background indexing job. Cancels any stuck pending/running
+    row first so this always starts a new run.
     """
+    from datetime import datetime
     connection = await connection_service.get_connection(db, connection_id, organization)
+    existing = await indexing_service.get_active(db, connection_id)
+    if existing is not None:
+        existing.status = "cancelled"
+        existing.finished_at = datetime.utcnow()
+        existing.error = "Cancelled by user reindex request"
+        await db.commit()
     row = await indexing_service.start(db=db, connection=connection)
     progress = _indexing_to_progress(row)
     return {
-        "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",
+        "message": "Schema indexing started.",
         "indexing": progress.model_dump() if progress else None,
     }
 

@@ -198,10 +198,7 @@ class ConnectionIndexingService:
         await db.refresh(row)
 
         if kick_off:
-            # Fire-and-forget on the shared background loop. The runner opens
-            # its own DB session; we don't await the future here.
-            loop = _get_background_loop()
-            asyncio.run_coroutine_threadsafe(self._run(row.id), loop)
+            asyncio.create_task(self._run(row.id))
 
         return row
 

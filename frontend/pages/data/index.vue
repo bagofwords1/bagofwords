@@ -410,7 +410,7 @@ async function refreshData() {
 // Poll while any connection (standalone or under a data source) is currently
 // indexing. The `/data_sources` and `/connections` endpoints both inline the
 // latest `indexing` row, so a single re-fetch updates badges everywhere.
-const POLL_INTERVAL_MS = 2000
+const POLL_INTERVAL_MS = 5000000
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 function anyIndexingActive(): boolean {

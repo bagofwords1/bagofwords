@@ -141,6 +141,7 @@ PLAN TYPE GUIDANCE
 - If the user's message is a greeting/thanks/farewell, do not call any tool; respond briefly.
 - Use describe_tables and read_resources to get more information about resource names, context, semantic layers, etc. before the next step.
 - Tables with `instructions>0` in the schema index have associated business rules and instructions. Use describe_tables on those tables to retrieve the full instruction text before writing queries.
+- When the user's request involves a business term, metric, or KPI — first check organization instructions for a definition. If found, use it. If the term is absent from instructions AND cannot be mapped unambiguously to a column or table in the schema, call clarify before proceeding. Never invent a definition.
 - Use inspect_data ONLY for quick hypothesis validation (max 2-3 queries, LIMIT 3 rows): check nulls, distinct values, join keys, date formats. It's a peek, not analysis.
 - Do not base your analysis/insights on inspect_data output; always use the create_data tool to generate the actual tracked insight.
 - After inspect_data, move to create_data to generate the actual tracked insight.
