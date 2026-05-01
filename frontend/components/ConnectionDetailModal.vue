@@ -57,12 +57,12 @@
       </div>
 
       <!-- Indexing block — live progress / completion / failure + logs toggle -->
-      <div v-if="indexingState" class="py-3 border-t border-gray-100">
-        <ConnectionIndexingProgress :indexing="indexingState" :show-logs="true" />
+      <div v-if="indexingState || canUpdateDataSource" class="py-3 border-t border-gray-100">
+        <ConnectionIndexingProgress v-if="indexingState" :indexing="indexingState" :show-logs="true" />
         <div v-if="canUpdateDataSource" class="mt-2">
           <UButton size="xs" color="gray" variant="soft" :loading="reindexing" @click="reindex">
             <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5 me-1" />
-            {{ indexingState.status === 'failed' ? 'Retry' : 'Reindex' }}
+            {{ indexingState?.status === 'failed' ? 'Retry' : 'Reindex' }}
           </UButton>
         </div>
       </div>
@@ -318,7 +318,7 @@ async function reindex() {
   if (!props.connection?.id || reindexing.value) return
   reindexing.value = true
   try {
-    const { data } = await useMyFetch(`/connections/${props.connection.id}/reindex`, { method: 'POST' })
+    const { data } = await useMyFetch(`/connections/${props.connection.id}/reindex?force=true`, { method: 'POST' })
     const result = (data as any).value
     if (result?.indexing) {
       indexingState.value = result.indexing as ConnectionIndexing

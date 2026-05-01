@@ -414,25 +414,29 @@ async def refresh_connection_schema(
 @requires_permission('manage_connections')
 async def reindex_connection(
     connection_id: str,
+    force: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Kicks off a fresh background indexing job. Cancels any stuck pending/running
-    row first so this always starts a new run.
+    """Kick off a background indexing job.
+
+    Idempotent by default — returns the in-flight row if one exists.
+    Pass `?force=true` to cancel any stuck row and start fresh.
     """
     from datetime import datetime
     connection = await connection_service.get_connection(db, connection_id, organization)
-    existing = await indexing_service.get_active(db, connection_id)
-    if existing is not None:
-        existing.status = "cancelled"
-        existing.finished_at = datetime.utcnow()
-        existing.error = "Cancelled by user reindex request"
-        await db.commit()
+    if force:
+        existing = await indexing_service.get_active(db, connection_id)
+        if existing is not None:
+            existing.status = "cancelled"
+            existing.finished_at = datetime.utcnow()
+            existing.error = "Cancelled by user reindex request"
+            await db.commit()
     row = await indexing_service.start(db=db, connection=connection)
     progress = _indexing_to_progress(row)
     return {
-        "message": "Schema indexing started.",
+        "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",
         "indexing": progress.model_dump() if progress else None,
     }
 
