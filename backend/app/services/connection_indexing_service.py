@@ -23,7 +23,11 @@ from typing import Optional
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import async_session_maker
+from app.settings.database import create_async_session_factory as _make_session_factory
+
+def _new_session():
+    """Fresh session bound to the calling event loop — avoids cross-loop errors with asyncpg."""
+    return _make_session_factory()()
 from app.models.connection import Connection
 from app.models.connection_indexing import (
     ConnectionIndexing,
@@ -198,7 +202,8 @@ class ConnectionIndexingService:
         await db.refresh(row)
 
         if kick_off:
-            asyncio.create_task(self._run(row.id))
+            loop = _get_background_loop()
+            asyncio.run_coroutine_threadsafe(self._run(row.id), loop)
 
         return row
 
@@ -226,7 +231,7 @@ class ConnectionIndexingService:
             are capped at `_EVENT_LOG_MAX` (oldest dropped).
             """
             try:
-                async with async_session_maker() as ev_db:
+                async with _new_session() as ev_db:
                     fresh = await ev_db.get(ConnectionIndexing, indexing_id)
                     if fresh is None:
                         return
@@ -247,7 +252,7 @@ class ConnectionIndexingService:
                 logger.debug("indexing.event_append_failed", exc_info=True)
 
         try:
-            async with async_session_maker() as db:
+            async with _new_session() as db:
                 row = await db.get(ConnectionIndexing, indexing_id)
                 if row is None:
                     logger.warning("indexing.run.missing", extra={"indexing_id": indexing_id})
@@ -304,7 +309,7 @@ class ConnectionIndexingService:
                     snap = _state_snapshot()
                     async with flush_lock:
                         try:
-                            async with async_session_maker() as flush_db:
+                            async with _new_session() as flush_db:
                                 fresh = await flush_db.get(ConnectionIndexing, indexing_id)
                                 if fresh is None:
                                     return
@@ -349,7 +354,7 @@ class ConnectionIndexingService:
                 except Exception as exc:  # pragma: no cover — surface via row
                     logger.exception("indexing.run.failed", extra={"indexing_id": indexing_id})
                     # Use a fresh session — the service may have rolled back.
-                    async with async_session_maker() as err_db:
+                    async with _new_session() as err_db:
                         fresh = await err_db.get(ConnectionIndexing, indexing_id)
                         if fresh is not None:
                             fresh.status = ConnectionIndexingStatus.FAILED.value
@@ -395,7 +400,7 @@ class ConnectionIndexingService:
         except Exception as exc:  # pragma: no cover — last-ditch guard
             logger.exception("indexing.run.crash", extra={"indexing_id": indexing_id})
             try:
-                async with async_session_maker() as err_db:
+                async with _new_session() as err_db:
                     fresh = await err_db.get(ConnectionIndexing, indexing_id)
                     if fresh is not None and not fresh.is_terminal():
                         fresh.status = ConnectionIndexingStatus.FAILED.value
@@ -444,7 +449,7 @@ class ConnectionIndexingService:
         synced = 0
         for ds_id in ds_ids:
             try:
-                async with async_session_maker() as per_db:
+                async with _new_session() as per_db:
                     # Re-fetch the DS in the per-DS session. If it was deleted
                     # (hard or soft) between snapshot and now, skip cleanly.
                     ds_row = await per_db.execute(
