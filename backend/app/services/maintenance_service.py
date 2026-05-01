@@ -69,6 +69,8 @@ async def purge_step_payloads_for_organization(
         s.created_at,
         s.updated_at,
         s.status,
+        rep.conversation_share_enabled,
+        rep.status AS rep_status,
         ROW_NUMBER() OVER (
           PARTITION BY s.query_id
           ORDER BY s.updated_at DESC
@@ -82,16 +84,14 @@ async def purge_step_payloads_for_organization(
     UPDATE steps AS s
     SET {set_clause}
     FROM ranked r
-    LEFT JOIN widgets w ON s.widget_id = w.id
-    LEFT JOIN reports rep ON w.report_id = rep.id
     WHERE r.id = s.id
       AND (
             (r.query_id IS NOT NULL AND r.rn > 1)
          OR (s.created_at < :cutoff AND s.updated_at < :cutoff)
       )
       AND ({nonnull_predicate})
-      AND (rep.conversation_share_enabled IS NOT TRUE)
-      AND (rep.status IS DISTINCT FROM 'published')
+      AND (r.conversation_share_enabled IS NOT TRUE)
+      AND (r.rep_status IS DISTINCT FROM 'published')
     """)
 
     async with async_session_maker() as session:
