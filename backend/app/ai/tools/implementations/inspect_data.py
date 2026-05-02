@@ -19,6 +19,7 @@ from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.schemas.codegen import CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
 from app.dependencies import async_session_maker
+from app.services.usage_policy_service import UsageLimitContext
 
 class InspectDataTool(Tool):
     @property
@@ -147,17 +148,26 @@ Don't use on images
         )
 
         # 3. Setup Coder and Streamer
+        base_usage_ctx = runtime_ctx.get("usage_limit_context")
+        usage_ctx = (
+            base_usage_ctx.for_source("inspect_data", runtime_ctx.get("tool_call_id"))
+            if isinstance(base_usage_ctx, UsageLimitContext)
+            else None
+        )
+
         coder = Coder(
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
-            usage_session_maker=async_session_maker
+            usage_session_maker=async_session_maker,
+            usage_context=usage_ctx,
         )
         
         streamer = StreamingCodeExecutor(
             organization_settings=organization_settings, 
             logger=None, 
-            context_hub=context_hub
+            context_hub=context_hub,
+            usage_context=usage_ctx,
         )
 
         # Wrap generate_inspection_code to match the signature expected by streamer
@@ -333,4 +343,3 @@ Don't use on images
                 "observation": observation,
             }
         )
-

@@ -21,6 +21,7 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.schemas.mcp import MCPInspectDataInput, MCPInspectDataOutput
 from app.dependencies import async_session_maker
+from app.services.usage_policy_service import UsageLimitContext
 
 
 class InspectDataMCPTool(MCPTool):
@@ -177,17 +178,26 @@ class InspectDataMCPTool(MCPTool):
         )
         
         # Setup Coder and Executor
+        usage_ctx = UsageLimitContext(
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+            source="mcp.inspect_data",
+            source_ref_id=str(report.id),
+            session_maker=async_session_maker,
+        )
         coder = Coder(
             model=rich_ctx.model,
             organization_settings=rich_ctx.org_settings,
             context_hub=rich_ctx.context_hub,
             usage_session_maker=async_session_maker,
+            usage_context=usage_ctx,
         )
         
         streamer = StreamingCodeExecutor(
             organization_settings=rich_ctx.org_settings,
             logger=None,
             context_hub=rich_ctx.context_hub,
+            usage_context=usage_ctx,
         )
         
         # Wrap generate_inspection_code

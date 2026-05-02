@@ -11,6 +11,7 @@ import re
 import json
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from app.ai.schemas.codegen import CodeGenContext
+from app.services.usage_policy_service import UsageLimitContext
 
 class Coder:
     def __init__(
@@ -20,8 +21,9 @@ class Coder:
         instruction_context_builder=None,
         context_hub=None,
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
+        usage_context: Optional[UsageLimitContext] = None,
     ) -> None:
-        self.llm = LLM(model, usage_session_maker=usage_session_maker)
+        self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.organization_settings = organization_settings
         self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
         # Back-compat: accept either legacy builder or new context hub

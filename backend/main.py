@@ -88,6 +88,7 @@ from app.routes import (
     artifact,
     oauth_server,
     rbac,
+    usage_limits,
     scheduled_prompt,
     excel,
 )
@@ -214,6 +215,7 @@ app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
+app.include_router(usage_limits.router, prefix="/api")
 app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")

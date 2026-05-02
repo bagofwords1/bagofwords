@@ -67,22 +67,54 @@
                         {{ role.description || $t('rolesManager.permissionsCount', { n: role.permissions?.length || 0 }) }}
                     </p>
                 </div>
-                <div class="flex gap-2">
-                    <UButton
-                        v-if="!role.is_system && useCan('manage_roles')"
-                        variant="ghost"
-                        size="xs"
-                        icon="i-heroicons-pencil"
-                        @click="openEditModal(role)"
-                    />
-                    <UButton
-                        v-if="!role.is_system && useCan('manage_roles')"
-                        variant="ghost"
-                        size="xs"
-                        color="red"
-                        icon="i-heroicons-trash"
-                        @click="deleteRole(role)"
-                    />
+                <div class="flex items-center gap-3">
+                    <USelectMenu
+                        v-if="showQuotaColumn"
+                        :model-value="getDirectQuotaId('role', role.id)"
+                        :options="quotaSelectOptions"
+                        value-attribute="value"
+                        option-attribute="label"
+                        size="sm"
+                        class="w-44"
+                        :ui-menu="{ width: 'w-48' }"
+                        :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
+                        @update:model-value="updatePrincipalQuota('role', role.id, $event)"
+                    >
+                        <template #label>
+                            <span class="flex gap-1 flex-wrap items-center">
+                                <UBadge
+                                    v-for="policy in getRoleQuotaPolicies(role).slice(0, 1)"
+                                    :key="policy.id"
+                                    size="xs"
+                                    color="blue"
+                                    variant="subtle"
+                                >
+                                    {{ policy.name }}
+                                </UBadge>
+                                <span v-if="getRoleQuotaPolicies(role).length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
+                            </span>
+                        </template>
+                        <template #option="{ option }">
+                            <span class="text-sm">{{ option.label }}</span>
+                        </template>
+                    </USelectMenu>
+                    <div class="flex gap-2">
+                        <UButton
+                            v-if="!role.is_system && useCan('manage_roles')"
+                            variant="ghost"
+                            size="xs"
+                            icon="i-heroicons-pencil"
+                            @click="openEditModal(role)"
+                        />
+                        <UButton
+                            v-if="!role.is_system && useCan('manage_roles')"
+                            variant="ghost"
+                            size="xs"
+                            color="red"
+                            icon="i-heroicons-trash"
+                            @click="deleteRole(role)"
+                        />
+                    </div>
                 </div>
             </div>
         </div>
@@ -212,6 +244,7 @@
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useI18n } from 'vue-i18n'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { t } = useI18n()
 
@@ -232,6 +265,18 @@ interface ResourceGrantForm {
     permissions: string[]
 }
 
+interface UsagePolicySummary {
+    id: string
+    name: string
+    enabled: boolean
+    assignments: UsagePolicyAssignment[]
+}
+
+interface UsagePolicyAssignment {
+    principal_type: 'user' | 'group' | 'role'
+    principal_id: string
+}
+
 const props = defineProps<{
     organization: { id: string; name: string }
 }>()
@@ -240,6 +285,7 @@ const toast = useToast()
 
 // State
 const roles = ref<RoleData[]>([])
+const usagePolicies = ref<UsagePolicySummary[]>([])
 const isLoading = ref(true)
 const searchQuery = ref('')
 const showModal = ref(false)
@@ -247,6 +293,8 @@ const editingRole = ref<RoleData | null>(null)
 const saving = ref(false)
 const selectedResource = ref(null)
 const showOrgDetails = ref(false)
+const { hasFeature } = useEnterprise()
+const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
 
 const form = reactive({
     name: '',
@@ -489,6 +537,66 @@ const filteredRoles = computed(() => {
     )
 })
 
+const quotaSelectOptions = computed(() => [
+    { value: null, label: t('quotaPolicies.noDirectQuota') },
+    ...usagePolicies.value
+        .filter(policy => policy.enabled)
+        .map(policy => ({ value: policy.id, label: policy.name })),
+])
+
+function getRoleQuotaPolicies(role: RoleData): UsagePolicySummary[] {
+    if (!showQuotaColumn.value) return []
+    return getPrincipalQuotaPolicies('role', role.id)
+}
+
+function getPrincipalQuotaPolicies(principalType: UsagePolicyAssignment['principal_type'], principalId: string): UsagePolicySummary[] {
+    return usagePolicies.value.filter(policy =>
+        policy.enabled &&
+        policy.assignments?.some(assignment =>
+            assignment.principal_type === principalType &&
+            assignment.principal_id === principalId
+        )
+    )
+}
+
+function getDirectQuotaId(principalType: UsagePolicyAssignment['principal_type'], principalId: string): string | null {
+    return getPrincipalQuotaPolicies(principalType, principalId)[0]?.id || null
+}
+
+function applyLocalQuotaAssignment(principalType: UsagePolicyAssignment['principal_type'], principalId: string, policyId: string | null) {
+    usagePolicies.value = usagePolicies.value.map(policy => {
+        const assignments = (policy.assignments || []).filter(
+            assignment => assignment.principal_type !== principalType || assignment.principal_id !== principalId
+        )
+        if (policyId && policy.id === policyId) {
+            assignments.push({ principal_type: principalType, principal_id: principalId })
+        }
+        return { ...policy, assignments }
+    })
+}
+
+async function updatePrincipalQuota(principalType: UsagePolicyAssignment['principal_type'], principalId: string, policyId: string | null) {
+    try {
+        const { error } = await useMyFetch(`/organizations/${props.organization.id}/usage-policy-assignments/principal`, {
+            method: 'PUT',
+            body: {
+                principal_type: principalType,
+                principal_id: principalId,
+                policy_id: policyId,
+            },
+        })
+        if (error.value) {
+            toast.add({ title: error.value.data?.detail || t('quotaPolicies.failedToSave'), color: 'red' })
+            return
+        }
+        applyLocalQuotaAssignment(principalType, principalId, policyId)
+        toast.add({ title: t('quotaPolicies.toastAssignmentUpdated'), color: 'green' })
+    } catch (e: any) {
+        const detail = e?.data?.detail || e?.message || t('quotaPolicies.failedToSave')
+        toast.add({ title: detail, color: 'red' })
+    }
+}
+
 // ── CRUD ─────────────────────────────────────────────────────────────────
 
 async function loadRoles() {
@@ -503,6 +611,16 @@ async function loadRoles() {
         }
     } finally {
         isLoading.value = false
+    }
+}
+
+async function loadUsagePolicies() {
+    if (!showQuotaColumn.value) return
+    try {
+        const { data } = await useMyFetch(`/organizations/${props.organization.id}/usage-policies`)
+        usagePolicies.value = (data.value || []) as UsagePolicySummary[]
+    } catch (e) {
+        usagePolicies.value = []
     }
 }
 
@@ -610,5 +728,12 @@ async function deleteRole(role: RoleData) {
 onMounted(() => {
     loadPermissionsRegistry()
     loadRoles()
+    loadUsagePolicies()
+})
+
+watch(showQuotaColumn, (enabled) => {
+    if (enabled && usagePolicies.value.length === 0) {
+        loadUsagePolicies()
+    }
 })
 </script>

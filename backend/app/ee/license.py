@@ -26,6 +26,7 @@ TIER_FEATURES = {
         "custom_roles",
         "ldap",
         "domain_signup",
+        "usage_limits",
     ],
 }
 

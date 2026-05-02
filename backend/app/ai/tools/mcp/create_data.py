@@ -22,6 +22,7 @@ from app.models.report import Report
 from app.project_manager import ProjectManager
 from app.schemas.mcp import MCPCreateDataInput, MCPCreateDataOutput
 from app.dependencies import async_session_maker
+from app.services.usage_policy_service import UsageLimitContext
 from app.ai.tools.implementations.create_data import (
     CreateDataTool,
     build_view_from_data_model,
@@ -153,17 +154,26 @@ class CreateDataMCPTool(MCPTool):
         )
         
         # Setup Coder and Executor
+        usage_ctx = UsageLimitContext(
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+            source="mcp.create_data",
+            source_ref_id=str(report.id),
+            session_maker=async_session_maker,
+        )
         coder = Coder(
             model=rich_ctx.model,
             organization_settings=rich_ctx.org_settings,
             context_hub=rich_ctx.context_hub,
             usage_session_maker=async_session_maker,
+            usage_context=usage_ctx,
         )
         
         streamer = StreamingCodeExecutor(
             organization_settings=rich_ctx.org_settings,
             logger=None,
             context_hub=rich_ctx.context_hub,
+            usage_context=usage_ctx,
         )
 
         # Execute code generation

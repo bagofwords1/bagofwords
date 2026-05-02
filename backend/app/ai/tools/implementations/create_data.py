@@ -26,6 +26,7 @@ from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
+from app.services.usage_policy_service import UsageLimitContext
 from app.ai.tools.schemas import DataModel
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
@@ -354,7 +355,13 @@ class CreateDataTool(Tool):
         info = formatted.get("info", {}) if isinstance(formatted, dict) else {}
         span.set_attribute("data.row_count", info.get("total_rows", 0) or 0)
         span.set_attribute("data.column_count", info.get("total_columns", 0) or 0)
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        base_usage_ctx = runtime_ctx.get("usage_limit_context")
+        usage_ctx = (
+            base_usage_ctx.for_source("create_data.viz_infer", runtime_ctx.get("tool_call_id"))
+            if isinstance(base_usage_ctx, UsageLimitContext)
+            else None
+        )
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker, usage_context=usage_ctx)
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
         # Fetch visualization-specific instructions
@@ -1061,13 +1068,25 @@ Do not use generic placeholders like "value" unless that is the actual column na
         run_span.add_event("context_built")
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_code_execution"})
 
+        base_usage_ctx = runtime_ctx.get("usage_limit_context")
+        usage_ctx = (
+            base_usage_ctx.for_source("create_data", runtime_ctx.get("tool_call_id"))
+            if isinstance(base_usage_ctx, UsageLimitContext)
+            else None
+        )
         coder = Coder(
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
             usage_session_maker=async_session_maker,
+            usage_context=usage_ctx,
         )
-        streamer = StreamingCodeExecutor(organization_settings=organization_settings, logger=None, context_hub=context_hub)
+        streamer = StreamingCodeExecutor(
+            organization_settings=organization_settings,
+            logger=None,
+            context_hub=context_hub,
+            usage_context=usage_ctx,
+        )
 
         # Build typed context via helper (use resolved active tables, not original patterns)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
@@ -1349,5 +1368,4 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 "observation": observation,
             },
         )
-
 

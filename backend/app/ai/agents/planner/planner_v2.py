@@ -30,6 +30,7 @@ from .planner_state import PlannerState
 from .prompt_builder import PromptBuilder
 from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.usage_policy_service import UsageLimitContext
 
 
 def _coerce_decision_raw(raw) -> dict:
@@ -63,8 +64,9 @@ class PlannerV2:
         model,
         tool_catalog: list[ToolDescriptor],
         usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
+        usage_context: Optional[UsageLimitContext] = None,
     ) -> None:
-        self.llm = LLM(model, usage_session_maker=usage_session_maker)
+        self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.tool_catalog = tool_catalog
         self.parser = JSONParser()
         self.prompt_builder = PromptBuilder()

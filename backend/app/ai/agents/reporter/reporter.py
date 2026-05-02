@@ -7,6 +7,7 @@ from app.ai.llm import LLM
 from app.ai.prompt_language import build_language_directive
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+from app.services.usage_policy_service import UsageLimitContext
 
 class Reporter:
 
@@ -15,8 +16,9 @@ class Reporter:
         model: LLMModel,
         organization_settings: Optional[OrganizationSettingsConfig] = None,
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
+        usage_context: Optional[UsageLimitContext] = None,
     ) -> None:
-        self.llm = LLM(model, usage_session_maker=usage_session_maker)
+        self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.organization_settings = organization_settings
 
     async def generate_report_title(self, messages, plan):

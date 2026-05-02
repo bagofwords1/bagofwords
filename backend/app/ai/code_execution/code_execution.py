@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
+from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
@@ -238,6 +239,25 @@ _FORBIDDEN_SQL_IN_STRING_REGEX = re.compile(
 )
 
 
+def estimate_result_size_bytes(result: Any) -> int:
+    """Best-effort size of the result payload exposed to generated code."""
+    if result is None:
+        return 0
+    if isinstance(result, bytes):
+        return len(result)
+    if isinstance(result, str):
+        return len(result.encode("utf-8"))
+    if isinstance(result, pd.DataFrame):
+        try:
+            return len(result.to_json(orient="records", date_format="iso").encode("utf-8"))
+        except Exception:
+            return int(result.memory_usage(deep=True).sum())
+    try:
+        return len(json.dumps(result, ensure_ascii=False, default=str).encode("utf-8"))
+    except Exception:
+        return sys.getsizeof(result)
+
+
 def validate_sql_query(query: str) -> None:
     """
     Validate SQL query to ensure it's read-only.
@@ -267,10 +287,19 @@ class QueryCapturingClientWrapper:
     Optionally accumulates per-query wall-clock timing into captured_timings.
     """
 
-    def __init__(self, original_client, captured_queries: List[str], captured_timings: List[dict]):
+    def __init__(
+        self,
+        original_client,
+        captured_queries: List[str],
+        captured_timings: List[dict],
+        usage_context: Optional[UsageLimitContext] = None,
+        client_key: Optional[str] = None,
+    ):
         self._original = original_client
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
+        self._usage_context = usage_context
+        self._client_key = client_key
 
     def execute_query(self, query: str, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration."""
@@ -281,15 +310,20 @@ class QueryCapturingClientWrapper:
         with _tracer.start_as_current_span("datasource.execute_query") as span:
             span.set_attribute("datasource.type", type(self._original).__name__)
             try:
+                self._consume_query_quota(query)
                 result = self._original.execute_query(query, *args, **kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
+                result_bytes = estimate_result_size_bytes(result)
+                self._consume_data_bytes_quota(query, result_bytes, rows)
                 if rows is not None:
                     span.set_attribute("datasource.result_rows", rows)
+                span.set_attribute("datasource.result_bytes", result_bytes)
                 self._captured_timings.append({
                     "index": idx,
                     "query_ms": round(_q_ms, 1),
                     "rows": rows,
+                    "result_bytes": result_bytes,
                     "sql": query[:500] if isinstance(query, str) else None,
                 })
                 return result
@@ -306,17 +340,78 @@ class QueryCapturingClientWrapper:
                 span.record_exception(e)
                 raise
 
+    def _consume_query_quota(self, query: str) -> None:
+        context = self._usage_context
+        if context is None or context.session_maker is None:
+            return
+        connection_id = self._connection_id()
+        if not connection_id:
+            return
+        metadata = self._usage_metadata(query)
+        context.run_blocking(
+            usage_policy_service.consume_data_query_with_context(
+                context,
+                connection_id=str(connection_id),
+                metadata=metadata,
+            )
+        )
+
+    def _consume_data_bytes_quota(self, query: str, result_bytes: int, rows: Optional[int]) -> None:
+        context = self._usage_context
+        if context is None or context.session_maker is None or result_bytes <= 0:
+            return
+        connection_id = self._connection_id()
+        if not connection_id:
+            return
+        metadata = {
+            **self._usage_metadata(query),
+            "rows": rows,
+            "result_bytes": result_bytes,
+        }
+        context.run_blocking(
+            usage_policy_service.consume_data_bytes_with_context(
+                context,
+                connection_id=str(connection_id),
+                amount=result_bytes,
+                metadata=metadata,
+            )
+        )
+
+    def _connection_id(self) -> Optional[str]:
+        connection_id = getattr(self._original, "_bow_connection_id", None)
+        return str(connection_id) if connection_id else None
+
+    def _usage_metadata(self, query: str) -> dict:
+        return {
+            "client_key": self._client_key or getattr(self._original, "_bow_client_key", None),
+            "connection_name": getattr(self._original, "_bow_connection_name", None),
+            "data_source_id": getattr(self._original, "_bow_data_source_id", None),
+            "data_source_name": getattr(self._original, "_bow_data_source_name", None),
+            "sql": query[:500] if isinstance(query, str) else None,
+        }
+
     def __getattr__(self, name):
         """Delegate all other attributes to the original client."""
         return getattr(self._original, name)
 
 
-def wrap_clients_for_capture(ds_clients: Dict, captured_queries: List[str], captured_timings: List[dict]) -> Dict:
+def wrap_clients_for_capture(
+    ds_clients: Dict,
+    captured_queries: List[str],
+    captured_timings: List[dict],
+    usage_context: Optional[UsageLimitContext] = None,
+) -> Dict:
     """Wrap all database clients to capture queries and per-query timing."""
     wrapped = {}
     for key, client in (ds_clients or {}).items():
         if client is not None and hasattr(client, 'execute_query'):
-            wrapped[key] = QueryCapturingClientWrapper(client, captured_queries, captured_timings)
+            wrapped[key] = QueryCapturingClientWrapper(
+                client,
+                captured_queries,
+                captured_timings,
+                usage_context=usage_context,
+                client_key=str(key),
+            )
         else:
             wrapped[key] = client
     return wrapped
@@ -348,10 +443,17 @@ class StreamingCodeExecutor:
     """
     Pure, tool-first streaming executor with retries. No project_manager/DB side-effects.
     """
-    def __init__(self, organization_settings: OrganizationSettingsConfig = None, logger=None, context_hub=None):
+    def __init__(
+        self,
+        organization_settings: OrganizationSettingsConfig = None,
+        logger=None,
+        context_hub=None,
+        usage_context: Optional[UsageLimitContext] = None,
+    ):
         self.organization_settings = organization_settings
         self.logger = logger
         self.context_hub = context_hub
+        self.usage_context = usage_context
 
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
                      captured_timings: Optional[List[dict]] = None,
@@ -380,7 +482,7 @@ class StreamingCodeExecutor:
         _timings: List[dict] = captured_timings if captured_timings is not None else []
 
         # Wrap clients to capture all queries passed to execute_query
-        wrapped_clients = wrap_clients_for_capture(ds_clients, executed_queries, _timings)
+        wrapped_clients = wrap_clients_for_capture(ds_clients, executed_queries, _timings, self.usage_context)
 
         local_namespace = {
             'pd': pd,
@@ -405,6 +507,8 @@ class StreamingCodeExecutor:
                                  captured_queries: Optional[List[str]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Run execute_code in a thread so it doesn't block the event loop."""
         loop = asyncio.get_running_loop()
+        if self.usage_context is not None:
+            self.usage_context.loop = loop
         return await loop.run_in_executor(
             _CODE_EXEC_POOL,
             lambda: self.execute_code(

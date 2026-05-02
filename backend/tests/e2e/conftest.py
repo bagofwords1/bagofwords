@@ -38,6 +38,7 @@ def _e2e_force_enterprise_license():
             "scim",
             "custom_roles",
             "ldap",
+            "usage_limits",
         ],
         license_id="e2e-fake",
     )
