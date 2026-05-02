@@ -15,6 +15,13 @@ _LOCALE_NAMES = {
     "en": "English",
     "es": "Spanish (Español)",
     "he": "Hebrew (עברית)",
+    "fr": "French (Français)",
+    "sv": "Swedish (Svenska)",
+    "ar": "Arabic (العربية)",
+    "ru": "Russian (Русский)",
+    "de": "German (Deutsch)",
+    "pt": "Brazilian Portuguese (Português do Brasil)",
+    "it": "Italian (Italiano)",
 }
 
 
