@@ -105,7 +105,17 @@ class DataSource(BaseSchema):
         back_populates="data_sources",
         lazy="selectin"
     )
-    
+
+    # M:N relationship to File. Files attached here are auto-snapshotted
+    # into reports created against this data source (see
+    # ReportService.create_report and set_data_sources_for_report).
+    files = relationship(
+        "File",
+        secondary="data_source_file_association",
+        back_populates="data_sources",
+        lazy="selectin",
+    )
+
     def get_client(self, connection_name: str | None = None, connection_id: str | None = None):
         """
         Get database client from an associated connection.

@@ -401,11 +401,24 @@ class ReportService:
         if data_source_ids:
             ds_result = await db.execute(
                 select(DataSource)
-                .options(selectinload(DataSource.data_source_memberships))
+                .options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.files),
+                )
                 .filter(DataSource.id.in_(data_source_ids))
             )
             data_sources = ds_result.scalars().all()
             report.data_sources.extend(data_sources)
+
+            # Snapshot data-source-attached files into the report so they
+            # flow through report.files into FilesContextBuilder and the
+            # planner. Dedup against files explicitly passed in file_uuids.
+            existing_ids = {str(f.id) for f in report.files}
+            for ds in data_sources:
+                for f in ds.files:
+                    if str(f.id) not in existing_ids:
+                        report.files.append(f)
+                        existing_ids.add(str(f.id))
 
         # Single commit for the entire transaction
         await db.commit()
@@ -1268,14 +1281,27 @@ class ReportService:
             # Load all requested data sources
             result = await db.execute(
                 select(DataSource)
-                .options(selectinload(DataSource.data_source_memberships))
+                .options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.files),
+                )
                 .filter(DataSource.id.in_(data_source_ids))
             )
             new_data_sources = result.scalars().all()
-            
+
             # Add new associations
             report.data_sources.extend(new_data_sources)
-        
+
+            # Snapshot any new files from these data sources into the
+            # report (dedup against whatever's already attached).
+            await db.refresh(report, ["files"])
+            existing_ids = {str(f.id) for f in report.files}
+            for ds in new_data_sources:
+                for f in ds.files:
+                    if str(f.id) not in existing_ids:
+                        report.files.append(f)
+                        existing_ids.add(str(f.id))
+
         await db.flush()
         return report
     
