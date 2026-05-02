@@ -14,7 +14,7 @@
  */
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
 
-type Locale = 'en' | 'es' | 'he';
+type Locale = 'en' | 'es' | 'he' | 'fr' | 'sv';
 
 const CASES: Record<Locale, {
   dir: 'ltr' | 'rtl';
@@ -44,6 +44,18 @@ const CASES: Record<Locale, {
     smokeHello: 'שלום',
     smokeCommonSave: 'שמירה',
     signInHeading: /התחברות|כניסה/,
+  },
+  fr: {
+    dir: 'ltr',
+    smokeHello: 'Bonjour',
+    smokeCommonSave: 'Enregistrer',
+    signInHeading: /Connexion|Se connecter/,
+  },
+  sv: {
+    dir: 'ltr',
+    smokeHello: 'Hej',
+    smokeCommonSave: 'Spara',
+    signInHeading: /Logga in/,
   },
 };
 

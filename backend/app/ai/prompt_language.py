@@ -15,6 +15,8 @@ _LOCALE_NAMES = {
     "en": "English",
     "es": "Spanish (Español)",
     "he": "Hebrew (עברית)",
+    "fr": "French (Français)",
+    "sv": "Swedish (Svenska)",
 }
 
 

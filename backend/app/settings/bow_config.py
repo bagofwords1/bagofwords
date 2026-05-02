@@ -37,7 +37,7 @@ class I18nConfig(BaseModel):
     `OrganizationSettingsConfig.locale`.
     """
     default_locale: str = "en"
-    enabled_locales: List[str] = ["en", "es", "he"]
+    enabled_locales: List[str] = ["en", "es", "he", "fr", "sv"]
     fallback_locale: str = "en"
 
     @validator("default_locale")
