@@ -115,7 +115,7 @@ const router = useRouter()
 const toast = useToast()
 const { t } = useI18n()
 const { isExcel } = useExcel()
-const { selectedDomainObjects } = useDomain()
+const { selectedAgentObjects } = useAgent()
 
 const tasks = ref<any[]>([])
 const isLoading = ref(true)
@@ -133,7 +133,7 @@ const openNewTask = async () => {
   if (creatingTask.value) return
   creatingTask.value = true
   try {
-    const dataSourceIds = selectedDomainObjects.value.map((ds: any) => ds.id)
+    const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
     const response = await useMyFetch('/reports', {
       method: 'POST',
       body: JSON.stringify({

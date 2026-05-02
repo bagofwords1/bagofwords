@@ -1,12 +1,12 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker with Domain Selector -->
+        <!-- Date Range Picker with Agent Selector -->
         <DateRangePicker
             :selected-period="selectedPeriod"
             :date-range="dateRange"
             @period-change="handlePeriodChange"
         >
-            <DomainSelector :collapsed="false" :show-text="true" :show-label="false" />
+            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
         </DateRangePicker>
 
         <!-- Metrics Cards -->
@@ -81,10 +81,10 @@ import TopUsersTable from '~/components/console/TopUsersTable.vue'
 import RecentInstructions from '~/components/console/RecentInstructions.vue'
 import RecentQueries from '~/components/console/RecentQueries.vue'
 import LlmUsageChart from '~/components/console/LlmUsageChart.vue'
-import DomainSelector from '~/components/DomainSelector.vue'
+import AgentSelector from '~/components/AgentSelector.vue'
 
-// Domain selection
-const { selectedDomains, initDomain } = useDomain()
+// Agent selection
+const { selectedAgents, initAgent } = useAgent()
 
 // Interfaces
 interface SimpleMetrics {
@@ -373,8 +373,8 @@ const buildQueryParams = () => {
     if (dateRange.value.end) {
         params.append('end_date', new Date(dateRange.value.end).toISOString())
     }
-    if (selectedDomains.value.length > 0) {
-        params.append('data_source_ids', selectedDomains.value.join(','))
+    if (selectedAgents.value.length > 0) {
+        params.append('data_source_ids', selectedAgents.value.join(','))
     }
     return params
 }
@@ -511,8 +511,8 @@ const refreshData = async () => {
 
 
 
-// Watch for domain selection changes
-watch(selectedDomains, () => {
+// Watch for agent selection changes
+watch(selectedAgents, () => {
     refreshData()
     // Also refresh metrics comparison
     fetchMetricsComparison()
@@ -537,8 +537,8 @@ const fetchMetricsComparison = async () => {
 
 onMounted(async () => {
     initializeDateRange()
-    // Initialize domains for the selector
-    await initDomain()
+    // Initialize agents for the selector
+    await initAgent()
     try {
         await fetchMetricsComparison()
 

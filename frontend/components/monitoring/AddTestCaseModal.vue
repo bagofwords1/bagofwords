@@ -325,8 +325,8 @@ import TestPromptBox from '~/components/monitoring/TestPromptBox.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 import CreateSuiteModal from '~/components/monitoring/CreateSuiteModal.vue'
 
-// Use domain selector for initial data source selection
-const { selectedDomainObjects } = useDomain()
+// Use agent selector for initial data source selection
+const { selectedAgentObjects } = useAgent()
 
 const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void; (e: 'created', payload: any): void }>()
@@ -812,10 +812,10 @@ const close = () => emit('update:modelValue', false)
 
 function resetFormForCreate() {
   promptText.value = ''
-  // Initialize data sources from domain selector (useDomain)
-  // If specific domains are selected, use those; otherwise use all domains
-  const domainSelection = selectedDomainObjects.value || []
-  testSelectedDataSources.value = domainSelection.map((d: any) => ({ id: d.id, name: d.name, type: d.type }))
+  // Initialize data sources from agent selector (useAgent)
+  // If specific agents are selected, use those; otherwise use all agents
+  const agentSelection = selectedAgentObjects.value || []
+  testSelectedDataSources.value = agentSelection.map((a: any) => ({ id: a.id, name: a.name, type: a.type }))
   testSelectedModelId.value = ''
   testUploadedFiles.value = []
   testMentions.value = []

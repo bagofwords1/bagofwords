@@ -9,9 +9,9 @@
             </div>
 
             <div v-else class="space-y-8">
-                <!-- Domain Name -->
+                <!-- Agent Name -->
                 <div class="space-y-2">
-                    <label class="block text-sm font-medium text-gray-800">Domain name</label>
+                    <label class="block text-sm font-medium text-gray-800">Agent name</label>
                     <div class="flex items-center gap-2">
                         <input
                             v-model="form.name"
@@ -37,7 +37,7 @@
                     <div class="flex items-center space-x-3">
                         <UToggle v-model="form.isPublic" @update:model-value="onTogglePublic" :disabled="!canManageDs" />
                         <span class="text-xs text-gray-500">
-                            Public access allows all organization members to use this domain.
+                            Public access allows all organization members to use this agent.
                         </span>
                     </div>
                 </div>
@@ -47,7 +47,7 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-sm font-medium text-gray-800">Members</h3>
-                            <p class="text-xs text-gray-500 mt-0.5">Users and groups with access to this domain</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Users and groups with access to this agent</p>
                         </div>
                         <button
                             v-if="canManageDsMembers"
@@ -165,10 +165,10 @@
                 <!-- Danger zone -->
                 <div v-if="canManageDs" class="max-w-md border border-red-200 p-4 rounded-lg bg-red-50/40">
                     <div class="text-sm font-medium text-red-700">Danger zone</div>
-                    <div class="text-xs text-gray-600 mt-1">Removing this domain will disconnect it from the data source. You can reconnect later.</div>
+                    <div class="text-xs text-gray-600 mt-1">Removing this agent will disconnect it from the data source. You can reconnect later.</div>
                     <div class="mt-3">
                         <button @click="showDelete = true" class="px-3 py-1.5 text-xs border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">
-                            Remove domain
+                            Remove agent
                         </button>
                     </div>
                 </div>
@@ -179,7 +179,7 @@
         <UModal v-model="showAddModal" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-4">
                 <div class="text-sm font-medium text-gray-900 mb-2">Add members</div>
-                <div class="text-xs text-gray-600 mb-3">Select users or groups to grant access to this domain.</div>
+                <div class="text-xs text-gray-600 mb-3">Select users or groups to grant access to this agent.</div>
 
                 <!-- Principal type toggle (only shown with enterprise) -->
                 <div v-if="addTabs.length > 1" class="flex gap-2 mb-3">
@@ -255,8 +255,8 @@
         <!-- Delete confirmation modal -->
         <UModal v-model="showDelete" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">Remove domain?</div>
-                <div class="text-xs text-gray-600 mt-2">This will remove the domain and disconnect it from the data source. You can reconnect later.</div>
+                <div class="text-sm font-medium text-gray-900">Remove agent?</div>
+                <div class="text-xs text-gray-600 mt-2">This will remove the agent and disconnect it from the data source. You can reconnect later.</div>
                 <div class="flex justify-end gap-2 mt-5">
                     <button @click="showDelete = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
                     <button @click="confirmDelete" :disabled="deleting" class="px-3 py-1.5 text-xs bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50">
@@ -635,7 +635,7 @@ async function confirmDelete() {
     const { error } = await useMyFetch(`/data_sources/${id}`, { method: 'DELETE' })
     deleting.value = false
     if (!error?.value) {
-        toast?.add?.({ title: 'Domain deleted' })
+        toast?.add?.({ title: 'Agent deleted' })
         showDelete.value = false
         router.push('/data')
     } else {

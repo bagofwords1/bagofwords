@@ -167,8 +167,8 @@ async def list_connections(
             last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
             organization_id=str(conn.organization_id),
             table_count=table_count,
-            domain_count=len(conn.data_sources) if conn.data_sources else 0,
-            domain_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
+            agent_count=len(conn.data_sources) if conn.data_sources else 0,
+            agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
         ))
     return result
@@ -208,7 +208,7 @@ async def create_connection(
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
         table_count=len(connection.connection_tables) if connection.connection_tables else 0,
-        domain_count=len(connection.data_sources) if connection.data_sources else 0,
+        agent_count=len(connection.data_sources) if connection.data_sources else 0,
         indexing=indexing_payload.model_dump() if indexing_payload else None,
     )
 
@@ -258,8 +258,8 @@ async def get_connection(
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
         table_count=len(connection.connection_tables) if connection.connection_tables else 0,
-        domain_count=len(connection.data_sources) if connection.data_sources else 0,
-        domain_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
+        agent_count=len(connection.data_sources) if connection.data_sources else 0,
+        agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=has_credentials,
     )
 
@@ -292,7 +292,7 @@ async def update_connection(
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
         table_count=len(connection.connection_tables) if connection.connection_tables else 0,
-        domain_count=len(connection.data_sources) if connection.data_sources else 0,
+        agent_count=len(connection.data_sources) if connection.data_sources else 0,
     )
 
 
@@ -304,7 +304,7 @@ async def delete_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Delete a connection. Fails if connection is linked to any domains."""
+    """Delete a connection. Fails if connection is linked to any agents."""
     return await connection_service.delete_connection(
         db=db,
         connection_id=connection_id,
@@ -414,25 +414,29 @@ async def refresh_connection_schema(
 @requires_permission('manage_connections')
 async def reindex_connection(
     connection_id: str,
+    force: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Kicks off a fresh background indexing job. Cancels any stuck pending/running
-    row first so this always starts a new run.
+    """Kick off a background indexing job.
+
+    Idempotent by default — returns the in-flight row if one exists.
+    Pass `?force=true` to cancel any stuck row and start fresh.
     """
     from datetime import datetime
     connection = await connection_service.get_connection(db, connection_id, organization)
-    existing = await indexing_service.get_active(db, connection_id)
-    if existing is not None:
-        existing.status = "cancelled"
-        existing.finished_at = datetime.utcnow()
-        existing.error = "Cancelled by user reindex request"
-        await db.commit()
+    if force:
+        existing = await indexing_service.get_active(db, connection_id)
+        if existing is not None:
+            existing.status = "cancelled"
+            existing.finished_at = datetime.utcnow()
+            existing.error = "Cancelled by user reindex request"
+            await db.commit()
     row = await indexing_service.start(db=db, connection=connection)
     progress = _indexing_to_progress(row)
     return {
-        "message": "Schema indexing started.",
+        "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",
         "indexing": progress.model_dump() if progress else None,
     }
 

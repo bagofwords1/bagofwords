@@ -517,7 +517,7 @@ def test_multiple_domains_same_connection(
     # Verify connection shows 2 domains
     connections = get_connections(user_token=user_token, org_id=org_id)
     our_conn = next(c for c in connections if c["id"] == connection["id"])
-    assert our_conn["domain_count"] == 2
+    assert our_conn["agent_count"] == 2
 
     # Cleanup
     delete_data_source(data_source_id=domain1["id"], user_token=user_token, org_id=org_id)

@@ -1152,10 +1152,10 @@
     "minutesAgo": "hace {n} min",
     "hoursAgo": "hace {n} h",
     "daysAgo": "hace {n} d",
-    "impactDomainsOne": "Esto afectará a {count} dominio",
-    "impactDomainsMany": "Esto afectará a {count} dominios",
+    "impactAgentsOne": "Esto afectará a {count} agente",
+    "impactAgentsMany": "Esto afectará a {count} agentes",
     "andMore": "y {n} más",
-    "tablesRemovedNote": "Se eliminarán de estos dominios todas las tablas de esta conexión."
+    "tablesRemovedNote": "Se eliminarán de estos agentes todas las tablas de esta conexión."
   },
   "share": {
     "shareDashboard": "Compartir panel",

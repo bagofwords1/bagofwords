@@ -686,13 +686,13 @@ function addExcelSelectionToPrompt() {
     excelSelectionDismissed.value = true
 }
 
-// Watch for changes in initialSelectedDataSources (from domain selector)
-// On landing page (no report_id): always sync with domain selector
+// Watch for changes in initialSelectedDataSources (from agent selector)
+// On landing page (no report_id): always sync with agent selector
 // On report page: only bootstrap once, then use report's data sources
 watch(() => props.initialSelectedDataSources, (newVal) => {
     if (!Array.isArray(newVal)) return
-    
-    // On landing page (no report_id), always sync with domain selector
+
+    // On landing page (no report_id), always sync with agent selector
     if (!props.report_id) {
         selectedDataSources.value = [...newVal]
         isHydratingDataSources.value = false

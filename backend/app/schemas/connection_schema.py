@@ -39,8 +39,8 @@ class ConnectionSchema(BaseModel):
     last_synced_at: Optional[str] = None
     organization_id: str
     table_count: int = 0
-    domain_count: int = 0
-    domain_names: List[str] = []  # Names of linked domains (for delete confirmation)
+    agent_count: int = 0
+    agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     indexing: Optional[Dict[str, Any]] = None
 
     class Config:
@@ -59,8 +59,8 @@ class ConnectionDetailSchema(BaseModel):
     last_synced_at: Optional[str] = None
     organization_id: str
     table_count: int = 0
-    domain_count: int = 0
-    domain_names: List[str] = []  # Names of linked domains (for delete confirmation)
+    agent_count: int = 0
+    agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
 
     class Config:

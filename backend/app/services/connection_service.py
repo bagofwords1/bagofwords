@@ -325,17 +325,17 @@ class ConnectionService:
         connection_name = connection.name
 
         # Log impact for audit
-        domain_count = len(connection.data_sources) if connection.data_sources else 0
-        deleted_domain_names = []
+        agent_count = len(connection.data_sources) if connection.data_sources else 0
+        deleted_agent_names = []
 
-        if domain_count > 0:
-            domain_names = [ds.name for ds in connection.data_sources]
-            logger.info(f"Deleting connection {connection.name} ({connection_id}) which is linked to {domain_count} domain(s): {domain_names}")
+        if agent_count > 0:
+            agent_names = [ds.name for ds in connection.data_sources]
+            logger.info(f"Deleting connection {connection.name} ({connection_id}) which is linked to {agent_count} agent(s): {agent_names}")
 
             # Delete data sources that only have this connection
             for ds in connection.data_sources:
                 if len(ds.connections) == 1:
-                    deleted_domain_names.append(ds.name)
+                    deleted_agent_names.append(ds.name)
                     logger.info(f"Deleting data source {ds.name} ({ds.id}) as it only has this connection")
                     await db.delete(ds)
 
@@ -351,15 +351,15 @@ class ConnectionService:
                 user_id=str(current_user.id),
                 resource_type="connection",
                 resource_id=str(connection_id),
-                details={"name": connection_name, "impacted_domains": domain_count, "deleted_domains": deleted_domain_names},
+                details={"name": connection_name, "impacted_agents": agent_count, "deleted_agents": deleted_agent_names},
             )
         except Exception:
             pass
 
         return {
             "message": "Connection deleted successfully",
-            "impacted_domains": domain_count,
-            "deleted_domains": deleted_domain_names,
+            "impacted_agents": agent_count,
+            "deleted_agents": deleted_agent_names,
         }
 
     async def test_connection_params(

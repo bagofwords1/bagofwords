@@ -275,7 +275,7 @@ def test_connection_list_with_counts(
     login_user,
     whoami,
 ):
-    """Test that connection list includes accurate table_count and domain_count."""
+    """Test that connection list includes accurate table_count and agent_count."""
     if not CONNECTION_TEST_DB_PATH.exists():
         pytest.skip(f"SQLite test database missing at {CONNECTION_TEST_DB_PATH}")
 
@@ -312,7 +312,7 @@ def test_connection_list_with_counts(
     connections = get_connections(user_token=user_token, org_id=org_id)
     our_conn = next(c for c in connections if c["id"] == connection["id"])
 
-    assert our_conn["domain_count"] == 1
+    assert our_conn["agent_count"] == 1
     # table_count should be > 0 (tables from the domain)
     assert our_conn["table_count"] >= 0  # May be 0 if tables not synced to domain yet
 

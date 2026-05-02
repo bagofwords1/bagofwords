@@ -343,7 +343,7 @@ def test_demo_creates_connection(
             break
 
     assert chinook_connection is not None, "Connection for Chinook demo should exist"
-    assert chinook_connection["domain_count"] >= 1
+    assert chinook_connection["agent_count"] >= 1
 
     # Verify domain has connection info in response
     domains = get_data_sources(user_token=user_token, org_id=org_id)

@@ -180,7 +180,7 @@ type EntityList = {
 const router = useRouter()
 const { t } = useI18n()
 const { data: authData } = useAuth()
-const { selectedDomains } = useDomain()
+const { selectedAgents } = useAgent()
 const items = ref<EntityList[]>([])
 const allItems = ref<EntityList[]>([])
 const loading = ref(true)
@@ -247,8 +247,8 @@ watch(filterType, () => {
   page.value = 1
 })
 
-// Reload when selected domains change
-watch(selectedDomains, () => {
+// Reload when selected agents change
+watch(selectedAgents, () => {
   page.value = 1
   loadEntities()
 })
@@ -258,15 +258,15 @@ onMounted(async () => { await loadEntities() })
 async function loadEntities() {
   loading.value = true
   try {
-    // Build query params with domain filter
+    // Build query params with agent filter
     const params: Record<string, string> = {}
-    if (selectedDomains.value.length > 0) {
-      params.data_source_ids = selectedDomains.value.join(',')
+    if (selectedAgents.value.length > 0) {
+      params.data_source_ids = selectedAgents.value.join(',')
     }
     const queryString = new URLSearchParams(params).toString()
     const url = queryString ? `/api/entities?${queryString}` : '/api/entities'
-    
-    // Fetch entities - backend will filter by data source access and selected domains
+
+    // Fetch entities - backend will filter by data source access and selected agents
     const { data, error } = await useMyFetch(url, { method: 'GET' })
     if (error.value) throw error.value
     allItems.value = data.value as any
