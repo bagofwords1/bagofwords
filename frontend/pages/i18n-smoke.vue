@@ -7,7 +7,7 @@
         <p class="text-sm text-gray-500 mb-2">locale: <code data-test="smoke-locale">{{ $i18n.locale }}</code></p>
         <div class="flex gap-2 justify-center" data-test="smoke-buttons">
           <button
-            v-for="code in ['en', 'es', 'he', 'fr', 'sv']"
+            v-for="code in ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it']"
             :key="code"
             class="px-3 py-1 rounded border border-gray-300 hover:bg-gray-100"
             :class="{ 'bg-blue-500 text-white border-blue-500': $i18n.locale === code }"

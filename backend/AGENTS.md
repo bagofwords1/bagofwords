@@ -60,7 +60,7 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
 ### Locale / i18n
 
 - **Config**: `settings/bow_config.py` defines `I18nConfig` with
-  `default_locale`, `enabled_locales` (defaults to `["en", "es", "he", "fr", "sv"]`),
+  `default_locale`, `enabled_locales` (defaults to `["en", "es", "he", "fr", "sv", "ar", "ru", "de", "pt", "it"]`),
   and `fallback_locale`. Accessible as `settings.bow_config.i18n.*`.
 - **Org override**: stored on `OrganizationSettings.config["locale"]` as a
   plain string (nullable = "no override"). Set via the `update_locale`
