@@ -1149,10 +1149,10 @@
     "minutesAgo": "{n}m ago",
     "hoursAgo": "{n}h ago",
     "daysAgo": "{n}d ago",
-    "impactDomainsOne": "This will impact {count} domain",
-    "impactDomainsMany": "This will impact {count} domains",
+    "impactAgentsOne": "This will impact {count} agent",
+    "impactAgentsMany": "This will impact {count} agents",
     "andMore": "and {n} more",
-    "tablesRemovedNote": "All tables from this connection will be removed from these domains."
+    "tablesRemovedNote": "All tables from this connection will be removed from these agents."
   },
   "share": {
     "shareDashboard": "Share Dashboard",

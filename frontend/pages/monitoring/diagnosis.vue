@@ -1,12 +1,12 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker with Domain Selector -->
+        <!-- Date Range Picker with Agent Selector -->
         <DateRangePicker
             :selected-period="selectedPeriod"
             :date-range="dateRange"
             @period-change="handlePeriodChange"
         >
-            <DomainSelector :collapsed="false" :show-text="true" :show-label="false" />
+            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
         </DateRangePicker>
 
         <!-- Summary Cards (matching MetricsCards.vue style) -->
@@ -250,9 +250,9 @@
 <script setup lang="ts">
 import DateRangePicker from '~/components/console/DateRangePicker.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
-import DomainSelector from '~/components/DomainSelector.vue'
+import AgentSelector from '~/components/AgentSelector.vue'
 const { isJudgeEnabled } = useOrgSettings()
-const { selectedDomains, initDomain } = useDomain()
+const { selectedAgents, initAgent } = useAgent()
 const { t } = useI18n()
 
 definePageMeta({
@@ -427,8 +427,8 @@ const fetchDiagnosisData = async () => {
         }
 
         // Add data source filter
-        if (selectedDomains.value.length > 0) {
-            params.append('data_source_ids', selectedDomains.value.join(','))
+        if (selectedAgents.value.length > 0) {
+            params.append('data_source_ids', selectedAgents.value.join(','))
         }
 
         debugInfo.value = `Fetching with params: ${params.toString()}`
@@ -509,8 +509,8 @@ const fetchOverallMetrics = async () => {
         }
 
         // Add data source filter
-        if (selectedDomains.value.length > 0) {
-            params.append('data_source_ids', selectedDomains.value.join(','))
+        if (selectedAgents.value.length > 0) {
+            params.append('data_source_ids', selectedAgents.value.join(','))
         }
 
         // Fetch dashboard metrics and judge response
@@ -606,8 +606,8 @@ watch(currentPage, () => {
     fetchDiagnosisData()
 })
 
-// Watch for domain selection changes
-watch(selectedDomains, () => {
+// Watch for agent selection changes
+watch(selectedAgents, () => {
     currentPage.value = 1
     Promise.all([
         fetchOverallMetrics(),
@@ -618,8 +618,8 @@ watch(selectedDomains, () => {
 // Initialize
 onMounted(async () => {
     initializeDateRange()
-    // Initialize domains for the selector
-    await initDomain()
+    // Initialize agents for the selector
+    await initAgent()
     // Fetch dashboard metrics and diagnosis data on initial load
     await Promise.all([
         fetchOverallMetrics(),

@@ -5,7 +5,7 @@ import type { Instruction } from './useInstructionHelpers'
 
 export interface UseInstructionsOptions {
   dataSourceId?: string | Ref<string | undefined>
-  dataSourceIds?: string[] | Ref<string[] | undefined>  // Support multiple domain IDs
+  dataSourceIds?: string[] | Ref<string[] | undefined>  // Support multiple agent IDs
   autoFetch?: boolean
   pageSize?: number
   persistFiltersInUrl?: boolean
@@ -20,7 +20,7 @@ export interface InstructionFilters {
   loadModes: string[]
   labelIds: string[]
   dataSourceId: string | null  // Single ID (deprecated, for backward compat)
-  dataSourceIds: string[]  // Multiple domain IDs
+  dataSourceIds: string[]  // Multiple agent IDs
   buildId: string | null
 }
 
@@ -164,7 +164,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
         include_archived: filters.status === 'archived'
       }
 
-      // Add filters - use comma-separated IDs for domain filtering
+      // Add filters - use comma-separated IDs for agent filtering
       if (resolvedDataSourceIds.value.length > 0) queryParams.data_source_ids = resolvedDataSourceIds.value.join(',')
       if (filters.status) queryParams.status = filters.status
       if (filters.categories.length) queryParams.categories = filters.categories.join(',')
@@ -439,7 +439,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     }
   }
 
-  // Watch for dataSourceIds changes (supports multi-select domain filtering)
+  // Watch for dataSourceIds changes (supports multi-select agent filtering)
   watch(resolvedDataSourceIds, () => {
     currentPage.value = 1
     fetchInstructions()

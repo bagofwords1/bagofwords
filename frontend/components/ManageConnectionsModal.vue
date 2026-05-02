@@ -37,7 +37,7 @@
                 <div>
                   <div class="font-medium text-gray-900">{{ conn.name }}</div>
                   <div class="text-xs text-gray-500">
-                    {{ conn.type }} · {{ conn.domain_count }} domain{{ conn.domain_count !== 1 ? 's' : '' }} · {{ conn.table_count }} table{{ conn.table_count !== 1 ? 's' : '' }}
+                    {{ conn.type }} · {{ conn.agent_count }} agent{{ conn.agent_count !== 1 ? 's' : '' }} · {{ conn.table_count }} table{{ conn.table_count !== 1 ? 's' : '' }}
                   </div>
                 </div>
               </div>

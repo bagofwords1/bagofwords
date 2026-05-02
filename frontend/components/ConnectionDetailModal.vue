@@ -35,7 +35,7 @@
         <!-- Data Agents -->
         <div class="flex items-center justify-between">
           <span class="text-xs text-gray-500">{{ $t('data.agentsLabel') }}</span>
-          <span class="text-xs text-gray-700">{{ domainCount }}</span>
+          <span class="text-xs text-gray-700">{{ agentCount }}</span>
         </div>
 
         <!-- Last Checked -->
@@ -119,14 +119,14 @@
 
         <!-- Confirm delete -->
         <div v-else class="space-y-3">
-          <!-- Warning for impacted domains -->
-          <div v-if="domainCount > 0" class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <!-- Warning for impacted agents -->
+          <div v-if="agentCount > 0" class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
             <div class="flex items-start gap-2">
               <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
               <div class="text-xs">
-                <p class="font-medium text-amber-800">{{ domainCount === 1 ? $t('data.impactDomainsOne', { count: domainCount }) : $t('data.impactDomainsMany', { count: domainCount }) }}</p>
+                <p class="font-medium text-amber-800">{{ agentCount === 1 ? $t('data.impactAgentsOne', { count: agentCount }) : $t('data.impactAgentsMany', { count: agentCount }) }}</p>
                 <p class="text-amber-700 mt-1">
-                  {{ domainNames.slice(0, 3).join(', ') }}{{ domainNames.length > 3 ? ' ' + $t('data.andMore', { n: domainNames.length - 3 }) : '' }}
+                  {{ agentNames.slice(0, 3).join(', ') }}{{ agentNames.length > 3 ? ' ' + $t('data.andMore', { n: agentNames.length - 3 }) : '' }}
                 </p>
                 <p class="text-amber-600 mt-1">{{ $t('data.tablesRemovedNote') }}</p>
               </div>
@@ -260,8 +260,8 @@ const isConnected = computed(() => {
 })
 
 const tableCount = computed(() => props.connection?.table_count || 0)
-const domainCount = computed(() => props.connection?.domain_count || 0)
-const domainNames = computed(() => props.connection?.domain_names || [])
+const agentCount = computed(() => props.connection?.agent_count || 0)
+const agentNames = computed(() => props.connection?.agent_names || [])
 
 const lastCheckedDisplay = computed(() => {
   const lastChecked = props.connection?.last_checked_at || props.connection?.user_status?.last_checked_at

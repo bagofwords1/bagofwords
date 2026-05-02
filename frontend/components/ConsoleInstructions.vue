@@ -61,7 +61,7 @@
                 :label-ids="labelFilter"
                 :labels="allLabels"
                 :data-sources="allDataSources"
-                :hide-domain-filter="true"
+                :hide-agent-filter="true"
                 @update:search="inst.debouncedSearch"
                 @update:source-types="v => inst.setFilter('sourceTypes', v)"
                 @update:status="v => inst.setFilter('status', v)"
@@ -202,7 +202,7 @@ import GitConnectionButton from '~/components/instructions/GitConnectionButton.v
 import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useInstructions } from '~/composables/useInstructions'
-import { useDomain } from '~/composables/useDomain'
+import { useAgent } from '~/composables/useAgent'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 
 // Props
@@ -212,19 +212,19 @@ withDefaults(defineProps<{
     showHeader: false
 })
 
-// Domain filtering
-const { selectedDomains } = useDomain()
+// Agent filtering
+const { selectedAgents } = useAgent()
 const { t } = useI18n()
 
 // Wrapper for fetchBuilds to avoid hoisting issues
 const refreshBuilds = () => fetchBuilds()
 
-// Instructions composable with URL persistence and domain filtering
+// Instructions composable with URL persistence and agent filtering
 const inst = useInstructions({
     autoFetch: true,
     pageSize: 25,
     persistFiltersInUrl: true,
-    dataSourceIds: selectedDomains,  // Pass selected domains for filtering
+    dataSourceIds: selectedAgents,  // Pass selected agents for filtering
     onBulkSuccess: refreshBuilds  // Refresh builds list after bulk updates
 })
 
@@ -266,16 +266,16 @@ const loadingBuilds = ref(false)
 
 // Computed
 // Create requires manage_instructions on EVERY selected data source.
-// If no domains are selected ("All"), require it on every available domain.
+// If no agents are selected ("All"), require it on every available agent.
 // Falls back to org-level via useCan's implication tier.
-const { domains: allDomains } = useDomain()
+const { agents: allAgents } = useAgent()
 const canCreate = computed(() => {
     // Org-wide manage short-circuits everything
     if (useCan('manage_instructions')) return true
 
-    const targetIds = (selectedDomains.value && selectedDomains.value.length > 0)
-        ? selectedDomains.value
-        : (allDomains.value || []).map(d => d.id)
+    const targetIds = (selectedAgents.value && selectedAgents.value.length > 0)
+        ? selectedAgents.value
+        : (allAgents.value || []).map(a => a.id)
 
     if (targetIds.length === 0) return false
     return targetIds.every(id => useCan('manage_instructions', { type: 'data_source', id }))

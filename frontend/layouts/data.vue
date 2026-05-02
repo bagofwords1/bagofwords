@@ -6,7 +6,7 @@
                     <div class="flex items-start justify-between">
                         <div>
                             <h1 class="text-lg font-semibold">
-                                {{ fetchError ? 'Data Source' : (integration?.name || 'Domain') }}
+                                {{ fetchError ? 'Data Source' : (integration?.name || 'Agent') }}
                             </h1>
                             <div v-if="!isLoading && integration && !fetchError" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
                                 <template v-if="integration.connections && integration.connections.length > 0">

@@ -192,8 +192,8 @@
                         </USelectMenu>
                     </div>
 
-                    <!-- Data Source filter (hidden when domain filter is used globally) -->
-                    <div v-if="dataSources.length > 0 && !hideDomainFilter">
+                    <!-- Data Source filter (hidden when agent filter is used globally) -->
+                    <div v-if="dataSources.length > 0 && !hideAgentFilter">
                         <label class="block text-xs font-medium text-gray-700 mb-2">Data Source</label>
                         <USelectMenu
                             :model-value="dataSourceId"
@@ -293,10 +293,10 @@ const props = withDefaults(defineProps<{
     labels?: Label[]
     dataSources?: DataSource[]
     compact?: boolean
-    hideDomainFilter?: boolean
+    hideAgentFilter?: boolean
 }>(), {
     compact: false,
-    hideDomainFilter: false,
+    hideAgentFilter: false,
     labels: () => [],
     dataSources: () => [],
     labelIds: () => [],
@@ -407,7 +407,7 @@ const selectedStatus = computed(() => statusOptions.find(o => o.value === props.
 const selectedDataSource = computed(() => dataSourceOptions.value.find(o => o.value === props.dataSourceId) || dataSourceOptions.value[0])
 
 const hasAdvancedFilters = computed(() => {
-    const hasDataSourceFilter = !props.hideDomainFilter && (props.dataSourceId || props.dataSourceIds?.length > 0)
+    const hasDataSourceFilter = !props.hideAgentFilter && (props.dataSourceId || props.dataSourceIds?.length > 0)
     return props.categories.length > 0 || props.loadModes.length > 0 || hasDataSourceFilter
 })
 
@@ -415,7 +415,7 @@ const advancedFilterCount = computed(() => {
     let count = 0
     if (props.categories.length > 0) count++
     if (props.loadModes.length > 0) count++
-    if (!props.hideDomainFilter && (props.dataSourceId || props.dataSourceIds?.length > 0)) count++
+    if (!props.hideAgentFilter && (props.dataSourceId || props.dataSourceIds?.length > 0)) count++
     return count
 })
 
@@ -426,7 +426,7 @@ const hasActiveFilters = computed(() => {
 const clearAdvancedFilters = () => {
     emit('update:categories', [])
     emit('update:loadModes', [])
-    if (!props.hideDomainFilter) {
+    if (!props.hideAgentFilter) {
         emit('update:dataSourceId', null)
         emit('update:dataSourceIds', [])
     }

@@ -404,7 +404,7 @@ const { t } = useI18n()
 const { data: currentUser } = useAuth()
 const toast = useToast()
 const router = useRouter()
-const { selectedDomainObjects } = useDomain()
+const { selectedAgentObjects } = useAgent()
 
 definePageMeta({ auth: true })
 
@@ -748,7 +748,7 @@ const createNewReport = async () => {
     if (creatingReport.value) return
     creatingReport.value = true
     try {
-        const dataSourceIds = selectedDomainObjects.value.map((ds: any) => ds.id)
+        const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
 
         const response: any = await useMyFetch('/reports', {
             method: 'POST',

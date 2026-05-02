@@ -1149,8 +1149,8 @@
     "minutesAgo": "לפני {n} דק׳",
     "hoursAgo": "לפני {n} שע׳",
     "daysAgo": "לפני {n} ימים",
-    "impactDomainsOne": "פעולה זו תשפיע על סוכן נתונים אחד",
-    "impactDomainsMany": "פעולה זו תשפיע על {count} סוכני נתונים",
+    "impactAgentsOne": "פעולה זו תשפיע על סוכן נתונים אחד",
+    "impactAgentsMany": "פעולה זו תשפיע על {count} סוכני נתונים",
     "andMore": "ו-{n} נוספים",
     "tablesRemovedNote": "כל הטבלאות מחיבור זה יוסרו מסוכני הנתונים האלה."
   },

@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
   current: 'connect' | 'schema' | 'context', 
   dsId?: string,
   // mode is kept for backward compatibility, but the wizard now routes through /data/new for all creation flows.
-  mode?: 'connection' | 'domain'
+  mode?: 'connection' | 'agent'
 }>(), {
   mode: 'connection'
 })

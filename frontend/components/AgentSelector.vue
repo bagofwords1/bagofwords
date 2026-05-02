@@ -1,8 +1,8 @@
 <template>
-  <div class="domain-selector">
-    <!-- Loading / empty placeholder — reserves layout space while domains load -->
+  <div class="agent-selector">
+    <!-- Loading / empty placeholder — reserves layout space while agents load -->
     <div
-      v-if="loading || (!loading && domains.length === 0)"
+      v-if="loading || (!loading && agents.length === 0)"
       :class="[
         'flex items-center w-full rounded-lg',
         'bg-white border border-gray-200 shadow-sm',
@@ -43,7 +43,7 @@
           collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
         ]"
       >
-        <UTooltip v-if="collapsed" :text="currentDomainName" :popper="{ placement: 'right' }">
+        <UTooltip v-if="collapsed" :text="currentAgentName" :popper="{ placement: 'right' }">
           <span class="flex items-center justify-center w-5 h-5">
             <Spinner v-if="loading" class="w-4 h-4 text-gray-400 animate-spin" />
             <UIcon v-else name="heroicons-chevron-down" class="w-4 h-4 text-gray-500" />
@@ -55,7 +55,7 @@
             <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
               <Spinner v-if="loading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
               <span class="text-xs font-medium text-gray-700 truncate">
-                {{ currentDomainName }}
+                {{ currentAgentName }}
               </span>
             </span>
           </span>
@@ -65,7 +65,7 @@
 
       <template #panel>
         <div class="overflow-visible">
-          <!-- Domain list - compact -->
+          <!-- Agent list - compact -->
           <div class="w-44 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden flex-shrink-0">
             <div class="p-1">
               <!-- Loading state inside panel -->
@@ -74,38 +74,38 @@
               </div>
 
               <template v-else>
-                <!-- All Domains option -->
-                <button 
-                  @click="toggleDomain(null)"
-                  @mouseenter="hoveredDomainId = null"
-                  @mouseleave="onDomainHoverLeave()"
+                <!-- All Agents option -->
+                <button
+                  @click="toggleAgent(null)"
+                  @mouseenter="hoveredAgentId = null"
+                  @mouseleave="onAgentHoverLeave()"
                   :class="[
                     'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start transition-colors',
-                    isAllDomains ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
+                    isAllAgents ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
                   ]"
                 >
                   <span class="text-xs font-medium">{{ $t('nav.allAgents') }}</span>
-                  <UIcon v-if="isAllDomains" name="heroicons-check" class="w-3 h-3 ms-auto text-indigo-600" />
+                  <UIcon v-if="isAllAgents" name="heroicons-check" class="w-3 h-3 ms-auto text-indigo-600" />
                 </button>
 
                 <!-- Divider -->
                 <div class="my-1 border-t border-gray-100" />
 
-                <!-- Domain list -->
+                <!-- Agent list -->
                 <div class="max-h-48 overflow-y-auto">
-                  <button 
-                    v-for="d in domains" 
-                    :key="d.id"
-                    @click="toggleDomain(d.id)"
-                    @mouseenter="onDomainHover(d.id, $event)"
-                    @mouseleave="onDomainHoverLeave()"
+                  <button
+                    v-for="a in agents"
+                    :key="a.id"
+                    @click="toggleAgent(a.id)"
+                    @mouseenter="onAgentHover(a.id, $event)"
+                    @mouseleave="onAgentHoverLeave()"
                     :class="[
                       'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start transition-colors',
-                      isDomainSelected(d.id) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
+                      isAgentSelected(a.id) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
                     ]"
                   >
-                    <span class="text-xs font-medium truncate flex-1">{{ d.name }}</span>
-                    <UIcon v-if="isDomainSelected(d.id)" name="heroicons-check" class="w-3 h-3 text-indigo-600 flex-shrink-0" />
+                    <span class="text-xs font-medium truncate flex-1">{{ a.name }}</span>
+                    <UIcon v-if="isAgentSelected(a.id)" name="heroicons-check" class="w-3 h-3 text-indigo-600 flex-shrink-0" />
                   </button>
                 </div>
 
@@ -113,7 +113,7 @@
                 <div class="my-1 border-t border-gray-100" />
 
                 <!-- Manage link -->
-                <a 
+                <a
                   href="/data"
                   class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                 >
@@ -129,7 +129,7 @@
 
     <!-- Agent flyout component -->
     <AgentFlyout
-      :agent-id="hoveredDomainId"
+      :agent-id="hoveredAgentId"
       :visible="flyout.visible"
       :position="flyout"
       @mouseenter="onFlyoutEnter"
@@ -152,18 +152,18 @@ const props = withDefaults(defineProps<{
   showLabel: true
 })
 
-// Domain management
+// Agent management
 const {
-  domains,
+  agents,
   loading,
-  isAllDomains,
-  currentDomainName,
-  toggleDomain,
-  isDomainSelected
-} = useDomain()
+  isAllAgents,
+  currentAgentName,
+  toggleAgent,
+  isAgentSelected
+} = useAgent()
 
-// Domain hover preview
-const hoveredDomainId = ref<string | null>(null)
+// Agent hover preview
+const hoveredAgentId = ref<string | null>(null)
 const flyout = reactive({ visible: false, top: 0, left: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -182,21 +182,21 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
   flyout.visible = true
 }
 
-const onDomainHover = (domainId: string, evt: MouseEvent) => {
+const onAgentHover = (agentId: string, evt: MouseEvent) => {
   if (flyoutHideTimer) {
     clearTimeout(flyoutHideTimer)
     flyoutHideTimer = null
   }
   if (typeof window !== 'undefined') showFlyoutAtEvent(evt)
-  hoveredDomainId.value = domainId
+  hoveredAgentId.value = agentId
 }
 
-const onDomainHoverLeave = () => {
+const onAgentHoverLeave = () => {
   // Give the user time to move cursor from list → flyout
   if (flyoutHideTimer) clearTimeout(flyoutHideTimer)
   flyoutHideTimer = setTimeout(() => {
     flyout.visible = false
-    hoveredDomainId.value = null
+    hoveredAgentId.value = null
   }, 120)
 }
 
@@ -209,7 +209,7 @@ const onFlyoutEnter = () => {
 }
 
 const onFlyoutLeave = () => {
-  onDomainHoverLeave()
+  onAgentHoverLeave()
 }
 </script>
 

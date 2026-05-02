@@ -195,14 +195,14 @@ import { useCan } from '~/composables/usePermissions'
 import { KeyCode } from 'monaco-editor';
 const router = useRouter()
 const { onboarding, fetchOnboarding } = useOnboarding()
-const { selectedDomainObjects } = useDomain()
+const { selectedAgentObjects } = useAgent()
 const previous_reports = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)
 const hasLoadedModels = ref(false)
 
-// Use selected domains from DomainSelector as the data sources
-const selectedDataSources = computed(() => selectedDomainObjects.value)
+// Use selected agents from AgentSelector as the data sources
+const selectedDataSources = computed(() => selectedAgentObjects.value)
 
 const getModels = async () => {
   try {
@@ -353,7 +353,7 @@ onMounted(async () => {
     }
     
     // Only proceed with API calls if organization is available
-    // Note: domains are already loaded by the layout via initDomain()
+    // Note: agents are already loaded by the layout via initAgent()
     if (organization.value?.id) {
       await Promise.allSettled([
         withTimeout(getModels(), 6000, 'getModels'),

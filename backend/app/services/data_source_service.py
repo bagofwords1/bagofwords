@@ -3086,8 +3086,8 @@ class DataSourceService:
         )
         data_source = data_source.scalar_one_or_none()
         if not data_source:
-            raise HTTPException(status_code=404, detail="Domain not found")
-        
+            raise HTTPException(status_code=404, detail="Agent not found")
+
         # Verify connection exists
         connection = await db.execute(
             select(Connection).filter(
@@ -3107,7 +3107,7 @@ class DataSourceService:
             )
         )
         if existing.first():
-            raise HTTPException(status_code=400, detail="Connection already linked to this domain")
+            raise HTTPException(status_code=400, detail="Connection already linked to this agent")
         
         # Create link
         await db.execute(
@@ -3125,7 +3125,7 @@ class DataSourceService:
                 max_auto_select=None  # User must manually select tables
             )
         
-        return {"message": "Connection added to domain"}
+        return {"message": "Connection added to agent"}
 
     async def remove_connection_from_domain(
         self,
@@ -3136,7 +3136,7 @@ class DataSourceService:
         current_user: User,
     ):
         """
-        Remove a connection from a domain.
+        Remove a connection from an agent.
         """
         from app.models.domain_connection import domain_connection
         
@@ -3149,11 +3149,11 @@ class DataSourceService:
         )
         data_source = data_source.scalar_one_or_none()
         if not data_source:
-            raise HTTPException(status_code=404, detail="Domain not found")
-        
+            raise HTTPException(status_code=404, detail="Agent not found")
+
         # Check if this is the last connection
         if len(data_source.connections) <= 1:
-            raise HTTPException(status_code=400, detail="Cannot remove the last connection from a domain")
+            raise HTTPException(status_code=400, detail="Cannot remove the last connection from an agent")
         
         # Remove link
         await db.execute(
@@ -3175,7 +3175,7 @@ class DataSourceService:
         )
         
         await db.commit()
-        return {"message": "Connection removed from domain"}
+        return {"message": "Connection removed from agent"}
 
     async def sync_domain_tables_from_connection(
         self,
@@ -3297,7 +3297,7 @@ class DataSourceService:
         data_source_id: str,
         organization: Organization,
     ):
-        """Get all connections linked to a domain."""
+        """Get all connections linked to an agent."""
         data_source = await db.execute(
             select(DataSource)
             .options(selectinload(DataSource.connections))
@@ -3308,7 +3308,7 @@ class DataSourceService:
         )
         data_source = data_source.scalar_one_or_none()
         if not data_source:
-            raise HTTPException(status_code=404, detail="Domain not found")
-        
+            raise HTTPException(status_code=404, detail="Agent not found")
+
         return data_source.connections
 

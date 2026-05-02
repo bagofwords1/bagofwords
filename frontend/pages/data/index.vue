@@ -9,7 +9,7 @@
 
             <div v-else>
                 <!-- Data Agents Section - show if there are data agents or connections -->
-                <div v-if="allDomains.length > 0 || connections.length > 0" class="mb-6">
+                <div v-if="allAgents.length > 0 || connections.length > 0" class="mb-6">
                     <div>
                         <h1 class="text-lg font-semibold">
                             <GoBackChevron v-if="isExcel" />
@@ -51,7 +51,7 @@
                     </div>
 
                     <!-- Sample databases -->
-                    <div v-if="uninstalledDemos.length > 0 && allDomains.length === 0" class="mb-4">
+                    <div v-if="uninstalledDemos.length > 0 && allAgents.length === 0" class="mb-4">
                         <div class="text-xs text-gray-400 mb-2">{{ $t('data.trySample') }}</div>
                         <div class="flex flex-wrap gap-2">
                             <button
@@ -70,9 +70,9 @@
                     </div>
 
                     <!-- Data Agents grid -->
-                    <div v-if="filteredDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div v-if="filteredAgents.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         <div
-                            v-for="ds in filteredDomains"
+                            v-for="ds in filteredAgents"
                             :key="ds.id"
                             class="block p-4 rounded-lg border border-gray-100 bg-white transition-all group"
                             :class="userHasAccess(ds) ? 'hover:border-gray-200 hover:shadow-md' : 'opacity-75'"
@@ -221,20 +221,20 @@ const searchQuery = ref('')
 
 const loading = computed(() => loadingConnected.value || loadingDemos.value || loadingConnections.value)
 
-// All domains
-const allDomains = computed(() => connected_ds.value || [])
+// All agents
+const allAgents = computed(() => connected_ds.value || [])
 
 // Uninstalled demo data sources
 const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
 
-// Filtered domains based on search query
-const filteredDomains = computed(() => {
+// Filtered agents based on search query
+const filteredAgents = computed(() => {
     if (!searchQuery.value.trim()) {
-        return allDomains.value
+        return allAgents.value
     }
 
     const query = searchQuery.value.toLowerCase().trim()
-    return allDomains.value.filter(ds =>
+    return allAgents.value.filter(ds =>
         ds.name?.toLowerCase().includes(query) ||
         ds.description?.toLowerCase().includes(query)
     )
@@ -249,7 +249,7 @@ function getTableCount(ds: any): number {
     return ds.tables?.length || 0
 }
 
-// Check if domain requires user auth (any connection)
+// Check if agent requires user auth (any connection)
 function requiresUserAuth(ds: any): boolean {
     const connections = ds.connections || []
     return ds.auth_policy === 'user_required' ||
@@ -281,13 +281,13 @@ function userHasAccess(ds: any): boolean {
     return ds.user_status?.has_user_credentials === true || ds.user_status?.effective_auth === 'system'
 }
 
-// Open credentials modal for a domain
+// Open credentials modal for an agent
 function openCredentialsModal(ds: any) {
     selectedDs.value = ds
     showCredsModal.value = true
 }
 
-// Check if connection is healthy - uses domain data to derive status
+// Check if connection is healthy - uses agent data to derive status
 function isConnectionHealthy(conn: any): boolean {
     // Check connection's own status fields
     if (conn.last_status === 'success' || conn.status === 'success') return true
@@ -298,13 +298,13 @@ function isConnectionHealthy(conn: any): boolean {
     if (userStatus === 'success') return true
     if (userStatus === 'error' || userStatus === 'offline') return false
     
-    // Fallback: check if any domain using this connection is connected
-    const domainsUsingConn = connected_ds.value.filter(ds => 
+    // Fallback: check if any agent using this connection is connected
+    const agentsUsingConn = connected_ds.value.filter(ds =>
         ds.connection?.id === conn.id || ds.connection_id === conn.id
     )
-    if (domainsUsingConn.length > 0) {
-        // If we have domains, check their connection status
-        const anyConnected = domainsUsingConn.some(ds => {
+    if (agentsUsingConn.length > 0) {
+        // If we have agents, check their connection status
+        const anyConnected = agentsUsingConn.some(ds => {
             const status = ds.user_status?.connection || ds.connection?.user_status?.connection
             return status === 'success'
         })

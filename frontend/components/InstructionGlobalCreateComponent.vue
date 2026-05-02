@@ -723,7 +723,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
-import { useDomain } from '~/composables/useDomain'
+import { useAgent } from '~/composables/useAgent'
 
 const { t } = useI18n()
 
@@ -778,7 +778,7 @@ const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'updat
 
 // Reactive state
 const toast = useToast()
-const { selectedDomains: domainSelectedDomains, isAllDomains: isDomainAllSelected } = useDomain()
+const { selectedAgents: agentSelectedIds, isAllAgents: isAgentAllSelected } = useAgent()
 const isSubmitting = ref(false)
 const isDeleting = ref(false)
 const isEnhancing = ref(false)
@@ -1174,21 +1174,21 @@ const isEditing = computed(() => !!props.instruction)
 // Permission-derived mode: users without manage_instructions on every targeted
 // data source propose edits, which flow through the build system and land as
 // pending_approval for admin review.
-const { selectedDomains: editorSelectedDomains, domains: editorAllDomains } = useDomain()
+const { selectedAgents: editorSelectedAgents, agents: editorAllAgents } = useAgent()
 const editorTargetDsIds = computed<string[]>(() => {
     // Prefer the instruction's own data sources when editing
     const instDs = (props.instruction as any)?.data_sources
     if (Array.isArray(instDs) && instDs.length > 0) {
         return instDs.map((d: any) => d.id).filter(Boolean)
     }
-    // Otherwise use the form's selected data sources, then domain selection, then all
+    // Otherwise use the form's selected data sources, then agent selection, then all
     if (selectedDataSources.value && selectedDataSources.value.length > 0) {
         return [...selectedDataSources.value]
     }
-    if (editorSelectedDomains.value && editorSelectedDomains.value.length > 0) {
-        return [...editorSelectedDomains.value]
+    if (editorSelectedAgents.value && editorSelectedAgents.value.length > 0) {
+        return [...editorSelectedAgents.value]
     }
-    return (editorAllDomains.value || []).map((d: any) => d.id)
+    return (editorAllAgents.value || []).map((a: any) => a.id)
 })
 const canEditInstructions = computed(() => {
     if (useCan('manage_instructions')) return true
@@ -1618,9 +1618,9 @@ const resetForm = () => {
         can_user_toggle: true,
         load_mode: 'always'
     }
-    // Use domain selection as initial scope for new instructions
-    if (!isDomainAllSelected.value && domainSelectedDomains.value.length > 0) {
-        selectedDataSources.value = [...domainSelectedDomains.value]
+    // Use agent selection as initial scope for new instructions
+    if (!isAgentAllSelected.value && agentSelectedIds.value.length > 0) {
+        selectedDataSources.value = [...agentSelectedIds.value]
     } else {
         selectedDataSources.value = []
     }
