@@ -166,6 +166,8 @@ class FileService:
         return files
 
     async def get_files_by_report(self, db: AsyncSession, report_id: str, organization: Organization):
+        from app.models.report_data_source_association import report_data_source_association
+
         stmt = select(Report).filter(Report.id == report_id)
         result = await db.execute(stmt)
         report = result.scalar_one_or_none()
@@ -181,11 +183,27 @@ class FileService:
         result = await db.execute(stmt)
         rows = result.all()
 
-        # Build response with completion_id included
+        # File ids inherited from any of the report's data sources. We
+        # treat any overlap as inherited — collisions with user-uploaded
+        # files are vanishingly unlikely in practice.
+        inherited_stmt = (
+            select(data_source_file_association.c.file_id)
+            .join(
+                report_data_source_association,
+                data_source_file_association.c.data_source_id ==
+                report_data_source_association.c.data_source_id,
+            )
+            .where(report_data_source_association.c.report_id == report_id)
+        )
+        inherited_res = await db.execute(inherited_stmt)
+        inherited_ids = {str(r[0]) for r in inherited_res.all()}
+
+        # Build response with completion_id and inheritance flag included
         files_with_completion = []
         for file, completion_id in rows:
             file_dict = FileSchema.from_orm(file).dict()
             file_dict['completion_id'] = str(completion_id) if completion_id else None
+            file_dict['from_data_source'] = str(file.id) in inherited_ids
             files_with_completion.append(FileSchemaWithCompletionId(**file_dict))
 
         return files_with_completion

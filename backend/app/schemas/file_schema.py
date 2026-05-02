@@ -23,6 +23,10 @@ class FileSchema(FileBase):
 class FileSchemaWithCompletionId(FileSchema):
     """File schema that includes completion_id from the report_file_association."""
     completion_id: str | None = None
+    # True when the file is attached to the report only because it was
+    # auto-snapshotted from one of the report's data sources. The chat
+    # prompt box uses this to hide inherited files from per-turn chips.
+    from_data_source: bool = False
 
 
 class FileSchemaWithMetadata(FileSchema):

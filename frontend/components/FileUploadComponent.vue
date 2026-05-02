@@ -104,8 +104,11 @@ const isDragging = ref(false);
         method: 'GET',
       });
       // Filter out files that have been used in a completion (completion_id is set)
-      // This allows newly uploaded images to show, but hides them after they're submitted
-      const unusedFiles = data.value.filter(file => !file.completion_id);
+      // This allows newly uploaded images to show, but hides them after they're submitted.
+      // Also hide files inherited from a data source — those belong to the agent,
+      // not to this chat turn (the agent flows them through report.files into
+      // FilesContextBuilder regardless).
+      const unusedFiles = data.value.filter(file => !file.completion_id && !file.from_data_source);
       allFiles.value = unusedFiles.map(file => ({ ...file, status: 'uploaded' }));
     }
   }
