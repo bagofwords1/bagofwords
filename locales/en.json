@@ -53,7 +53,10 @@
     "documentation": "Documentation",
     "mcpServer": "MCP Server",
     "manage": "Manage",
-    "context": "Context",
+    "agent": "Agent",
+    "agents": "Agents",
+    "viewAllAgents": "View all agents →",
+    "context": "Agent",
     "noAgents": "No agents",
     "allAgents": "All Agents",
     "newReport": "New report",
@@ -1149,10 +1152,10 @@
     "minutesAgo": "{n}m ago",
     "hoursAgo": "{n}h ago",
     "daysAgo": "{n}d ago",
-    "impactDomainsOne": "This will impact {count} domain",
-    "impactDomainsMany": "This will impact {count} domains",
+    "impactAgentsOne": "This will impact {count} agent",
+    "impactAgentsMany": "This will impact {count} agents",
     "andMore": "and {n} more",
-    "tablesRemovedNote": "All tables from this connection will be removed from these domains."
+    "tablesRemovedNote": "All tables from this connection will be removed from these agents."
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -2055,5 +2058,20 @@
     "genericTitle": "Something went wrong",
     "unknownError": "Unknown error",
     "goHome": "Go home"
+  },
+  "agentPage": {
+    "tables": {
+      "manageConnections": "Manage Connections",
+      "schemaRefreshing": "Schema is being refreshed — tables will appear shortly.",
+      "selectTables": "Select tables",
+      "selectTablesSubtitle": "Choose which tables to enable",
+      "save": "Save",
+      "addFiles": "Upload file",
+      "manageFiles": "Upload file",
+      "removeFile": "Remove file",
+      "filesUploading": "Uploading…",
+      "fileUploadFailed": "Failed to upload file",
+      "fileRemoveFailed": "Failed to remove file"
+    }
   }
 }

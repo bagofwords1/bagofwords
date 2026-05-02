@@ -30,7 +30,7 @@
                         </template>
                     </span>
                     <span v-else class="flex items-center">
-                        <Icon name="heroicons-circle-stack" class="h-4 w-4" />
+                        <AgentIcon class="h-4 w-4" />
                     </span>
                 </button>
             </UTooltip>
@@ -79,6 +79,7 @@
 <script lang="ts" setup>
 import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
+import AgentIcon from '~/components/icons/AgentIcon.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
 type DataSource = { id: string; name: string; type?: string; auth_policy?: string; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }

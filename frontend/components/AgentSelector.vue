@@ -1,8 +1,8 @@
 <template>
-  <div class="domain-selector">
-    <!-- Loading / empty placeholder — reserves layout space while domains load -->
+  <div class="agent-selector">
+    <!-- Loading / empty placeholder — reserves layout space while agents load -->
     <div
-      v-if="loading || (!loading && domains.length === 0)"
+      v-if="loading || (!loading && agents.length === 0)"
       :class="[
         'flex items-center w-full rounded-lg',
         'bg-white border border-gray-200 shadow-sm',
@@ -11,7 +11,7 @@
     >
       <UTooltip v-if="collapsed" :text="loading ? $t('common.loading') : $t('nav.noAgents')" :popper="{ placement: 'right' }">
         <Spinner v-if="loading" class="w-4 h-4 text-gray-300 animate-spin" />
-        <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-300" />
+        <AgentIcon class="w-4 h-4 text-gray-300" />
       </UTooltip>
       <template v-else>
         <span v-if="showText" class="flex-1 text-start min-w-0">
@@ -43,82 +43,88 @@
           collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
         ]"
       >
-        <UTooltip v-if="collapsed" :text="currentDomainName" :popper="{ placement: 'right' }">
+        <UTooltip v-if="collapsed" :text="currentAgentName" :popper="{ placement: 'right' }">
           <span class="flex items-center justify-center w-5 h-5">
             <Spinner v-if="loading" class="w-4 h-4 text-gray-400 animate-spin" />
             <UIcon v-else name="heroicons-chevron-down" class="w-4 h-4 text-gray-500" />
           </span>
         </UTooltip>
         <template v-else>
+          <span class="flex-shrink-0">
+            <DataSourceIcon v-if="singleSelectedConnection" :type="singleSelectedConnection" class="h-3.5 w-3.5" />
+            <AgentIcon v-else class="w-3.5 h-3.5 text-gray-400" />
+          </span>
           <span v-if="showText" class="flex-1 text-start min-w-0">
             <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">{{ $t('nav.context') }}</span>
             <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
               <Spinner v-if="loading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
-              <span class="text-xs font-medium text-gray-700 truncate">
-                {{ currentDomainName }}
-              </span>
+              <span class="text-xs font-medium text-gray-700 truncate">{{ currentAgentName }}</span>
             </span>
           </span>
-          <UIcon v-if="showText" name="heroicons-chevron-down" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+          <UIcon v-if="showText" name="heroicons-chevron-up-down" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
         </template>
       </button>
 
       <template #panel>
         <div class="overflow-visible">
-          <!-- Domain list - compact -->
-          <div class="w-44 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden flex-shrink-0">
-            <div class="p-1">
-              <!-- Loading state inside panel -->
-              <div v-if="loading" class="flex items-center justify-center py-4">
+          <!-- Agent list -->
+          <div class="w-56 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
+            <div class="p-1.5">
+              <div v-if="loading" class="flex items-center justify-center py-6">
                 <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
               </div>
 
               <template v-else>
-                <!-- All Domains option -->
-                <button 
-                  @click="toggleDomain(null)"
-                  @mouseenter="hoveredDomainId = null"
-                  @mouseleave="onDomainHoverLeave()"
+                <!-- All Agents -->
+                <button
+                  @click="toggleAgent(null)"
+                  @mouseenter="hoveredAgentId = null"
+                  @mouseleave="onAgentHoverLeave()"
                   :class="[
-                    'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start transition-colors',
-                    isAllDomains ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
+                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
+                    isAllAgents ? 'bg-indigo-50' : 'hover:bg-gray-50'
                   ]"
                 >
-                  <span class="text-xs font-medium">{{ $t('nav.allAgents') }}</span>
-                  <UIcon v-if="isAllDomains" name="heroicons-check" class="w-3 h-3 ms-auto text-indigo-600" />
+                  <AgentIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <span :class="['text-xs font-medium flex-1', isAllAgents ? 'text-indigo-700' : 'text-gray-700']">{{ $t('nav.allAgents') }}</span>
+                  <UIcon v-if="isAllAgents" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                 </button>
 
-                <!-- Divider -->
                 <div class="my-1 border-t border-gray-100" />
 
-                <!-- Domain list -->
-                <div class="max-h-48 overflow-y-auto">
-                  <button 
-                    v-for="d in domains" 
-                    :key="d.id"
-                    @click="toggleDomain(d.id)"
-                    @mouseenter="onDomainHover(d.id, $event)"
-                    @mouseleave="onDomainHoverLeave()"
+                <!-- Agent list -->
+                <div class="max-h-52 overflow-y-auto">
+                  <button
+                    v-for="a in agents"
+                    :key="a.id"
+                    @click="toggleAgent(a.id)"
+                    @mouseenter="onAgentHover(a.id, $event)"
+                    @mouseleave="onAgentHoverLeave()"
                     :class="[
-                      'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start transition-colors',
-                      isDomainSelected(d.id) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
+                      'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
+                      isAgentSelected(a.id) ? 'bg-indigo-50' : 'hover:bg-gray-50'
                     ]"
                   >
-                    <span class="text-xs font-medium truncate flex-1">{{ d.name }}</span>
-                    <UIcon v-if="isDomainSelected(d.id)" name="heroicons-check" class="w-3 h-3 text-indigo-600 flex-shrink-0" />
+                    <DataSourceIcon
+                      v-if="a.connections?.[0]?.type"
+                      :type="a.connections[0].type"
+                      class="h-4 w-4 flex-shrink-0"
+                    />
+                    <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <span :class="['text-xs font-medium truncate flex-1', isAgentSelected(a.id) ? 'text-indigo-700' : 'text-gray-700']">{{ a.name }}</span>
+                    <UIcon v-if="isAgentSelected(a.id)" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                   </button>
                 </div>
 
-                <!-- Divider -->
                 <div class="my-1 border-t border-gray-100" />
 
-                <!-- Manage link -->
-                <a 
-                  href="/data"
-                  class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-start text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
+                <!-- View all -->
+                <a
+                  href="/agents"
+                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                 >
-                  <UIcon name="heroicons-cog-6-tooth" class="w-3 h-3 flex-shrink-0" />
-                  <span class="text-[11px]">{{ $t('nav.manage') }}</span>
+                  <AgentIcon class="w-3.5 h-3.5 flex-shrink-0" />
+                  <span class="text-xs">{{ $t('nav.viewAllAgents') }}</span>
                 </a>
               </template>
             </div>
@@ -129,7 +135,7 @@
 
     <!-- Agent flyout component -->
     <AgentFlyout
-      :agent-id="hoveredDomainId"
+      :agent-id="hoveredAgentId"
       :visible="flyout.visible"
       :position="flyout"
       @mouseenter="onFlyoutEnter"
@@ -141,6 +147,8 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import AgentIcon from '~/components/icons/AgentIcon.vue'
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -152,18 +160,28 @@ const props = withDefaults(defineProps<{
   showLabel: true
 })
 
-// Domain management
+// Agent management
 const {
-  domains,
+  agents,
   loading,
-  isAllDomains,
-  currentDomainName,
-  toggleDomain,
-  isDomainSelected
-} = useDomain()
+  isAllAgents,
+  currentAgentName,
+  selectedAgentObjects,
+  toggleAgent,
+  isAgentSelected
+} = useAgent()
 
-// Domain hover preview
-const hoveredDomainId = ref<string | null>(null)
+// Returns the connection type when exactly one agent is selected (for icon display)
+const singleSelectedConnection = computed(() => {
+  const selected = selectedAgentObjects.value
+  if (selected.length === 1) {
+    return selected[0].connections?.[0]?.type || null
+  }
+  return null
+})
+
+// Agent hover preview
+const hoveredAgentId = ref<string | null>(null)
 const flyout = reactive({ visible: false, top: 0, left: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -182,21 +200,21 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
   flyout.visible = true
 }
 
-const onDomainHover = (domainId: string, evt: MouseEvent) => {
+const onAgentHover = (agentId: string, evt: MouseEvent) => {
   if (flyoutHideTimer) {
     clearTimeout(flyoutHideTimer)
     flyoutHideTimer = null
   }
   if (typeof window !== 'undefined') showFlyoutAtEvent(evt)
-  hoveredDomainId.value = domainId
+  hoveredAgentId.value = agentId
 }
 
-const onDomainHoverLeave = () => {
+const onAgentHoverLeave = () => {
   // Give the user time to move cursor from list → flyout
   if (flyoutHideTimer) clearTimeout(flyoutHideTimer)
   flyoutHideTimer = setTimeout(() => {
     flyout.visible = false
-    hoveredDomainId.value = null
+    hoveredAgentId.value = null
   }, 120)
 }
 
@@ -209,7 +227,7 @@ const onFlyoutEnter = () => {
 }
 
 const onFlyoutLeave = () => {
-  onDomainHoverLeave()
+  onAgentHoverLeave()
 }
 </script>
 

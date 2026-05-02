@@ -361,7 +361,7 @@ async def get_domain_connections(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    """Get all connections linked to a domain."""
+    """Get all connections linked to an agent."""
     connections = await data_source_service.get_domain_connections(db, data_source_id, organization)
     return [
         {
@@ -384,7 +384,7 @@ async def add_connection_to_domain(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    """Add a connection to a domain (M:N relationship)."""
+    """Add a connection to an agent (M:N relationship)."""
     return await data_source_service.add_connection_to_domain(
         db=db,
         data_source_id=data_source_id,
@@ -404,7 +404,7 @@ async def remove_connection_from_domain(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    """Remove a connection from a domain."""
+    """Remove a connection from an agent."""
     return await data_source_service.remove_connection_from_domain(
         db=db,
         data_source_id=data_source_id,

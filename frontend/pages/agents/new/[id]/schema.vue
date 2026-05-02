@@ -4,7 +4,7 @@
       <div class="w-full px-4 ps-0 py-4">
       <div>
         <h1 class="text-lg font-semibold text-center">Select Tables</h1>
-        <p class="mt-4 text-gray-500 text-center">Choose 5-20 related tables for this domain. You can always add more later.</p>
+        <p class="mt-4 text-gray-500 text-center">Choose 5-20 related tables for this agent. You can always add more later.</p>
       </div>
         <WizardSteps class="mb-5 mt-4" current="schema" :ds-id="id" />
 
@@ -24,7 +24,7 @@ const route = useRoute()
 const router = useRouter()
 const id = computed(() => String(route.params.id || ''))
 
-function onSaved() { router.replace(`/data/new/${id.value}/context`) }
+function onSaved() { router.replace(`/agents/new/${id.value}/context`) }
 </script>
 
 

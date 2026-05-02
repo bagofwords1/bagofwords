@@ -22,14 +22,14 @@
                         </div>
                     </div>
                 </div>
-                <NuxtLink :to="`/data/${route.params.id}/connection`" class="text-xs font-medium underline">
+                <NuxtLink :to="`/agents/${route.params.id}/connection`" class="text-xs font-medium underline">
                     View progress
                 </NuxtLink>
             </div>
 
-        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
+        <div>
             <div v-if="loading" class="text-xs text-gray-500 text-center">{{ $t('common.loading') }}</div>
-            <div v-else class="md:w-2/3 ">
+            <div v-else class="md:w-2/3">
                 <div class="flex items-center gap-2">
                     <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.description') }}</div>
                     <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>

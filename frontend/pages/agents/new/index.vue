@@ -15,13 +15,13 @@
       </div>
 
       <div v-else class="mt-6 bg-white rounded-lg border border-gray-200 p-4">
-        <!-- Domain name -->
+        <!-- Agent name -->
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 mb-1">
             Name <span class="text-red-500">*</span>
           </label>
           <UInput
-            v-model="domainName"
+            v-model="agentName"
             placeholder="e.g., Sales, Marketing, Finance"
             size="lg"
             :disabled="creatingFromConnection"
@@ -61,7 +61,7 @@
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{{ option.name }}</div>
                   <div class="text-[10px] text-gray-400">
-                    {{ option.table_count || 0 }} tables · {{ option.domain_count || 0 }} domains
+                    {{ option.table_count || 0 }} tables · {{ option.agent_count || 0 }} agents
                   </div>
                 </div>
               </div>
@@ -82,7 +82,7 @@
         <div v-if="selectedConnections.length > 0">
           <div class="flex items-center gap-2 mb-4">
             <UToggle v-model="useLlmSync" :disabled="creatingFromConnection" size="xs" color="blue" />
-            <span class="text-xs text-gray-700">Use LLM to learn domain</span>
+            <span class="text-xs text-gray-700">Use LLM to learn agent</span>
           </div>
 
           <div v-if="errorMessage" class="p-3 bg-red-50 text-red-700 rounded-lg text-sm mb-4">
@@ -90,7 +90,7 @@
           </div>
 
           <div class="flex justify-between items-center pt-4 border-t border-gray-100">
-            <NuxtLink to="/data" class="text-sm text-gray-500 hover:text-gray-700">
+            <NuxtLink to="/agents" class="text-sm text-gray-500 hover:text-gray-700">
               ← Cancel
             </NuxtLink>
             <UButton
@@ -98,7 +98,7 @@
               size="xs"
               :loading="creatingFromConnection"
               :disabled="!canSubmitExisting"
-              @click="createDomainFromExistingConnection"
+              @click="createAgentFromExistingConnection"
             >
               Save & Continue
             </UButton>
@@ -107,7 +107,7 @@
 
         <!-- No selection yet (just show cancel) -->
         <div v-else class="flex justify-start pt-4 border-t border-gray-100">
-          <NuxtLink to="/data" class="text-sm text-gray-500 hover:text-gray-700">
+          <NuxtLink to="/agents" class="text-sm text-gray-500 hover:text-gray-700">
             ← Cancel
           </NuxtLink>
         </div>
@@ -132,13 +132,13 @@ interface Connection {
   name: string
   type: string
   table_count?: number
-  domain_count?: number
+  agent_count?: number
 }
 
 const connections = ref<Connection[]>([])
 const loadingConnections = ref(true)
 const selectedConnections = ref<Connection[]>([])
-const domainName = ref('')
+const agentName = ref('')
 const useLlmSync = ref(true)
 const creatingFromConnection = ref(false)
 const errorMessage = ref('')
@@ -160,7 +160,7 @@ async function handleNewConnectionCreated(connectionData: any) {
 const canSubmitExisting = computed(() => {
   return (
     selectedConnections.value.length > 0 &&
-    domainName.value.trim().length > 0 &&
+    agentName.value.trim().length > 0 &&
     !creatingFromConnection.value
   )
 })
@@ -177,14 +177,14 @@ async function loadConnections() {
   }
 }
 
-async function createDomainFromExistingConnection() {
-  if (selectedConnections.value.length === 0 || !domainName.value.trim()) return
+async function createAgentFromExistingConnection() {
+  if (selectedConnections.value.length === 0 || !agentName.value.trim()) return
   creatingFromConnection.value = true
   errorMessage.value = ''
 
   try {
     const payload = {
-      name: domainName.value.trim(),
+      name: agentName.value.trim(),
       connection_ids: selectedConnections.value.map(c => c.id),
       use_llm_sync: useLlmSync.value,
       is_public: true,
@@ -200,15 +200,15 @@ async function createDomainFromExistingConnection() {
 
     if (response.error.value) {
       const errData = (response.error.value as any).data as any
-      errorMessage.value = errData?.detail || 'Failed to create domain'
+      errorMessage.value = errData?.detail || 'Failed to create agent'
       return
     }
 
     const result = response.data.value as any
     if (result?.id) {
-      navigateTo(`/data/new/${result.id}/schema`)
+      navigateTo(`/agents/new/${result.id}/schema`)
     } else {
-      navigateTo('/data')
+      navigateTo('/agents')
     }
   } catch (err: any) {
     errorMessage.value = err?.message || 'An error occurred'

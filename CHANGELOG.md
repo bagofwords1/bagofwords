@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.368 (May 2, 2026)
+- add locale for additional languages
+- improve UI for agent mgmt and data soures
+- allow upload files (csv/xls/pdf) to agents
+
 ## Version 0.0.367 (May 1, 2026)
 - add a new reindexing connection button
 - enable mcp tools by default in org settings

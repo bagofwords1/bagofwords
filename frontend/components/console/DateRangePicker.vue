@@ -16,7 +16,7 @@
                 {{ formatDateRange() }}
             </div>
         </div>
-        <!-- Slot for additional filters (e.g., DomainSelector) -->
+        <!-- Slot for additional filters (e.g., AgentSelector) -->
         <slot></slot>
     </div>
 </template>

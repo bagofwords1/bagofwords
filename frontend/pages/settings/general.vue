@@ -100,6 +100,13 @@ const LOCALE_NATIVE_LABELS: Record<string, string> = {
     en: 'English',
     es: 'Español',
     he: 'עברית',
+    fr: 'Français',
+    sv: 'Svenska',
+    ar: 'العربية',
+    ru: 'Русский',
+    de: 'Deutsch',
+    pt: 'Português (Brasil)',
+    it: 'Italiano',
 }
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })

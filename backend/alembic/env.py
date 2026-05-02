@@ -24,6 +24,7 @@ from app.models.organization import Organization
 from app.models.membership import Membership
 from app.models.data_source import DataSource
 from app.models.report_data_source_association import report_data_source_association
+from app.models.data_source_file_association import data_source_file_association
 from app.models.sheet_schema import SheetSchema
 from app.models.prompt import Prompt
 from app.models.plan import Plan

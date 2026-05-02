@@ -78,8 +78,8 @@
 <script setup lang="ts">
 import DataSourceIcon from '../DataSourceIcon.vue'
 
-// Domain filtering
-const { selectedDomains } = useDomain()
+// Agent filtering
+const { selectedAgents } = useAgent()
 
 // Types
 interface DataSource {
@@ -174,8 +174,8 @@ const fetchRecentInstructions = async () => {
         }
 
         // Add data source filter
-        if (selectedDomains.value.length > 0) {
-            query.data_source_ids = selectedDomains.value.join(',')
+        if (selectedAgents.value.length > 0) {
+            query.data_source_ids = selectedAgents.value.join(',')
         }
 
         const response = await useMyFetch<{ items: Instruction[], total: number, page: number, per_page: number, pages: number }>('/api/instructions', {
@@ -290,8 +290,8 @@ watch(() => props.dateRange, () => {
     fetchRecentInstructions()
 }, { deep: true })
 
-// Watch for domain selection changes
-watch(selectedDomains, () => {
+// Watch for agent selection changes
+watch(selectedAgents, () => {
     fetchRecentInstructions()
 }, { deep: true })
 

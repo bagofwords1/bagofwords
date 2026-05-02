@@ -62,8 +62,8 @@
 <script setup lang="ts">
 import TraceModal from './TraceModal.vue'
 
-// Domain filtering
-const { selectedDomains } = useDomain()
+// Agent filtering
+const { selectedAgents } = useAgent()
 
 // Types
 interface AgentExecutionSummaryItem {
@@ -133,8 +133,8 @@ const fetchRecentQueries = async () => {
         }
 
         // Add data source filter
-        if (selectedDomains.value.length > 0) {
-            params.append('data_source_ids', selectedDomains.value.join(','))
+        if (selectedAgents.value.length > 0) {
+            params.append('data_source_ids', selectedAgents.value.join(','))
         }
 
         const response = await useMyFetch<AgentExecutionSummariesResponse>(`/api/console/agent_executions/summaries?${params}`)
@@ -238,8 +238,8 @@ watch(() => props.dateRange, () => {
     fetchRecentQueries()
 }, { deep: true })
 
-// Watch for domain selection changes
-watch(selectedDomains, () => {
+// Watch for agent selection changes
+watch(selectedAgents, () => {
     fetchRecentQueries()
 }, { deep: true })
 

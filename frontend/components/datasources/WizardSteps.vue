@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
   current: 'connect' | 'schema' | 'context', 
   dsId?: string,
   // mode is kept for backward compatibility, but the wizard now routes through /data/new for all creation flows.
-  mode?: 'connection' | 'domain'
+  mode?: 'connection' | 'agent'
 }>(), {
   mode: 'connection'
 })
@@ -61,7 +61,7 @@ function canClick(key: string) {
 
 function go(key: string) {
   if (!canClick(key)) return
-  const basePath = '/data/new'
+  const basePath = '/agents/new'
   if (key === 'schema' && props.dsId) return router.push(`${basePath}/${props.dsId}/schema`)
   if (key === 'context' && props.dsId) return router.push(`${basePath}/${props.dsId}/context`)
 }

@@ -2,6 +2,13 @@ import { createI18n } from 'vue-i18n'
 import en from '../../locales/en.json'
 import es from '../../locales/es.json'
 import he from '../../locales/he.json'
+import fr from '../../locales/fr.json'
+import sv from '../../locales/sv.json'
+import ar from '../../locales/ar.json'
+import ru from '../../locales/ru.json'
+import de from '../../locales/de.json'
+import pt from '../../locales/pt.json'
+import it from '../../locales/it.json'
 
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 
@@ -18,7 +25,7 @@ const NUMBER_FORMATS = {
 }
 
 function isLocale(x: unknown): x is string {
-  return typeof x === 'string' && ['en', 'es', 'he'].includes(x)
+  return typeof x === 'string' && ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it'].includes(x)
 }
 
 function applyDocumentLocale(locale: string) {
@@ -38,9 +45,9 @@ export default defineNuxtPlugin(async (nuxtApp) => {
     fallbackLocale: 'en',
     missingWarn: false,
     fallbackWarn: false,
-    messages: { en, es, he },
-    datetimeFormats: { en: DATETIME_FORMATS, es: DATETIME_FORMATS, he: DATETIME_FORMATS },
-    numberFormats: { en: NUMBER_FORMATS, es: NUMBER_FORMATS, he: NUMBER_FORMATS },
+    messages: { en, es, he, fr, sv, ar, ru, de, pt, it },
+    datetimeFormats: { en: DATETIME_FORMATS, es: DATETIME_FORMATS, he: DATETIME_FORMATS, fr: DATETIME_FORMATS, sv: DATETIME_FORMATS, ar: DATETIME_FORMATS, ru: DATETIME_FORMATS, de: DATETIME_FORMATS, pt: DATETIME_FORMATS, it: DATETIME_FORMATS },
+    numberFormats: { en: NUMBER_FORMATS, es: NUMBER_FORMATS, he: NUMBER_FORMATS, fr: NUMBER_FORMATS, sv: NUMBER_FORMATS, ar: NUMBER_FORMATS, ru: NUMBER_FORMATS, de: NUMBER_FORMATS, pt: NUMBER_FORMATS, it: NUMBER_FORMATS },
   })
 
   nuxtApp.vueApp.use(i18n)

@@ -140,7 +140,7 @@
                     <!-- Empty state -->
                     <div v-if="connections.length === 0" class="text-center py-8 text-gray-500">
                         <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                        <p class="text-sm">No connections linked to this domain.</p>
+                        <p class="text-sm">No connections linked to this agent.</p>
                         <UButton
                             v-if="canManageConnections"
                             color="blue"
@@ -168,7 +168,7 @@
             </template>
 
             <div class="space-y-4">
-                <p class="text-sm text-gray-600">Select a connection to link to this domain.</p>
+                <p class="text-sm text-gray-600">Select a connection to link to this agent.</p>
 
                 <!-- Loading state -->
                 <div v-if="loadingOrgConnections" class="flex items-center justify-center py-4">
@@ -206,7 +206,7 @@
                 <!-- No connections available -->
                 <div v-else class="text-center py-4 text-gray-500">
                     <p class="text-sm">No available connections to link.</p>
-                    <p class="text-xs mt-1">All organization connections are already linked to this domain.</p>
+                    <p class="text-xs mt-1">All organization connections are already linked to this agent.</p>
                 </div>
             </div>
 

@@ -43,9 +43,9 @@
             </button>
         </li>
 
-        <!-- Domain Selector - Context for all navigation below -->
+        <!-- Agent Selector - Context for all navigation below -->
         <li class="mt-4 mb-2">
-          <DomainSelector :collapsed="isCollapsed" :show-text="showText" />
+          <AgentSelector :collapsed="isCollapsed" :show-text="showText" />
         </li>
 
         <li>
@@ -109,12 +109,14 @@
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
               <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <UIcon :name="item.icon" />
+                <component v-if="item.component" :is="item.component" />
+                <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
             </UTooltip>
             <template v-else>
               <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
-                <UIcon :name="item.icon" />
+                <component v-if="item.component" :is="item.component" />
+                <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
               <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
@@ -187,8 +189,9 @@
   import McpIcon from '~/components/icons/McpIcon.vue'
   import LibraryIcon from '~/components/icons/LibraryIcon.vue'
   import ActivityIcon from '~/components/icons/ActivityIcon.vue'
+  import AgentIcon from '~/components/icons/AgentIcon.vue'
   import McpModal from '~/components/McpModal.vue'
-  import DomainSelector from '~/components/DomainSelector.vue'
+  import AgentSelector from '~/components/AgentSelector.vue'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
@@ -208,6 +211,7 @@
     adminOnly?: boolean
     permission?: string
     section?: string
+    external?: boolean
   }
   const mainNavItems: NavItem[] = [
     { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
@@ -220,14 +224,14 @@
     { href: '/evals', icon: 'heroicons-check-circle', label: 'nav.evals', permission: 'manage_evals' },
   ]
 
-  const bottomNavItems = [
-    { href: '/data', icon: 'heroicons-circle-stack', label: 'nav.dataAgents' },
+  const bottomNavItems: NavItem[] = [
+    { href: '/agents', component: AgentIcon, label: 'nav.dataAgents' },
     { href: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' },
     { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'nav.documentation', external: true },
   ]
   
-  // Domain management - use selectedDomainObjects for new report creation
-  const { initDomain, selectedDomainObjects, domains, hasDomains } = useDomain()
+  // Agent management - use selectedAgentObjects for new report creation
+  const { initAgent, selectedAgentObjects, agents, hasAgents } = useAgent()
 
   
   const workspaceIconUrl = computed<string | null>(() => {
@@ -273,10 +277,10 @@
     try {
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
-        // Fetch onboarding and domains in parallel for faster load
+        // Fetch onboarding and agents in parallel for faster load
         await Promise.all([
           fetchOnboarding({ in_onboarding: false }),
-          initDomain()
+          initAgent()
         ])
       }
     } catch {}
@@ -393,8 +397,8 @@ const createNewReport = async () => {
   creatingReport.value = true
   
   try {
-    // Use selected domains from DomainSelector, or all domains if none selected
-    const dataSourceIds = selectedDomainObjects.value.map((ds: any) => ds.id)
+    // Use selected agents from AgentSelector, or all agents if none selected
+    const dataSourceIds = selectedAgentObjects.value.map((a: any) => a.id)
     
     const response = await useMyFetch('/reports', {
         method: 'POST',

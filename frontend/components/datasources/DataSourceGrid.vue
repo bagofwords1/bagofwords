@@ -134,7 +134,7 @@ async function handleInstallDemo(demoId: string) {
     if (result?.success) {
       emit('demo-installed', result)
       if (props.navigateOnDemo && result.data_source_id) {
-        navigateTo(`/data/new/${result.data_source_id}/schema`)
+        navigateTo(`/agents/new/${result.data_source_id}/schema`)
       }
     }
   } finally {

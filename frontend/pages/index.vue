@@ -143,7 +143,7 @@
       </div>
 
         <div
-        @click="router.push('/data')"
+        @click="router.push('/agents')"
         class="flex hidden cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
             <div class="flex">
 
@@ -195,14 +195,14 @@ import { useCan } from '~/composables/usePermissions'
 import { KeyCode } from 'monaco-editor';
 const router = useRouter()
 const { onboarding, fetchOnboarding } = useOnboarding()
-const { selectedDomainObjects } = useDomain()
+const { selectedAgentObjects } = useAgent()
 const previous_reports = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)
 const hasLoadedModels = ref(false)
 
-// Use selected domains from DomainSelector as the data sources
-const selectedDataSources = computed(() => selectedDomainObjects.value)
+// Use selected agents from AgentSelector as the data sources
+const selectedDataSources = computed(() => selectedAgentObjects.value)
 
 const getModels = async () => {
   try {
@@ -284,7 +284,7 @@ const menuItems = computed(() => {
   }
 
   const bottom: any[] = [
-    { label: t('nav.dataAgents'), icon: 'i-heroicons-circle-stack', to: '/data' },
+    { label: t('nav.dataAgents'), icon: 'i-heroicons-circle-stack', to: '/agents' },
     { label: t('nav.settings'), icon: 'i-heroicons-cog-6-tooth', to: '/settings' },
     { label: t('nav.documentation'), icon: 'i-heroicons-book-open', click: () => window.open('https://docs.bagofwords.com', '_blank') },
   ]
@@ -353,7 +353,7 @@ onMounted(async () => {
     }
     
     // Only proceed with API calls if organization is available
-    // Note: domains are already loaded by the layout via initDomain()
+    // Note: agents are already loaded by the layout via initAgent()
     if (organization.value?.id) {
       await Promise.allSettled([
         withTimeout(getModels(), 6000, 'getModels'),

@@ -58,7 +58,7 @@
                                     <Icon v-if="dsFilterId === null" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
                                 <button
-                                    v-for="d in agentDomains"
+                                    v-for="d in agentList"
                                     :key="d.id"
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
                                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 transition-colors text-start border-t border-gray-100"
@@ -714,7 +714,7 @@ import TraceModal from '~/components/console/TraceModal.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 import { useCan, useCanAny } from '~/composables/usePermissions'
-import { useDomain } from '~/composables/useDomain'
+import { useAgent } from '~/composables/useAgent'
 import { onClickOutside } from '@vueuse/core'
 
 interface Build {
@@ -862,11 +862,11 @@ const builds = ref<Build[]>([])
 const selectedBuild = ref<Build | null>(null)
 
 // DS filter (top of left pane). null = all data sources.
-const { domains: agentDomains } = useDomain()
+const { agents: agentList } = useAgent()
 const dsFilterId = ref<string | null>(null)
 const dsFilterDropdownOpen = ref(false)
 const dsFilterRef = ref<HTMLElement | null>(null)
-const selectedDsFilter = computed(() => agentDomains.value.find(d => d.id === dsFilterId.value) || null)
+const selectedDsFilter = computed(() => agentList.value.find(a => a.id === dsFilterId.value) || null)
 onClickOutside(dsFilterRef, () => { dsFilterDropdownOpen.value = false })
 watch(dsFilterId, () => { fetchBuilds() })
 const mainBuild = ref<Build | null>(null)  // Stored separately for diff comparison

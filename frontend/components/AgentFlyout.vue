@@ -60,7 +60,7 @@
               <!-- Open agent link - top right -->
               <a
                 v-if="agentId"
-                :href="`/data/${agentId}`"
+                :href="`/agents/${agentId}`"
                 class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline flex-shrink-0 whitespace-nowrap"
               >
                 {{ $t('agentFlyout.openAgent') }}

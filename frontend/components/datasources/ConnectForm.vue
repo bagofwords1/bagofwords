@@ -431,7 +431,7 @@ async function onSubmit() {
         toast.add({ title: 'Failed to update data source', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else if (isCreateConnectionOnly.value) {
-      // Create connection only (without domain)
+      // Create connection only (without agent)
       const connectionPayload = {
         name: name.value || selectedType.value,
         type: selectedType.value,

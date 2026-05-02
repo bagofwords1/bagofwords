@@ -10,6 +10,8 @@ from app.models.sheet_schema import SheetSchema
 from typing import Optional
 from fastapi import HTTPException
 from app.models.file import report_file_association
+from app.models.data_source_file_association import data_source_file_association
+from app.models.data_source import DataSource
 from app.models.file_tag import FileTag
 from sqlalchemy.ext.asyncio import AsyncSession
 import aiofiles
@@ -24,7 +26,15 @@ class FileService:
     def __init__(self):
         pass
 
-    async def upload_file(self, db: AsyncSession, file: UploadFile, current_user: User, organization: Organization, report_id: Optional[str] = None) -> FileSchema:
+    async def upload_file(
+        self,
+        db: AsyncSession,
+        file: UploadFile,
+        current_user: User,
+        organization: Organization,
+        report_id: Optional[str] = None,
+        data_source_id: Optional[str] = None,
+    ) -> FileSchema:
         # Generate a unique filename to prevent overwriting existing files
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
         file_location = f"uploads/files/{unique_filename}"
@@ -46,7 +56,7 @@ class FileService:
         db.add(db_file)
         await db.commit()
         await db.refresh(db_file)
-        
+
         # Telemetry: file uploaded (minimal fields only)
         try:
             await telemetry.capture(
@@ -56,23 +66,40 @@ class FileService:
                     "content_type": db_file.content_type,
                     "bytes": len(content or b""),
                     "report_id": report_id,
+                    "data_source_id": data_source_id,
                 },
                 user_id=current_user.id,
                 org_id=organization.id,
             )
         except Exception:
             pass
-        
+
         # Associate with report if provided
         if report_id:
             stmt = select(Report).filter(Report.id == report_id)
             result = await db.execute(stmt)
             report = result.scalar_one_or_none()
-            
+
             if report:
                 report.files.append(db_file)
                 await db.commit()
                 await db.refresh(report)
+
+        # Associate with data source if provided
+        if data_source_id:
+            stmt = select(DataSource).filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id,
+            )
+            result = await db.execute(stmt)
+            data_source = result.scalar_one_or_none()
+
+            if not data_source:
+                raise HTTPException(status_code=404, detail="Data source not found")
+
+            data_source.files.append(db_file)
+            await db.commit()
+            await db.refresh(data_source)
 
         # Generate raw preview (no LLM) - fast, instant
         try:
@@ -139,6 +166,8 @@ class FileService:
         return files
 
     async def get_files_by_report(self, db: AsyncSession, report_id: str, organization: Organization):
+        from app.models.report_data_source_association import report_data_source_association
+
         stmt = select(Report).filter(Report.id == report_id)
         result = await db.execute(stmt)
         report = result.scalar_one_or_none()
@@ -154,14 +183,87 @@ class FileService:
         result = await db.execute(stmt)
         rows = result.all()
 
-        # Build response with completion_id included
+        # File ids inherited from any of the report's data sources. We
+        # treat any overlap as inherited — collisions with user-uploaded
+        # files are vanishingly unlikely in practice.
+        inherited_stmt = (
+            select(data_source_file_association.c.file_id)
+            .join(
+                report_data_source_association,
+                data_source_file_association.c.data_source_id ==
+                report_data_source_association.c.data_source_id,
+            )
+            .where(report_data_source_association.c.report_id == report_id)
+        )
+        inherited_res = await db.execute(inherited_stmt)
+        inherited_ids = {str(r[0]) for r in inherited_res.all()}
+
+        # Build response with completion_id and inheritance flag included
         files_with_completion = []
         for file, completion_id in rows:
             file_dict = FileSchema.from_orm(file).dict()
             file_dict['completion_id'] = str(completion_id) if completion_id else None
+            file_dict['from_data_source'] = str(file.id) in inherited_ids
             files_with_completion.append(FileSchemaWithCompletionId(**file_dict))
 
         return files_with_completion
+
+    async def get_files_by_data_source(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        organization: Organization,
+    ) -> list[FileSchema]:
+        ds_stmt = select(DataSource).filter(
+            DataSource.id == data_source_id,
+            DataSource.organization_id == organization.id,
+        )
+        ds_result = await db.execute(ds_stmt)
+        data_source = ds_result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+
+        files_stmt = (
+            select(File)
+            .join(data_source_file_association, File.id == data_source_file_association.c.file_id)
+            .where(data_source_file_association.c.data_source_id == data_source_id)
+        )
+        files_res = await db.execute(files_stmt)
+        files = files_res.scalars().all()
+        return [FileSchema.from_orm(f) for f in files]
+
+    async def remove_file_from_data_source(
+        self,
+        db: AsyncSession,
+        file_id: str,
+        data_source_id: str,
+        organization: Organization,
+        current_user: User,
+    ):
+        ds_stmt = select(DataSource).filter(
+            DataSource.id == data_source_id,
+            DataSource.organization_id == organization.id,
+        )
+        ds_result = await db.execute(ds_stmt)
+        data_source = ds_result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+
+        assoc_stmt = select(data_source_file_association).filter_by(
+            data_source_id=data_source_id, file_id=file_id
+        )
+        assoc_result = await db.execute(assoc_stmt)
+        if not assoc_result.first():
+            raise HTTPException(status_code=404, detail="File is not associated with this data source")
+
+        await db.execute(
+            data_source_file_association.delete().where(
+                (data_source_file_association.c.data_source_id == data_source_id) &
+                (data_source_file_association.c.file_id == file_id)
+            )
+        )
+        await db.commit()
+        return True
 
     # ==========================================================================
     # DEPRECATED: LLM-based schema extraction methods

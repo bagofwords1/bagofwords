@@ -219,5 +219,10 @@ export default defineNuxtConfig({
     }
   },
 
+  routeRules: {
+    '/data': { redirect: '/agents' },
+    '/data/**': { redirect: '/agents/**' },
+  },
+
   compatibilityDate: '2025-08-03',
 })

@@ -23,6 +23,11 @@ class File(BaseSchema):
     organization = relationship("Organization", back_populates="files")
 
     reports = relationship("Report", secondary=report_file_association, back_populates="files")
+    data_sources = relationship(
+        "DataSource",
+        secondary="data_source_file_association",
+        back_populates="files",
+    )
 
     file_tags = relationship("FileTag", back_populates="file", lazy="selectin")
     sheet_schemas = relationship("SheetSchema", back_populates="file", lazy="selectin")

@@ -14,7 +14,7 @@
  */
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test';
 
-type Locale = 'en' | 'es' | 'he';
+type Locale = 'en' | 'es' | 'he' | 'fr' | 'sv' | 'ar' | 'ru' | 'de' | 'pt' | 'it';
 
 const CASES: Record<Locale, {
   dir: 'ltr' | 'rtl';
@@ -44,6 +44,48 @@ const CASES: Record<Locale, {
     smokeHello: 'שלום',
     smokeCommonSave: 'שמירה',
     signInHeading: /התחברות|כניסה/,
+  },
+  fr: {
+    dir: 'ltr',
+    smokeHello: 'Bonjour',
+    smokeCommonSave: 'Enregistrer',
+    signInHeading: /Connexion|Se connecter/,
+  },
+  sv: {
+    dir: 'ltr',
+    smokeHello: 'Hej',
+    smokeCommonSave: 'Spara',
+    signInHeading: /Logga in/,
+  },
+  ar: {
+    dir: 'rtl',
+    smokeHello: 'مرحبًا',
+    smokeCommonSave: 'حفظ',
+    signInHeading: /تسجيل الدخول/,
+  },
+  ru: {
+    dir: 'ltr',
+    smokeHello: 'Привет',
+    smokeCommonSave: 'Сохранить',
+    signInHeading: /Вход|Войти/,
+  },
+  de: {
+    dir: 'ltr',
+    smokeHello: 'Hallo',
+    smokeCommonSave: 'Speichern',
+    signInHeading: /Anmelden|Login/,
+  },
+  pt: {
+    dir: 'ltr',
+    smokeHello: 'Olá',
+    smokeCommonSave: 'Salvar',
+    signInHeading: /Entrar/,
+  },
+  it: {
+    dir: 'ltr',
+    smokeHello: 'Ciao',
+    smokeCommonSave: 'Salva',
+    signInHeading: /Accedi/,
   },
 };
 
