@@ -120,7 +120,7 @@
 
                 <!-- View all -->
                 <a
-                  href="/data"
+                  href="/agents"
                   class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                 >
                   <UIcon name="heroicons-squares-2x2" class="w-3.5 h-3.5 flex-shrink-0" />

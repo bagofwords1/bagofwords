@@ -214,14 +214,14 @@
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
     { href: '/scheduled-tasks', icon: 'heroicons-clock', label: 'nav.scheduled' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
-    { href: '/instructions', icon: 'heroicons-cube', label: 'nav.instructions', section: 'nav.agent' },
+    { href: '/instructions', icon: 'heroicons-cube', label: 'nav.instructions' },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
-    { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true },
+    { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', adminOnly: true, section: 'nav.manage' },
     { href: '/evals', icon: 'heroicons-check-circle', label: 'nav.evals', permission: 'manage_evals' },
   ]
 
   const bottomNavItems = [
-    { href: '/data', icon: 'heroicons-circle-stack', label: 'nav.dataAgents' },
+    { href: '/agents', icon: 'heroicons-circle-stack', label: 'nav.dataAgents' },
     { href: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' },
     { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'nav.documentation', external: true },
   ]

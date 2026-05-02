@@ -143,7 +143,7 @@
       </div>
 
         <div
-        @click="router.push('/data')"
+        @click="router.push('/agents')"
         class="flex hidden cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
             <div class="flex">
 
@@ -284,7 +284,7 @@ const menuItems = computed(() => {
   }
 
   const bottom: any[] = [
-    { label: t('nav.dataAgents'), icon: 'i-heroicons-circle-stack', to: '/data' },
+    { label: t('nav.dataAgents'), icon: 'i-heroicons-circle-stack', to: '/agents' },
     { label: t('nav.settings'), icon: 'i-heroicons-cog-6-tooth', to: '/settings' },
     { label: t('nav.documentation'), icon: 'i-heroicons-book-open', click: () => window.open('https://docs.bagofwords.com', '_blank') },
   ]

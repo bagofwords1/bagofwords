@@ -1,96 +1,139 @@
 <template>
     <NuxtLayout name="default">
         <div class="flex justify-center ps-2 md:ps-4 text-sm">
-            <div class="w-full max-w-7xl px-4 ps-0 py-2">
-                <div>
-                    <div class="flex items-start justify-between">
-                        <div>
-                            <h1 class="text-lg font-semibold">
-                                {{ fetchError ? 'Data Source' : (integration?.name || 'Agent') }}
+            <div class="w-full max-w-7xl px-4 ps-0 py-4">
+
+                <!-- Back link -->
+                <NuxtLink to="/agents" class="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                    <UIcon name="heroicons-chevron-left" class="w-3.5 h-3.5" />
+                    All agents
+                </NuxtLink>
+
+                <!-- Header -->
+                <div class="flex items-start justify-between gap-4 mt-5">
+                    <div class="min-w-0 flex-1">
+
+                        <!-- Skeleton while loading -->
+                        <template v-if="isLoading">
+                            <div class="h-8 w-40 bg-gray-100 rounded-md animate-pulse" />
+                            <div class="h-4 w-72 bg-gray-100 rounded mt-3 animate-pulse" />
+                            <div class="flex items-center gap-2 mt-4">
+                                <div class="h-3.5 w-3.5 rounded-full bg-gray-100 animate-pulse" />
+                                <div class="h-3.5 w-24 bg-gray-100 rounded animate-pulse" />
+                            </div>
+                        </template>
+
+                        <template v-else-if="!fetchError">
+                            <!-- Agent name -->
+                            <h1 class="text-2xl font-bold text-gray-900 leading-tight tracking-tight truncate">
+                                {{ integration?.name || 'Agent' }}
                             </h1>
-                            <div v-if="!isLoading && integration && !fetchError" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                                <template v-if="integration.connections && integration.connections.length > 0">
-                                    <template v-for="conn in integration.connections.slice(0, 4)" :key="conn.id">
-                                        <span :class="['w-2 h-2 rounded-full', statusDotClass(getEffectiveStatus(conn))]"></span>
+
+                            <!-- Description preview -->
+                            <p v-if="integration?.description" class="mt-2 text-sm text-gray-500 max-w-2xl truncate">
+                                {{ integration.description }}
+                            </p>
+
+                            <!-- Connections + stats row -->
+                            <div class="flex items-center gap-3 mt-4 flex-wrap">
+                                <template v-if="(integration?.connections || []).length > 0">
+                                    <div
+                                        v-for="conn in (integration.connections || []).slice(0, 4)"
+                                        :key="conn.id"
+                                        class="flex items-center gap-1.5"
+                                    >
+                                        <span :class="['w-1.5 h-1.5 rounded-full flex-shrink-0', statusDotClass(getEffectiveStatus(conn))]" />
                                         <UTooltip :text="conn.name + (getEffectiveStatus(conn) === 'indexing' ? ' · ' + indexingSummary(conn.indexing) : '')">
-                                            <DataSourceIcon :type="conn.type" class="h-4" />
+                                            <div class="flex items-center gap-1">
+                                                <DataSourceIcon :type="conn.type" class="h-3.5 opacity-70" />
+                                                <span class="text-xs text-gray-500">{{ conn.name }}</span>
+                                            </div>
                                         </UTooltip>
-                                    </template>
-                                    <span v-if="integration.connections.length > 4" class="text-xs text-gray-400">+{{ integration.connections.length - 4 }}</span>
+                                    </div>
+                                    <span v-if="(integration.connections || []).length > 4" class="text-xs text-gray-400">
+                                        +{{ integration.connections.length - 4 }}
+                                    </span>
                                 </template>
-                                <template v-else>
-                                    <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
-                                    <DataSourceIcon :type="connectionType" class="h-4" />
-                                    <span>{{ connectionName }}</span>
+                                <span v-else class="text-xs text-gray-400 italic">No connections</span>
+
+                                <template v-if="tableCount > 0 || connectionCount > 0">
+                                    <span class="text-gray-300 select-none">·</span>
+                                    <span class="text-xs text-gray-400">{{ tableCount }} {{ tableCount === 1 ? 'table' : 'tables' }}</span>
+                                    <span class="text-gray-300 select-none">·</span>
+                                    <span class="text-xs text-gray-400">{{ connectionCount }} {{ connectionCount === 1 ? 'connection' : 'connections' }}</span>
                                 </template>
                             </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span v-if="isLoading" class="px-2 py-0.5 rounded text-xs border bg-gray-50 text-gray-700 border-gray-200 flex items-center gap-1">
-                                <Spinner />
-                                Loading
-                            </span>
-                        </div>
+                        </template>
+
+                        <template v-else>
+                            <h1 class="text-2xl font-bold text-gray-900">Agent</h1>
+                        </template>
                     </div>
 
-                    <!-- Access denied state -->
-                    <div v-if="!isLoading && fetchError === 403" class="mt-8">
-                        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
-                            <div class="flex flex-col items-center justify-center py-12 text-center">
-                                <Icon name="i-heroicons-lock-closed" class="w-12 h-12 text-gray-300 mb-4" />
-                                <h2 class="text-lg font-medium text-gray-900">Access Restricted</h2>
-                                <p class="mt-2 text-sm text-gray-500 max-w-sm">
-                                    This data source is private. Contact the owner or an admin to request access.
-                                </p>
-                                <NuxtLink to="/data" class="mt-4 text-sm text-blue-600 hover:underline">
-                                    ← Back to Data Sources
-                                </NuxtLink>
-                            </div>
-                        </div>
+                    <!-- New Report CTA -->
+                    <div v-if="!isLoading && !fetchError && integration" class="shrink-0 mt-1">
+                        <UButton
+                            color="blue"
+                            size="sm"
+                            :loading="startingChat"
+                            @click="startChat"
+                        >
+                            New Report
+                            <UIcon name="heroicons-arrow-right" class="w-3.5 h-3.5 ms-1" />
+                        </UButton>
                     </div>
-
-                    <!-- Not found state -->
-                    <div v-else-if="!isLoading && fetchError === 404" class="mt-8">
-                        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
-                            <div class="flex flex-col items-center justify-center py-12 text-center">
-                                <Icon name="i-heroicons-exclamation-circle" class="w-12 h-12 text-gray-300 mb-4" />
-                                <h2 class="text-lg font-medium text-gray-900">Data Source Not Found</h2>
-                                <p class="mt-2 text-sm text-gray-500 max-w-sm">
-                                    The data source you're looking for doesn't exist or has been removed.
-                                </p>
-                                <NuxtLink to="/data" class="mt-4 text-sm text-blue-600 hover:underline">
-                                    ← Back to Data Sources
-                                </NuxtLink>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Normal content -->
-                    <template v-else-if="!fetchError">
-                        <!-- Tabs navigation -->
-                        <div class="border-b border-gray-200 mt-6">
-                            <nav class=" flex space-x-8">
-                                <NuxtLink
-                                    v-for="tab in tabs"
-                                    :key="tab.name"
-                                    :to="tabTo(tab.name)"
-                                    :class="[
-                                        isTabActive(tab.name)
-                                            ? 'border-blue-500 text-blue-600'
-                                            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-                                        'whitespace-nowrap border-b-2 py-2 px-2 text-sm font-medium flex items-center space-x-2'
-                                    ]"
-                                >
-                                    <Icon v-if="tab.icon" :name="tab.icon" class="w-4 me-1" />
-                                    <span>{{ tab.label }}</span>
-                                </NuxtLink>
-                            </nav>
-                        </div>
-
-                        <!-- Page content -->
-                        <slot />
-                    </template>
                 </div>
+
+                <!-- Error states -->
+                <div v-if="!isLoading && fetchError === 403" class="mt-8">
+                    <div class="bg-white border border-gray-200 rounded-xl p-10 text-center">
+                        <Icon name="i-heroicons-lock-closed" class="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                        <h2 class="text-base font-medium text-gray-900">Access Restricted</h2>
+                        <p class="mt-1.5 text-sm text-gray-500 max-w-sm mx-auto">
+                            This agent is private. Contact the owner or an admin to request access.
+                        </p>
+                        <NuxtLink to="/agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
+                            ← Back to agents
+                        </NuxtLink>
+                    </div>
+                </div>
+
+                <div v-else-if="!isLoading && fetchError === 404" class="mt-8">
+                    <div class="bg-white border border-gray-200 rounded-xl p-10 text-center">
+                        <Icon name="i-heroicons-exclamation-circle" class="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                        <h2 class="text-base font-medium text-gray-900">Agent Not Found</h2>
+                        <p class="mt-1.5 text-sm text-gray-500 max-w-sm mx-auto">
+                            The agent you're looking for doesn't exist or has been removed.
+                        </p>
+                        <NuxtLink to="/agents" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
+                            ← Back to agents
+                        </NuxtLink>
+                    </div>
+                </div>
+
+                <!-- Tabs + content -->
+                <template v-else-if="!fetchError">
+                    <div class="mt-6">
+                        <nav class="flex items-center gap-1">
+                            <NuxtLink
+                                v-for="tab in tabs"
+                                :key="tab.name"
+                                :to="tabTo(tab.name)"
+                                :class="[
+                                    isTabActive(tab.name)
+                                        ? 'bg-gray-100 text-gray-900 font-medium'
+                                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800',
+                                    'whitespace-nowrap rounded-full px-4 py-1.5 text-sm transition-all'
+                                ]"
+                            >
+                                {{ tab.label }}
+                            </NuxtLink>
+                        </nav>
+                    </div>
+
+                    <slot />
+                </template>
+
             </div>
         </div>
     </NuxtLayout>
@@ -104,52 +147,80 @@ import {
     indexingSummary,
     statusDotClass,
 } from '~/composables/useConnectionStatus'
+import { useCan } from '~/composables/usePermissions'
 
 const route = useRoute()
+const router = useRouter()
 
 const id = computed(() => String(route.params.id || ''))
-
 const { isMcpToolsEnabled } = useOrgSettings()
 
+const canViewMonitoring = computed(() => useCan('full_admin_access'))
+const canManageEvals = computed(() => useCan('manage_evals'))
+
 const allTabs = [
-    { name: '', label: 'Overview', icon: 'i-heroicons-home' },
-    { name: 'tables', label: 'Tables', icon: 'i-heroicons-table-cells' },
-    { name: 'tools', label: 'Tools', icon: 'i-heroicons-wrench-screwdriver' },
-    { name: 'context', label: 'Context', icon: 'i-heroicons-light-bulb' },
-    { name: 'connection', label: 'Connection', icon: 'i-heroicons-link' },
-    { name: 'settings', label: 'Settings', icon: 'i-heroicons-cog-6-tooth' }
+    { name: '', label: 'Overview' },
+    { name: 'tables', label: 'Tables' },
+    { name: 'context', label: 'Instructions' },
+    { name: 'queries', label: 'Queries' },
+    { name: 'tools', label: 'Tools' },
+    { name: 'monitoring', label: 'Monitoring', gate: canViewMonitoring },
+    { name: 'evals', label: 'Evals', gate: canManageEvals },
+    { name: 'settings', label: 'Settings' },
 ]
 
 const tabs = computed(() =>
-    allTabs.filter(tab => tab.name !== 'tools' || isMcpToolsEnabled.value)
+    allTabs.filter(tab => {
+        if (tab.name === 'tools' && !isMcpToolsEnabled.value) return false
+        if (tab.gate && !tab.gate.value) return false
+        return true
+    })
 )
 
 function tabTo(tabName: string) {
-    if (!id.value) return '/data'
-    if (tabName === '') return `/data/${id.value}`
-    return `/data/${id.value}/${tabName}`
+    if (!id.value) return '/agents'
+    if (tabName === '') return `/agents/${id.value}`
+    return `/agents/${id.value}/${tabName}`
 }
 
 function isTabActive(tabName: string) {
     const path = route.path
     if (tabName === '') {
-        return path === `/data/${id.value}` || path === `/data/${id.value}/`
+        return path === `/agents/${id.value}` || path === `/agents/${id.value}/`
     }
-    return path === `/data/${id.value}/${tabName}`
+    return path === `/agents/${id.value}/${tabName}`
 }
+
+const tableCount = computed(() =>
+    (integration.value?.connections || []).reduce((sum: number, c: any) => sum + (c.table_count || 0), 0)
+)
+const connectionCount = computed(() => (integration.value?.connections || []).length)
 
 const integration = ref<any>(null)
 const isLoading = ref(true)
 const fetchError = ref<number | null>(null)
-const connection = computed(() => String(integration.value?.user_status?.connection || '').toLowerCase())
+const startingChat = ref(false)
 
-// Connection info for display
-const connectionType = computed(() => integration.value?.connection?.type || integration.value?.type)
-const connectionName = computed(() => integration.value?.connection?.name || integration.value?.name || 'No connection')
-const isConnected = computed(() => {
-    const c = connection.value
-    return c === 'success'
-})
+async function startChat() {
+    if (startingChat.value || !integration.value?.id) return
+    startingChat.value = true
+    try {
+        const response = await useMyFetch('/reports', {
+            method: 'POST',
+            body: JSON.stringify({
+                title: 'untitled report',
+                files: [],
+                data_sources: [integration.value.id],
+            }),
+        })
+        const data = (response.data as any)?.value
+        if (data?.id) {
+            await router.push(`/reports/${data.id}`)
+        }
+    } finally {
+        startingChat.value = false
+    }
+}
 
 async function fetchIntegration() {
     if (!id.value) return
@@ -177,21 +248,14 @@ async function fetchIntegration() {
     }
 
     isLoading.value = false
-    // Auto-manage the polling loop based on the fresh data so any caller —
-    // including child pages calling the injected fetcher after a reindex —
-    // gets progress updates without manually re-arming polling.
     maybeStartPolling()
 }
 
-// Provide integration data to child pages
 provide('integration', integration)
 provide('fetchIntegration', fetchIntegration)
 provide('isLoading', isLoading)
 provide('fetchError', fetchError)
 
-// Poll while any connection is currently indexing — the backend inlines the
-// latest indexing row into each connection. Poll stops when every connection
-// has reached a terminal state (or when the integration fetch errors).
 const POLL_INTERVAL_MS = 2000
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -234,5 +298,3 @@ onBeforeUnmount(() => {
     stopPolling()
 })
 </script>
-
-

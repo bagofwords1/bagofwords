@@ -2058,5 +2058,14 @@
     "genericTitle": "משהו השתבש",
     "unknownError": "שגיאה לא ידועה",
     "goHome": "לדף הבית"
+  },
+  "agentPage": {
+    "tables": {
+      "manageConnections": "נהל חיבורים",
+      "schemaRefreshing": "הסכמה מתרעננת — הטבלאות יופיעו בקרוב.",
+      "selectTables": "בחר טבלאות",
+      "selectTablesSubtitle": "בחר אילו טבלאות להפעיל",
+      "save": "שמור"
+    }
   }
 }

@@ -2058,5 +2058,14 @@
     "genericTitle": "Something went wrong",
     "unknownError": "Unknown error",
     "goHome": "Go home"
+  },
+  "agentPage": {
+    "tables": {
+      "manageConnections": "Manage Connections",
+      "schemaRefreshing": "Schema is being refreshed — tables will appear shortly.",
+      "selectTables": "Select tables",
+      "selectTablesSubtitle": "Choose which tables to enable",
+      "save": "Save"
+    }
   }
 }

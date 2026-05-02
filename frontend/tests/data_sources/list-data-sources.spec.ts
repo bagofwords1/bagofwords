@@ -2,7 +2,7 @@
 import { test, expect } from '../fixtures/feature-test';
 
 test('can list data sources', async ({ page }) => {
-  await page.goto('/data');
+  await page.goto('/agents');
   await page.waitForLoadState('networkidle');
 
   // Wait for page to fully load (either Data Agents or Connections section)

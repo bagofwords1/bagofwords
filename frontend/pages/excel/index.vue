@@ -45,7 +45,7 @@
             </div>
 
 
-            <div @click="router.push('/data')" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
+            <div @click="router.push('/agents')" class="flex cursor-pointer flex-col text-sm w-full text-start mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
                 <div class="flex">
                     <div class="w-4/5 pe-4">
                         <p class="text-sm text-black">
@@ -85,7 +85,7 @@ definePageMeta({ layout: 'excel', auth: true })
 
 const menuItems = computed(() => [
     [{ label: t('excel.menuReports'), icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
-    [{ label: t('excel.menuData'), icon: 'i-heroicons-circle-stack', to: '/data' }],
+    [{ label: t('excel.menuData'), icon: 'i-heroicons-circle-stack', to: '/agents' }],
     [{ label: currentUser.value?.name, icon: 'i-heroicons-user'},
     { label: organization.value.name, icon: 'i-heroicons-building-office'  }
     ],

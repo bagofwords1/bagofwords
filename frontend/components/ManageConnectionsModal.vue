@@ -19,7 +19,7 @@
         <div v-else-if="connections.length === 0" class="py-8 text-center text-gray-500">
           <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
           <p class="text-sm">No connections yet.</p>
-          <UButton color="primary" variant="soft" size="sm" class="mt-3" @click="navigateTo('/data/new'); isOpen = false">
+          <UButton color="primary" variant="soft" size="sm" class="mt-3" @click="navigateTo('/agents/new'); isOpen = false">
             Add Connection
           </UButton>
         </div>
@@ -80,7 +80,7 @@
 
       <template #footer>
         <div class="flex justify-between">
-          <UButton color="primary" variant="soft" @click="navigateTo('/data/new'); isOpen = false">
+          <UButton color="primary" variant="soft" @click="navigateTo('/agents/new'); isOpen = false">
             <UIcon name="heroicons-plus" class="me-1" />
             Add Connection
           </UButton>

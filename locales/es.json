@@ -2058,5 +2058,14 @@
     "genericTitle": "Algo salió mal",
     "unknownError": "Error desconocido",
     "goHome": "Ir al inicio"
+  },
+  "agentPage": {
+    "tables": {
+      "manageConnections": "Gestionar conexiones",
+      "schemaRefreshing": "El esquema se está actualizando — las tablas aparecerán en breve.",
+      "selectTables": "Seleccionar tablas",
+      "selectTablesSubtitle": "Elige qué tablas habilitar",
+      "save": "Guardar"
+    }
   }
 }

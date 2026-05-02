@@ -61,7 +61,7 @@ function canClick(key: string) {
 
 function go(key: string) {
   if (!canClick(key)) return
-  const basePath = '/data/new'
+  const basePath = '/agents/new'
   if (key === 'schema' && props.dsId) return router.push(`${basePath}/${props.dsId}/schema`)
   if (key === 'context' && props.dsId) return router.push(`${basePath}/${props.dsId}/context`)
 }
