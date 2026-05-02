@@ -2065,7 +2065,13 @@
       "schemaRefreshing": "הסכמה מתרעננת — הטבלאות יופיעו בקרוב.",
       "selectTables": "בחר טבלאות",
       "selectTablesSubtitle": "בחר אילו טבלאות להפעיל",
-      "save": "שמור"
+      "save": "שמור",
+      "addFiles": "הוסף קבצים",
+      "manageFiles": "ניהול קבצים",
+      "removeFile": "הסר קובץ",
+      "filesUploading": "מעלה…",
+      "fileUploadFailed": "כשל בהעלאת הקובץ",
+      "fileRemoveFailed": "כשל בהסרת הקובץ"
     }
   }
 }

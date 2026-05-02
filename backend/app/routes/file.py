@@ -14,7 +14,7 @@ from app.core.auth import current_user
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from fastapi import Form
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, requires_resource_permission
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from app.models.report import Report
@@ -25,8 +25,8 @@ file_service = FileService()
 
 @router.post("/files", response_model=FileSchema)
 @requires_permission('manage_files')
-async def upload_file(request: Request, file: UploadFile = File(...), report_id: Optional[str] = Form(None), current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    result = await file_service.upload_file(db, file, current_user, organization, report_id)
+async def upload_file(request: Request, file: UploadFile = File(...), report_id: Optional[str] = Form(None), data_source_id: Optional[str] = Form(None), current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    result = await file_service.upload_file(db, file, current_user, organization, report_id, data_source_id)
     try:
         await audit_service.log(
             db=db,
@@ -35,12 +35,59 @@ async def upload_file(request: Request, file: UploadFile = File(...), report_id:
             user_id=current_user.id,
             resource_type="file",
             resource_id=result.id,
-            details={"filename": file.filename, "content_type": file.content_type},
+            details={"filename": file.filename, "content_type": file.content_type, "data_source_id": data_source_id},
             request=request,
         )
     except Exception:
         pass
     return result
+
+@router.post("/data_sources/{data_source_id}/files", response_model=FileSchema)
+@requires_resource_permission('data_source', 'manage')
+async def upload_data_source_file(
+    request: Request,
+    data_source_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    result = await file_service.upload_file(db, file, current_user, organization, None, data_source_id)
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="file.uploaded",
+            user_id=current_user.id,
+            resource_type="file",
+            resource_id=result.id,
+            details={"filename": file.filename, "content_type": file.content_type, "data_source_id": data_source_id},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
+
+@router.get("/data_sources/{data_source_id}/files", response_model=list[FileSchema])
+@requires_resource_permission('data_source', 'view')
+async def get_files_by_data_source(
+    data_source_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await file_service.get_files_by_data_source(db, data_source_id, organization)
+
+@router.delete("/data_sources/{data_source_id}/files/{file_id}")
+@requires_resource_permission('data_source', 'manage')
+async def remove_file_from_data_source(
+    file_id: str,
+    data_source_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await file_service.remove_file_from_data_source(db, file_id, data_source_id, organization, current_user)
 
 @router.get("/reports/{report_id}/files", response_model=list[FileSchemaWithCompletionId])
 @requires_permission('manage_files', model=Report)

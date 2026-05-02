@@ -2065,7 +2065,13 @@
       "schemaRefreshing": "Schema is being refreshed — tables will appear shortly.",
       "selectTables": "Select tables",
       "selectTablesSubtitle": "Choose which tables to enable",
-      "save": "Save"
+      "save": "Save",
+      "addFiles": "Add files",
+      "manageFiles": "Manage files",
+      "removeFile": "Remove file",
+      "filesUploading": "Uploading…",
+      "fileUploadFailed": "Failed to upload file",
+      "fileRemoveFailed": "Failed to remove file"
     }
   }
 }
