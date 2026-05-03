@@ -172,11 +172,18 @@ class UsagePolicyService:
             enabled=data.enabled,
         )
         db.add(policy)
-        await db.flush()
-        await self._sync_assignments(db, org_id, policy.id, data.assignments)
-        await self._sync_connection_overrides(db, org_id, policy.id, data.connection_overrides)
-        policy_id = policy.id
-        await db.commit()
+        try:
+            await db.flush()
+            await self._sync_assignments(db, org_id, policy.id, data.assignments)
+            await self._sync_connection_overrides(db, org_id, policy.id, data.connection_overrides)
+            policy_id = policy.id
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"A usage policy named '{data.name}' already exists.",
+            )
         db.expire_all()
         return await self.get_policy(db, org_id, policy_id)
 
@@ -210,7 +217,15 @@ class UsagePolicyService:
         if data.connection_overrides is not None:
             await self._sync_connection_overrides(db, org_id, policy.id, data.connection_overrides)
         policy_id = policy.id
-        await db.commit()
+        attempted_name = policy.name
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"A usage policy named '{attempted_name}' already exists.",
+            )
         db.expire_all()
         return await self.get_policy(db, org_id, policy_id)
 
