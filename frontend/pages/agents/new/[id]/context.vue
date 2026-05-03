@@ -16,7 +16,13 @@
           <!-- outer wrapper is relative so dropdown can overflow the border box -->
           <div class="relative">
             <div class="border border-gray-200 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
-              <div class="mention-container">
+              <!-- Loading overlay -->
+              <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-gray-400">
+                <Spinner class="w-4 h-4" />
+                <span>Generating overview instruction…</span>
+              </div>
+
+              <div v-else class="mention-container">
                 <!-- Highlight backdrop -->
                 <div ref="backdropRef" class="mention-backdrop" aria-hidden="true" v-html="highlightedText" />
 
@@ -24,7 +30,7 @@
                 <textarea
                   ref="textareaRef"
                   v-model="instructionText"
-                  :placeholder="instructionPlaceholder"
+                  placeholder="Describe business rules, metric definitions, or query guidelines…"
                   class="mention-textarea"
                   @input="handleTextareaInput"
                   @keydown="handleTextareaKeydown"
@@ -84,7 +90,7 @@
         </div>
 
         <div class="flex justify-end pt-4">
-          <button @click="handleSave" :disabled="saving" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
+          <button @click="handleSave" :disabled="saving || loadingDraft" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
             <span v-if="saving">Saving...</span>
             <span v-else>Save & Continue</span>
           </button>
@@ -102,19 +108,17 @@ import WizardSteps from '@/components/datasources/WizardSteps.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
+import Spinner from '~/components/Spinner.vue'
 
 const route = useRoute()
 const router = useRouter()
 const dsId = computed(() => String(route.params.id || ''))
 
 const saving = ref(false)
+const loadingDraft = ref(false)
 const showGitModal = ref(false)
 const integration = ref<any>(null)
-
-const repoDisplayName = computed(() => {
-  const url = integration.value?.git_repository?.repo_url || ''
-  return String(url).split('/').pop()?.replace(/\.git$/, '') || 'Repository'
-})
+const draftInstructionId = ref<string | null>(null)
 
 async function fetchIntegration() {
   if (!dsId.value) return
@@ -124,21 +128,30 @@ async function fetchIntegration() {
 
 function handleGitModalClose(value: boolean) { if (!value) fetchIntegration() }
 
+// ── Draft instruction ─────────────────────────────────────────────────────────
+async function loadDraftInstruction() {
+  if (!dsId.value) return
+  loadingDraft.value = true
+  try {
+    // Trigger llm_sync — returns the onboarding_instruction id directly
+    const { data: syncData } = await useMyFetch<any>(`/data_sources/${dsId.value}/llm_sync`, { method: 'POST' })
+    const instructionId = syncData.value?.onboarding_instruction?.id
+
+    if (instructionId) {
+      // Fetch the specific instruction by ID
+      const { data, error } = await useMyFetch<any>(`/instructions/${instructionId}`, { method: 'GET' })
+      if (!error.value && data.value) {
+        instructionText.value = data.value.text || ''
+        draftInstructionId.value = instructionId
+      }
+    }
+  } catch {} finally {
+    loadingDraft.value = false
+  }
+}
+
 // ── Instruction text ──────────────────────────────────────────────────────────
 const instructionText = ref('')
-
-const instructionPlaceholder = `## Business rules
-- "Revenue" always refers to net revenue after refunds, never gross
-- Fiscal year starts on February 1st
-
-## Terminology
-- "User" = paying customer (exclude internal test accounts)
-- "Churn" = no activity for 60+ days
-
-## Query guidelines
-- Always filter out deleted records: WHERE deleted_at IS NULL
-- Use @orders and @customers as the primary tables for sales analysis
-- When comparing periods, default to same-period-last-year unless asked otherwise`
 
 // ── @ Mention ─────────────────────────────────────────────────────────────────
 interface MentionItem {
@@ -333,20 +346,35 @@ async function handleSave() {
   if (saving.value) return
   saving.value = true
   try {
-    if (instructionText.value.trim()) {
+    const text = instructionText.value.trim()
+
+    if (draftInstructionId.value) {
+      if (text) {
+        // Promote existing draft to published with (possibly edited) text
+        await useMyFetch(`/instructions/${draftInstructionId.value}`, {
+          method: 'PUT',
+          body: { text, status: 'published' },
+        })
+      } else {
+        // User cleared the text — discard the draft
+        await useMyFetch(`/instructions/${draftInstructionId.value}`, { method: 'DELETE' })
+      }
+    } else if (text) {
+      // No draft exists (llm_sync hadn't run yet) — create fresh
       await useMyFetch('/instructions/global', {
         method: 'POST',
         body: {
-          text: instructionText.value,
+          text,
           status: 'published',
           category: 'general',
           is_seen: true,
           can_user_toggle: true,
           load_mode: 'always',
           data_source_ids: [dsId.value],
-        }
+        },
       })
     }
+
     router.replace(`/agents/${dsId.value}`)
   } finally {
     saving.value = false
@@ -355,6 +383,7 @@ async function handleSave() {
 
 onMounted(() => {
   fetchIntegration()
+  loadDraftInstruction()
   fetchAllMentionItems()
   fetchMentionItems()
 })

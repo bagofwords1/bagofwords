@@ -18,25 +18,17 @@ class DataSourceAgent:
 
     def generate_summary(self):
         prompt = f"""
-Given this data source:
-{self.data_source.name}
+Data source name: {self.data_source.name}
 
-And this schema
+Schema:
 {self.schema}
 
-Please describe the data source in a few sentences. Make it useful for a non-technical audience.
+Write exactly 2 sentences describing this data source. First sentence: what it is. Second sentence: what key data it contains.
 
-Guidelines:
-- High level overview of the data source
-- What the data source is for
-- How it can be used
-- Key tables, fields and relationships
-- Explicit and implicit relationships
-- If the schema contains semantic views (CREATE SEMANTIC VIEW), mention them and note which columns are measures vs dimensions. Explain that semantic views are queried with SEMANTIC_VIEW() function: SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1 METRICS metric1).
-- Ignore metadata tables and fields. or system tables and fields.
-- Use simple language, make it extremely to point, not fluff, and be very brief and concise.
-
-Respond only markdown text (with newlines), no json or any other formatting.
+Rules:
+- No fluff, no "this data source contains", no markdown, no bullet points.
+- Plain text only.
+- Max 60 words total.
 """
         response = self.llm.inference(prompt)
         return response
@@ -89,6 +81,59 @@ Do not add prefix ``` or markdown or anything. just the list of conversation sta
 
     def generate_context(self):
         pass
+
+    def generate_datasource_instruction(self) -> dict:
+        """Generate a single comprehensive overview instruction for this data source.
+
+        Returns a dict with keys: title, text, category, load_mode, confidence.
+        Title follows the pattern {DS_NAME}_OVERVIEW.
+        """
+        ds_name = self.data_source.name or "datasource"
+        title = ds_name.upper().replace(" ", "_").replace("-", "_") + "_OVERVIEW"
+
+        prompt = f"""You are a data analyst onboarding a new data source for an AI analytics agent.
+
+Data source name: {ds_name}
+
+Schema:
+{self.schema}
+
+Your task: write a single comprehensive instruction that the AI analytics agent will load every time it works with this data source. This instruction is its permanent reference card.
+
+The instruction must cover:
+- What this data source represents and its business purpose
+- Key tables and what each tracks (1 line per table, focused on business meaning)
+- Important relationships between tables (joins, foreign keys worth knowing)
+- Any naming conventions, column quirks, or non-obvious facts visible in the schema (e.g. status codes, units, soft deletes)
+- Primary identifiers and date/time columns to use for filtering
+
+Rules:
+- Be specific and factual — ground every claim in the schema, never invent
+- No fluff, no generic statements like "this data source contains data about..."
+- Write as direct instructions to the AI analyst ("Use X to...", "Always join on...", "Note that...")
+- Plain prose with short bullet points where helpful
+- 150–300 words
+
+Return JSON only:
+{{"title": "{title}", "text": "...", "category": "general", "load_mode": "always", "confidence": 0.95}}"""
+
+        response = self.llm.inference(prompt)
+        response = response.strip()
+        # Strip markdown code fences if present
+        if response.startswith("```"):
+            response = response.split("```")[1]
+            if response.startswith("json"):
+                response = response[4:]
+        try:
+            return json.loads(response.strip())
+        except Exception:
+            return {
+                "title": title,
+                "text": response.strip(),
+                "category": "general",
+                "load_mode": "always",
+                "confidence": 0.9,
+            }
 
 
     def generate_description(self):

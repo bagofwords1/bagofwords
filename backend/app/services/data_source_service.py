@@ -553,16 +553,12 @@ class DataSourceService:
         return response
 
     async def llm_sync(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User | None = None) -> dict:
-        """Run multiple LLM onboarding generators sequentially for a data source.
+        """Run LLM onboarding generators for a data source.
         Returns a dict of generated fields.
         """
         result: dict = {}
 
-        from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
-        from app.services.organization_settings_service import OrganizationSettingsService
         model = await organization.get_default_llm_model(db)
-        org_settings = await OrganizationSettingsService().get_settings(db, organization, current_user)
-        suggest_instructions = SuggestInstructions(model=model, organization_settings=org_settings)
 
         # Load the data source model instance for context and schema sync
         ds_q = await db.execute(
@@ -579,119 +575,86 @@ class DataSourceService:
         if not getattr(data_source, "use_llm_sync", True):
             return {"skipped": True, "reason": "LLM sync disabled for this data source"}
 
-
         try:
             summary = await self.generate_data_source_items(db=db, item="summary", data_source_id=data_source_id, organization=organization, current_user=current_user or User())
             result.update(summary)
-            # Persist description on the data source if available
             if isinstance(summary, dict) and summary.get("summary"):
                 data_source.description = summary.get("summary")
                 await db.commit()
                 await db.refresh(data_source)
         except Exception:
             pass
+
         try:
             starters = await self.generate_data_source_items(db=db, item="conversation_starters", data_source_id=data_source_id, organization=organization, current_user=current_user or User())
             result.update(starters)
-            # Persist conversation starters on the data source if available
             if isinstance(starters, dict) and starters.get("conversation_starters") is not None:
                 data_source.conversation_starters = starters.get("conversation_starters")
                 await db.commit()
                 await db.refresh(data_source)
         except Exception:
             pass
-        # Build a lightweight context view for onboarding suggestions
-        try:
-            from app.ai.context import ContextHub  # Local import to avoid circular dependency
-            context_hub = ContextHub(
-                db=db,
-                organization=organization,
-                report=None,
-                data_sources=[data_source],
-                user=current_user,
-                head_completion=None,
-                widget=None,
-            )
-            await context_hub.prime_static()
-            view = context_hub.get_view()
-        except Exception:
-            view = None
 
-        # Stream onboarding suggestions (non-fatal if fails)
+        # Generate and save a single overview instruction draft for the onboarding UI
         try:
-            created_instruction_payloads: list[dict] = []
-            instruction_service = InstructionService()
-            
-            # === Build System Integration ===
-            # Create a single build for all onboarding instructions
-            onboarding_build = None
-            try:
-                from app.services.build_service import BuildService
-                build_service = BuildService()
-                onboarding_build = await build_service.get_or_create_draft_build(
-                    db,
-                    organization.id,
-                    source='ai',
-                    user_id=current_user.id if current_user else None
+            schema = await self._get_prompt_schema(db=db, data_source=data_source, organization=organization, current_user=current_user or User())
+            from app.ai.agents.data_source.data_source import DataSourceAgent
+            agent = DataSourceAgent(data_source=data_source, schema=schema, model=model)
+            instruction_data_raw = agent.generate_datasource_instruction()
+
+            text = (instruction_data_raw or {}).get("text", "").strip()
+            title = (instruction_data_raw or {}).get("title", "").strip()
+            category = (instruction_data_raw or {}).get("category", "general")
+            load_mode = (instruction_data_raw or {}).get("load_mode", "always")
+
+            if text and title:
+                instruction_service = InstructionService()
+                from app.models.instruction import Instruction, instruction_data_source_association
+
+                # Reuse existing onboarding draft if present (avoids FK cascade issues from old builds)
+                existing_q = await db.execute(
+                    select(Instruction).join(
+                        instruction_data_source_association,
+                        instruction_data_source_association.c.instruction_id == Instruction.id,
+                    ).filter(
+                        instruction_data_source_association.c.data_source_id == data_source_id,
+                        Instruction.ai_source == "onboarding",
+                        Instruction.status == "draft",
+                    ).limit(1)
                 )
-                logger.info(f"Created onboarding build {onboarding_build.id} for data source {data_source_id}")
-            except Exception as build_error:
-                logger.warning(f"Failed to create onboarding build: {build_error}")
-            
-            draft_count = 0
-            async for draft in suggest_instructions.onboarding_suggestions(context_view=view):
-                draft_count += 1
-                text = (draft or {}).get("text")
-                category = (draft or {}).get("category")
-                if not (text and category):
-                    continue
-                try:
-                    # Create as a draft suggestion (not published)
+                existing = existing_q.scalar_one_or_none()
+
+                if existing:
+                    existing.text = text
+                    existing.title = title
+                    existing.category = category
+                    existing.load_mode = load_mode
+                    await db.commit()
+                    await db.refresh(existing)
+                    result["onboarding_instruction"] = {"id": str(existing.id), "title": title}
+                    logger.info(f"Updated onboarding draft instruction {existing.id} for data source {data_source_id}")
+                else:
                     create_payload = InstructionCreate(
                         text=text,
+                        title=title,
                         category=category,
+                        load_mode=load_mode,
                         ai_source="onboarding",
                         data_source_ids=[data_source_id],
                         status="draft",
-                        global_status="suggested",
                     )
                     created = await instruction_service.create_instruction(
                         db=db,
                         instruction_data=create_payload,
                         current_user=current_user or User(),
                         organization=organization,
-                        build=onboarding_build,  # Use shared build
-                        auto_finalize=False,  # Don't finalize yet
+                        force_global=True,
+                        auto_finalize=False,
                     )
-                    created_instruction_payloads.append({
-                        "id": created.id,
-                        "text": created.text,
-                        "category": created.category,
-                        "status": created.status,
-                        "global_status": created.global_status,
-                        "data_source_ids": [data_source_id],
-                    })
-                except Exception as e:
-                    # Skip persisting this draft if creation fails
-                    logger.debug(f"Failed to create instruction from draft: {e}")
-                    continue
-            
-            logger.debug(f"Onboarding: created {len(created_instruction_payloads)} instructions from {draft_count} drafts")
-            
-            # === Finalize Build ===
-            if onboarding_build and len(created_instruction_payloads) > 0:
-                try:
-                    await build_service.submit_build(db, onboarding_build.id)
-                    await build_service.approve_build(db, onboarding_build.id, approved_by_user_id=current_user.id if current_user else None)
-                    await build_service.promote_build(db, onboarding_build.id)
-                    logger.info(f"Finalized onboarding build {onboarding_build.id} with {len(created_instruction_payloads)} instructions")
-                except Exception as finalize_error:
-                    logger.warning(f"Failed to finalize onboarding build: {finalize_error}")
-            
-            if created_instruction_payloads:
-                result["instructions"] = created_instruction_payloads
+                    result["onboarding_instruction"] = {"id": str(created.id), "title": title}
+                    logger.info(f"Created onboarding draft instruction {created.id} for data source {data_source_id}")
         except Exception as e:
-            logger.debug(f"Onboarding suggestions failed: {e}")
+            logger.warning(f"Failed to generate onboarding instruction: {e}")
 
         return result
 
