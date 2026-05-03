@@ -27,18 +27,28 @@ class SessionManager:
                 cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, role_arn: str, region: str) -> None:
+    def __init__(self, role_arn: str, region: str, access_key: str = None, secret_key: str = None) -> None:
         if hasattr(self, '_initialized') and self._initialized:
             return
         self.role_arn = role_arn
         self.region = region
+        self.access_key = access_key
+        self.secret_key = secret_key
         self._renew_session()
         self._initialized = True
 
     def _renew_session(self) -> None:
         """Assume the role and create a new session."""
         logger.info("Renewing AWS session.")
-        sts_client = boto3.client("sts", region_name=self.region)
+        if self.access_key and self.secret_key:
+            sts_client = boto3.client(
+                "sts",
+                region_name=self.region,
+                aws_access_key_id=self.access_key,
+                aws_secret_access_key=self.secret_key,
+            )
+        else:
+            sts_client = boto3.client("sts", region_name=self.region)
         role_arn = f"{self.role_arn}-{os.getenv('DEPLOYED_ENV', '').title()}" if os.getenv('DEPLOYED_ENV') else self.role_arn
         assumed_role = sts_client.assume_role(
             RoleArn=role_arn,
@@ -123,7 +133,7 @@ class AwsAthenaClient(DataSourceClient):
         self.kms_key = kms_key
         
         if role_arn:
-            self.session_manager = SessionManager(role_arn, region)
+            self.session_manager = SessionManager(role_arn, region, access_key, secret_key)
             # Initialize session for Glue client
             with self.session_manager as session:
                 self.glue_client = session.client('glue', region_name=self.region)
