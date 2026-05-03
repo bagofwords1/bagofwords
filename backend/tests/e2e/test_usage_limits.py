@@ -11,12 +11,18 @@ from app.ai.llm.types import LLMResponse, LLMUsage
 from app.dependencies import async_session_maker
 from app.ee import license as ee_license
 from app.models.connection import Connection
+from app.models.data_source import DataSource
+from app.models.query import Query
+from app.models.report import Report
+from app.models.widget import Widget
 from app.models.usage_policy import UsageCounter
+from app.schemas.query_schema import QueryRunRequest
 from app.schemas.usage_policy_schema import (
     UsagePolicyAssignmentInput,
     UsagePolicyConnectionOverrideInput,
     UsagePolicyCreate,
 )
+from app.services.query_service import QueryService
 from app.services.usage_policy_service import (
     METRIC_DATA_BYTES,
     METRIC_DATA_QUERIES,
@@ -63,6 +69,40 @@ async def _counter_used(org_id, user_id, metric, *, scope_type="organization", s
         return counter.used if counter else 0
 
 
+async def _record_usage_summary_sample(org_id, user_id, conn_id):
+    async with async_session_maker() as db:
+        await usage_policy_service.record_llm_tokens(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            amount=3,
+            source="test.summary",
+        )
+        await usage_policy_service.consume_data_query(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            connection_id=conn_id,
+            source="test.summary",
+        )
+        await usage_policy_service.consume_data_query(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            connection_id=conn_id,
+            source="test.summary",
+        )
+        await usage_policy_service.consume_data_bytes(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            connection_id=conn_id,
+            amount=50,
+            source="test.summary",
+        )
+        await db.commit()
+
+
 async def _create_connection(org_id, name):
     async with async_session_maker() as db:
         conn = Connection(
@@ -76,6 +116,42 @@ async def _create_connection(org_id, name):
         await db.commit()
         await db.refresh(conn)
         return str(conn.id)
+
+
+async def _create_query_context(org_id, user_id):
+    async with async_session_maker() as db:
+        suffix = uuid.uuid4().hex[:8]
+        report = Report(
+            title=f"Quota report {suffix}",
+            slug=f"quota-report-{suffix}",
+            status="draft",
+            user_id=user_id,
+            organization_id=org_id,
+        )
+        data_source = DataSource(
+            name=f"Quota source {suffix}",
+            organization_id=org_id,
+            is_active=True,
+            is_public=True,
+        )
+        widget = Widget(
+            title=f"Quota widget {suffix}",
+            slug=f"quota-widget-{suffix}",
+            status="draft",
+            report=report,
+        )
+        query = Query(
+            title=f"Quota query {suffix}",
+            report=report,
+            widget=widget,
+            organization_id=org_id,
+            user_id=user_id,
+        )
+        report.data_sources.append(data_source)
+        db.add_all([report, data_source, widget, query])
+        await db.commit()
+        await db.refresh(query)
+        return str(query.id)
 
 
 def _bootstrap_admin(create_user, login_user, whoami):
@@ -123,6 +199,108 @@ def test_usage_policy_routes_default_unlimited_and_direct_assignment(test_client
     assert effective.json()["monthly_query_limit"] == 25
     assert effective.json()["monthly_data_bytes_limit"] == 1000000
     assert effective.json()["resolution_source"] == "direct"
+
+
+@pytest.mark.e2e
+def test_usage_policy_update_persists_connection_overrides_with_unlimited_defaults(test_client, create_user, login_user, whoami):
+    token, org_id, _ = _bootstrap_admin(create_user, login_user, whoami)
+    conn_id = _run(_create_connection(org_id, "warehouse"))
+
+    created = test_client.post(
+        f"/api/organizations/{org_id}/usage-policies",
+        json={
+            "name": "Connection-only cap",
+            "monthly_token_limit": None,
+            "monthly_query_limit": None,
+            "monthly_data_bytes_limit": None,
+        },
+        headers=_headers(token, org_id),
+    )
+    assert created.status_code == 200, created.json()
+
+    updated = test_client.put(
+        f"/api/organizations/{org_id}/usage-policies/{created.json()['id']}",
+        json={
+            "name": "Connection-only cap",
+            "monthly_token_limit": None,
+            "monthly_query_limit": None,
+            "monthly_data_bytes_limit": None,
+            "connection_overrides": [
+                {
+                    "connection_id": conn_id,
+                    "monthly_query_limit": 2,
+                    "monthly_data_bytes_limit": None,
+                }
+            ],
+            "enabled": True,
+        },
+        headers=_headers(token, org_id),
+    )
+    assert updated.status_code == 200, updated.json()
+    assert updated.json()["monthly_query_limit"] is None
+    assert updated.json()["connection_overrides"] == [
+        {
+            "id": updated.json()["connection_overrides"][0]["id"],
+            "policy_id": created.json()["id"],
+            "organization_id": org_id,
+            "connection_id": conn_id,
+            "monthly_query_limit": 2,
+            "monthly_data_bytes_limit": None,
+        }
+    ]
+
+
+@pytest.mark.e2e
+def test_whoami_includes_usage_quota_summary(create_user, login_user, whoami):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    conn_id = _run(_create_connection(org_id, "warehouse"))
+    _run(_create_policy(
+        org_id,
+        name="Visible quota",
+        monthly_token_limit=5,
+        monthly_query_limit=100,
+        monthly_data_bytes_limit=1000,
+        assignments=[UsagePolicyAssignmentInput(principal_type="user", principal_id=user_id)],
+        connection_overrides=[
+            UsagePolicyConnectionOverrideInput(
+                connection_id=conn_id,
+                monthly_query_limit=2,
+                monthly_data_bytes_limit=200,
+            ),
+        ],
+    ))
+    _run(_record_usage_summary_sample(org_id, user_id, conn_id))
+
+    profile = whoami(token)
+    org = next(item for item in profile["organizations"] if item["id"] == org_id)
+    quota = org["usage_quota"]
+    assert quota["enabled"] is True
+    assert quota["resolution_source"] == "direct"
+    assert quota["tokens"]["used"] == 3
+    assert quota["tokens"]["limit"] == 5
+    assert quota["tokens"]["remaining"] == 2
+    assert quota["queries"]["used"] == 2
+    assert quota["queries"]["limit"] == 100
+    assert quota["data_bytes"]["used"] == 50
+    assert quota["data_bytes"]["limit"] == 1000
+    assert quota["connections"] == [
+        {
+            "id": conn_id,
+            "name": "warehouse",
+            "queries": {
+                "used": 2,
+                "limit": 2,
+                "remaining": 0,
+                "percent": 100.0,
+            },
+            "data_bytes": {
+                "used": 50,
+                "limit": 200,
+                "remaining": 150,
+                "percent": 25.0,
+            },
+        }
+    ]
 
 
 @pytest.mark.e2e
@@ -377,6 +555,72 @@ def generate_df(ds_clients, excel_files):
         scope_type=SCOPE_CONNECTION,
         scope_ref_id=conn_id,
     )) == 1
+
+
+@pytest.mark.e2e
+def test_query_preview_enforces_connection_query_quota(monkeypatch, create_user, login_user, whoami):
+    _, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    conn_id = _run(_create_connection(org_id, "warehouse"))
+    _run(_create_policy(
+        org_id,
+        name="Query preview cap",
+        monthly_query_limit=2,
+        assignments=[UsagePolicyAssignmentInput(principal_type="user", principal_id=user_id)],
+    ))
+    query_id = _run(_create_query_context(org_id, user_id))
+    client = _FakeQueryClient(conn_id)
+
+    async def fake_construct_clients(self, db, data_source, current_user=None):
+        return {"main": client}
+
+    monkeypatch.setattr(
+        "app.services.data_source_service.DataSourceService.construct_clients",
+        fake_construct_clients,
+    )
+
+    code = """
+def generate_df(ds_clients, excel_files):
+    return ds_clients["main"].execute_query("select 1")
+"""
+
+    async def run_previews():
+        service = QueryService()
+        async with async_session_maker() as db:
+            first = await service.preview_query_code(
+                db,
+                query_id,
+                QueryRunRequest(code=code),
+                organization_id=org_id,
+                user_id=user_id,
+            )
+            second = await service.preview_query_code(
+                db,
+                query_id,
+                QueryRunRequest(code=code),
+                organization_id=org_id,
+                user_id=user_id,
+            )
+            third = await service.preview_query_code(
+                db,
+                query_id,
+                QueryRunRequest(code=code),
+                organization_id=org_id,
+                user_id=user_id,
+            )
+            return first, second, third
+
+    first, second, third = _run(run_previews())
+    assert first["preview"] is not None
+    assert second["preview"] is not None
+    assert "Monthly usage quota exceeded" in third["error"]
+    assert client.calls == 2
+    assert _run(_counter_used(
+        org_id,
+        user_id,
+        METRIC_DATA_QUERIES,
+        scope_type=SCOPE_CONNECTION,
+        scope_ref_id=conn_id,
+    )) == 2
 
 
 @pytest.mark.e2e

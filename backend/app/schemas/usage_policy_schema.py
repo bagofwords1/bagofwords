@@ -115,3 +115,31 @@ class EffectiveUsagePolicySchema(BaseModel):
     monthly_data_bytes_limit: Optional[int] = None
     policy_ids: List[str] = []
     resolution_source: str = "default"
+
+
+class UsageQuotaMetricSchema(BaseModel):
+    used: int = 0
+    limit: Optional[int] = None
+    remaining: Optional[int] = None
+    percent: Optional[float] = None
+
+
+class UsageQuotaConnectionSchema(BaseModel):
+    id: str
+    name: str
+    queries: UsageQuotaMetricSchema
+    data_bytes: UsageQuotaMetricSchema
+
+
+class UsageQuotaSummarySchema(BaseModel):
+    enabled: bool = False
+    organization_id: str
+    user_id: str
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    resolution_source: str = "disabled"
+    policy_ids: List[str] = []
+    tokens: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
+    queries: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
+    data_bytes: UsageQuotaMetricSchema = Field(default_factory=UsageQuotaMetricSchema)
+    connections: List[UsageQuotaConnectionSchema] = []

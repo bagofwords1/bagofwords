@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from uuid import UUID
 from typing import Dict, List, Optional
 from app.schemas.user_schema import UserSchema
+from app.schemas.usage_policy_schema import UsageQuotaSummarySchema
 
 class OrganizationCreate(BaseModel):
     name: str
@@ -49,6 +50,7 @@ class OrganizationAndRoleSchema(OrganizationSchema):
     is_enterprise: bool = False  # whether enterprise license is active
     icon_url: Optional[str] = None
     ai_analyst_name: Optional[str] = None
+    usage_quota: Optional[UsageQuotaSummarySchema] = None
 
 class OrganizationUpdate(BaseModel):
     name: Optional[str] = None

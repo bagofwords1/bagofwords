@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.ee.license import has_feature
+from app.models.connection import Connection
 from app.models.group import Group
 from app.models.group_membership import GroupMembership
 from app.models.role_assignment import RoleAssignment
@@ -28,6 +29,9 @@ from app.schemas.usage_policy_schema import (
     UsagePolicyPrincipalAssignmentResult,
     UsagePolicySchema,
     UsagePolicyUpdate,
+    UsageQuotaConnectionSchema,
+    UsageQuotaMetricSchema,
+    UsageQuotaSummarySchema,
 )
 
 
@@ -171,8 +175,10 @@ class UsagePolicyService:
         await db.flush()
         await self._sync_assignments(db, org_id, policy.id, data.assignments)
         await self._sync_connection_overrides(db, org_id, policy.id, data.connection_overrides)
+        policy_id = policy.id
         await db.commit()
-        return await self.get_policy(db, org_id, policy.id)
+        db.expire_all()
+        return await self.get_policy(db, org_id, policy_id)
 
     async def get_policy(self, db: AsyncSession, org_id: str, policy_id: str) -> UsagePolicySchema:
         policy = await self._get_policy_model(db, org_id, policy_id)
@@ -203,8 +209,10 @@ class UsagePolicyService:
             await self._sync_assignments(db, org_id, policy.id, data.assignments)
         if data.connection_overrides is not None:
             await self._sync_connection_overrides(db, org_id, policy.id, data.connection_overrides)
+        policy_id = policy.id
         await db.commit()
-        return await self.get_policy(db, org_id, policy.id)
+        db.expire_all()
+        return await self.get_policy(db, org_id, policy_id)
 
     async def delete_policy(self, db: AsyncSession, org_id: str, policy_id: str) -> None:
         policy = await self._get_policy_model(db, org_id, policy_id)
@@ -283,6 +291,80 @@ class UsagePolicyService:
             organization_id=org_id,
             user_id=user_id,
             resolution_source="default",
+        )
+
+    async def get_user_quota_summary(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        user_id: str,
+    ) -> UsageQuotaSummarySchema:
+        window_start, window_end = current_month_window()
+        if not has_feature("usage_limits"):
+            return UsageQuotaSummarySchema(
+                enabled=False,
+                organization_id=org_id,
+                user_id=user_id,
+                window_start=window_start.isoformat(),
+                window_end=window_end.isoformat(),
+                resolution_source="disabled",
+            )
+
+        limits = await self.resolve_effective_limits(db, org_id, user_id)
+        counters = await self._get_current_counters(db, org_id, user_id, window_start)
+
+        token_used = counters.get((METRIC_LLM_TOKENS, SCOPE_ORGANIZATION, ""), 0)
+        query_used_by_connection = {
+            scope_ref_id: used
+            for (metric, scope_type, scope_ref_id), used in counters.items()
+            if metric == METRIC_DATA_QUERIES and scope_type == SCOPE_CONNECTION and scope_ref_id
+        }
+        data_used_by_connection = {
+            scope_ref_id: used
+            for (metric, scope_type, scope_ref_id), used in counters.items()
+            if metric == METRIC_DATA_BYTES and scope_type == SCOPE_CONNECTION and scope_ref_id
+        }
+
+        connection_ids = set(query_used_by_connection) | set(data_used_by_connection)
+        for overrides in limits.query_overrides_by_policy.values():
+            connection_ids.update(overrides.keys())
+        for overrides in limits.data_bytes_overrides_by_policy.values():
+            connection_ids.update(overrides.keys())
+
+        connection_names = await self._connection_names(db, org_id, connection_ids)
+        connections = []
+        for connection_id in sorted(connection_ids, key=lambda cid: connection_names.get(cid, cid).lower()):
+            if connection_id not in connection_names:
+                continue
+            query_limit = limits.query_limit_for_connection(connection_id)
+            data_limit = limits.data_bytes_limit_for_connection(connection_id)
+            query_used = query_used_by_connection.get(connection_id, 0)
+            data_used = data_used_by_connection.get(connection_id, 0)
+            if not query_used and not data_used and query_limit is None and data_limit is None:
+                continue
+            connections.append(
+                UsageQuotaConnectionSchema(
+                    id=connection_id,
+                    name=connection_names[connection_id],
+                    queries=self._quota_metric(query_used, query_limit),
+                    data_bytes=self._quota_metric(data_used, data_limit),
+                )
+            )
+
+        query_used = sum(query_used_by_connection.values())
+        data_used = sum(data_used_by_connection.values())
+        return UsageQuotaSummarySchema(
+            enabled=limits.enabled,
+            organization_id=org_id,
+            user_id=user_id,
+            window_start=window_start.isoformat(),
+            window_end=window_end.isoformat(),
+            resolution_source=limits.resolution_source,
+            policy_ids=limits.policy_ids,
+            tokens=self._quota_metric(token_used, limits.monthly_token_limit),
+            queries=self._quota_metric(query_used, limits.monthly_query_limit),
+            data_bytes=self._quota_metric(data_used, limits.monthly_data_bytes_limit),
+            connections=connections,
         )
 
     async def check_llm_tokens_available(
@@ -724,6 +806,60 @@ class UsagePolicyService:
             result = await db.execute(stmt)
             counter = result.scalar_one()
             return counter
+
+    async def _get_current_counters(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        user_id: str,
+        window_start: datetime,
+    ) -> Dict[tuple[str, str, str], int]:
+        result = await db.execute(
+            select(UsageCounter).where(
+                UsageCounter.organization_id == org_id,
+                UsageCounter.user_id == user_id,
+                UsageCounter.window_start == window_start,
+            )
+        )
+        return {
+            (counter.metric, counter.scope_type, counter.scope_ref_id or ""): int(counter.used or 0)
+            for counter in result.scalars().all()
+        }
+
+    async def _connection_names(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        connection_ids: Iterable[str],
+    ) -> Dict[str, str]:
+        ids = [connection_id for connection_id in connection_ids if connection_id]
+        if not ids:
+            return {}
+        result = await db.execute(
+            select(Connection.id, Connection.name).where(
+                Connection.organization_id == org_id,
+                Connection.id.in_(ids),
+                Connection.deleted_at.is_(None),
+            )
+        )
+        return {str(connection_id): name for connection_id, name in result.all()}
+
+    @staticmethod
+    def _quota_metric(used: int, limit: Optional[int]) -> UsageQuotaMetricSchema:
+        remaining = None
+        percent = None
+        if limit is not None:
+            remaining = max(int(limit) - int(used or 0), 0)
+            if limit > 0:
+                percent = round((int(used or 0) / limit) * 100, 2)
+            else:
+                percent = 100.0 if used else 0.0
+        return UsageQuotaMetricSchema(
+            used=int(used or 0),
+            limit=limit,
+            remaining=remaining,
+            percent=percent,
+        )
 
     async def _increment_counter(
         self,

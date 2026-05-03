@@ -196,19 +196,21 @@
                     </div>
                     <div class="p-3 space-y-3">
                         <div class="grid grid-cols-1 gap-3">
-                            <div class="relative z-30">
+                            <div>
                                 <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.connection') }}</label>
-                                <USelectMenu
+                                <select
                                     v-model="overrideConnection"
-                                    :options="connectionOptions"
-                                    value-attribute="value"
-                                    option-attribute="label"
-                                    searchable
-                                    :placeholder="$t('quotaPolicies.selectConnection')"
-                                    size="sm"
-                                    :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
-                                    :ui-menu="{ container: 'z-[80] group' }"
-                                />
+                                    class="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option :value="null" disabled>{{ $t('quotaPolicies.selectConnection') }}</option>
+                                    <option
+                                        v-for="option in connectionOptions"
+                                        :key="option.value"
+                                        :value="option.value"
+                                    >
+                                        {{ option.label }}
+                                    </option>
+                                </select>
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 mb-1">{{ $t('quotaPolicies.queries') }}</label>
@@ -227,31 +229,47 @@
                                 :disabled="!overrideConnection"
                                 @click="addOverride"
                             >
-                                {{ $t('quotaPolicies.add') }}
+                                {{ editingOverrideConnection ? $t('quotaPolicies.update') : $t('quotaPolicies.add') }}
+                            </UButton>
+                            <UButton
+                                v-if="editingOverrideConnection"
+                                variant="ghost"
+                                size="sm"
+                                class="justify-center md:w-fit"
+                                @click="resetOverrideEditor"
+                            >
+                                {{ $t('quotaPolicies.cancelEdit') }}
                             </UButton>
                         </div>
                         <div class="flex flex-col gap-2">
                             <div
                                 v-for="override in form.connectionOverrides"
                                 :key="override.connection_id"
-                                class="flex items-center justify-between border border-gray-100 rounded-md px-3 py-2"
+                                class="flex items-center justify-between gap-3 border border-gray-100 rounded-md px-3 py-2"
                             >
-                                <div class="text-sm">
-                                    <span class="font-medium text-gray-900">{{ connectionName(override.connection_id) }}</span>
-                                    <span class="text-gray-500 ms-2">
+                                <div class="min-w-0 text-sm">
+                                    <div class="font-medium text-gray-900 truncate">{{ connectionName(override.connection_id) }}</div>
+                                    <div class="text-gray-500">
                                         {{ $t('quotaPolicies.queriesShort') }}: {{ formatCountLimit(override.monthly_query_limit) }}
-                                    </span>
-                                    <span class="text-gray-500 ms-2">
+                                        <span class="mx-1">/</span>
                                         {{ $t('quotaPolicies.dataShort') }}: {{ formatBytesLimit(override.monthly_data_bytes_limit) }}
-                                    </span>
+                                    </div>
                                 </div>
-                                <UButton
-                                    variant="ghost"
-                                    size="xs"
-                                    color="red"
-                                    icon="i-heroicons-x-mark"
-                                    @click="removeOverride(override.connection_id)"
-                                />
+                                <div class="flex items-center gap-1">
+                                    <UButton
+                                        variant="ghost"
+                                        size="xs"
+                                        icon="i-heroicons-pencil"
+                                        @click="editOverride(override)"
+                                    />
+                                    <UButton
+                                        variant="ghost"
+                                        size="xs"
+                                        color="red"
+                                        icon="i-heroicons-x-mark"
+                                        @click="removeOverride(override.connection_id)"
+                                    />
+                                </div>
                             </div>
                             <span v-if="form.connectionOverrides.length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.none') }}</span>
                         </div>
@@ -325,6 +343,7 @@ const saving = ref(false)
 const overrideConnection = ref<string | null>(null)
 const overrideQueryLimit = ref('')
 const overrideDataLimitMb = ref('')
+const editingOverrideConnection = ref<string | null>(null)
 
 const form = reactive({
     name: '',
@@ -349,14 +368,14 @@ const filteredPolicies = computed(() => {
     )
 })
 
-function parseOptionalInt(value: string): number | null {
+function parseOptionalInt(value: string | number | null | undefined): number | null {
     if (value === '' || value == null) return null
     const parsed = Number(value)
     if (!Number.isFinite(parsed) || parsed < 0) return null
     return Math.floor(parsed)
 }
 
-function parseOptionalMb(value: string): number | null {
+function parseOptionalMb(value: string | number | null | undefined): number | null {
     if (value === '' || value == null) return null
     const parsed = Number(value)
     if (!Number.isFinite(parsed) || parsed < 0) return null
@@ -446,6 +465,7 @@ function resetForm() {
     overrideConnection.value = null
     overrideQueryLimit.value = ''
     overrideDataLimitMb.value = ''
+    editingOverrideConnection.value = null
 }
 
 function openCreateModal() {
@@ -470,29 +490,75 @@ function openEditModal(policy: UsagePolicy) {
     overrideConnection.value = null
     overrideQueryLimit.value = ''
     overrideDataLimitMb.value = ''
+    editingOverrideConnection.value = null
     showModal.value = true
 }
 
 function addOverride() {
     if (!overrideConnection.value) return
-    const next: UsagePolicyConnectionOverride = {
-        connection_id: overrideConnection.value,
-        monthly_query_limit: parseOptionalInt(overrideQueryLimit.value),
-        monthly_data_bytes_limit: parseOptionalMb(overrideDataLimitMb.value),
-    }
-    const idx = form.connectionOverrides.findIndex(override => override.connection_id === next.connection_id)
-    if (idx >= 0) {
-        form.connectionOverrides.splice(idx, 1, next)
-    } else {
-        form.connectionOverrides.push(next)
-    }
+    upsertOverride(form.connectionOverrides, overrideFromEditor(overrideConnection.value))
+    resetOverrideEditor()
+}
+
+function editOverride(override: UsagePolicyConnectionOverride) {
+    editingOverrideConnection.value = override.connection_id
+    overrideConnection.value = override.connection_id
+    overrideQueryLimit.value = override.monthly_query_limit == null ? '' : String(override.monthly_query_limit)
+    overrideDataLimitMb.value = bytesToMbInput(override.monthly_data_bytes_limit)
+}
+
+function resetOverrideEditor() {
     overrideConnection.value = null
     overrideQueryLimit.value = ''
     overrideDataLimitMb.value = ''
+    editingOverrideConnection.value = null
 }
 
 function removeOverride(connectionId: string) {
     form.connectionOverrides = form.connectionOverrides.filter(override => override.connection_id !== connectionId)
+    if (editingOverrideConnection.value === connectionId) {
+        resetOverrideEditor()
+    }
+}
+
+function overrideFromEditor(connectionId: string): UsagePolicyConnectionOverride {
+    return {
+        connection_id: connectionId,
+        monthly_query_limit: parseOptionalInt(overrideQueryLimit.value),
+        monthly_data_bytes_limit: parseOptionalMb(overrideDataLimitMb.value),
+    }
+}
+
+function upsertOverride(overrides: UsagePolicyConnectionOverride[], next: UsagePolicyConnectionOverride) {
+    const idx = overrides.findIndex(override => override.connection_id === next.connection_id)
+    if (idx >= 0) {
+        overrides.splice(idx, 1, next)
+    } else {
+        overrides.push(next)
+    }
+}
+
+function hasPendingOverrideEditorValue(): boolean {
+    return Boolean(
+        overrideConnection.value &&
+        (
+            editingOverrideConnection.value ||
+            String(overrideQueryLimit.value).trim() !== '' ||
+            String(overrideDataLimitMb.value).trim() !== ''
+        )
+    )
+}
+
+function connectionOverridesForSave(): UsagePolicyConnectionOverride[] {
+    const overrides = form.connectionOverrides.map(override => ({
+        connection_id: override.connection_id,
+        monthly_query_limit: override.monthly_query_limit,
+        monthly_data_bytes_limit: override.monthly_data_bytes_limit,
+    }))
+    if (overrideConnection.value && hasPendingOverrideEditorValue()) {
+        upsertOverride(overrides, overrideFromEditor(overrideConnection.value))
+    }
+    return overrides
 }
 
 function policyPayload() {
@@ -503,7 +569,7 @@ function policyPayload() {
         monthly_query_limit: parseOptionalInt(form.monthlyQueryLimit),
         monthly_data_bytes_limit: parseOptionalMb(form.monthlyDataLimitMb),
         enabled: form.enabled,
-        connection_overrides: form.connectionOverrides,
+        connection_overrides: connectionOverridesForSave(),
     }
 }
 
