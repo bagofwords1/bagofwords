@@ -6,7 +6,7 @@
       </div>
       <h1 class="font-medium text-3xl mt-4 mb-5">{{ $t('auth.signIn') }}</h1>
       <div class="px-10 py-6  border border-gray-200 rounded-xl shadow-sm bg-white">
-      <form @submit.prevent="signInWithCredentials()" v-if="authMode !== 'sso_only'">
+      <form @submit.prevent="signInWithCredentials()" v-if="authMode !== 'sso_only' || localOverride">
         <div class="field block mt-3">
           <i class="i-heroicons-user"></i>
           <input type="text"
@@ -107,7 +107,7 @@
 
   import qs from 'qs';
 
-  import { ref, onMounted } from 'vue';
+  import { ref, computed, onMounted } from 'vue';
   import Spinner from '~/components/Spinner.vue';
 
   const { t } = useI18n()
@@ -121,6 +121,7 @@
   const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
   const smtpEnabled = ref(false)
   const isSubmitting = ref(false)
+  const localOverride = computed(() => route.query.local === 'true')
 
   definePageMeta({
   auth: {
