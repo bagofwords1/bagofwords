@@ -93,7 +93,7 @@ Do not add prefix ``` or markdown or anything. just the list of conversation sta
 
         prompt = f"""You are a data analyst onboarding a new data source for an AI analytics agent.
 
-Data source name: {ds_name}
+Data source/Agent name: {ds_name}
 
 Schema:
 {self.schema}
