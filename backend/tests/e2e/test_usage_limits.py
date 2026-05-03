@@ -4,6 +4,7 @@ import uuid
 import pandas as pd
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, estimate_result_size_bytes
 from app.ai.llm.llm import LLM
@@ -23,6 +24,7 @@ from app.schemas.usage_policy_schema import (
     UsagePolicyCreate,
 )
 from app.services.query_service import QueryService
+from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import (
     METRIC_DATA_BYTES,
     METRIC_DATA_QUERIES,
@@ -67,6 +69,22 @@ async def _counter_used(org_id, user_id, metric, *, scope_type="organization", s
         )
         counter = result.scalar_one_or_none()
         return counter.used if counter else 0
+
+
+async def _counter_exists(org_id, user_id, metric, *, scope_type="organization", scope_ref_id=""):
+    window_start, _ = current_month_window()
+    async with async_session_maker() as db:
+        result = await db.execute(
+            select(UsageCounter.id).where(
+                UsageCounter.organization_id == org_id,
+                UsageCounter.user_id == user_id,
+                UsageCounter.metric == metric,
+                UsageCounter.scope_type == scope_type,
+                UsageCounter.scope_ref_id == scope_ref_id,
+                UsageCounter.window_start == window_start,
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
 
 async def _record_usage_summary_sample(org_id, user_id, conn_id):
@@ -422,6 +440,61 @@ def test_connection_override_applies_per_policy_and_falls_back_to_default(create
     assert effective.data_bytes_limit_for_connection(conn_b) == 1000
 
 
+@pytest.mark.e2e
+def test_default_unlimited_usage_limits_do_not_write_counter_rows(create_user, login_user, whoami):
+    _, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    conn_id = _run(_create_connection(org_id, "warehouse"))
+
+    async def _exercise_default_limits():
+        async with async_session_maker() as db:
+            await usage_policy_service.check_llm_tokens_available(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                requested_tokens=10,
+            )
+            await usage_policy_service.record_llm_tokens(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                amount=10,
+                source="test.default",
+            )
+            await usage_policy_service.consume_data_query(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                connection_id=conn_id,
+                source="test.default",
+            )
+            await usage_policy_service.consume_data_bytes(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                connection_id=conn_id,
+                amount=100,
+                source="test.default",
+            )
+            await db.commit()
+
+    _run(_exercise_default_limits())
+    assert _run(_counter_exists(org_id, user_id, METRIC_LLM_TOKENS)) is False
+    assert _run(_counter_exists(
+        org_id,
+        user_id,
+        METRIC_DATA_QUERIES,
+        scope_type=SCOPE_CONNECTION,
+        scope_ref_id=conn_id,
+    )) is False
+    assert _run(_counter_exists(
+        org_id,
+        user_id,
+        METRIC_DATA_BYTES,
+        scope_type=SCOPE_CONNECTION,
+        scope_ref_id=conn_id,
+    )) is False
+
+
 class _FakeProvider:
     provider_type = "custom"
     additional_config = {"base_url": "http://example.invalid"}
@@ -478,6 +551,35 @@ def _quota_llm(org_id, user_id, client):
     llm._count_tokens = lambda text: 1
     llm._estimate_tokens_fast = lambda text: 1
     return llm
+
+
+@pytest.mark.e2e
+def test_llm_usage_history_sqlite_lock_is_best_effort(monkeypatch, create_user, login_user, whoami):
+    _, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    calls = {"count": 0}
+
+    async def _exercise_locked_history_recording():
+        done = asyncio.Event()
+
+        async def locked_record(self, **kwargs):
+            calls["count"] += 1
+            done.set()
+            raise OperationalError("insert llm usage", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(LLMUsageRecorderService, "record", locked_record)
+        llm = _quota_llm(org_id, user_id, _SuccessfulLLMClient())
+        llm._schedule_usage_record(
+            scope="planner",
+            scope_ref_id="completion-1",
+            prompt_tokens=2,
+            completion_tokens=3,
+            should_record=True,
+        )
+        await asyncio.wait_for(done.wait(), timeout=1)
+        await asyncio.sleep(0)
+
+    _run(_exercise_locked_history_recording())
+    assert calls["count"] == 1
 
 
 @pytest.mark.e2e

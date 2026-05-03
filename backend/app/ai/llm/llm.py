@@ -25,6 +25,7 @@ from app.services.usage_policy_service import UsageLimitContext, usage_policy_se
 from app.settings.logging_config import get_logger
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
@@ -606,8 +607,9 @@ class LLM:
         session_maker = self._usage_session_maker
         if session_maker is None:
             return
-        try:
-            async def _record_usage():
+
+        async def _record_usage():
+            try:
                 async with session_maker() as session:
                     recorder = LLMUsageRecorderService(session)
                     await recorder.record(
@@ -620,10 +622,11 @@ class LLM:
                         cache_creation_tokens=cache_creation_tokens or 0,
                     )
                     await session.commit()
-            coroutine = _record_usage()
-        except Exception as exc:
-            logger.debug("Failed to create LLM usage record coroutine: %s", exc)
-            return
+            except Exception as exc:
+                if self._is_sqlite_lock_error(exc):
+                    logger.debug("Skipping LLM usage record because SQLite is locked: scope=%s", scope)
+                    return
+                logger.warning("Skipping LLM usage record after unexpected failure: %s", exc)
 
         global _MAIN_LOOP
         try:
@@ -637,11 +640,18 @@ class LLM:
                 logger.debug("Skipping LLM usage recording; no running loop for scope %s", scope)
                 return
             try:
-                asyncio.run_coroutine_threadsafe(coroutine, loop)
+                asyncio.run_coroutine_threadsafe(_record_usage(), loop)
             except Exception as exc:
                 logger.warning("Unable to schedule LLM usage recording (threadsafe): %s", exc)
             return
         try:
-            loop.create_task(coroutine)
+            loop.create_task(_record_usage())
         except Exception as exc:
             logger.warning("Unable to schedule LLM usage recording: %s", exc)
+
+    @staticmethod
+    def _is_sqlite_lock_error(exc: Exception) -> bool:
+        if not isinstance(exc, OperationalError):
+            return False
+        message = str(exc).lower()
+        return "database is locked" in message or "database table is locked" in message

@@ -397,7 +397,7 @@ class UsagePolicyService:
         limits = await self.resolve_effective_limits(db, org_id, user_id)
         if limits.monthly_token_limit is None:
             return
-        counter = await self._get_counter(
+        used = await self._get_counter_used(
             db,
             org_id=org_id,
             user_id=user_id,
@@ -405,12 +405,12 @@ class UsagePolicyService:
             scope_type=SCOPE_ORGANIZATION,
             scope_ref_id="",
         )
-        if counter.used + requested_tokens > limits.monthly_token_limit:
+        if used + requested_tokens > limits.monthly_token_limit:
             raise UsageLimitExceeded(
                 "Monthly LLM token quota exceeded.",
                 metric=METRIC_LLM_TOKENS,
                 limit=limits.monthly_token_limit,
-                used=counter.used,
+                used=used,
                 requested=requested_tokens,
             )
 
@@ -428,6 +428,8 @@ class UsagePolicyService:
         if not has_feature("usage_limits") or amount <= 0:
             return
         limits = await self.resolve_effective_limits(db, org_id, user_id)
+        if limits.monthly_token_limit is None:
+            return
         await self._increment_counter(
             db,
             org_id=org_id,
@@ -469,6 +471,8 @@ class UsagePolicyService:
             return
         limits = await self.resolve_effective_limits(db, org_id, user_id)
         data_bytes_limit = limits.data_bytes_limit_for_connection(connection_id)
+        if data_bytes_limit is None:
+            return
         await self._increment_counter(
             db,
             org_id=org_id,
@@ -508,6 +512,8 @@ class UsagePolicyService:
             return
         limits = await self.resolve_effective_limits(db, org_id, user_id)
         query_limit = limits.query_limit_for_connection(connection_id)
+        if query_limit is None:
+            return
         await self._increment_counter(
             db,
             org_id=org_id,
@@ -821,6 +827,29 @@ class UsagePolicyService:
             result = await db.execute(stmt)
             counter = result.scalar_one()
             return counter
+
+    async def _get_counter_used(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: str,
+        user_id: str,
+        metric: str,
+        scope_type: str,
+        scope_ref_id: str,
+    ) -> int:
+        window_start, _ = current_month_window()
+        result = await db.execute(
+            select(UsageCounter.used).where(
+                UsageCounter.organization_id == org_id,
+                UsageCounter.user_id == user_id,
+                UsageCounter.metric == metric,
+                UsageCounter.scope_type == scope_type,
+                UsageCounter.scope_ref_id == (scope_ref_id or ""),
+                UsageCounter.window_start == window_start,
+            )
+        )
+        return int(result.scalar_one_or_none() or 0)
 
     async def _get_current_counters(
         self,
