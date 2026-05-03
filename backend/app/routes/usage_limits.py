@@ -35,6 +35,14 @@ def _quota_http_error(exc: UsageLimitExceeded) -> HTTPException:
     )
 
 
+def _ensure_org_match(organization_id: str, organization: Organization) -> None:
+    # Permission check authorizes against `organization` (resolved from header
+    # / API key). Reject any request whose path org_id doesn't match so a
+    # caller authorized for org A can't operate on org B's policies.
+    if str(organization_id) != str(organization.id):
+        raise HTTPException(status_code=403, detail="Organization mismatch")
+
+
 @router.get("/organizations/{organization_id}/usage-policies", response_model=List[UsagePolicySchema])
 @require_enterprise(feature="usage_limits")
 @requires_permission("manage_settings")
@@ -44,6 +52,7 @@ async def list_usage_policies(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    _ensure_org_match(organization_id, organization)
     return await usage_policy_service.list_policies(db, organization_id)
 
 
@@ -57,6 +66,7 @@ async def create_usage_policy(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    _ensure_org_match(organization_id, organization)
     return await usage_policy_service.create_policy(db, organization_id, data)
 
 
@@ -70,6 +80,7 @@ async def get_effective_usage_policy(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    _ensure_org_match(organization_id, organization)
     effective = await usage_policy_service.resolve_effective_limits(db, organization_id, user_id)
     return effective.to_schema()
 
@@ -87,6 +98,7 @@ async def set_principal_usage_policy(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    _ensure_org_match(organization_id, organization)
     return await usage_policy_service.set_principal_policy(
         db,
         organization_id,
@@ -106,6 +118,7 @@ async def get_usage_policy(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    _ensure_org_match(organization_id, organization)
     return await usage_policy_service.get_policy(db, organization_id, policy_id)
 
 
@@ -120,6 +133,7 @@ async def update_usage_policy(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    _ensure_org_match(organization_id, organization)
     try:
         return await usage_policy_service.update_policy(db, organization_id, policy_id, data)
     except UsageLimitExceeded as exc:
@@ -136,4 +150,5 @@ async def delete_usage_policy(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    _ensure_org_match(organization_id, organization)
     await usage_policy_service.delete_policy(db, organization_id, policy_id)
