@@ -1446,7 +1446,9 @@ class DataSourceService:
             except Exception:
                 allowed = params
 
-            clients[key] = ClientClass(**allowed)
+            client = ClientClass(**allowed)
+            self._attach_client_quota_metadata(client, data_source, conn, key)
+            clients[key] = client
 
         # Backward compatibility: add legacy key aliases for single-connection domains
         if len(data_source.connections) == 1:
@@ -1455,6 +1457,16 @@ class DataSourceService:
             clients[data_source.name] = first_client
 
         return clients
+
+    def _attach_client_quota_metadata(self, client, data_source: DataSource, connection, client_key: str) -> None:
+        try:
+            setattr(client, "_bow_connection_id", str(connection.id))
+            setattr(client, "_bow_connection_name", connection.name)
+            setattr(client, "_bow_data_source_id", str(data_source.id))
+            setattr(client, "_bow_data_source_name", data_source.name)
+            setattr(client, "_bow_client_key", client_key)
+        except Exception:
+            pass
 
     async def resolve_credentials_for_connection(
         self,
@@ -3311,4 +3323,3 @@ class DataSourceService:
             raise HTTPException(status_code=404, detail="Agent not found")
 
         return data_source.connections
-

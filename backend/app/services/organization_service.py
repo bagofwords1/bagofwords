@@ -275,6 +275,7 @@ class OrganizationService:
                 settings_map[s.organization_id] = s
 
         formatted = []
+        from app.services.usage_policy_service import usage_policy_service
         for org, role in results:
             icon_url = None
             ai_analyst_name = "AI Analyst"  # Default value
@@ -296,6 +297,11 @@ class OrganizationService:
             # Check enterprise license
             from app.ee.license import has_feature
             is_enterprise = has_feature("custom_roles")
+            usage_quota = await usage_policy_service.get_user_quota_summary(
+                db,
+                str(org.id),
+                str(current_user.id),
+            )
 
             formatted.append(OrganizationAndRoleSchema(
                 id=org.id,
@@ -308,6 +314,7 @@ class OrganizationService:
                 is_enterprise=is_enterprise,
                 icon_url=icon_url,
                 ai_analyst_name=ai_analyst_name,
+                usage_quota=usage_quota,
             ))
         return formatted
 

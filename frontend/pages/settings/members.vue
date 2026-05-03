@@ -22,6 +22,7 @@
         <MembersComponent v-if="activeTab === 'members'" :organization="organization" />
         <RolesManager v-if="activeTab === 'roles'" :organization="organization" />
         <GroupsManager v-if="activeTab === 'groups'" :organization="organization" />
+        <QuotaPoliciesManager v-if="activeTab === 'quotas'" :organization="organization" />
         <SignupPolicyManager v-if="activeTab === 'signup'" :organization="organization" />
     </div>
 </template>
@@ -39,6 +40,7 @@ const tabs = computed(() => [
     { key: 'members', label: t('settings.membersTabs.members') },
     { key: 'roles', label: t('settings.membersTabs.roles'), permission: 'manage_roles', feature: 'custom_roles' },
     { key: 'groups', label: t('settings.membersTabs.groups'), permission: 'manage_groups', feature: 'custom_roles' },
+    { key: 'quotas', label: t('settings.membersTabs.quotas'), permission: 'manage_settings', feature: 'usage_limits' },
     { key: 'signup', label: t('settings.membersTabs.signup'), permission: 'full_admin_access', feature: 'domain_signup' },
 ])
 

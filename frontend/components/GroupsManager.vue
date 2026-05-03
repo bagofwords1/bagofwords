@@ -40,6 +40,7 @@
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colDescription') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colRoles') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colMembers') }}</th>
+                            <th v-if="showQuotaColumn" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colQuota') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colSource') }}</th>
                             <th v-if="useCan('manage_groups')" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colActions') }}</th>
                         </tr>
@@ -47,7 +48,7 @@
                     <tbody class="bg-white divide-y divide-gray-200">
                         <!-- Loading state -->
                         <tr v-if="isLoading">
-                            <td :colspan="useCan('manage_groups') ? 6 : 5" class="px-6 py-12 text-center">
+                            <td :colspan="groupsColspan" class="px-6 py-12 text-center">
                                 <div class="flex items-center justify-center text-gray-500">
                                     <Spinner class="w-4 h-4 me-2" />
                                     <span class="text-sm">{{ $t('groupsManager.loading') }}</span>
@@ -105,6 +106,36 @@
                                         {{ group.member_count === 1 ? $t('groupsManager.memberSingular', { n: group.member_count }) : $t('groupsManager.memberPlural', { n: group.member_count }) }}
                                     </button>
                                 </td>
+                                <td v-if="showQuotaColumn" class="px-6 py-4">
+                                    <USelectMenu
+                                        :model-value="getDirectQuotaId('group', group.id)"
+                                        :options="quotaSelectOptions"
+                                        value-attribute="value"
+                                        option-attribute="label"
+                                        size="sm"
+                                        :ui-menu="{ width: 'w-48' }"
+                                        :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
+                                        @update:model-value="updatePrincipalQuota('group', group.id, $event)"
+                                    >
+                                        <template #label>
+                                            <span class="flex gap-1 flex-wrap items-center">
+                                                <UBadge
+                                                    v-for="policy in getGroupQuotaPolicies(group).slice(0, 1)"
+                                                    :key="policy.id"
+                                                    size="xs"
+                                                    color="blue"
+                                                    variant="subtle"
+                                                >
+                                                    {{ policy.name }}
+                                                </UBadge>
+                                                <span v-if="getGroupQuotaPolicies(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
+                                            </span>
+                                        </template>
+                                        <template #option="{ option }">
+                                            <span class="text-sm">{{ option.label }}</span>
+                                        </template>
+                                    </USelectMenu>
+                                </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                     <UBadge v-if="group.external_provider" size="xs" color="blue" variant="subtle">
                                         {{ group.external_provider }}
@@ -133,7 +164,7 @@
                             </tr>
                             <!-- Empty state -->
                             <tr v-if="filteredGroups.length === 0">
-                                <td colspan="6" class="px-6 py-12 text-center text-gray-500 text-sm">
+                                <td :colspan="groupsColspan" class="px-6 py-12 text-center text-gray-500 text-sm">
                                     <div class="flex flex-col items-center">
                                         <Icon
                                             name="heroicons:user-group"
@@ -267,6 +298,7 @@
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useI18n } from 'vue-i18n'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { t } = useI18n()
 
@@ -312,8 +344,21 @@ interface RoleAssignment {
     role?: RoleInfo
 }
 
+interface UsagePolicySummary {
+    id: string
+    name: string
+    enabled: boolean
+    assignments: UsagePolicyAssignment[]
+}
+
+interface UsagePolicyAssignment {
+    principal_type: 'user' | 'group' | 'role'
+    principal_id: string
+}
+
 // State
 const groups = ref<GroupData[]>([])
+const usagePolicies = ref<UsagePolicySummary[]>([])
 const isLoading = ref(true)
 const searchQuery = ref('')
 const showFormModal = ref(false)
@@ -322,6 +367,9 @@ const saving = ref(false)
 const form = reactive({ name: '', description: '' })
 const availableRoles = ref<RoleInfo[]>([])
 const groupRoleAssignments = ref<Record<string, RoleAssignment[]>>({})
+const { hasFeature } = useEnterprise()
+const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
+const groupsColspan = computed(() => 5 + (showQuotaColumn.value ? 1 : 0) + (useCan('manage_groups') ? 1 : 0))
 
 // Members modal state
 const showMembersModal = ref(false)
@@ -353,6 +401,13 @@ const addableMemberOptions = computed(() => {
         }))
 })
 
+const quotaSelectOptions = computed(() => [
+    { value: null, label: t('quotaPolicies.noDirectQuota') },
+    ...usagePolicies.value
+        .filter(policy => policy.enabled)
+        .map(policy => ({ value: policy.id, label: policy.name })),
+])
+
 function getGroupRoleIds(group: GroupData): string[] {
     return (groupRoleAssignments.value[group.id] || []).map(a => a.role_id)
 }
@@ -361,6 +416,59 @@ function getGroupRoles(group: GroupData): RoleInfo[] {
     return (groupRoleAssignments.value[group.id] || [])
         .map(a => a.role || availableRoles.value.find(r => r.id === a.role_id))
         .filter(Boolean) as RoleInfo[]
+}
+
+function getGroupQuotaPolicies(group: GroupData): UsagePolicySummary[] {
+    if (!showQuotaColumn.value) return []
+    return getPrincipalQuotaPolicies('group', group.id)
+}
+
+function getPrincipalQuotaPolicies(principalType: UsagePolicyAssignment['principal_type'], principalId: string): UsagePolicySummary[] {
+    return usagePolicies.value.filter(policy =>
+        policy.enabled &&
+        policy.assignments?.some(assignment =>
+            assignment.principal_type === principalType &&
+            assignment.principal_id === principalId
+        )
+    )
+}
+
+function getDirectQuotaId(principalType: UsagePolicyAssignment['principal_type'], principalId: string): string | null {
+    return getPrincipalQuotaPolicies(principalType, principalId)[0]?.id || null
+}
+
+function applyLocalQuotaAssignment(principalType: UsagePolicyAssignment['principal_type'], principalId: string, policyId: string | null) {
+    usagePolicies.value = usagePolicies.value.map(policy => {
+        const assignments = (policy.assignments || []).filter(
+            assignment => assignment.principal_type !== principalType || assignment.principal_id !== principalId
+        )
+        if (policyId && policy.id === policyId) {
+            assignments.push({ principal_type: principalType, principal_id: principalId })
+        }
+        return { ...policy, assignments }
+    })
+}
+
+async function updatePrincipalQuota(principalType: UsagePolicyAssignment['principal_type'], principalId: string, policyId: string | null) {
+    try {
+        const { error } = await useMyFetch(`/organizations/${organizationId}/usage-policy-assignments/principal`, {
+            method: 'PUT',
+            body: {
+                principal_type: principalType,
+                principal_id: principalId,
+                policy_id: policyId,
+            },
+        })
+        if (error.value) {
+            toast.add({ title: error.value.data?.detail || t('quotaPolicies.failedToSave'), color: 'red' })
+            return
+        }
+        applyLocalQuotaAssignment(principalType, principalId, policyId)
+        toast.add({ title: t('quotaPolicies.toastAssignmentUpdated'), color: 'green' })
+    } catch (e: any) {
+        const detail = e?.data?.detail || e?.message || t('quotaPolicies.failedToSave')
+        toast.add({ title: detail, color: 'red' })
+    }
 }
 
 async function loadAvailableRoles() {
@@ -389,6 +497,16 @@ async function loadGroupRoleAssignments() {
         }
     } catch (e) {
         // Non-fatal
+    }
+}
+
+async function loadUsagePolicies() {
+    if (!showQuotaColumn.value) return
+    try {
+        const { data } = await useMyFetch(`/organizations/${organizationId}/usage-policies`)
+        usagePolicies.value = (data.value || []) as UsagePolicySummary[]
+    } catch (e) {
+        usagePolicies.value = []
     }
 }
 
@@ -577,6 +695,12 @@ async function removeMember(userId: string) {
 }
 
 onMounted(async () => {
-    await Promise.all([loadGroups(), loadAvailableRoles(), loadGroupRoleAssignments()])
+    await Promise.all([loadGroups(), loadAvailableRoles(), loadGroupRoleAssignments(), loadUsagePolicies()])
+})
+
+watch(showQuotaColumn, (enabled) => {
+    if (enabled && usagePolicies.value.length === 0) {
+        loadUsagePolicies()
+    }
 })
 </script>

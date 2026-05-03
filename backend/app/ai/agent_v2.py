@@ -102,6 +102,7 @@ from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
+from app.services.usage_policy_service import UsageLimitContext
 
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 
@@ -139,6 +140,23 @@ class AgentV2:
         self.system_completion = system_completion
         self.widget = widget
         self.step = step
+        _quota_org_id = str(getattr(self.organization, "id", "") or "")
+        _quota_user_id = str(
+            getattr(self.head_completion, "user_id", "")
+            or getattr(getattr(self.head_completion, "user", None), "id", "")
+            or ""
+        )
+        self.usage_limit_context = (
+            UsageLimitContext(
+                organization_id=_quota_org_id,
+                user_id=_quota_user_id,
+                source="agent",
+                source_ref_id=str(getattr(self.head_completion, "id", "") or ""),
+                session_maker=async_session_maker,
+            )
+            if _quota_org_id and _quota_user_id
+            else None
+        )
 
         # Initialize data sources and clients (mirror agent.py pattern)
         if report:
@@ -235,6 +253,7 @@ class AgentV2:
                 model=self.model,
                 tool_catalog=tool_catalog,
                 usage_session_maker=async_session_maker,
+                usage_context=self.usage_limit_context,
             )
         else:
             if planner_version not in ("v3", "3", ""):
@@ -246,6 +265,7 @@ class AgentV2:
                 model=self.model,
                 tool_catalog=tool_catalog,
                 usage_session_maker=async_session_maker,
+                usage_context=self.usage_limit_context,
             )
         
         # Tool runner with enhanced policies
@@ -259,6 +279,7 @@ class AgentV2:
             model=self.small_model,
             organization_settings=self.organization_settings,
             usage_session_maker=async_session_maker,
+            usage_context=self.usage_limit_context,
         )
         # Initialize Judge using ContextHub's instruction builder
         self.judge = Judge(
@@ -2239,6 +2260,7 @@ class AgentV2:
                                 "platform": self.platform,
                                 "platform_context": self.platform_context,
                                 "tool_call_id": str(tool_execution.id) if tool_execution else None,
+                                "usage_limit_context": self.usage_limit_context,
                                 "pending_officejs_registry": pending_officejs_registry,
                             }
 

@@ -54,6 +54,7 @@ from app.schemas.ai.planner_events import (
     PlannerEvent,
     PlannerTokenEvent,
 )
+from app.services.usage_policy_service import UsageLimitContext
 
 from .planner_state_v3 import PlannerStateV3
 from .prompt_builder_v3 import PromptBuilderV3
@@ -78,8 +79,9 @@ class PlannerV3:
         model,
         tool_catalog: List[ToolDescriptor],
         usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
+        usage_context: Optional[UsageLimitContext] = None,
     ) -> None:
-        self.llm = LLM(model, usage_session_maker=usage_session_maker)
+        self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.tool_catalog = tool_catalog
         self.prompt_builder = PromptBuilderV3()
         # Build a name -> category lookup for plan_type derivation

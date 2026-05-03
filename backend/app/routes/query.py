@@ -80,7 +80,13 @@ async def run_query_new_step(
     db: AsyncSession = Depends(get_async_db),
 ):
     try:
-        q_dict, step_obj = await service.run_query_new_step(db, query_id, payload)
+        q_dict, step_obj = await service.run_query_new_step(
+            db,
+            query_id,
+            payload,
+            organization_id=str(organization.id) if organization else None,
+            user_id=str(current_user.id) if current_user else None,
+        )
         # If backend marked the step as error, reflect that in response so UI can show error state
         if isinstance(step_obj, dict) and step_obj.get("status") == "error":
             return {"query": q_dict, "step": step_obj, "error": step_obj.get("status_reason")}
@@ -128,9 +134,14 @@ async def preview_query_code(
     db: AsyncSession = Depends(get_async_db),
 ):
     try:
-        result = await service.preview_query_code(db, query_id, payload)
+        result = await service.preview_query_code(
+            db,
+            query_id,
+            payload,
+            organization_id=str(organization.id) if organization else None,
+            user_id=str(current_user.id) if current_user else None,
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 

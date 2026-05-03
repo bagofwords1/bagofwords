@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.369 (May 3, 2026)
+- add usage / quota limits policies organization wide
+
 ## Version 0.0.368 (May 2, 2026)
 - add locale for additional languages
 - improve UI for agent mgmt and data soures

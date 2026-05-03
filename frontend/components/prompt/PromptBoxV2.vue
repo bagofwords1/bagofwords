@@ -359,17 +359,98 @@
 
                 <div class="flex items-center space-x-0.5">
                     <div v-if="props.showContextIndicator" class="flex items-center">
-                        <UTooltip :text="contextEstimateTooltip || (isLoadingContextEstimate ? $t('prompt.estimating') : $t('prompt.estimateUnavailable'))" :popper="{ placement: 'top', strategy: 'fixed' }">
-                            <button class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
-                                :disabled="isLoadingContextEstimate">
+                        <UPopover
+                            v-model:open="isUsagePopoverOpen"
+                            mode="hover"
+                            :popper="{ placement: 'top-end', strategy: 'fixed', modifiers: [{ name: 'preventOverflow', options: { boundary: 'viewport' } }] }"
+                            :ui="{ width: 'w-auto', container: 'z-[90]' }"
+                        >
+                            <div
+                                class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
+                            >
+                                <span class="sr-only">{{ usageIndicatorTooltip }}</span>
                                 <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-gray-400" />
                                 <UIcon
                                     v-else
                                     :name="contextIndicatorIcon"
                                     class="w-4 h-4"
                                 />
-                            </button>
-                        </UTooltip>
+                            </div>
+                            <template #panel>
+                                <div class="w-72 p-3 text-xs text-gray-700">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="font-medium text-gray-900">{{ $t('prompt.usageThisMonth') }}</div>
+                                        <Spinner v-if="isRefreshingQuota" class="w-3.5 h-3.5 text-gray-400" />
+                                    </div>
+
+                                    <div class="space-y-2">
+                                        <div>
+                                            <div class="flex items-center justify-between gap-3">
+                                                <span class="text-gray-500">{{ $t('prompt.context') }}</span>
+                                                <span class="font-mono text-[11px] text-gray-900">{{ contextUsageValue }}</span>
+                                            </div>
+                                            <div class="mt-1 h-1 rounded-full bg-gray-100 overflow-hidden">
+                                                <div
+                                                    class="h-full rounded-full bg-gray-400"
+                                                    :style="{ width: contextUsageBarWidth }"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <template v-if="quotaEnabled && usageQuota">
+                                            <div>
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-gray-500">{{ $t('prompt.tokens') }}</span>
+                                                    <span class="font-mono text-[11px] text-gray-900">{{ formatQuotaMetric(usageQuota.tokens) }}</span>
+                                                </div>
+                                                <div class="mt-1 h-1 rounded-full bg-gray-100 overflow-hidden">
+                                                    <div
+                                                        class="h-full rounded-full"
+                                                        :class="quotaMetricBarClass(usageQuota.tokens)"
+                                                        :style="{ width: quotaMetricBarWidth(usageQuota.tokens) }"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <div class="text-gray-500">{{ $t('prompt.queries') }}</div>
+                                                    <div class="mt-0.5 font-mono text-[11px] text-gray-900">{{ formatQuotaMetric(usageQuota.queries) }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-gray-500">{{ $t('prompt.data') }}</div>
+                                                    <div class="mt-0.5 font-mono text-[11px] text-gray-900">{{ formatQuotaMetric(usageQuota.data_bytes, 'bytes') }}</div>
+                                                </div>
+                                            </div>
+
+                                            <div v-if="quotaConnections.length" class="pt-2 border-t border-gray-100 space-y-1.5">
+                                                <div class="text-[11px] font-medium text-gray-500">{{ $t('prompt.connections') }}</div>
+                                                <div
+                                                    v-for="connection in quotaConnections"
+                                                    :key="connection.id"
+                                                    class="space-y-0.5"
+                                                >
+                                                    <span class="truncate text-gray-600">{{ connection.name }}</span>
+                                                    <div class="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <div class="text-gray-500">{{ $t('prompt.queries') }}</div>
+                                                            <div class="font-mono text-[11px] text-gray-900">{{ formatQuotaMetric(connection.queries) }}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div class="text-gray-500">{{ $t('prompt.data') }}</div>
+                                                            <div class="font-mono text-[11px] text-gray-900">{{ formatQuotaMetric(connection.data_bytes, 'bytes') }}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-if="hiddenQuotaConnectionCount > 0" class="text-[11px] text-gray-400">
+                                                    {{ $t('prompt.moreConnections', { count: hiddenQuotaConnectionCount }) }}
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </UPopover>
                     </div>
 
                     <!-- File attach (open files modal) -->
@@ -722,6 +803,13 @@ const isLoadingContextEstimate = ref(false)
 const contextEstimateError = ref<string | null>(null)
 const hasRequestedContextEstimate = ref(false)
 const numberFormatter = new Intl.NumberFormat()
+const {
+    usageQuota,
+    refreshQuotaIfStale,
+    markQuotaStale,
+} = useUsageQuota()
+const isRefreshingQuota = ref(false)
+const isUsagePopoverOpen = ref(false)
 
 function formatTokenCountShort(value: number | null | undefined): string {
     if (value === null || value === undefined) return ''
@@ -744,6 +832,22 @@ const contextUsagePercent = computed(() => {
     return `${Math.round(pct)}%`
 })
 
+const contextUsageBarWidth = computed(() => {
+    const pct = contextEstimate.value?.context_usage_pct
+    if (pct === null || pct === undefined) return '0%'
+    return `${Math.max(0, Math.min(100, Math.round(pct)))}%`
+})
+
+const contextUsageValue = computed(() => {
+    if (isLoadingContextEstimate.value) return t('prompt.estimating')
+    if (contextEstimateError.value || !contextEstimate.value) return t('prompt.estimateUnavailable')
+    const used = contextEstimateShort.value || numberFormatter.format(contextEstimate.value.prompt_tokens || 0)
+    if (contextEstimate.value.model_limit) {
+        return `${used} / ${formatTokenCountShort(contextEstimate.value.model_limit)}`
+    }
+    return used
+})
+
 const contextEstimateTooltip = computed(() => {
     if (!props.showContextIndicator) return ''
     if (isLoadingContextEstimate.value) return t('prompt.estimatingContext')
@@ -760,6 +864,50 @@ const contextEstimateTooltip = computed(() => {
     if (promptShort) return t('prompt.contextSizeShort', { tokens: promptShort })
     return t('prompt.contextSizeUnavailable')
 })
+
+const quotaEnabled = computed(() => usageQuota.value?.enabled === true)
+
+const usageIndicatorTooltip = computed(() => {
+    if (quotaEnabled.value) return t('prompt.usageThisMonth')
+    return contextEstimateTooltip.value || (isLoadingContextEstimate.value ? t('prompt.estimating') : t('prompt.estimateUnavailable'))
+})
+
+const quotaConnections = computed(() => {
+    return (usageQuota.value?.connections || []).slice(0, 4)
+})
+
+const hiddenQuotaConnectionCount = computed(() => {
+    return Math.max((usageQuota.value?.connections || []).length - quotaConnections.value.length, 0)
+})
+
+function formatBytes(value: number): string {
+    if (value < 1024) return `${value} B`
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+    if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`
+    return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
+
+function formatQuotaMetric(metric: any, kind: 'count' | 'bytes' = 'count'): string {
+    const used = kind === 'bytes' ? formatBytes(metric?.used || 0) : numberFormatter.format(metric?.used || 0)
+    if (metric?.limit === null || metric?.limit === undefined) {
+        return `${used} / ${t('prompt.unlimited')}`
+    }
+    const limit = kind === 'bytes' ? formatBytes(metric.limit) : numberFormatter.format(metric.limit)
+    return `${used} / ${limit}`
+}
+
+function quotaMetricBarWidth(metric: any): string {
+    if (metric?.percent === null || metric?.percent === undefined) return '0%'
+    return `${Math.max(0, Math.min(100, Math.round(metric.percent)))}%`
+}
+
+function quotaMetricBarClass(metric: any): string {
+    const pct = metric?.percent
+    if (pct === null || pct === undefined) return 'bg-gray-300'
+    if (pct >= 100) return 'bg-red-500'
+    if (pct >= 80) return 'bg-amber-500'
+    return 'bg-blue-500'
+}
 
 const contextIndicatorIcon = computed(() => {
     if (isLoadingContextEstimate.value) return 'i-heroicons-arrow-path'
@@ -1208,6 +1356,22 @@ watch(() => props.showContextIndicator, async (newVal, oldVal) => {
     await refreshContextEstimate(false)
 })
 
+watch(() => props.latestInProgressCompletion, (newVal, oldVal) => {
+    if (oldVal && !newVal) {
+        markQuotaStale()
+    }
+})
+
+watch(isUsagePopoverOpen, async (isOpen) => {
+    if (!isOpen || !quotaEnabled.value) return
+    isRefreshingQuota.value = true
+    try {
+        await refreshQuotaIfStale({ maxAgeMs: 60_000 })
+    } finally {
+        isRefreshingQuota.value = false
+    }
+})
+
 watch(selectedModel, async (newModel, oldModel) => {
     if (!props.showContextIndicator) return
     hasRequestedContextEstimate.value = false
@@ -1292,5 +1456,3 @@ async function createReport() {
 <style scoped>
 .placeholder-gray-400::placeholder { color: #9ca3af; }
 </style>
-
-

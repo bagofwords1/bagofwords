@@ -4,9 +4,8 @@
         <!-- Left (Chat) — z-20 so popovers can overlap the right panel -->
         <div class="relative z-20" :style="{
                 width: isSplitScreen ? `${leftPanelWidth}px` : '100%',
-                transform: isSplitScreen ? 'none' : 'translateX(0)',
-                willChange: 'transform, width',
-                transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                willChange: 'width',
+                transition: isResizing ? 'none' : 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }">
             <slot name="left" />
         </div>
@@ -14,9 +13,7 @@
         <!-- Right Panel -->
         <div v-if="isSplitScreen"
              :style="{
-                 willChange: 'transform, width',
-                 transform: 'translateX(0)',
-                 transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                 transition: isResizing ? 'none' : 'width 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }"
              class="flex-1 min-w-0 relative z-10 bg-white flex flex-col">
             <!-- Right header (tabs) -->

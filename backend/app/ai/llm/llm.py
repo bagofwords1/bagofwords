@@ -21,6 +21,7 @@ from .types import (
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.models.llm_model import LLMModel
 from app.services.llm_usage_recorder import LLMUsageRecorderService
+from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from app.settings.logging_config import get_logger
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
@@ -41,6 +42,7 @@ class LLM:
         self,
         model: LLMModel,
         usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
+        usage_context: Optional[UsageLimitContext] = None,
     ):
         self.model = model
         self.model_id = model.model_id
@@ -69,6 +71,7 @@ class LLM:
                 )
                 raise
         self._usage_session_maker = usage_session_maker
+        self._usage_limit_context = usage_context
         if self.provider == "openai":
             base_url = None
             if self.model.provider.additional_config:
@@ -148,6 +151,7 @@ class LLM:
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             prompt_tokens_estimate = self._count_tokens(prompt)
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
+            self._check_usage_limit_sync(prompt_tokens_estimate, should_record=should_record)
             try:
                 response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
             except Exception as e:
@@ -173,6 +177,15 @@ class LLM:
                 completion_tokens=completion_tokens,
                 should_record=should_record,
             )
+            self._record_usage_limit_sync(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=usage.cache_read_tokens,
+                cache_creation_tokens=usage.cache_creation_tokens,
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                should_record=should_record,
+            )
             return sanitized
 
     async def inference_stream(
@@ -194,6 +207,7 @@ class LLM:
             prefix = ""
             prompt_tokens = prompt_tokens_estimate if prompt_tokens_estimate is not None else self._estimate_tokens_fast(prompt)
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens)
+            await self._check_usage_limit_async(prompt_tokens, should_record=should_record)
             completion_tokens = 0
             streamed_chunks: list[str] = []
             stream_start = time.monotonic()
@@ -277,6 +291,13 @@ class LLM:
                 completion_tokens=completion_tokens,
                 should_record=should_record,
             )
+            await self._record_usage_limit_async(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                should_record=should_record,
+            )
 
     async def inference_stream_v2(
         self,
@@ -310,6 +331,13 @@ class LLM:
                 if prompt_tokens_estimate is not None
                 else 0
             )
+            if not prompt_tokens:
+                prompt_parts = [system or ""]
+                for message in messages or []:
+                    content = getattr(message, "content", "")
+                    prompt_parts.append(content if isinstance(content, str) else str(content))
+                prompt_tokens = self._estimate_tokens_fast("\n".join(prompt_parts))
+            await self._check_usage_limit_async(prompt_tokens, should_record=should_record)
             completion_tokens = 0
             cache_read_tokens = 0
             cache_creation_tokens = 0
@@ -375,6 +403,15 @@ class LLM:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                should_record=should_record,
+            )
+            await self._record_usage_limit_async(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_creation_tokens=cache_creation_tokens,
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
             )
 
@@ -455,6 +492,103 @@ class LLM:
             return estimate_tokens_fast(text)
         except Exception:
             return 0
+
+    def _quota_total_tokens(
+        self,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+    ) -> int:
+        total = (prompt_tokens or 0) + (completion_tokens or 0)
+        if self.provider == "anthropic":
+            total += (cache_read_tokens or 0) + (cache_creation_tokens or 0)
+        return max(int(total), 0)
+
+    def _check_usage_limit_sync(self, requested_tokens: int, *, should_record: bool) -> None:
+        context = self._usage_limit_context
+        if not should_record or context is None or context.session_maker is None:
+            return
+        context.run_blocking(
+            usage_policy_service.check_llm_tokens_with_context(context, requested_tokens)
+        )
+
+    async def _check_usage_limit_async(self, requested_tokens: int, *, should_record: bool) -> None:
+        context = self._usage_limit_context
+        if not should_record or context is None or context.session_maker is None:
+            return
+        await usage_policy_service.check_llm_tokens_with_context(context, requested_tokens)
+
+    def _record_usage_limit_sync(
+        self,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+        scope: Optional[str],
+        scope_ref_id: Optional[str],
+        should_record: bool,
+    ) -> None:
+        context = self._usage_limit_context
+        if not should_record or context is None or context.session_maker is None:
+            return
+        total_tokens = self._quota_total_tokens(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
+        if total_tokens <= 0:
+            return
+        metadata = {
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "scope": scope or context.source,
+            "scope_ref_id": scope_ref_id or context.source_ref_id,
+            "prompt_tokens": prompt_tokens or 0,
+            "completion_tokens": completion_tokens or 0,
+            "cache_read_tokens": cache_read_tokens or 0,
+            "cache_creation_tokens": cache_creation_tokens or 0,
+        }
+        context.run_blocking(
+            usage_policy_service.record_llm_tokens_with_context(context, total_tokens, metadata)
+        )
+
+    async def _record_usage_limit_async(
+        self,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+        scope: Optional[str],
+        scope_ref_id: Optional[str],
+        should_record: bool,
+    ) -> None:
+        context = self._usage_limit_context
+        if not should_record or context is None or context.session_maker is None:
+            return
+        total_tokens = self._quota_total_tokens(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
+        if total_tokens <= 0:
+            return
+        metadata = {
+            "provider": self.provider,
+            "model_id": self.model_id,
+            "scope": scope or context.source,
+            "scope_ref_id": scope_ref_id or context.source_ref_id,
+            "prompt_tokens": prompt_tokens or 0,
+            "completion_tokens": completion_tokens or 0,
+            "cache_read_tokens": cache_read_tokens or 0,
+            "cache_creation_tokens": cache_creation_tokens or 0,
+        }
+        await usage_policy_service.record_llm_tokens_with_context(context, total_tokens, metadata)
 
     def _schedule_usage_record(
         self,

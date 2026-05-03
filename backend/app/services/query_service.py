@@ -9,6 +9,8 @@ from app.models.report import Report
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
 from app.schemas.step_schema import StepSchema
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.dependencies import async_session_maker
+from app.services.usage_policy_service import UsageLimitContext
 
 from sqlalchemy import and_
 
@@ -144,6 +146,8 @@ class QueryService:
         db: AsyncSession,
         query_id: str,
         request: QueryRunRequest,
+        organization_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Tuple[dict, str]:
         """Create a new Step under the query's widget, execute provided code, persist, and return step schema + step_id.
 
@@ -216,9 +220,14 @@ class QueryService:
             ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
             ds_clients.update(ds_conns)
         excel_files = report.files
-        executor = StreamingCodeExecutor()
+        usage_context = self._usage_context(organization_id, user_id, source="query_run", source_ref_id=query_id)
+        executor = StreamingCodeExecutor(usage_context=usage_context)
         try:
-            exec_df, execution_log, _ = executor.execute_code(code=step.code, ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = await executor.execute_code_async(
+                code=step.code,
+                ds_clients=ds_clients,
+                excel_files=excel_files,
+            )
             df = executor.format_df_for_widget(exec_df)
             # Persist results on the new step
             step.data = df
@@ -314,6 +323,8 @@ class QueryService:
         db: AsyncSession,
         query_id: str,
         request: QueryRunRequest,
+        organization_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> dict:
         """Execute provided code in the context of the query's widget/report without persisting a step."""
         # Load query & widget
@@ -335,14 +346,35 @@ class QueryService:
             ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
             ds_clients.update(ds_conns)
         excel_files = report.files
-        executor = StreamingCodeExecutor()
+        usage_context = self._usage_context(organization_id, user_id, source="query_preview", source_ref_id=query_id)
+        executor = StreamingCodeExecutor(usage_context=usage_context)
 
         try:
-            exec_df, execution_log, _ = executor.execute_code(code=request.code or "", ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = await executor.execute_code_async(
+                code=request.code or "",
+                ds_clients=ds_clients,
+                excel_files=excel_files,
+            )
             df = executor.format_df_for_widget(exec_df)
             return {"preview": df, "execution_log": execution_log}
         except Exception as e:
             # Surface error to client for preview display
             return {"preview": None, "error": str(e)}
 
-
+    def _usage_context(
+        self,
+        organization_id: Optional[str],
+        user_id: Optional[str],
+        *,
+        source: str,
+        source_ref_id: Optional[str] = None,
+    ) -> Optional[UsageLimitContext]:
+        if not organization_id or not user_id:
+            return None
+        return UsageLimitContext(
+            organization_id=str(organization_id),
+            user_id=str(user_id),
+            source=source,
+            source_ref_id=source_ref_id,
+            session_maker=async_session_maker,
+        )
