@@ -162,6 +162,24 @@ def _bootstrap_admin(create_user, login_user, whoami):
     return token, org_id, profile["id"]
 
 
+@pytest.fixture(autouse=True)
+def _enable_usage_limits_license():
+    """Patch the EE license cache so every test in this module sees usage_limits as active."""
+    saved_cached = ee_license._cached_license
+    saved_initialized = ee_license._cache_initialized
+    ee_license._cached_license = ee_license.LicenseInfo(
+        licensed=True,
+        tier="enterprise",
+        org_name="tests",
+        features=["usage_limits", "custom_roles"],
+        license_id="test-usage-limits",
+    )
+    ee_license._cache_initialized = True
+    yield
+    ee_license._cached_license = saved_cached
+    ee_license._cache_initialized = saved_initialized
+
+
 @pytest.mark.e2e
 def test_usage_policy_routes_default_unlimited_and_direct_assignment(test_client, create_user, login_user, whoami):
     token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
