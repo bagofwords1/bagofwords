@@ -160,8 +160,20 @@ class QVDClient(DataSourceClient):
         mtime_ns = os.stat(abs_path).st_mtime_ns
         return file_hash, _CACHE_DIR / f"{file_hash}_{mtime_ns}.parquet"
 
+    @staticmethod
+    def _find_any_parquet(file_hash: str) -> Path | None:
+        """Return the newest complete parquet for this file hash, any mtime."""
+        candidates = sorted(
+            _CACHE_DIR.glob(f"{file_hash}_*.parquet"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
     def _ensure_parquet(self, filepath: str) -> Path:
-        """Return cached Parquet path, parsing QVD if cache is stale/missing."""
+        """Return cached Parquet path, parsing QVD if cache is stale/missing.
+        Only called from the scheduled warmup path — never from the hot query path.
+        """
         file_hash, cache_path = self._cache_key(filepath)
         if cache_path.exists():
             return cache_path
@@ -231,6 +243,10 @@ class QVDClient(DataSourceClient):
         async with sem:
             _, cache_path = self._cache_key(filepath)
             if cache_path.exists():
+                logger.debug(
+                    "qvd.warm.already_fresh",
+                    extra={"qvd_file": filepath, "qvd_cache": str(cache_path)},
+                )
                 return cache_path
             try:
                 size = os.path.getsize(filepath)
@@ -254,7 +270,7 @@ class QVDClient(DataSourceClient):
                 )
                 raise
             logger.info(
-                "qvd.warm.parquet_done",
+                "qvd.warm.done",
                 extra={
                     "qvd_file": filepath,
                     "qvd_cache": str(result),
@@ -301,30 +317,100 @@ class QVDClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        t0 = time.perf_counter()
+        files = self._resolve_files()
+        logger.info(
+            "qvd.connect.start",
+            extra={"qvd_patterns": self.patterns, "qvd_files_found": len(files)},
+        )
         con: duckdb.DuckDBPyConnection | None = None
         try:
             con = duckdb.connect(database=":memory:")
             used: set[str] = set()
             table_map: dict[str, str] = {}
-            for filepath in self._resolve_files():
-                parquet = self._ensure_parquet(filepath)
+            skipped = 0
+            for filepath in files:
+                file_hash, fresh_path = self._cache_key(filepath)
+                if fresh_path.exists():
+                    parquet = fresh_path
+                    logger.debug(
+                        "qvd.connect.file.fresh",
+                        extra={"qvd_file": filepath, "qvd_cache": str(parquet)},
+                    )
+                else:
+                    parquet = self._find_any_parquet(file_hash)
+                    if parquet is None:
+                        logger.warning(
+                            "qvd.connect.file.miss",
+                            extra={
+                                "qvd_file": filepath,
+                                "qvd_hint": "no parquet cache found; run warmup job first",
+                            },
+                        )
+                        skipped += 1
+                        continue
+                    logger.warning(
+                        "qvd.connect.file.stale",
+                        extra={
+                            "qvd_file": filepath,
+                            "qvd_cache": str(parquet),
+                            "qvd_hint": "source file changed; serving stale cache until warmup completes",
+                        },
+                    )
+
                 table_name = self._safe_table_name(filepath, used)
                 parquet_sql = str(parquet).replace("'", "''")
                 con.execute(
                     f"CREATE VIEW {table_name} AS SELECT * FROM read_parquet('{parquet_sql}')"
                 )
                 table_map[table_name] = filepath
+
             self._table_map = table_map
+            logger.info(
+                "qvd.connect.done",
+                extra={
+                    "qvd_tables": list(table_map.keys()),
+                    "qvd_skipped": skipped,
+                    "qvd_elapsed_s": round(time.perf_counter() - t0, 3),
+                },
+            )
             yield con
         except Exception as e:
+            logger.error(
+                "qvd.connect.error",
+                extra={"qvd_error": str(e), "qvd_elapsed_s": round(time.perf_counter() - t0, 3)},
+            )
             raise RuntimeError(f"Error connecting to QVD files: {e}")
         finally:
             if con is not None:
                 con.close()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        with self.connect() as con:
-            return con.execute(sql).df()
+        t0 = time.perf_counter()
+        logger.info("qvd.query.start", extra={"qvd_sql": sql})
+        try:
+            with self.connect() as con:
+                df = con.execute(sql).df()
+            logger.info(
+                "qvd.query.done",
+                extra={
+                    "qvd_sql": sql,
+                    "qvd_rows": len(df),
+                    "qvd_cols": len(df.columns),
+                    "qvd_elapsed_s": round(time.perf_counter() - t0, 3),
+                },
+            )
+            return df
+        except Exception as exc:
+            logger.error(
+                "qvd.query.error",
+                extra={
+                    "qvd_sql": sql,
+                    "qvd_error": str(exc),
+                    "qvd_elapsed_s": round(time.perf_counter() - t0, 3),
+                },
+            )
+            raise
 
     def get_tables(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """
@@ -335,6 +421,7 @@ class QVDClient(DataSourceClient):
         tables: List[Table] = []
         used: set[str] = set()
         files = self._resolve_files()
+        logger.debug("qvd.schema.start", extra={"qvd_files": len(files)})
         reporter = make_reporter(progress_callback)
         reporter.phase("qvd_files", total=len(files))
         for filepath in files:
@@ -342,15 +429,34 @@ class QVDClient(DataSourceClient):
             table_name = self._safe_table_name(filepath, used)
             cols: List[TableColumn] = []
             try:
-                _, cache_path = self._cache_key(filepath)
+                file_hash, cache_path = self._cache_key(filepath)
                 if cache_path.exists():
                     fields = self._describe_parquet(cache_path)
+                    logger.debug(
+                        "qvd.schema.file.parquet",
+                        extra={"qvd_file": filepath, "qvd_fields": len(fields)},
+                    )
                 else:
-                    fields = self._read_qvd_header(filepath)
+                    stale = self._find_any_parquet(file_hash)
+                    if stale:
+                        fields = self._describe_parquet(stale)
+                        logger.debug(
+                            "qvd.schema.file.stale_parquet",
+                            extra={"qvd_file": filepath, "qvd_cache": str(stale), "qvd_fields": len(fields)},
+                        )
+                    else:
+                        fields = self._read_qvd_header(filepath)
+                        logger.debug(
+                            "qvd.schema.file.header",
+                            extra={"qvd_file": filepath, "qvd_fields": len(fields)},
+                        )
                 for fname, ftype in fields:
                     cols.append(TableColumn(name=fname, dtype=ftype))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "qvd.schema.file.error",
+                    extra={"qvd_file": filepath, "qvd_error": str(exc)},
+                )
             tables.append(Table(
                 name=table_name,
                 columns=cols,
@@ -359,6 +465,7 @@ class QVDClient(DataSourceClient):
                 metadata_json={"qvd": {"source_file": filepath}}
             ))
         reporter.done()
+        logger.debug("qvd.schema.done", extra={"qvd_tables": len(tables)})
         return tables
 
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
