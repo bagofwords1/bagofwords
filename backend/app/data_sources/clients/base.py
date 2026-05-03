@@ -81,3 +81,7 @@ class DataSourceClient(ABC):
 
     async def aexecute_query(self, *args, **kwargs):
         return await asyncio.to_thread(self.execute_query, *args, **kwargs)
+
+    async def awarm_all(self) -> list:
+        """Pre-warm any local caches needed before queries. No-op for most clients."""
+        return []

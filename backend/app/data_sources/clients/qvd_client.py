@@ -188,6 +188,15 @@ class QVDClient(DataSourceClient):
 
             _CACHE_DIR.mkdir(parents=True, exist_ok=True)
             tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+            t_conv = time.perf_counter()
+            logger.info(
+                "qvd.convert.start",
+                extra={
+                    "qvd_file": filepath,
+                    "qvd_tmp": str(tmp_path),
+                    "qvd_bin": _QVD2PARQUET_BIN,
+                },
+            )
             # Streaming QVD → Parquet via standalone Rust binary. Bounded RAM
             # (symbol tables + ~64K-row chunk buffer) vs the in-process qvdrs
             # wheel which materialized the full table (~13× file size, OOM on 4GB+).
@@ -205,6 +214,15 @@ class QVDClient(DataSourceClient):
                     "Set QVD2PARQUET_BIN or install the binary at /usr/local/bin/qvd2parquet."
                 ) from exc
             except subprocess.CalledProcessError as exc:
+                logger.error(
+                    "qvd.convert.failed",
+                    extra={
+                        "qvd_file": filepath,
+                        "qvd_exit": exc.returncode,
+                        "qvd_stderr": (exc.stderr or "").strip(),
+                        "qvd_elapsed_s": round(time.perf_counter() - t_conv, 2),
+                    },
+                )
                 try:
                     tmp_path.unlink(missing_ok=True)
                 except OSError:
@@ -214,6 +232,13 @@ class QVDClient(DataSourceClient):
                     f"stderr={(exc.stderr or '').strip()!r}"
                 ) from exc
             except subprocess.TimeoutExpired as exc:
+                logger.error(
+                    "qvd.convert.timeout",
+                    extra={
+                        "qvd_file": filepath,
+                        "qvd_timeout_s": exc.timeout,
+                    },
+                )
                 try:
                     tmp_path.unlink(missing_ok=True)
                 except OSError:
@@ -222,11 +247,19 @@ class QVDClient(DataSourceClient):
                     f"qvd2parquet timed out after {exc.timeout}s on {filepath}"
                 ) from exc
 
-            if result.stderr:
-                logger.info(
-                    "qvd2parquet.done",
-                    extra={"qvd_file": filepath, "qvd2parquet_stderr": result.stderr.strip()},
-                )
+            try:
+                parquet_bytes = tmp_path.stat().st_size
+            except OSError:
+                parquet_bytes = -1
+            logger.info(
+                "qvd.convert.done",
+                extra={
+                    "qvd_file": filepath,
+                    "qvd_parquet_bytes": parquet_bytes,
+                    "qvd_stderr": (result.stderr or "").strip() or None,
+                    "qvd_elapsed_s": round(time.perf_counter() - t_conv, 2),
+                },
+            )
             os.replace(tmp_path, cache_path)
 
         for old in _CACHE_DIR.glob(f"{file_hash}_*.parquet"):
@@ -302,17 +335,35 @@ class QVDClient(DataSourceClient):
                         _INFLIGHT.pop(key, None)
 
                 task.add_done_callback(_cleanup)
+            else:
+                logger.debug(
+                    "qvd.warm.dedup",
+                    extra={"qvd_file": filepath, "qvd_cache": str(cache_path)},
+                )
         return await task
 
     async def awarm_all(self) -> List[Path]:
         """Warm every resolved QVD file. Errors on individual files are logged, not raised."""
+        files = self._resolve_files()
+        t0 = time.perf_counter()
+        logger.info("qvd.warm_all.start", extra={"qvd_files": len(files), "qvd_patterns": self.patterns})
         paths: List[Path] = []
-        for filepath in self._resolve_files():
+        failed = 0
+        for filepath in files:
             try:
                 paths.append(await self.aensure_warm(filepath))
             except Exception:
                 # _warm_one already logged qvd.warm.failed
-                continue
+                failed += 1
+        logger.info(
+            "qvd.warm_all.done",
+            extra={
+                "qvd_files": len(files),
+                "qvd_warmed": len(paths),
+                "qvd_failed": failed,
+                "qvd_elapsed_s": round(time.perf_counter() - t0, 2),
+            },
+        )
         return paths
 
     @contextmanager

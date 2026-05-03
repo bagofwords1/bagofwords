@@ -367,6 +367,15 @@ class ConnectionIndexingService:
                 # Force one final flush so progress ends at the true total.
                 await _flush(force=True)
 
+                # Pre-warm any local caches (e.g. QVD → Parquet) so the first
+                # query after indexing hits a warm cache. Fire-and-forget so the
+                # indexing row completes immediately; warm failures are logged inside awarm_all.
+                try:
+                    client = await svc.construct_client(db, connection)
+                    asyncio.ensure_future(client.awarm_all())
+                except Exception:
+                    logger.debug("indexing.warm.skipped", exc_info=True)
+
                 # Fan schema out to every DataSource linked to this connection so
                 # the domain-level view (DataSourceTable) reflects the new schema.
                 synced_domains = await self._sync_linked_data_sources(
