@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
@@ -34,6 +35,11 @@ _QVD2PARQUET_BIN = (
     or shutil.which("qvd2parquet")
     or "/usr/local/bin/qvd2parquet"
 )
+
+# Per-cache-path lock so concurrent threads (connect() calls) don't race writing
+# the same .parquet.tmp file. Keyed by the final cache_path (Path).
+_PARSE_LOCKS: dict[Path, threading.Lock] = {}
+_PARSE_LOCKS_MUTEX = threading.Lock()
 
 # Cross-instance coordination for warmup. Same (abspath, mtime) → one parse.
 # Lazily initialized on first use so we bind to the running event loop.
@@ -160,48 +166,56 @@ class QVDClient(DataSourceClient):
         if cache_path.exists():
             return cache_path
 
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
-        # Streaming QVD → Parquet via standalone Rust binary. Bounded RAM
-        # (symbol tables + ~64K-row chunk buffer) vs the in-process qvdrs
-        # wheel which materialized the full table (~13× file size, OOM on 4GB+).
-        try:
-            result = subprocess.run(
-                [_QVD2PARQUET_BIN, filepath, str(tmp_path)],
-                check=True,
-                timeout=3600,
-                capture_output=True,
-                text=True,
-            )
-        except FileNotFoundError as exc:
-            raise RuntimeError(
-                f"qvd2parquet binary not found at {_QVD2PARQUET_BIN}. "
-                "Set QVD2PARQUET_BIN or install the binary at /usr/local/bin/qvd2parquet."
-            ) from exc
-        except subprocess.CalledProcessError as exc:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise RuntimeError(
-                f"qvd2parquet failed on {filepath}: exit={exc.returncode} "
-                f"stderr={(exc.stderr or '').strip()!r}"
-            ) from exc
-        except subprocess.TimeoutExpired as exc:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise RuntimeError(
-                f"qvd2parquet timed out after {exc.timeout}s on {filepath}"
-            ) from exc
+        with _PARSE_LOCKS_MUTEX:
+            lock = _PARSE_LOCKS.setdefault(cache_path, threading.Lock())
 
-        if result.stderr:
-            logger.info(
-                "qvd2parquet.done",
-                extra={"qvd_file": filepath, "qvd2parquet_stderr": result.stderr.strip()},
-            )
-        os.replace(tmp_path, cache_path)
+        with lock:
+            # Re-check after acquiring; another thread may have finished the parse.
+            if cache_path.exists():
+                return cache_path
+
+            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+            # Streaming QVD → Parquet via standalone Rust binary. Bounded RAM
+            # (symbol tables + ~64K-row chunk buffer) vs the in-process qvdrs
+            # wheel which materialized the full table (~13× file size, OOM on 4GB+).
+            try:
+                result = subprocess.run(
+                    [_QVD2PARQUET_BIN, filepath, str(tmp_path)],
+                    check=True,
+                    timeout=3600,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    f"qvd2parquet binary not found at {_QVD2PARQUET_BIN}. "
+                    "Set QVD2PARQUET_BIN or install the binary at /usr/local/bin/qvd2parquet."
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise RuntimeError(
+                    f"qvd2parquet failed on {filepath}: exit={exc.returncode} "
+                    f"stderr={(exc.stderr or '').strip()!r}"
+                ) from exc
+            except subprocess.TimeoutExpired as exc:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise RuntimeError(
+                    f"qvd2parquet timed out after {exc.timeout}s on {filepath}"
+                ) from exc
+
+            if result.stderr:
+                logger.info(
+                    "qvd2parquet.done",
+                    extra={"qvd_file": filepath, "qvd2parquet_stderr": result.stderr.strip()},
+                )
+            os.replace(tmp_path, cache_path)
 
         for old in _CACHE_DIR.glob(f"{file_hash}_*.parquet"):
             if old != cache_path:
