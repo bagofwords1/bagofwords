@@ -37,11 +37,25 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
   - `postgresql.auth.existingSecret`: Use an existing secret instead of inline values.
 - **App configuration & secrets**
   - `config.secretRef`: Name of an existing `Secret` whose keys override defaults from the `ConfigMap`.
-  - Environment keys commonly used by the app (set via Secret):
-    - `BOW_DATABASE_URL`, `BOW_BASE_URL`, `BOW_ENCRYPTION_KEY`
+  - Sensitive fields use a `${VAR}` placeholder pattern: when a value in `values.yaml`
+    starts with `${`, the chart skips emitting it to the ConfigMap and the backend
+    resolves it from the env at startup (provided by `secretRef`). Plaintext values
+    still work but land in the ConfigMap and trigger a NOTES warning.
+  - Environment keys commonly used by the app (provide via Secret):
+    - Core: `BOW_DATABASE_URL`, `BOW_BASE_URL`, `BOW_ENCRYPTION_KEY`
+    - Auth mode: `BOW_AUTH_MODE` (`hybrid` | `local_only` | `sso_only`)
     - Google OAuth: `BOW_GOOGLE_AUTH_ENABLED`, `BOW_GOOGLE_CLIENT_ID`, `BOW_GOOGLE_CLIENT_SECRET`
+    - OIDC providers: `BOW_OIDC_<NAME>_CLIENT_SECRET` per `config.oidcProviders[].name`
+    - LDAP / AD: `BOW_LDAP_BIND_PASSWORD` (Secret-only — never in `values.yaml`)
+    - License: `BOW_LICENSE_KEY`
     - Signup/options: `BOW_ALLOW_UNINVITED_SIGNUPS`, `BOW_ALLOW_MULTIPLE_ORGANIZATIONS`, `BOW_VERIFY_EMAILS`
     - SMTP: `BOW_SMTP_HOST`, `BOW_SMTP_PORT`, `BOW_SMTP_USERNAME`, `BOW_SMTP_PASSWORD`, `BOW_SMTP_FROM_NAME`, `BOW_SMTP_FROM_EMAIL`, `BOW_SMTP_USE_TLS`, `BOW_SMTP_USE_SSL`, `BOW_SMTP_USE_CREDENTIALS`, `BOW_SMTP_VALIDATE_CERTS`
+- **Identity providers**
+  - `config.oidcProviders[]`: Okta, Entra/Azure AD, Auth0, etc. Supports
+    group sync (`syncGroups`, `groupClaim`, `resolveGroupNames` for Entra
+    UUID-to-name resolution via Microsoft Graph).
+  - `config.ldap`: LDAP / Active Directory bind, user/group search, periodic
+    sync, optional auto-provisioning. Bind password is Secret-only.
 - **ServiceAccount**
   - `serviceAccount.annotations`: Arbitrary annotations map.
 - **Scheduling**

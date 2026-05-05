@@ -129,54 +129,143 @@ helm upgrade -i --create-namespace \
  -f aurora-values.yaml
 ```
 
-### Use existing Secret
-1. Make sure the namespace exists, if not create it
+### Secrets handling
+
+Sensitive values must be provided via a Kubernetes `Secret`, not via the
+ConfigMap that the chart renders by default. The recommended pattern is:
+
+1. Put the placeholder `${ENV_VAR}` in `values.yaml` (or `--set ...`).
+2. Create a `Secret` whose keys match those env-var names.
+3. Reference it via `--set config.secretRef=<secret-name>`.
+
+Sensitive keys consumed by the app:
+
+| Key                                | Source field in `values.yaml`                | Notes |
+| ---                                | ---                                          | --- |
+| `BOW_ENCRYPTION_KEY`               | `config.encryptionKey`                       | Required for stable installs — see warning below. |
+| `BOW_DATABASE_URL`                 | bundled-Postgres path only                   | Embeds the DB password; prefer a Secret. |
+| `BOW_GOOGLE_CLIENT_SECRET`         | `config.googleClientSecret`                  | Plaintext in ConfigMap if set inline. |
+| `BOW_GOOGLE_CLIENT_ID`             | `config.googleClientId`                      | Public-ish; treat like a secret if your IdP requires. |
+| `BOW_OIDC_<NAME>_CLIENT_SECRET`    | `config.oidcProviders[].clientSecret`        | Use a placeholder per provider (uppercase, alnum + `_`). |
+| `BOW_LDAP_BIND_PASSWORD`           | `config.ldap` (never in values)              | Always Secret-only. |
+| `BOW_SMTP_PASSWORD`                | `config.smtp.password`                       | Always Secret-only. |
+| `BOW_LICENSE_KEY`                  | `config.licenseKey`                          | Always Secret-only. |
+
+> **Encryption key is required.** If neither `config.encryptionKey` nor a
+> `BOW_ENCRYPTION_KEY` in your Secret is set, the backend generates a new
+> Fernet key on every pod start, which makes previously-encrypted data
+> (LLM credentials, OAuth tokens, etc.) unreadable after a restart. Generate
+> one once and persist it: `openssl rand -base64 32`.
+
+#### Step-by-step
+
+1. Create the namespace if it doesn't exist:
 ```bash
-   kubectl create namespace <namespace>
+kubectl create namespace <namespace>
 ```
-2. Create the secret with the environment variables you want to override
+
+2. Create the `Secret` with the sensitive keys you want to inject:
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: <secret-name>
+  name: bowapp-secrets
   namespace: <namespace>
 stringData:
-  postgres-password: "<postgres-password>"
-  BOW_DATABASE_URL: "postgresql://<postgres-user>:<postgres-password>@<postgres-host>:5432/<postgres-database>"
-  BOW_BASE_URL: "<base-url>"
-  BOW_ENCRYPTION_KEY: "<encryption-key>"
-  BOW_GOOGLE_AUTH_ENABLED: "false"
-  BOW_GOOGLE_CLIENT_ID: "<client-id>"
-  BOW_GOOGLE_CLIENT_SECRET: "<client-secret>"
-  BOW_ALLOW_UNINVITED_SIGNUPS: "false"
-  BOW_ALLOW_MULTIPLE_ORGANIZATIONS: "false"
-  BOW_VERIFY_EMAILS: "false"
-  BOW_INTERCOM_ENABLED: "false"
+  # App-wide
+  BOW_ENCRYPTION_KEY: "<fernet-key>"
+  BOW_DATABASE_URL: "postgresql://<user>:<pass>@<host>:5432/<db>"
 
-  # SMTP Configuration
-  BOW_SMTP_HOST: "<smtp-host>"
-  BOW_SMTP_PORT: "<smtp-port>"
-  BOW_SMTP_USERNAME: "<smtp-username>"
+  # Google OAuth
+  BOW_GOOGLE_CLIENT_SECRET: "<google-client-secret>"
+
+  # OIDC (one per provider name; uppercase + underscores)
+  BOW_OIDC_OKTA_CLIENT_SECRET: "<okta-client-secret>"
+  BOW_OIDC_ENTRA_CLIENT_SECRET: "<entra-client-secret>"
+
+  # LDAP / Active Directory
+  BOW_LDAP_BIND_PASSWORD: "<service-account-password>"
+
+  # SMTP
   BOW_SMTP_PASSWORD: "<smtp-password>"
-  BOW_SMTP_FROM_NAME: "<from-name>"
-  BOW_SMTP_FROM_EMAIL: "<from-email>"
-  BOW_SMTP_USE_TLS: "true"
-  BOW_SMTP_USE_SSL: "false"
-  BOW_SMTP_USE_CREDENTIALS: "true"
-  BOW_SMTP_VALIDATE_CERTS: "true"
+
+  # License
+  BOW_LICENSE_KEY: "<license-key>"
+
+  # Bundled-Postgres (subchart)
+  postgres-password: "<postgres-password>"
 ```
 
-**Note**: When using an existing secret, the values in the secret will override the default values from the ConfigMap. You only need to include the environment variables you want to override.
-
-3. Deploy BoW Application
+3. Reference the Secret in your install:
 ```bash
-helm install \
-  bowapp ./chart \
- -n bowapp-1 \
- --set postgresql.auth.existingSecret=existing-bowapp-secret \
- --set config.secretRef=existing-bowapp-secret
+helm upgrade -i \
+  bowapp bow/bagofwords \
+ -n <namespace> \
+ --set postgresql.auth.existingSecret=bowapp-secrets \
+ --set config.secretRef=bowapp-secrets
 ```
+
+The `Secret` is loaded after the ConfigMap via `envFrom`, so its values
+override any plaintext defaults from the ConfigMap. You only need to include
+the keys you want to set/override.
+
+### Microsoft Entra (Azure AD) with group sync
+
+```yaml
+# values.yaml
+config:
+  secretRef: bowapp-secrets       # contains BOW_OIDC_ENTRA_CLIENT_SECRET
+  authMode: hybrid                # or sso_only
+
+  oidcProviders:
+    - name: entra
+      enabled: true
+      label: "Sign in with Microsoft"
+      icon: microsoft
+      issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+      clientId: "<entra-client-id>"
+      clientSecret: "${BOW_OIDC_ENTRA_CLIENT_SECRET}"
+      scopes: ["openid", "profile", "email"]
+      pkce: true
+      clientAuthMethod: post
+      discovery: true
+      uidClaim: sub
+      # Sync the `groups` claim from the id_token into BOW Groups on login.
+      syncGroups: true
+      groupClaim: groups
+      # Entra returns group object IDs (UUIDs); resolve display names via Graph.
+      resolveGroupNames: true
+```
+
+### LDAP / Active Directory
+
+```yaml
+# values.yaml
+config:
+  secretRef: bowapp-secrets       # contains BOW_LDAP_BIND_PASSWORD
+
+  ldap:
+    enabled: true
+    url: ldaps://ad.corp.com:636
+    bindDn: "cn=service-account,ou=Services,dc=corp,dc=com"
+    useSsl: true
+    startTls: false
+    baseDn: "dc=corp,dc=com"
+    userSearchBase: "ou=Users,dc=corp,dc=com"
+    userSearchFilter: "(objectClass=person)"
+    userEmailAttribute: mail
+    userNameAttribute: displayName
+    groupSearchBase: "ou=Groups,dc=corp,dc=com"
+    groupSearchFilter: "(objectClass=group)"
+    groupNameAttribute: cn
+    groupMemberAttribute: member        # "member" (AD/DN) or "memberUid" (OpenLDAP)
+    groupMemberFormat: dn               # "dn" or "uid"
+    syncIntervalMinutes: 60
+    autoProvisionUsers: false
+```
+
+The bind password is never accepted via `values.yaml` — it must be set as
+`BOW_LDAP_BIND_PASSWORD` in the Secret referenced by `config.secretRef`.
 
 
 ### Service Account annotations

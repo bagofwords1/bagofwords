@@ -44,6 +44,17 @@ serviceAccount:
   name: bowapp
   imagePullSecret: ""
   annotations: {}
+
+# Application configuration.
+#
+# Sensitive fields (encryptionKey, googleClientSecret, smtp.password, licenseKey,
+# oidcProviders[].clientSecret, ldap.bindPassword) should be provided via a
+# Kubernetes Secret referenced by `config.secretRef`. Use the ${VAR} placeholder
+# pattern (e.g. clientSecret: "${BOW_OIDC_OKTA_CLIENT_SECRET}") and put the real
+# value in the Secret with the matching key. See README.md for details.
+#
+# Plaintext values are still accepted for backward compatibility, but they will
+# land in a ConfigMap (not a Secret) and trigger a warning in helm NOTES.
 config:
   secretRef: ""
   googleOauthEnabled: false
@@ -53,7 +64,7 @@ config:
   intercomEnabled: false
   telemetryEnabled: true
   baseUrl: ""
-  authMode: "hybrid"
+  authMode: "hybrid"   # hybrid | local_only | sso_only
   allowUninvitedSignups: false
   allowMultipleOrganizations: false
   verifyEmails: false
@@ -65,26 +76,74 @@ config:
     protocol: "grpc" # grpc or http/protobuf
     headers: "" # format: key1=value1,key2=value2
 
-  # List of OIDC providers to enable (empty by default)
-  # Example:
+  # OpenID Connect providers (Okta, Microsoft Entra, Auth0, etc.).
+  # `clientSecret` should always use the ${BOW_OIDC_<NAME>_CLIENT_SECRET}
+  # placeholder pattern — the real secret is provided via config.secretRef.
+  #
+  # Example — Okta:
   # oidcProviders:
   #   - name: okta
   #     enabled: true
   #     issuer: https://YOUR_OKTA_DOMAIN.okta.com/oauth2/default
-  #     clientId: "${BOW_OIDC_OKTA_CLIENT_ID}"   # or plain value
-  #     clientSecret: "${BOW_OIDC_OKTA_CLIENT_SECRET}" # or plain value
+  #     clientId: "<okta-client-id>"
+  #     clientSecret: "${BOW_OIDC_OKTA_CLIENT_SECRET}"
   #     scopes: ["openid", "profile", "email"]
   #     pkce: true
-  #     clientAuthMethod: basic   # or post
+  #     clientAuthMethod: basic   # basic | post
   #     discovery: true
   #     uidClaim: sub
-  #     redirectPath: /api/auth/okta/callback
-  #     extraAuthorizeParams: {}
-  #     extraTokenParams: {}
+  #
+  # Example — Microsoft Entra (Azure AD) with group sync:
+  # oidcProviders:
+  #   - name: entra
+  #     enabled: true
+  #     label: "Sign in with Microsoft"
+  #     icon: microsoft
+  #     issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+  #     clientId: "<entra-client-id>"
+  #     clientSecret: "${BOW_OIDC_ENTRA_CLIENT_SECRET}"
+  #     scopes: ["openid", "profile", "email"]
+  #     pkce: true
+  #     clientAuthMethod: post
+  #     discovery: true
+  #     uidClaim: sub
+  #     # Sync groups from id_token's `groups` claim into BOW Groups on login.
+  #     syncGroups: true
+  #     groupClaim: groups
+  #     # Entra returns group UUIDs; resolve display names via Microsoft Graph.
+  #     resolveGroupNames: true
   oidcProviders: []
-  # Enterprise license key (optional)
-  # For security, prefer using secretRef to store the license key
+
+  # LDAP / Active Directory.
+  # bindPassword is NOT set here — provide it as BOW_LDAP_BIND_PASSWORD in
+  # the Secret referenced by config.secretRef.
+  ldap:
+    enabled: false
+    url: ""                                  # e.g. ldaps://ad.corp.com:636
+    bindDn: ""                               # service account DN (optional)
+    useSsl: true
+    startTls: false
+    baseDn: ""                               # e.g. dc=corp,dc=com
+    userSearchBase: ""                       # defaults to baseDn when empty
+    userSearchFilter: "(objectClass=person)"
+    userEmailAttribute: "mail"
+    userNameAttribute: "displayName"
+    groupSearchBase: ""                      # defaults to baseDn when empty
+    groupSearchFilter: "(objectClass=group)"
+    groupNameAttribute: "cn"
+    groupMemberAttribute: "member"            # "member" (AD/DN) or "memberUid" (OpenLDAP)
+    groupMemberFormat: "dn"                  # "dn" or "uid"
+    syncIntervalMinutes: 60
+    autoProvisionUsers: false
+    connectionTimeout: 10
+    pageSize: 500
+
+  # Enterprise license key. Prefer config.secretRef with key BOW_LICENSE_KEY.
   licenseKey: ""
+
+  # SMTP — `enabled` is a Helm-only render gate (SMTPSettings has no `enabled`
+  # field). Setting `host` also implicitly enables the block. `password` should
+  # be provided via config.secretRef as BOW_SMTP_PASSWORD.
   smtp:
     enabled: false
     host: ""
