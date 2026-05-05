@@ -1,0 +1,39 @@
+base_url: http://0.0.0.0:8000
+
+features:
+  allow_uninvited_signups: true
+  allow_multiple_organizations: true
+  verify_emails: false
+
+auth:
+  mode: "local_only"
+
+google_oauth:
+  enabled: false
+
+encryption_key: ${BOW_ENCRYPTION_KEY}
+
+intercom:
+  enabled: false
+
+telemetry:
+  enabled: false
+
+swagger:
+  enabled: true
+
+default_llm:
+  - provider_type: anthropic
+    provider_name: Anthropic
+    api_key: ${ANTHROPIC_API_KEY}
+    models:
+      - model_id: claude-sonnet-4-5-20250929
+        model_name: Claude Sonnet 4.5
+        is_default: true
+        is_small_default: false
+        is_enabled: true
+      - model_id: claude-haiku-4-5-20251001
+        model_name: Claude Haiku 4.5
+        is_default: false
+        is_small_default: true
+        is_enabled: true
