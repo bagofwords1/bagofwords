@@ -1,0 +1,76 @@
+Bag of Words has been deployed to namespace "{{ .Release.Namespace }}" as release "{{ .Release.Name }}".
+
+Host: https://{{ .Values.host }}
+
+{{- $hasSecretRef := .Values.config.secretRef -}}
+{{- $plaintext := list -}}
+{{- if and .Values.config.encryptionKey (not (hasPrefix "${" .Values.config.encryptionKey)) -}}
+{{- $plaintext = append $plaintext "config.encryptionKey" -}}
+{{- end -}}
+{{- if and .Values.config.googleClientSecret (not (hasPrefix "${" .Values.config.googleClientSecret)) -}}
+{{- $plaintext = append $plaintext "config.googleClientSecret" -}}
+{{- end -}}
+{{- if and .Values.config.licenseKey (not (hasPrefix "${" .Values.config.licenseKey)) -}}
+{{- $plaintext = append $plaintext "config.licenseKey" -}}
+{{- end -}}
+{{- if and .Values.config.smtp.password (not (hasPrefix "${" .Values.config.smtp.password)) -}}
+{{- $plaintext = append $plaintext "config.smtp.password" -}}
+{{- end -}}
+{{- range $p := .Values.config.oidcProviders -}}
+{{- if and $p.clientSecret (not (hasPrefix "${" $p.clientSecret)) -}}
+{{- $plaintext = append $plaintext (printf "config.oidcProviders[%s].clientSecret" $p.name) -}}
+{{- end -}}
+{{- end }}
+
+{{- if not .Values.config.encryptionKey }}
+{{- if not $hasSecretRef }}
+
+WARNING: no encryption key configured.
+  config.encryptionKey is empty and config.secretRef is not set, so a fresh
+  Fernet key will be generated on every pod start. Existing encrypted data
+  (LLM credentials, OAuth tokens, etc.) will become unreadable after a
+  restart or scale event.
+
+  Fix one of:
+    --set config.encryptionKey="$(openssl rand -base64 32)"
+    --set config.secretRef=<secret-name>   # with key BOW_ENCRYPTION_KEY
+{{- end }}
+{{- end }}
+
+{{- if $plaintext }}
+
+WARNING: plaintext sensitive values detected in values:
+{{- range $f := $plaintext }}
+  - {{ $f }}
+{{- end }}
+
+  These values will be stored in a ConfigMap, which is NOT a Secret. They are
+  visible to anyone with read access to the namespace and may be captured by
+  cluster snapshots, GitOps tooling, and log aggregators.
+
+  Recommended: move them to a Kubernetes Secret and reference it via
+  config.secretRef. Use the ${VAR} placeholder pattern in values, for example:
+    config:
+      secretRef: bowapp-secrets
+      googleClientSecret: "${BOW_GOOGLE_CLIENT_SECRET}"
+  ...with a Secret named "bowapp-secrets" containing key BOW_GOOGLE_CLIENT_SECRET.
+{{- end }}
+
+{{- if .Values.config.ldap.enabled }}
+
+LDAP is enabled. Make sure config.secretRef points to a Secret containing
+BOW_LDAP_BIND_PASSWORD — the chart does not put the bind password in the
+ConfigMap.
+{{- end }}
+
+{{- if .Values.config.oidcProviders }}
+
+OIDC providers are configured. For each provider, store the client secret in
+the Secret referenced by config.secretRef using the key referenced by your
+clientSecret placeholder (e.g. ${BOW_OIDC_OKTA_CLIENT_SECRET} → Secret key
+BOW_OIDC_OKTA_CLIENT_SECRET).
+{{- end }}
+
+To check status:
+  kubectl get pods -n {{ .Release.Namespace }}
+  kubectl logs -n {{ .Release.Namespace }} -l app=bowapp --tail=100

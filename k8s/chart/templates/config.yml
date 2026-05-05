@@ -27,41 +27,57 @@ data:
   {{- end }}
   {{- end }}
   {{- end }}
-  
-  # Application configuration - always include these
-  BOW_BASE_URL: {{.Values.config.baseUrl | quote}}
-  BOW_ENCRYPTION_KEY: {{.Values.config.encryptionKey | quote}}
+
+  # Application configuration
+  BOW_BASE_URL: {{ .Values.config.baseUrl | quote }}
   BOW_AUTH_MODE: {{ .Values.config.authMode | quote }}
-  BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
-  BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
-  BOW_GOOGLE_AUTH_ENABLED: {{.Values.config.googleOauthEnabled | quote}}
-  {{- if or .Values.config.smtp.host .Values.config.smtp.enabled }}
-  BOW_SMTP_HOST: {{.Values.config.smtp.host | quote}}
-  BOW_SMTP_PORT: {{.Values.config.smtp.port | quote}}
-  BOW_SMTP_USERNAME: {{.Values.config.smtp.username | quote}}
-  BOW_SMTP_PASSWORD: {{.Values.config.smtp.password | quote}}
-  BOW_SMTP_FROM_NAME: {{.Values.config.smtp.from_name | quote}}
-  BOW_SMTP_FROM_EMAIL: {{.Values.config.smtp.from_email | quote}}
-  BOW_SMTP_USE_TLS: {{.Values.config.smtp.use_tls | quote}}
-  BOW_SMTP_USE_SSL: {{.Values.config.smtp.use_ssl | quote}}
-  BOW_SMTP_USE_CREDENTIALS: {{.Values.config.smtp.use_credentials | quote}}
-  BOW_SMTP_VALIDATE_CERTS: {{.Values.config.smtp.validate_certs | quote}}
+  BOW_GOOGLE_AUTH_ENABLED: {{ .Values.config.googleOauthEnabled | quote }}
+  BOW_INTERCOM_ENABLED: {{ .Values.config.intercomEnabled | quote }}
+  BOW_TELEMETRY_ENABLED: {{ .Values.config.telemetryEnabled | quote }}
+  BOW_ALLOW_UNINVITED_SIGNUPS: {{ .Values.config.allowUninvitedSignups | quote }}
+  BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{ .Values.config.allowMultipleOrganizations | quote }}
+  BOW_VERIFY_EMAILS: {{ .Values.config.verifyEmails | quote }}
+
+  # Sensitive values: emit to ConfigMap only when set as a literal (not a ${VAR} placeholder).
+  # Recommended pattern is to provide these via config.secretRef; see README.md.
+  {{- if and .Values.config.encryptionKey (not (hasPrefix "${" .Values.config.encryptionKey)) }}
+  BOW_ENCRYPTION_KEY: {{ .Values.config.encryptionKey | quote }}
   {{- end }}
-  BOW_INTERCOM_ENABLED: {{.Values.config.intercomEnabled | quote}}
-  BOW_TELEMETRY_ENABLED: {{.Values.config.telemetryEnabled | quote }}
-  BOW_ALLOW_UNINVITED_SIGNUPS: {{.Values.config.allowUninvitedSignups | quote}}
-  BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{.Values.config.allowMultipleOrganizations | quote}}
-  BOW_VERIFY_EMAILS: {{.Values.config.verifyEmails | quote}}
+  {{- if and .Values.config.googleClientId (not (hasPrefix "${" .Values.config.googleClientId)) }}
+  BOW_GOOGLE_CLIENT_ID: {{ .Values.config.googleClientId | quote }}
+  {{- end }}
+  {{- if and .Values.config.googleClientSecret (not (hasPrefix "${" .Values.config.googleClientSecret)) }}
+  BOW_GOOGLE_CLIENT_SECRET: {{ .Values.config.googleClientSecret | quote }}
+  {{- end }}
+  {{- if and .Values.config.licenseKey (not (hasPrefix "${" .Values.config.licenseKey)) }}
+  BOW_LICENSE_KEY: {{ .Values.config.licenseKey | quote }}
+  {{- end }}
+
+  # SMTP — Helm-only `enabled` is a render gate; SMTPSettings has no `enabled` field.
+  # `host` is required when SMTP is on (also implicitly enabled if `host` is set).
+  {{- $smtpOn := or .Values.config.smtp.enabled .Values.config.smtp.host -}}
+  {{- if $smtpOn }}
+  {{- if not .Values.config.smtp.host }}
+  {{- fail "config.smtp.host is required when SMTP is enabled" }}
+  {{- end }}
+  BOW_SMTP_HOST: {{ .Values.config.smtp.host | quote }}
+  BOW_SMTP_PORT: {{ .Values.config.smtp.port | quote }}
+  BOW_SMTP_USERNAME: {{ .Values.config.smtp.username | quote }}
+  BOW_SMTP_FROM_NAME: {{ .Values.config.smtp.from_name | quote }}
+  BOW_SMTP_FROM_EMAIL: {{ .Values.config.smtp.from_email | quote }}
+  BOW_SMTP_USE_TLS: {{ .Values.config.smtp.use_tls | quote }}
+  BOW_SMTP_USE_SSL: {{ .Values.config.smtp.use_ssl | quote }}
+  BOW_SMTP_USE_CREDENTIALS: {{ .Values.config.smtp.use_credentials | quote }}
+  BOW_SMTP_VALIDATE_CERTS: {{ .Values.config.smtp.validate_certs | quote }}
+  {{- if and .Values.config.smtp.password (not (hasPrefix "${" .Values.config.smtp.password)) }}
+  BOW_SMTP_PASSWORD: {{ .Values.config.smtp.password | quote }}
+  {{- end }}
+  {{- end }}
+
   {{- if .Values.config.uvicornWorkers }}
   UVICORN_WORKERS: {{ .Values.config.uvicornWorkers | quote }}
   {{- end }}
-  # OIDC providers rendered as YAML inside the config file
-  BOW_OIDC_JSON: {{ .Values.config.oidcProviders | toJson | quote }}
-  # Enterprise license key (optional - prefer using secretRef for security)
-  {{- if .Values.config.licenseKey }}
-  BOW_LICENSE_KEY: {{.Values.config.licenseKey | quote}}
-  {{- end }}
-  
+
   bowConfig: |
     # Deployment Configuration
     base_url: ${BOW_BASE_URL}
@@ -72,14 +88,17 @@ data:
       allow_multiple_organizations: ${BOW_ALLOW_MULTIPLE_ORGANIZATIONS}
       verify_emails: ${BOW_VERIFY_EMAILS}
 
+    auth:
+      mode: ${BOW_AUTH_MODE}
+
     google_oauth:
       enabled: ${BOW_GOOGLE_AUTH_ENABLED}
       client_id: ${BOW_GOOGLE_CLIENT_ID}
       client_secret: ${BOW_GOOGLE_CLIENT_SECRET}
 
     encryption_key: ${BOW_ENCRYPTION_KEY}
-    
-{{- if or .Values.config.smtp.host .Values.config.smtp.enabled }}
+
+{{- if $smtpOn }}
     smtp_settings:
       host: ${BOW_SMTP_HOST}
       port: ${BOW_SMTP_PORT}
@@ -102,16 +121,44 @@ data:
     license:
       key: ${BOW_LICENSE_KEY}
 
-    features:
-      auth:
-        mode: ${BOW_AUTH_MODE}
-
     otel:
       enabled: {{ .Values.config.otel.enabled | quote }}
       serviceName: {{ .Values.config.otel.serviceName | quote }}
       tracesEndpoint: {{ .Values.config.otel.tracesEndpoint | quote }}
-      protocol: {{ .Values.config.otel.protocol | quote}}
+      protocol: {{ .Values.config.otel.protocol | quote }}
       headers: {{ .Values.config.otel.headers | quote }}
+
+{{- if .Values.config.ldap.enabled }}
+    # LDAP / Active Directory
+    # bind_password is read from env BOW_LDAP_BIND_PASSWORD — provide via config.secretRef
+    ldap:
+      enabled: true
+      url: {{ .Values.config.ldap.url | quote }}
+{{- if .Values.config.ldap.bindDn }}
+      bind_dn: {{ .Values.config.ldap.bindDn | quote }}
+{{- end }}
+      bind_password: ${BOW_LDAP_BIND_PASSWORD}
+      use_ssl: {{ .Values.config.ldap.useSsl }}
+      start_tls: {{ .Values.config.ldap.startTls }}
+      base_dn: {{ .Values.config.ldap.baseDn | quote }}
+{{- if .Values.config.ldap.userSearchBase }}
+      user_search_base: {{ .Values.config.ldap.userSearchBase | quote }}
+{{- end }}
+      user_search_filter: {{ .Values.config.ldap.userSearchFilter | quote }}
+      user_email_attribute: {{ .Values.config.ldap.userEmailAttribute | quote }}
+      user_name_attribute: {{ .Values.config.ldap.userNameAttribute | quote }}
+{{- if .Values.config.ldap.groupSearchBase }}
+      group_search_base: {{ .Values.config.ldap.groupSearchBase | quote }}
+{{- end }}
+      group_search_filter: {{ .Values.config.ldap.groupSearchFilter | quote }}
+      group_name_attribute: {{ .Values.config.ldap.groupNameAttribute | quote }}
+      group_member_attribute: {{ .Values.config.ldap.groupMemberAttribute | quote }}
+      group_member_format: {{ .Values.config.ldap.groupMemberFormat | quote }}
+      sync_interval_minutes: {{ .Values.config.ldap.syncIntervalMinutes }}
+      auto_provision_users: {{ .Values.config.ldap.autoProvisionUsers }}
+      connection_timeout: {{ .Values.config.ldap.connectionTimeout }}
+      page_size: {{ .Values.config.ldap.pageSize }}
+{{- end }}
 
     # OpenID Connect providers
     oidc_providers:
@@ -127,6 +174,12 @@ data:
         client_auth_method: {{ (default "basic" $p.clientAuthMethod) | quote }}
         discovery: {{ (default true $p.discovery) }}
         uid_claim: {{ (default "sub" $p.uidClaim) | quote }}
+{{- if $p.label }}
+        label: {{ $p.label | quote }}
+{{- end }}
+{{- if $p.icon }}
+        icon: {{ $p.icon | quote }}
+{{- end }}
 {{- if $p.redirectPath }}
         redirect_path: {{ $p.redirectPath | quote }}
 {{- end }}
@@ -136,6 +189,9 @@ data:
 {{- if $p.extraTokenParams }}
         extra_token_params: {{ $p.extraTokenParams | toJson }}
 {{- end }}
+        sync_groups: {{ default false $p.syncGroups }}
+        group_claim: {{ default "groups" $p.groupClaim | quote }}
+        resolve_group_names: {{ default false $p.resolveGroupNames }}
 {{- end }}
 {{- else }}
       []
