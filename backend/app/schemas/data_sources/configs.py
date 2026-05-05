@@ -261,6 +261,63 @@ class SybaseConfig(SQLConfig):
     port: int = Field(2638, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
 
 
+# Generic ODBC — works with any installed ODBC driver
+# (Progress OpenEdge, Informix, Teradata, Snowflake ODBC, etc.).
+# The driver itself must be installed and registered in odbcinst.ini
+# on the runtime host.
+class OdbcConfig(BaseModel):
+    dsn: Optional[str] = Field(
+        None,
+        title="DSN",
+        description="Registered DSN name (User or System DSN). Leave blank to specify a driver explicitly below.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    driver: Optional[str] = Field(
+        None,
+        title="ODBC Driver",
+        description="ODBC driver name as registered in odbcinst.ini, e.g. \"Progress OpenEdge 11.7 Driver\". Required when DSN is not set.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    host: Optional[str] = Field(
+        None,
+        title="Host",
+        description="Database host (omit when using a DSN that already encodes it).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    port: Optional[int] = Field(
+        None,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="Database port (optional).",
+        json_schema_extra={"ui:type": "number"},
+    )
+    database: Optional[str] = Field(
+        None,
+        title="Database",
+        description="Database name (optional; some drivers take this from the DSN).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas to restrict discovery to.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    extra_params: Optional[str] = Field(
+        None,
+        title="Extra Connection Parameters",
+        description="Free-form key=value pairs separated by ';' appended to the connection string (e.g. \"TrustServerCertificate=yes;ApplicationIntent=ReadOnly\").",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @model_validator(mode="after")
+    def validate_dsn_or_driver(cls, model: "OdbcConfig") -> "OdbcConfig":
+        if not (model.dsn and model.dsn.strip()) and not (model.driver and model.driver.strip()):
+            raise ValueError("ODBC connection requires either a DSN or a driver name.")
+        return model
+
+
 # Presto
 class PrestoCredentials(BaseModel):
     user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})

@@ -15,6 +15,7 @@ from app.schemas.data_sources.configs import (
     NetSuiteConfig,
     SQLConfig,
     MssqlConfig,
+    OdbcConfig,
     PrestoConfig,
     GoogleAnalyticsConfig,
     GCPConfig,
@@ -301,6 +302,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Microsoft SQL Server",
         description="MSSQL is Microsoft's relational database for managing and analyzing data.",
         config_schema=MssqlConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+        }),
+        client_path=None,
+    ),
+    "odbc": DataSourceRegistryEntry(
+        type="odbc",
+        title="ODBC",
+        description="Generic ODBC connection. Works with any installed ODBC driver (Progress OpenEdge, Informix, Teradata, ...).",
+        config_schema=OdbcConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
