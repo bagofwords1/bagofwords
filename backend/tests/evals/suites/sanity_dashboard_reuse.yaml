@@ -1,0 +1,79 @@
+name: Sanity · Dashboard Reuse
+description: >
+  Two-turn eval that pins the "reuse existing data when asked for a dashboard"
+  behavior. Turn 1 asks for a list of albums with aggregated revenue (one
+  create_data call producing a wide master table). Turn 2 says "great, create
+  a dashboard" — the agent should go STRAIGHT to create_artifact using the
+  existing visualization, NOT call create_data again.
+
+  This case mirrors the screenshot bug where the agent re-issued multiple
+  create_data calls (KPIs, trend, top-N) instead of composing a dashboard from
+  the data already on screen. It is expected to FAIL on the current prompts
+  and serves as the regression-pin for the planner prompt fix.
+
+tags: [artifacts, data, dashboard_reuse, multi_turn]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  - name: dashboard_reuses_existing_data
+    turns:
+      - prompt:
+          content: "show me list of albums with agg revenue"
+      - prompt:
+          content: "great create a dashboard"
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # Turn 1: exactly one create_data call to produce the master table.
+        - type: tool.calls
+          tool: create_data
+          turn: 1
+          min_calls: 1
+          max_calls: 1
+
+        # Turn 2: NO additional create_data calls. The agent must reuse the
+        # existing visualization. This is the rule that today's behavior
+        # violates.
+        - type: tool.calls
+          tool: create_data
+          turn: 2
+          max_calls: 0
+
+        # Turn 2: exactly one create_artifact call.
+        - type: tool.calls
+          tool: create_artifact
+          turn: 2
+          min_calls: 1
+          max_calls: 1
+
+        # Sanity: judge inspects the final artifact to ensure it is a real
+        # dashboard built from the albums-with-revenue data, not an empty
+        # shell or a re-query. Pass only if the dashboard derives KPIs/charts
+        # from the existing master table.
+        - type: judge
+          prompt: >
+            The final artifact must be a dashboard that uses the
+            albums-with-aggregated-revenue data produced in turn 1.
+
+            Pass only if ALL of the following are clearly true:
+
+            (1) The dashboard renders one or more visual elements (KPI cards,
+                charts, tables) derived from the album revenue data — e.g.,
+                top albums by revenue, total revenue across albums, a
+                revenue distribution chart, or similar.
+
+            (2) The dashboard does NOT depend on data the agent never
+                produced (e.g., revenue-by-month trends, customer counts,
+                top-artists) unless those are computed client-side from
+                the existing albums-with-revenue rows.
+
+            (3) The artifact code references the existing visualization
+                (via useArtifactData / data.visualizations) rather than
+                placeholders or hardcoded values.
+
+            If the dashboard is empty, contains hardcoded/sample data, or
+            requires a visualization the agent didn't actually create, mark
+            "fail".
