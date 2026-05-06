@@ -90,8 +90,8 @@ def pytest_addoption(parser):
         "--db",
         action="store",
         default="sqlite",
-        choices=["sqlite", "postgres"],
-        help="Database backend for tests: sqlite (default, fast) or postgres (thorough)"
+        choices=["sqlite", "postgres", "external"],
+        help="Database backend for tests: sqlite (default, fast), postgres (testcontainers, thorough), or external (use pre-set TEST_DATABASE_URL — for sandboxes without Docker)"
     )
 
 
@@ -321,20 +321,26 @@ def _dispose_async_engine():
 def run_migrations(alembic_config, db_backend):
     """Run migrations per test function for isolation."""
     
-    if db_backend == "postgres":
-        # PostgreSQL: reset schema BEFORE test to avoid stale async connections
+    if db_backend in ("postgres", "external"):
+        # PostgreSQL (testcontainer or external): reset schema BEFORE test to
+        # avoid stale async connections and to start each test from a clean slate.
+        # Also dispose the engine so the in-memory pool drops any connections
+        # that the prior test left in a closed/aborted state — without this,
+        # the next test inherits half-dead conns and gets "underlying connection
+        # is closed" on first rollback.
         print("Resetting PostgreSQL schema...")
+        _dispose_async_engine()
         _reset_postgres_schema(alembic_config)
     elif db_backend == "sqlite":
         # SQLite: dispose engine before migrations to release any stale connections
         _dispose_async_engine()
-    
+
     print("Starting migrations...")
     command.upgrade(alembic_config, "head")
     print("Migrations completed!")
-    
+
     yield
-    
+
     # Cleanup after test
     if db_backend == "sqlite":
         # SQLite: dispose engine first to release connections, then downgrade and remove file
