@@ -1302,7 +1302,9 @@ const iframeSrcdoc = computed(() => {
 
     // Catch uncaught runtime errors
     window.onerror = function(msg, source, line, col, err) {
-      reportArtifactError((err && err.message) || String(msg));
+      var message = (err && err.message) || String(msg);
+      if (message.indexOf('ResizeObserver') !== -1) return false;
+      reportArtifactError(message);
     };
     window.addEventListener('unhandledrejection', function(e) {
       reportArtifactError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
