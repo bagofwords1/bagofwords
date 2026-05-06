@@ -50,7 +50,15 @@ async def get_async_db() -> AsyncSession:
         try:
             yield session
         finally:
-            await session.rollback()
+            # A long-running SSE handler may close the session early to
+            # release its pool slot before the response finishes streaming
+            # (see completion_service.create_completion_stream). Rollback
+            # on an already-closed session would raise — swallow it here
+            # because cleanup is best-effort.
+            try:
+                await session.rollback()
+            except Exception:
+                pass
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
     yield SQLAlchemyUserDatabase(session, User, OAuthAccount)

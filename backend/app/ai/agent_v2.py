@@ -3612,4 +3612,12 @@ class AgentV2:
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error handling tool output for {tool_name}: {e}")
+            # Rollback the session so the next decision/action can use it.
+            # Without this, the next `self.db.execute` raises
+            # `PendingRollbackError` and the whole agent run dies — which
+            # is the cascade we saw paired with `I/O operation on closed file`.
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
             # Don't re-raise; this is post-processing and shouldn't break the main flow
