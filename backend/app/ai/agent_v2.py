@@ -2720,7 +2720,43 @@ class AgentV2:
                                             continue
                                         raise
 
-                            self._schedule_bg_write("persist_tool", _bg_persist_tool())
+                            # Single-writer mode: persist sync on the dedicated
+                            # write session — no bg task, no retries, no race
+                            # because no other writer is running concurrently.
+                            # Legacy mode keeps the bg-task + retry pattern.
+                            if self._use_single_write_session() and self._writes is not None:
+                                try:
+                                    from app.models.agent_execution import AgentExecution as _AE
+                                    from app.models.completion import Completion as _Comp
+                                    sw_exec = await self._writes.get(_AE, _bg_exec_id)
+                                    sw_comp = await self._writes.get(_Comp, _bg_comp_id)
+                                    if sw_exec and sw_comp:
+                                        block = await self.project_manager.commit_tool_and_attach_block(
+                                            self._writes, sw_comp, sw_exec, _bg_tool_exec,
+                                            block_id=_bg_block_id_local,
+                                        )
+                                        if block is not None:
+                                            try:
+                                                block_schema = await serialize_block_v2(self._writes, block)
+                                                seq_blk = await self.project_manager.next_seq(self._writes, sw_exec)
+                                                await self._emit_sse_event(SSEEvent(
+                                                    event="block.upsert",
+                                                    completion_id=_bg_comp_id,
+                                                    agent_execution_id=_bg_exec_id,
+                                                    seq=seq_blk,
+                                                    data={"block": block_schema.model_dump()},
+                                                ))
+                                            except Exception as _e:
+                                                logger.warning(
+                                                    f"[agent.single_writer] persist_tool block.upsert emit failed: {_e!r}"
+                                                )
+                                except Exception as _persist_exc:
+                                    logger.error(
+                                        f"[agent.single_writer] persist_tool failed: {_persist_exc!r}",
+                                        exc_info=True,
+                                    )
+                            else:
+                                self._schedule_bg_write("persist_tool", _bg_persist_tool())
                             # Rebuild transcript — coalesced with any pending
                             # rebuild from the post-plan_decision path above.
                             self._request_rebuild_transcript()
