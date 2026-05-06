@@ -3150,251 +3150,96 @@ class AgentV2:
         return True
 
     async def _handle_streaming_event(self, tool_name: str, event: dict, tool_input: dict = None):
-        """Handle real-time streaming events for widget/step management."""
+        """Handle real-time streaming events for widget/step management.
+
+        Same rationale as _handle_tool_output: this method writes to several
+        ORM tables (queries, steps, visualizations) on every progress event
+        of every running tool. Doing those writes on the long-lived self.db
+        is what produced the SQLite-N=10 cascade — one INSERT got the
+        OperationalError "database is locked", the agent's session entered
+        PendingRollback, and every subsequent self.db.* in the run failed.
+        On Postgres the same pattern surfaces as a stale connection from
+        an asyncio.wait_for cancellation, with identical cascade. We open
+        a fresh short-lived session per call instead. ORM instances that
+        outlive this call (self.current_step, self.current_visualization,
+        self.current_query) are kept around for downstream code that only
+        reads `.id` off them — after the fresh session exits they are
+        detached, but the PK columns remain readable.
+        """
         event_type = event.get("type")
         payload = event.get("payload", {})
-        
+
         if event_type != "tool.progress":
             return
-            
+
         stage = payload.get("stage")
-        
+
+        # IDs read from any pre-existing ORM references attached to a now-stale
+        # session. They're plain strings/UUIDs, so this read can't trigger
+        # lazy loading even if the original session has died.
+        cur_step_id = self.current_step_id
+        cur_viz_id = str(self.current_visualization.id) if getattr(self, 'current_visualization', None) else None
+        cur_query_id = str(self.current_query.id) if getattr(self, 'current_query', None) else None
+        exec_id = str(self.current_execution.id) if getattr(self, 'current_execution', None) else None
+        report_id = str(self.report.id) if self.report else None
+        sys_completion_id = str(self.system_completion.id) if self.system_completion else None
+        widget_id_for_artifact = str(self.current_widget.id) if getattr(self, 'current_widget', None) else None
+
         try:
-            if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
-                if stage == "data_model_type_determined":
-                    # Create Query, Step and Visualization early when we know the type
-                    data_model_type = payload.get("data_model_type")
-                    # Accept either payload.query_title (preferred) or tool_input.title/widget_title for backward-compat
-                    query_title = (
-                        (payload.get("query_title") if isinstance(payload, dict) else None)
-                        or (tool_input and (tool_input.get("title") or tool_input.get("widget_title")))
-                        or "Untitled Query"
-                    )
+            async with self._session_maker() as fresh_db:
+                # Re-fetch what we actually need into the fresh session so
+                # any subsequent update_*/refresh ops bind to a live conn.
+                exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
+                report_obj = await fresh_db.get(Report, report_id) if report_id else None
+                cur_step = await fresh_db.get(Step, cur_step_id) if cur_step_id else None
 
-                    if data_model_type and self.report and not self.current_step:
-                        # Create query (transitional service may still create a widget under the hood)
-                        try:
-                            self.current_query = await self.project_manager.create_query_v2(
-                                self.db, self.report, query_title
-                            )
-                        except Exception:
-                            self.current_query = None
-
-                        # Create step under the query
-                        initial_data_model = {"type": data_model_type, "columns": [], "series": []}
-                        self.current_step = await self.project_manager.create_step_for_query(
-                            self.db, self.current_query, query_title, "chart", initial_data_model
+                if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
+                    if stage == "data_model_type_determined":
+                        # Create Query, Step and Visualization early when we know the type
+                        data_model_type = payload.get("data_model_type")
+                        # Accept either payload.query_title (preferred) or tool_input.title/widget_title for backward-compat
+                        query_title = (
+                            (payload.get("query_title") if isinstance(payload, dict) else None)
+                            or (tool_input and (tool_input.get("title") or tool_input.get("widget_title")))
+                            or "Untitled Query"
                         )
-                        self.current_step_id = str(self.current_step.id)
-                        await self.project_manager.set_query_default_step_if_empty(self.db, self.current_query, self.current_step_id)
 
-                        # Create visualization (draft) with only type in view
-                        try:
-                            self.current_visualization = await self.project_manager.create_visualization_v2(
-                                self.db, str(self.report.id), str(self.current_query.id), query_title, view={"type": data_model_type}, status="draft"
-                            )
-                        except Exception:
-                            self.current_visualization = None
-
-                        # Emit early query/visualization creation events
-                        try:
-                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                            await self._emit_sse_event(SSEEvent(
-                                event="query.created",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq,
-                                data={
-                                    "query_id": str(self.current_query.id) if self.current_query else None,
-                                    "report_id": str(self.report.id),
-                                    "title": query_title,
-                                }
-                            ))
-                        except Exception:
-                            pass
-                        try:
-                            if self.current_visualization:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="visualization.created",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={
-                                        "visualization_id": str(self.current_visualization.id),
-                                        "query_id": str(self.current_query.id) if self.current_query else None,
-                                        "report_id": str(self.report.id),
-                                        "step_id": str(self.current_step.id),
-                                        "view": {"type": data_model_type},
-                                    }
-                                ))
-                        except Exception:
-                            pass
-
-                        # Emit artifact delta for step data_model.type
-                        try:
-                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                            change = ArtifactChangeSchema(
-                                type="step",
-                                step_id=str(self.current_step.id),
-                                partial=True,
-                                changed_fields=["data_model.type"],
-                                fields={"data_model": {"type": data_model_type}},
-                            )
-                            await self._emit_sse_event(SSEEvent(
-                                event="block.delta.artifact",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq,
-                                data={"change": change.model_dump()}
-                            ))
-                        except Exception:
-                            pass
-                
-                elif stage == "column_added":
-                    # Update current step's data model with new column
-                    column = payload.get("column", {})
-                    if self.current_step and column:
-                        current_data_model = getattr(self.current_step, "data_model", {}) or {}
-                        current_data_model.setdefault("columns", [])
-                        # Add column if not already present
-                        if not any(col.get("generated_column_name") == column.get("generated_column_name") 
-                                 for col in current_data_model["columns"]):
-                            current_data_model["columns"].append(column)
-                            await self.project_manager.update_step_with_data_model(
-                                self.db, self.current_step, current_data_model
-                            )
-                            # Emit artifact delta per column
-                            try:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                change = ArtifactChangeSchema(
-                                    type="step",
-                                    step_id=str(self.current_step.id),
-                                    widget_id=str(self.current_widget.id) if self.current_widget else None,
-                                    partial=True,
-                                    changed_fields=["data_model.columns"],
-                                    fields={"data_model": {"columns": [column]}},
-                                )
-                                await self._emit_sse_event(SSEEvent(
-                                    event="block.delta.artifact",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={"change": change.model_dump()}
-                                ))
-                            except Exception:
-                                pass
-                            
-                elif stage == "series_configured":
-                    # Update current step's data model with series
-                    series = payload.get("series", [])
-                    if self.current_step and series:
-                        current_data_model = getattr(self.current_step, "data_model", {}) or {}
-                        current_data_model["series"] = series
-                        await self.project_manager.update_step_with_data_model(
-                            self.db, self.current_step, current_data_model
-                        )
-                        # Emit artifact delta for series update
-                        try:
-                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                            change = ArtifactChangeSchema(
-                                type="step",
-                                step_id=str(self.current_step.id),
-                                widget_id=str(self.current_widget.id) if self.current_widget else None,
-                                partial=True,
-                                changed_fields=["data_model.series"],
-                                fields={"data_model": {"series": series}},
-                            )
-                            await self._emit_sse_event(SSEEvent(
-                                event="block.delta.artifact",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq,
-                                data={"change": change.model_dump()}
-                            ))
-                        except Exception:
-                            pass
-                elif stage == "validating_code":
-                    # If validation fails, mark the step as error with the validation message
-                    try:
-                        is_valid = payload.get("valid", None)
-                        if is_valid is False and self.current_step:
-                            error_msg = payload.get("error") or "Validation failed"
-                            await self.project_manager.update_step_status(
-                                self.db, self.current_step, "error", status_reason=str(error_msg)
-                            )
-                    except Exception:
-                        pass
-                        
-                elif stage == "widget_creation_needed":
-                    # Update step with final complete data_model
-                    data_model = payload.get("data_model", {})
-                    query_title = (tool_input and tool_input.get("widget_title")) or payload.get("widget_title") or "Untitled Query"
-
-                    # If for some reason earlier streaming did not create query/step/visualization, create them now
-                    if data_model and not self.current_step and self.report:
-                        try:
-                            self.current_query = await self.project_manager.create_query_v2(self.db, self.report, query_title)
-                            self.current_step = await self.project_manager.create_step_for_query(self.db, self.current_query, query_title, "chart", {"type": data_model.get("type"), "columns": [], "series": []})
-                            self.current_step_id = str(self.current_step.id)
-                            await self.project_manager.set_query_default_step_if_empty(self.db, self.current_query, self.current_step_id)
-                            self.current_visualization = await self.project_manager.create_visualization_v2(self.db, str(self.report.id), str(self.current_query.id), query_title, view={"type": data_model.get("type")}, status="draft")
-                            # Emit creation events
-                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                            await self._emit_sse_event(SSEEvent(event="query.created", completion_id=str(self.system_completion.id), agent_execution_id=str(self.current_execution.id), seq=seq, data={"query_id": str(self.current_query.id), "report_id": str(self.report.id), "title": query_title}))
-                            if self.current_visualization:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(event="visualization.created", completion_id=str(self.system_completion.id), agent_execution_id=str(self.current_execution.id), seq=seq, data={"visualization_id": str(self.current_visualization.id), "query_id": str(self.current_query.id), "report_id": str(self.report.id), "step_id": str(self.current_step.id), "view": {"type": data_model.get("type")}}))
-                        except Exception:
-                            pass
-            elif tool_name == "create_data":
-                # Code-first path: create query/step/visualization early so outputs can be persisted
-                if stage in ["generated_code", "executing_code"]:
-                    try:
-                        query_title = (tool_input and (tool_input.get("title") or tool_input.get("widget_title"))) or "Untitled Query"
-                        if not self.current_step and self.report:
-                            # Create query and step with a default table view
+                        if data_model_type and report_obj and not cur_step:
+                            # Create query (transitional service may still create a widget under the hood)
                             try:
                                 self.current_query = await self.project_manager.create_query_v2(
-                                    self.db, self.report, query_title
+                                    fresh_db, report_obj, query_title
                                 )
                             except Exception:
                                 self.current_query = None
 
+                            # Create step under the query
+                            initial_data_model = {"type": data_model_type, "columns": [], "series": []}
                             self.current_step = await self.project_manager.create_step_for_query(
-                                self.db,
-                                self.current_query,
-                                query_title,
-                                "chart",
-                                {"type": "table", "columns": [], "series": []},
+                                fresh_db, self.current_query, query_title, "chart", initial_data_model
                             )
                             self.current_step_id = str(self.current_step.id)
-                            await self.project_manager.set_query_default_step_if_empty(self.db, self.current_query, self.current_step_id)
+                            await self.project_manager.set_query_default_step_if_empty(fresh_db, self.current_query, self.current_step_id)
 
-                            # Create a draft visualization with table view
+                            # Create visualization (draft) with only type in view
                             try:
                                 self.current_visualization = await self.project_manager.create_visualization_v2(
-                                    self.db,
-                                    str(self.report.id),
-                                    str(self.current_query.id),
-                                    query_title,
-                                    view={"type": "table"},
-                                    status="draft",
+                                    fresh_db, str(report_obj.id), str(self.current_query.id), query_title, view={"type": data_model_type}, status="draft"
                                 )
                             except Exception:
                                 self.current_visualization = None
 
-                            # Emit creation events
+                            # Emit early query/visualization creation events
                             try:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                seq = await self.project_manager.next_seq(fresh_db, exec_obj)
                                 await self._emit_sse_event(SSEEvent(
                                     event="query.created",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
+                                    completion_id=sys_completion_id,
+                                    agent_execution_id=exec_id,
                                     seq=seq,
                                     data={
                                         "query_id": str(self.current_query.id) if self.current_query else None,
-                                        "report_id": str(self.report.id),
+                                        "report_id": report_id,
                                         "title": query_title,
                                     }
                                 ))
@@ -3402,42 +3247,231 @@ class AgentV2:
                                 pass
                             try:
                                 if self.current_visualization:
-                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    seq = await self.project_manager.next_seq(fresh_db, exec_obj)
                                     await self._emit_sse_event(SSEEvent(
                                         event="visualization.created",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
+                                        completion_id=sys_completion_id,
+                                        agent_execution_id=exec_id,
                                         seq=seq,
                                         data={
                                             "visualization_id": str(self.current_visualization.id),
                                             "query_id": str(self.current_query.id) if self.current_query else None,
-                                            "report_id": str(self.report.id),
+                                            "report_id": report_id,
                                             "step_id": str(self.current_step.id),
-                                            "view": {"type": "table"},
+                                            "view": {"type": data_model_type},
                                         }
                                     ))
                             except Exception:
                                 pass
-                    except Exception:
-                        pass
-            
-            elif tool_name == "create_dashboard":
-                # Stream-only handling: append blocks into active layout via ProjectManager
-                if stage == "init":
-                    # Clear existing blocks before generating new dashboard layout
-                    await self.project_manager.clear_active_layout_blocks(
-                        self.db, str(self.report.id)
-                    )
-                elif stage == "block.completed":
-                    block = payload.get("block") or {}
-                    if isinstance(block, dict) and self.report:
-                        try:
-                            await self.project_manager.append_block_to_active_dashboard_layout(
-                                self.db, str(self.report.id), block
+
+                            # Emit artifact delta for step data_model.type
+                            try:
+                                seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                change = ArtifactChangeSchema(
+                                    type="step",
+                                    step_id=str(self.current_step.id),
+                                    partial=True,
+                                    changed_fields=["data_model.type"],
+                                    fields={"data_model": {"type": data_model_type}},
+                                )
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.delta.artifact",
+                                    completion_id=sys_completion_id,
+                                    agent_execution_id=exec_id,
+                                    seq=seq,
+                                    data={"change": change.model_dump()}
+                                ))
+                            except Exception:
+                                pass
+
+                    elif stage == "column_added":
+                        # Update current step's data model with new column
+                        column = payload.get("column", {})
+                        if cur_step and column:
+                            current_data_model = getattr(cur_step, "data_model", {}) or {}
+                            current_data_model.setdefault("columns", [])
+                            # Add column if not already present
+                            if not any(col.get("generated_column_name") == column.get("generated_column_name")
+                                     for col in current_data_model["columns"]):
+                                current_data_model["columns"].append(column)
+                                await self.project_manager.update_step_with_data_model(
+                                    fresh_db, cur_step, current_data_model
+                                )
+                                # Emit artifact delta per column
+                                try:
+                                    seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                    change = ArtifactChangeSchema(
+                                        type="step",
+                                        step_id=str(cur_step.id),
+                                        widget_id=widget_id_for_artifact,
+                                        partial=True,
+                                        changed_fields=["data_model.columns"],
+                                        fields={"data_model": {"columns": [column]}},
+                                    )
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.delta.artifact",
+                                        completion_id=sys_completion_id,
+                                        agent_execution_id=exec_id,
+                                        seq=seq,
+                                        data={"change": change.model_dump()}
+                                    ))
+                                except Exception:
+                                    pass
+
+                    elif stage == "series_configured":
+                        # Update current step's data model with series
+                        series = payload.get("series", [])
+                        if cur_step and series:
+                            current_data_model = getattr(cur_step, "data_model", {}) or {}
+                            current_data_model["series"] = series
+                            await self.project_manager.update_step_with_data_model(
+                                fresh_db, cur_step, current_data_model
                             )
+                            # Emit artifact delta for series update
+                            try:
+                                seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                change = ArtifactChangeSchema(
+                                    type="step",
+                                    step_id=str(cur_step.id),
+                                    widget_id=widget_id_for_artifact,
+                                    partial=True,
+                                    changed_fields=["data_model.series"],
+                                    fields={"data_model": {"series": series}},
+                                )
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.delta.artifact",
+                                    completion_id=sys_completion_id,
+                                    agent_execution_id=exec_id,
+                                    seq=seq,
+                                    data={"change": change.model_dump()}
+                                ))
+                            except Exception:
+                                pass
+                    elif stage == "validating_code":
+                        # If validation fails, mark the step as error with the validation message
+                        try:
+                            is_valid = payload.get("valid", None)
+                            if is_valid is False and cur_step:
+                                error_msg = payload.get("error") or "Validation failed"
+                                await self.project_manager.update_step_status(
+                                    fresh_db, cur_step, "error", status_reason=str(error_msg)
+                                )
                         except Exception:
                             pass
-                # No persistence outside layout service; finalization happens on tool end
+
+                    elif stage == "widget_creation_needed":
+                        # Update step with final complete data_model
+                        data_model = payload.get("data_model", {})
+                        query_title = (tool_input and tool_input.get("widget_title")) or payload.get("widget_title") or "Untitled Query"
+
+                        # If for some reason earlier streaming did not create query/step/visualization, create them now
+                        if data_model and not cur_step and report_obj:
+                            try:
+                                self.current_query = await self.project_manager.create_query_v2(fresh_db, report_obj, query_title)
+                                self.current_step = await self.project_manager.create_step_for_query(fresh_db, self.current_query, query_title, "chart", {"type": data_model.get("type"), "columns": [], "series": []})
+                                self.current_step_id = str(self.current_step.id)
+                                await self.project_manager.set_query_default_step_if_empty(fresh_db, self.current_query, self.current_step_id)
+                                self.current_visualization = await self.project_manager.create_visualization_v2(fresh_db, str(report_obj.id), str(self.current_query.id), query_title, view={"type": data_model.get("type")}, status="draft")
+                                # Emit creation events
+                                seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                await self._emit_sse_event(SSEEvent(event="query.created", completion_id=sys_completion_id, agent_execution_id=exec_id, seq=seq, data={"query_id": str(self.current_query.id), "report_id": report_id, "title": query_title}))
+                                if self.current_visualization:
+                                    seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                    await self._emit_sse_event(SSEEvent(event="visualization.created", completion_id=sys_completion_id, agent_execution_id=exec_id, seq=seq, data={"visualization_id": str(self.current_visualization.id), "query_id": str(self.current_query.id), "report_id": report_id, "step_id": str(self.current_step.id), "view": {"type": data_model.get("type")}}))
+                            except Exception:
+                                pass
+                elif tool_name == "create_data":
+                    # Code-first path: create query/step/visualization early so outputs can be persisted
+                    if stage in ["generated_code", "executing_code"]:
+                        try:
+                            query_title = (tool_input and (tool_input.get("title") or tool_input.get("widget_title"))) or "Untitled Query"
+                            if not cur_step and report_obj:
+                                # Create query and step with a default table view
+                                try:
+                                    self.current_query = await self.project_manager.create_query_v2(
+                                        fresh_db, report_obj, query_title
+                                    )
+                                except Exception:
+                                    self.current_query = None
+
+                                self.current_step = await self.project_manager.create_step_for_query(
+                                    fresh_db,
+                                    self.current_query,
+                                    query_title,
+                                    "chart",
+                                    {"type": "table", "columns": [], "series": []},
+                                )
+                                self.current_step_id = str(self.current_step.id)
+                                await self.project_manager.set_query_default_step_if_empty(fresh_db, self.current_query, self.current_step_id)
+
+                                # Create a draft visualization with table view
+                                try:
+                                    self.current_visualization = await self.project_manager.create_visualization_v2(
+                                        fresh_db,
+                                        str(report_obj.id),
+                                        str(self.current_query.id),
+                                        query_title,
+                                        view={"type": "table"},
+                                        status="draft",
+                                    )
+                                except Exception:
+                                    self.current_visualization = None
+
+                                # Emit creation events
+                                try:
+                                    seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="query.created",
+                                        completion_id=sys_completion_id,
+                                        agent_execution_id=exec_id,
+                                        seq=seq,
+                                        data={
+                                            "query_id": str(self.current_query.id) if self.current_query else None,
+                                            "report_id": report_id,
+                                            "title": query_title,
+                                        }
+                                    ))
+                                except Exception:
+                                    pass
+                                try:
+                                    if self.current_visualization:
+                                        seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="visualization.created",
+                                            completion_id=sys_completion_id,
+                                            agent_execution_id=exec_id,
+                                            seq=seq,
+                                            data={
+                                                "visualization_id": str(self.current_visualization.id),
+                                                "query_id": str(self.current_query.id) if self.current_query else None,
+                                                "report_id": report_id,
+                                                "step_id": str(self.current_step.id),
+                                                "view": {"type": "table"},
+                                            }
+                                        ))
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+                elif tool_name == "create_dashboard":
+                    # Stream-only handling: append blocks into active layout via ProjectManager
+                    if stage == "init":
+                        # Clear existing blocks before generating new dashboard layout
+                        if report_obj:
+                            await self.project_manager.clear_active_layout_blocks(
+                                fresh_db, str(report_obj.id)
+                            )
+                    elif stage == "block.completed":
+                        block = payload.get("block") or {}
+                        if isinstance(block, dict) and report_obj:
+                            try:
+                                await self.project_manager.append_block_to_active_dashboard_layout(
+                                    fresh_db, str(report_obj.id), block
+                                )
+                            except Exception:
+                                pass
+                    # No persistence outside layout service; finalization happens on tool end
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
