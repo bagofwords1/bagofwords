@@ -4,11 +4,20 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Text, JSON, UUID, ev
 from sqlalchemy.orm import relationship
 from .base import BaseSchema
 import asyncio
+import logging
 from app.websocket_manager import websocket_manager
 import json
 from sqlalchemy import select
 from app.models.widget import Widget
 # from app.services.slack_notification_service import send_step_result_to_slack # This is removed
+
+# These event listeners fire from SQLAlchemy's after_update/after_insert
+# hooks, which run inside an active commit. The bg tasks they spawn
+# (asyncio.create_task) outlive that request, so any print() in their
+# bodies risked ValueError("I/O operation on closed file") whenever
+# uvicorn was rotating stdout under the surviving task. Use logger
+# instead — its handlers don't fail mid-flush.
+logger = logging.getLogger(__name__)
 
 class Step(BaseSchema):
     __tablename__ = 'steps'
@@ -60,16 +69,15 @@ def after_update_step(mapper, connection, target):
             "type": target.type,
             "data_model": target.data_model
         }
-        #print(f"Broadcasting step update: {data}")
         asyncio.create_task(broadcast_step_update(data))
 
         if target.status == "success":
             from app.services.slack_notification_service import send_step_result_to_slack
-            print(f"STEP_UPDATE: Triggering Slack DM for successful step {target.id}")
+            logger.debug("STEP_UPDATE: Triggering Slack DM for successful step %s", target.id)
             asyncio.create_task(send_step_result_to_slack(str(target.id)))
 
     except Exception as e:
-        print(f"Error in after_update_step: {e}")
+        logger.warning("Error in after_update_step: %s", e)
 
 async def broadcast_step_update(data):
     try:
@@ -77,9 +85,8 @@ async def broadcast_step_update(data):
             str(data["report_id"]),
             json.dumps(data)
         )
-        #print(f"Broadcasted step update: {data}")
     except Exception as e:
-        print(f"Error broadcasting step update: {e}")
+        logger.warning("Error broadcasting step update: %s", e)
 
 async def broadcast_step_insert(data):
     try:
@@ -88,7 +95,7 @@ async def broadcast_step_insert(data):
             json.dumps(data)
         )
     except Exception as e:
-        print(f"Error broadcasting step insert: {e}")
+        logger.warning("Error broadcasting step insert: %s", e)
 
 def after_insert_step(mapper, connection, target):
     try:
@@ -98,7 +105,7 @@ def after_insert_step(mapper, connection, target):
         ).first()
         
         if not result:
-            print(f"Warning: Widget {target.widget_id} not found for step {target.id}, skipping broadcast")
+            logger.warning("Widget %s not found for step %s, skipping broadcast", target.widget_id, target.id)
             return
             
         report_id = result[0]
@@ -121,7 +128,7 @@ def after_insert_step(mapper, connection, target):
         }
         asyncio.create_task(broadcast_step_insert(data))
     except Exception as e:
-        print(f"Error in after_insert_step: {e}")
+        logger.warning("Error in after_insert_step: %s", e)
 
 # Register the event listener
 event.listen(Step, 'after_update', after_update_step)

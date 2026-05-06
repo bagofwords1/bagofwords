@@ -1,6 +1,7 @@
 import os
 import uuid
 import csv
+import logging
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import pandas as pd
@@ -15,6 +16,13 @@ from app.models.external_platform import ExternalPlatform
 from app.settings.database import create_async_session_factory
 from app.services.platform_adapters.adapter_factory import PlatformAdapterFactory
 
+# This service runs as a fire-and-forget asyncio.create_task() spawned
+# from Step.after_update. The bg task outlives the request that created
+# it, so any print() here would raise ValueError("I/O operation on
+# closed file") whenever uvicorn rotated stdout under us. Use the
+# standard module logger.
+logger = logging.getLogger(__name__)
+
 def create_plot(data_model: dict, data: dict, title: str) -> str:
     """Creates a plot from a step's data and data_model."""
     chart_type = data_model.get('type')
@@ -22,12 +30,12 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
     rows = data.get('rows')
 
     if not all([chart_type, series_info, rows]):
-        print("Plot creation failed: Missing chart_type, series, or data rows.")
+        logger.warning("Plot creation failed: Missing chart_type, series, or data rows.")
         return None
 
     df = pd.DataFrame(rows)
     if df.empty:
-        print("Plot creation failed: DataFrame is empty.")
+        logger.warning("Plot creation failed: DataFrame is empty.")
         return None
 
     series = series_info[0]
@@ -99,7 +107,7 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
             plt.axis('off')
 
         else:
-            print(f"Unsupported chart type: {chart_type}")
+            logger.warning("Unsupported chart type: %s", chart_type)
             return None
 
         plt.title(title)
@@ -111,7 +119,7 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
         return image_path
 
     except Exception as e:
-        print(f"Error creating plot for chart type '{chart_type}': {e}")
+        logger.warning("Error creating plot for chart type %r: %s", chart_type, e)
         return None
     finally:
         plt.close()
@@ -136,7 +144,7 @@ def df_to_csv(data: dict) -> str:
                 writer.writerow([row.get(field, '') for field in fields])
         return csv_path
     except Exception as e:
-        print(f"Error creating CSV file: {e}")
+        logger.warning("Error creating CSV file: %s", e)
         return None
 
 def _format_markdown_table(data: dict, title: str, max_rows: int = 20) -> str:
@@ -228,7 +236,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             result = await db.execute(stmt)
             step = result.scalar_one_or_none()
             if not step:
-                print(f"SLACK_NOTIFIER: Could not find step with id {step_id}")
+                logger.info("SLACK_NOTIFIER: Could not find step with id %s", step_id)
                 return
 
             # Discover routing details only if not explicitly provided
@@ -238,7 +246,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 completion = comp_result.scalar_one_or_none()
 
                 if not (completion and completion.external_platform in ("slack", "teams") and completion.external_user_id):
-                    print(f"SLACK_NOTIFIER: No Slack-linked completion found for step {step_id}. Caller should supply routing details.")
+                    logger.info("SLACK_NOTIFIER: No Slack-linked completion found for step %s. Caller should supply routing details.", step_id)
                     return
 
                 external_user_id = external_user_id or completion.external_user_id
@@ -249,7 +257,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                     thread_ts = completion.external_thread_ts
 
             if not platform_type:
-                print(f"SLACK_NOTIFIER: No platform_type available for step {step_id}")
+                logger.info("SLACK_NOTIFIER: No platform_type available for step %s", step_id)
                 return
 
             platform_stmt = select(ExternalPlatform).where(
@@ -258,7 +266,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             platform = platform_result.scalar_one_or_none()
 
             if not platform:
-                print(f"SLACK_NOTIFIER: No active Slack platform for organization {organization_id}")
+                logger.info("SLACK_NOTIFIER: No active Slack platform for organization %s", organization_id)
                 return
 
             adapter = PlatformAdapterFactory.create_adapter(platform)
@@ -276,10 +284,10 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 success = await _handle_chart_step_dm(adapter, external_user_id, step, thread_ts, channel_id, platform_type=platform_type)
 
             if success:
-                print(f"SLACK_NOTIFIER: Successfully sent step data to Slack user {external_user_id}")
+                logger.info("SLACK_NOTIFIER: Successfully sent step data to Slack user %s", external_user_id)
             else:
-                print(f"SLACK_NOTIFIER: Failed to send step data to Slack user {external_user_id}")
+                logger.warning("SLACK_NOTIFIER: Failed to send step data to Slack user %s", external_user_id)
 
         except Exception as e:
-            print(f"SLACK_NOTIFIER: Error for step {step_id}: {e}")
+            logger.warning("SLACK_NOTIFIER: Error for step %s: %s", step_id, e)
             await db.rollback()
