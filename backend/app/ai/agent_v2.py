@@ -96,7 +96,6 @@ from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
 from app.ai.agents.suggest_instructions import InstructionTriggerEvaluator
-from app.settings.database import create_async_session_factory
 from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
@@ -504,7 +503,7 @@ class AgentV2:
         _max_attempts = 4
         for _attempt in range(_max_attempts):
             try:
-                SessionLocal = create_async_session_factory()
+                SessionLocal = self._session_maker
                 async with SessionLocal() as session:
                     try:
                         # Use a new Judge instance (stateless) and score from the same planner input
@@ -539,7 +538,7 @@ class AgentV2:
         _max_attempts = 4
         for _attempt in range(_max_attempts):
             try:
-                SessionLocal = create_async_session_factory()
+                SessionLocal = self._session_maker
                 async with SessionLocal() as session:
                     try:
                         if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
@@ -1058,7 +1057,7 @@ class AgentV2:
         import logging
         logger = logging.getLogger(__name__)
         try:
-            SessionLocal = create_async_session_factory()
+            SessionLocal = self._session_maker
             async with SessionLocal() as session:
                 try:
                     title = await self.reporter.generate_report_title(messages_context, plan_info)
@@ -1114,7 +1113,7 @@ class AgentV2:
     async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
         """Save context snapshot in background to avoid blocking main execution flow."""
         try:
-            SessionLocal = create_async_session_factory()
+            SessionLocal = self._session_maker
             async with SessionLocal() as session:
                 try:
                     # Re-fetch agent execution in this session
@@ -1137,7 +1136,7 @@ class AgentV2:
         if not instruction_items:
             return
         try:
-            SessionLocal = create_async_session_factory()
+            SessionLocal = self._session_maker
             async with SessionLocal() as session:
                 try:
                     service = InstructionUsageService()
@@ -2000,8 +1999,7 @@ class AgentV2:
                                 _max_attempts = 4
                                 for _attempt in range(_max_attempts):
                                     try:
-                                        from app.settings.database import create_async_session_factory as _csf
-                                        SessionLocal = _csf()
+                                        SessionLocal = self._session_maker
                                         async with SessionLocal() as bg_db:
                                             from app.models.agent_execution import AgentExecution as _AE
                                             from app.models.completion import Completion as _Comp
@@ -2494,10 +2492,9 @@ class AgentV2:
 
                             async def _bg_post_snap():
                                 try:
-                                    from app.settings.database import create_async_session_factory as _csf
                                     from app.models.agent_execution import AgentExecution as _AE
                                     from app.models.tool_execution import ToolExecution as _TE
-                                    SessionLocal = _csf()
+                                    SessionLocal = self._session_maker
                                     async with SessionLocal() as bg_db:
                                         bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
                                         if bg_exec:
@@ -2546,14 +2543,13 @@ class AgentV2:
                             # Bind per-action block_id eagerly so the bg closure sees this iteration's value
                             _bg_block_id_local = _block_id_for_action
                             async def _bg_persist_tool(_block_id=_bg_block_id_local):
-                                from app.settings.database import create_async_session_factory as _csf
                                 from app.models.agent_execution import AgentExecution as _AE
                                 from app.models.completion import Completion as _Comp
                                 _max_retries = 5
                                 _retry_delay = 0.5
                                 for _attempt in range(_max_retries):
                                     try:
-                                        SessionLocal = _csf()
+                                        SessionLocal = self._session_maker
                                         async with SessionLocal() as bg_db:
                                             bg_exec = await bg_db.get(_AE, _bg_exec_id)
                                             bg_comp = await bg_db.get(_Comp, _bg_comp_id)
@@ -2604,10 +2600,9 @@ class AgentV2:
                                 _max_attempts = 4
                                 for _attempt in range(_max_attempts):
                                     try:
-                                        from app.settings.database import create_async_session_factory as _csf
                                         from app.models.agent_execution import AgentExecution as _AE
                                         from app.models.completion import Completion as _Comp
-                                        SessionLocal = _csf()
+                                        SessionLocal = self._session_maker
                                         async with SessionLocal() as bg_db:
                                             bg_exec = await bg_db.get(_AE, _rb_tool_exec_id)
                                             bg_comp = await bg_db.get(_Comp, _rb_tool_comp_id)
@@ -2756,9 +2751,8 @@ class AgentV2:
             _final_snap_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
             async def _bg_final_snap():
                 try:
-                    from app.settings.database import create_async_session_factory as _csf
                     from app.models.agent_execution import AgentExecution as _AE
-                    SessionLocal = _csf()
+                    SessionLocal = self._session_maker
                     async with SessionLocal() as bg_db:
                         bg_exec = await bg_db.get(_AE, _final_snap_exec_id)
                         if bg_exec:
