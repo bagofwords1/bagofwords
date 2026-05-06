@@ -1131,10 +1131,11 @@ class AgentV2:
         return data
 
     async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
-        """Save context snapshot in background to avoid blocking main execution flow."""
+        """Save context snapshot. Routes through _writes_session so single-
+        writer mode shares self._writes (no fresh session, no contention),
+        while legacy mode opens a fresh short-lived session as before."""
         try:
-            SessionLocal = self._session_maker
-            async with SessionLocal() as session:
+            async with self._writes_session() as session:
                 try:
                     # Re-fetch agent execution in this session
                     agent_execution = await session.get(type(self.current_execution), self.current_execution.id)
@@ -1152,12 +1153,13 @@ class AgentV2:
             pass
 
     async def _record_instruction_usage_background(self, instruction_items: list):
-        """Record instruction usage events in background to avoid blocking main execution flow."""
+        """Record instruction usage events. Routes through _writes_session
+        so single-writer mode shares self._writes (no extra session, no
+        contention); legacy mode opens a fresh short-lived session."""
         if not instruction_items:
             return
         try:
-            SessionLocal = self._session_maker
-            async with SessionLocal() as session:
+            async with self._writes_session() as session:
                 try:
                     service = InstructionUsageService()
                     items_data = []
@@ -2649,8 +2651,7 @@ class AgentV2:
                                 try:
                                     from app.models.agent_execution import AgentExecution as _AE
                                     from app.models.tool_execution import ToolExecution as _TE
-                                    SessionLocal = self._session_maker
-                                    async with SessionLocal() as bg_db:
+                                    async with self._writes_session() as bg_db:
                                         bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
                                         if bg_exec:
                                             snap = await self.project_manager.save_context_snapshot(
@@ -2664,7 +2665,7 @@ class AgentV2:
                                                 bg_db.add(bg_te)
                                                 await bg_db.commit()
                                 except Exception as _e:
-                                    logger.warning(f"[agent] Background post_snap failed: {_e!r}")
+                                    logger.warning(f"[agent] post_snap failed: {_e!r}")
 
                             asyncio.create_task(_bg_post_snap())
 
@@ -2923,8 +2924,7 @@ class AgentV2:
             async def _bg_final_snap():
                 try:
                     from app.models.agent_execution import AgentExecution as _AE
-                    SessionLocal = self._session_maker
-                    async with SessionLocal() as bg_db:
+                    async with self._writes_session() as bg_db:
                         bg_exec = await bg_db.get(_AE, _final_snap_exec_id)
                         if bg_exec:
                             await self.project_manager.save_context_snapshot(
@@ -2932,7 +2932,7 @@ class AgentV2:
                                 kind="final", context_view_json=_final_snap_data,
                             )
                 except Exception as _e:
-                    logger.warning(f"[agent] Background final_snap failed: {_e!r}")
+                    logger.warning(f"[agent] final_snap failed: {_e!r}")
             asyncio.create_task(_bg_final_snap())
             
             # Generate report title if this is the first completion (non-blocking)
