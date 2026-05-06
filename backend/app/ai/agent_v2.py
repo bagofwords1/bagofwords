@@ -3586,7 +3586,16 @@ class AgentV2:
                     # writer (no bg-write concurrency on these rows), which
                     # eliminates the SQLite-lock race that nulled
                     # current_visualization in the old streaming path.
+                    #
+                    # Drain prior iteration's bg writes (rebuild_completion_from_blocks,
+                    # _bg_persist_tool from a previous tool, snapshot saves) before
+                    # we INSERT here — without this, our create_query_v2 still
+                    # races those writes on the SQLite write lock.
                     if tool_name == "create_data" and step_id is None and report_obj and success:
+                        try:
+                            await self._drain_bg_writes()
+                        except Exception:
+                            pass
                         query_title = (
                             (tool_input.get("title") if isinstance(tool_input, dict) else None)
                             or (tool_input.get("widget_title") if isinstance(tool_input, dict) else None)
