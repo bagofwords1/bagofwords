@@ -594,14 +594,25 @@ def test_llm_success_counts_tokens_and_failed_provider_counts_nothing(create_use
     ))
 
     success_client = _SuccessfulLLMClient()
-    assert _quota_llm(org_id, user_id, success_client).inference("hello") == "ok"
+    success_llm = _quota_llm(org_id, user_id, success_client)
+    assert success_llm.inference("hello") == "ok"
     assert success_client.calls == 1
+    # `_record_usage_limit_*` buffers token writes on the
+    # UsageLimitContext and lets the agent run flush them in one go
+    # at end-of-execution. This test wires an LLM directly without an
+    # agent, so we drive the flush ourselves before reading the
+    # counter.
+    _run(success_llm._usage_limit_context.flush())
     assert _run(_counter_used(org_id, user_id, METRIC_LLM_TOKENS)) == 5
 
     failing_client = _FailingLLMClient()
+    failing_llm = _quota_llm(org_id, user_id, failing_client)
     with pytest.raises(RuntimeError):
-        _quota_llm(org_id, user_id, failing_client).inference("hello")
+        failing_llm.inference("hello")
     assert failing_client.calls == 1
+    # Provider error short-circuits before the buffer ever sees those
+    # tokens, so this flush is a no-op - kept for symmetry.
+    _run(failing_llm._usage_limit_context.flush())
     assert _run(_counter_used(org_id, user_id, METRIC_LLM_TOKENS)) == 5
 
 
