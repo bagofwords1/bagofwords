@@ -532,6 +532,13 @@ class LLM:
         scope_ref_id: Optional[str],
         should_record: bool,
     ) -> None:
+        """Record tokens against the per-agent quota accumulator.
+
+        Used to issue a synchronous DB write (FOR UPDATE + UPDATE) that
+        blocked every LLM call on a row lock. Now it just bumps an
+        in-memory counter on the shared `UsageLimitContext`; the agent
+        flushes once at end of run via `context.flush()`.
+        """
         context = self._usage_limit_context
         if not should_record or context is None or context.session_maker is None:
             return
@@ -553,9 +560,7 @@ class LLM:
             "cache_read_tokens": cache_read_tokens or 0,
             "cache_creation_tokens": cache_creation_tokens or 0,
         }
-        context.run_blocking(
-            usage_policy_service.record_llm_tokens_with_context(context, total_tokens, metadata)
-        )
+        context.add_tokens(total_tokens, metadata)
 
     async def _record_usage_limit_async(
         self,
@@ -568,6 +573,7 @@ class LLM:
         scope_ref_id: Optional[str],
         should_record: bool,
     ) -> None:
+        """Async variant — same in-memory accumulation, never blocks on DB."""
         context = self._usage_limit_context
         if not should_record or context is None or context.session_maker is None:
             return
@@ -589,7 +595,7 @@ class LLM:
             "cache_read_tokens": cache_read_tokens or 0,
             "cache_creation_tokens": cache_creation_tokens or 0,
         }
-        await usage_policy_service.record_llm_tokens_with_context(context, total_tokens, metadata)
+        context.add_tokens(total_tokens, metadata)
 
     def _schedule_usage_record(
         self,

@@ -2906,6 +2906,22 @@ class AgentV2:
                 websocket_manager.remove_handler(self._handle_completion_update)
             except Exception:
                 pass
+            # Schedule the quota flush as a fire-and-forget bg task so it
+            # cannot stall the response. Per-LLM-call writes are now
+            # buffered on the context (cheap in-memory adds) instead of
+            # taking a SELECT FOR UPDATE on the counter row, so a single
+            # flush at end-of-run is sufficient. If session_maker is None
+            # or pending=0 the flush is a no-op.
+            if self.usage_limit_context is not None:
+                async def _bg_flush(_ctx=self.usage_limit_context):
+                    try:
+                        await _ctx.flush()
+                    except Exception:
+                        logger.debug("usage_limit_context flush failed", exc_info=True)
+                try:
+                    asyncio.create_task(_bg_flush(), name="agent.quota_flush")
+                except Exception:
+                    pass
 
     async def _build_planner_prompt_text(self, view=None) -> str:
         if view is None:
