@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import uuid as _uuid_mod
+from contextlib import asynccontextmanager
 from typing import Dict, Optional
 from pydantic import ValidationError
 
@@ -92,6 +93,7 @@ from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
 from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
@@ -210,6 +212,14 @@ class AgentV2:
         # and spawn a single follow-up after the current one finishes.
         self._rebuild_task: Optional[asyncio.Task] = None
         self._rebuild_pending: bool = False
+
+        # Single dedicated write session for the entire agent run.
+        # When BOW_AGENT_SINGLE_WRITE_SESSION is set, main_execution opens
+        # this once and writes route through it sequentially. Eliminates the
+        # multi-session write contention that produced silent state
+        # corruption on SQLite under load. None means legacy multi-session
+        # mode. See docs/design/single-writer-agent-refactor.md.
+        self._writes: Optional[AsyncSession] = None
 
         # Widget/step state management
         self.current_widget = None
@@ -1264,6 +1274,42 @@ class AgentV2:
         self._pending_writes.append(task)
         return task
 
+    def _use_single_write_session(self) -> bool:
+        """Whether this agent run should route writes through the single
+        dedicated `self._writes` session (the single-writer architecture
+        from docs/design/single-writer-agent-refactor.md).
+
+        Off by default — opt in with BOW_AGENT_SINGLE_WRITE_SESSION=true.
+        Enable in CI/eval first, then production once soak passes.
+        """
+        return os.environ.get(
+            "BOW_AGENT_SINGLE_WRITE_SESSION", ""
+        ).lower() in ("1", "true", "yes")
+
+    @asynccontextmanager
+    async def _writes_session(self):
+        """Yield a session for write operations.
+
+        - When ``BOW_AGENT_SINGLE_WRITE_SESSION`` is on AND ``self._writes``
+          is open: yield ``self._writes`` directly (no enter/exit). All
+          writers in this run share one session, eliminating the
+          multi-session contention that produced silent state corruption.
+        - Otherwise: open a fresh short-lived session via
+          ``self._session_maker()`` and close it on exit. Mirrors current
+          behavior; safe rollback path while phase 2 migrations land.
+
+        Caller responsibilities:
+        - Use ``async with self._writes_session() as db: ...``
+        - Do NOT close the yielded session yourself in single-writer mode;
+          the context manager keeps it open until run completion.
+        - Commit explicitly when needed; the manager doesn't auto-commit.
+        """
+        if self._use_single_write_session() and self._writes is not None:
+            yield self._writes
+        else:
+            async with self._session_maker() as db:
+                yield db
+
     async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
         """Wait for all scheduled background writes to complete.
 
@@ -1359,6 +1405,24 @@ class AgentV2:
         self._rebuild_task = asyncio.create_task(_runner(), name="agent.rebuild_transcript")
 
     async def main_execution(self):
+        # Single-writer mode: open one dedicated write session for the whole
+        # agent run. All migrated writers route through self._writes via
+        # self._writes_session(). Closed in the outer finally below. When
+        # the flag is off, self._writes stays None and writers fall back to
+        # opening fresh short-lived sessions (legacy behavior).
+        _writes_cm = None
+        if self._use_single_write_session():
+            _writes_cm = self._session_maker()
+            try:
+                self._writes = await _writes_cm.__aenter__()
+            except Exception as _open_exc:
+                logger.error(
+                    "[agent.single_writer] failed to open writes session: %r",
+                    _open_exc,
+                    exc_info=True,
+                )
+                self._writes = None
+                _writes_cm = None
         try:
             import time as _time
             _t0 = _time.monotonic()
@@ -2952,6 +3016,21 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Close the single-writer session if it was opened. Doing this
+            # in the outer finally ensures it lands even on early-return /
+            # exception paths above. The bg-task drain (further down in the
+            # main_execution body) runs while self._writes is still open;
+            # by the time we reach this finally, only fire-and-forget tasks
+            # remain and they don't depend on self._writes.
+            if _writes_cm is not None:
+                try:
+                    await _writes_cm.__aexit__(None, None, None)
+                except Exception as _close_exc:
+                    logger.warning(
+                        "[agent.single_writer] writes session close failed: %r",
+                        _close_exc,
+                    )
+                self._writes = None
             # Cleanup
             try:
                 websocket_manager.remove_handler(self._handle_completion_update)
