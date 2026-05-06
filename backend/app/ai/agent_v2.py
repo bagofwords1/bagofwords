@@ -1404,6 +1404,33 @@ class AgentV2:
 
         self._rebuild_task = asyncio.create_task(_runner(), name="agent.rebuild_transcript")
 
+    async def _rebuild_completion_sync_if_single_writer(self) -> bool:
+        """Run rebuild_completion_from_blocks synchronously on self._writes.
+
+        Returns True when single-writer mode handled the rebuild (caller
+        should skip _request_rebuild_transcript). Returns False in legacy
+        mode so the caller falls through to the bg-task scheduler.
+
+        No retry-on-lock loop — by construction nothing else writes to the
+        DB while this runs, so the lock is always free.
+        """
+        if not (self._use_single_write_session() and self._writes is not None):
+            return False
+        if not self.system_completion or not self.current_execution:
+            return True  # claim handled — nothing to rebuild
+        try:
+            from app.models.agent_execution import AgentExecution as _AE
+            from app.models.completion import Completion as _Comp
+            sw_exec = await self._writes.get(_AE, str(self.current_execution.id))
+            sw_comp = await self._writes.get(_Comp, str(self.system_completion.id))
+            if sw_exec and sw_comp:
+                await self.project_manager.rebuild_completion_from_blocks(
+                    self._writes, sw_comp, sw_exec
+                )
+        except Exception as _e:
+            logger.warning(f"[agent.single_writer] rebuild failed: {_e!r}")
+        return True
+
     async def main_execution(self):
         # Single-writer mode: open one dedicated write session for the whole
         # agent run. All migrated writers route through self._writes via
@@ -2127,11 +2154,11 @@ class AgentV2:
                                 )
                                 block = None
 
-                            # Rebuild transcript in background. The post-tool
-                            # rebuild below supersedes this one when both
-                            # land in the same iteration; coalesced through
-                            # _request_rebuild_transcript.
-                            self._request_rebuild_transcript()
+                            # Rebuild transcript. Single-writer mode runs sync
+                            # on self._writes; legacy mode schedules a bg task
+                            # (coalesced with the post-tool rebuild below).
+                            if not await self._rebuild_completion_sync_if_single_writer():
+                                self._request_rebuild_transcript()
                         else:
                             # plan_decision save failed — warn so it's observable.
                             try:
@@ -2759,7 +2786,9 @@ class AgentV2:
                                 self._schedule_bg_write("persist_tool", _bg_persist_tool())
                             # Rebuild transcript — coalesced with any pending
                             # rebuild from the post-plan_decision path above.
-                            self._request_rebuild_transcript()
+                            # Single-writer mode runs sync on self._writes.
+                            if not await self._rebuild_completion_sync_if_single_writer():
+                                self._request_rebuild_transcript()
 
                             # Emit tool.finished with result
                             _is_stopped = bool(observation and observation.get("stopped"))
