@@ -3612,7 +3612,11 @@ class AgentV2:
                     # races those writes on the SQLite write lock.
                     if tool_name == "create_data" and step_id is None and report_obj and success:
                         try:
-                            await self._drain_bg_writes()
+                            # Generous timeout so the drain awaits any in-flight
+                            # rebuild_completion_from_blocks that's already in
+                            # its lock-retry chain (1+2+4s + actual commit).
+                            # Default 10s is too short under SQLite contention.
+                            await self._drain_bg_writes(timeout_s=60.0)
                         except Exception:
                             pass
                         query_title = (
