@@ -1432,12 +1432,20 @@ class AgentV2:
             )
             _mlog("context_primed")
             view = self.context_hub.get_view()
-            # Token metadata update in background (non-blocking)
-            asyncio.create_task(self._update_context_token_metadata_background(view))
-            
+            # Token metadata update in background (non-blocking).
+            # Track via _pending_writes so drain captures these DB-writing
+            # tasks before deferred entity creation runs in _handle_tool_output.
+            self._schedule_bg_write(
+                "token_metadata",
+                self._update_context_token_metadata_background(view),
+            )
+
             # Record instruction usage in background (non-blocking)
             if view.static.instructions and view.static.instructions.items:
-                asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
+                self._schedule_bg_write(
+                    "instruction_usage",
+                    self._record_instruction_usage_background(view.static.instructions.items),
+                )
                 # Emit instructions.context SSE so frontend knows which instructions were loaded
                 try:
                     seq_inst = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -1480,11 +1488,17 @@ class AgentV2:
             # Build slim context snapshot with only usage tracking (excludes full schemas/instructions)
             context_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
             
-            asyncio.create_task(self._save_context_snapshot_background(
-                kind="initial",
-                context_view_json=context_view_data,
-                prompt_text=prompt_text,
-            ))
+            # Schedule via _schedule_bg_write so _drain_bg_writes can await it.
+            # Without this, snapshot saves race deferred entity creation in
+            # _handle_tool_output on the SQLite write lock.
+            self._schedule_bg_write(
+                "snapshot_initial",
+                self._save_context_snapshot_background(
+                    kind="initial",
+                    context_view_json=context_view_data,
+                    prompt_text=prompt_text,
+                ),
+            )
             
             # Use cached schemas from prime_static() - no duplicate build
             schemas_ctx = view.static.schemas
@@ -1596,10 +1610,14 @@ class AgentV2:
                 # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
                 if loop_index > 0:
                     pre_tool_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
-                    asyncio.create_task(self._save_context_snapshot_background(
-                        kind="pre_tool",
-                        context_view_json=pre_tool_view_data,
-                    ))
+                    # Track via _pending_writes so drain captures it.
+                    self._schedule_bg_write(
+                        "snapshot_pre_tool",
+                        self._save_context_snapshot_background(
+                            kind="pre_tool",
+                            context_view_json=pre_tool_view_data,
+                        ),
+                    )
 
                 # Build enhanced planner input with validation and retry on failure
                 try:
@@ -2575,7 +2593,8 @@ class AgentV2:
                                 except Exception as _e:
                                     logger.warning(f"[agent] Background post_snap failed: {_e!r}")
 
-                            asyncio.create_task(_bg_post_snap())
+                            # Track via _pending_writes so drain captures it.
+                            self._schedule_bg_write("snapshot_post_tool", _bg_post_snap())
 
                             # Telemetry: tool finished
                             try:
