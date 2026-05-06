@@ -1434,24 +1434,19 @@ class AgentV2:
         return True
 
     async def main_execution(self):
-        # Single-writer mode: open one dedicated write session for the whole
-        # agent run. All migrated writers route through self._writes via
-        # self._writes_session(). Closed in the outer finally below. When
-        # the flag is off, self._writes stays None and writers fall back to
-        # opening fresh short-lived sessions (legacy behavior).
-        _writes_cm = None
+        # Single-writer mode: route all migrated writers through self.db
+        # (the agent's existing main session) via self._writes_session().
+        # We deliberately do NOT open a separate session — that would
+        # create two concurrent writers (self.db for plan_decision /
+        # block_upsert / completion status, plus the new session) which
+        # contend on the SQLite WAL writer lock and produce the same
+        # silent state corruption the refactor is meant to eliminate.
+        # Reusing self.db means every write in the main coroutine is
+        # serialized through one connection — the only writer in flight
+        # at a time. Legacy mode keeps self._writes=None so writers fall
+        # back to opening fresh short-lived sessions.
         if self._use_single_write_session():
-            _writes_cm = self._session_maker()
-            try:
-                self._writes = await _writes_cm.__aenter__()
-            except Exception as _open_exc:
-                logger.error(
-                    "[agent.single_writer] failed to open writes session: %r",
-                    _open_exc,
-                    exc_info=True,
-                )
-                self._writes = None
-                _writes_cm = None
+            self._writes = self.db
         try:
             import time as _time
             _t0 = _time.monotonic()
@@ -3108,21 +3103,11 @@ class AgentV2:
                 pass
             raise
         finally:
-            # Close the single-writer session if it was opened. Doing this
-            # in the outer finally ensures it lands even on early-return /
-            # exception paths above. The bg-task drain (further down in the
-            # main_execution body) runs while self._writes is still open;
-            # by the time we reach this finally, only fire-and-forget tasks
-            # remain and they don't depend on self._writes.
-            if _writes_cm is not None:
-                try:
-                    await _writes_cm.__aexit__(None, None, None)
-                except Exception as _close_exc:
-                    logger.warning(
-                        "[agent.single_writer] writes session close failed: %r",
-                        _close_exc,
-                    )
-                self._writes = None
+            # Single-writer mode: drop the self._writes alias. self.db's
+            # lifecycle is owned by the caller (FastAPI dependency); we
+            # only ever aliased to it, never opened/owned a separate
+            # session. So nothing to close here.
+            self._writes = None
             # Cleanup
             try:
                 websocket_manager.remove_handler(self._handle_completion_update)
