@@ -2111,13 +2111,18 @@ class AgentV2:
                         if decision.analysis_complete and not action:
                             # Final answer path (no tool to execute)
                             invalid_retry_count = 0
-                            
+
                             # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
                             # This unblocks thumbs up/debug icons and stop→submit button.
-                            # Drain pending background writes first so a follow-up
-                            # GET on this completion sees consistent DB state.
+                            # We previously drained bg writes BEFORE emitting finished,
+                            # adding ~2-3s of perceived latency for what is effectively
+                            # transcript-rewrite + tool_executions FK persistence. The
+                            # user-visible content has already streamed; finishing the
+                            # SSE event sooner lets the UI flip out of "thinking" state
+                            # immediately. The drain still happens — just in parallel
+                            # with the rest of the SSE stream's tail (the trailing
+                            # block.upsert from _bg_persist_tool lands a moment later).
                             if self.system_completion and not completion_finished_emitted:
-                                await self._drain_bg_writes()
                                 await self.project_manager.update_completion_status(
                                     self.db,
                                     self.system_completion,
@@ -2130,6 +2135,13 @@ class AgentV2:
                                         data={"status": "success"}
                                     ))
                                 completion_finished_emitted = True
+                                # Drain in the background so the queue stays open
+                                # until persist_tool/rebuild land, but we don't
+                                # block on them before signalling done.
+                                asyncio.create_task(
+                                    self._drain_bg_writes(),
+                                    name="agent.post_finished_drain",
+                                )
 
                             break
                         # Retry flow: action plan with missing action
@@ -2436,10 +2448,13 @@ class AgentV2:
                                             pass
 
                                 # Emit completion.finished immediately so UI updates.
-                                # Drain pending bg writes first so a follow-up GET
-                                # sees consistent state.
+                                # Drain pending bg writes in the BACKGROUND — the
+                                # user-visible content has already streamed; the
+                                # drain is just rebuild_completion_from_blocks +
+                                # tool_execution FK persistence and shouldn't
+                                # gate the "answer ready" signal. See the
+                                # analysis_complete branch above for full rationale.
                                 if self.system_completion and not completion_finished_emitted:
-                                    await self._drain_bg_writes()
                                     await self.project_manager.update_completion_status(
                                         self.db,
                                         self.system_completion,
@@ -2452,6 +2467,10 @@ class AgentV2:
                                             data={"status": "success"}
                                         ))
                                     completion_finished_emitted = True
+                                    asyncio.create_task(
+                                        self._drain_bg_writes(),
+                                        name="agent.post_finished_drain",
+                                    )
 
                             # Extract created objects from observation, with fallback to orchestrator state
                             created_widget_id = None
@@ -2848,9 +2867,9 @@ class AgentV2:
             
             # Update system completion status and emit event if not already done.
             # Success case is typically handled earlier in the analysis_complete block for faster UI response.
-            # Drain pending bg writes so a follow-up GET sees consistent state.
+            # Drain runs in the background (post-finished) — see comment in
+            # the analysis_complete branch above for rationale.
             if self.system_completion and not completion_finished_emitted:
-                await self._drain_bg_writes()
                 completion_status = 'stopped' if self.sigkill_event.is_set() else 'success'
                 await self.project_manager.update_completion_status(
                     self.db,
@@ -2867,6 +2886,10 @@ class AgentV2:
                     )
                     await self.event_queue.put(finished_event)
                 completion_finished_emitted = True
+                asyncio.create_task(
+                    self._drain_bg_writes(),
+                    name="agent.post_finished_drain",
+                )
             
         except Exception as e:
             # Handle errors and finish execution with error status

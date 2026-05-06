@@ -4,10 +4,51 @@ ContextHub - Main orchestrator for all agent context.
 import json
 import logging
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _hub_logger = logging.getLogger(__name__)
+
+# Process-wide cache for the heaviest piece of `prime_static` —
+# the schema build. Keyed by (org_id, sorted ds-ids tuple, build_id).
+# Schemas only change when a data source is re-introspected or
+# table_stats roll up; in steady state they're stable for minutes.
+# Without this, every completion paid ~1.6s rebuilding the same
+# TablesSchemaContext from scratch (the dominant chunk of "setup").
+# TTL keeps freshness loose — out-of-band schema refreshes catch up
+# within the window. For correctness-critical change events, callers
+# can call `invalidate_schema_cache(org_id)` directly.
+_SCHEMA_CACHE: Dict[Tuple[str, Tuple[str, ...], Optional[str]], Tuple[float, Any]] = {}
+_SCHEMA_CACHE_TTL_S: float = 60.0
+
+# Same idea for instructions — the build() output is keyed on
+# (org, data_sources, build_id, query). The query bit is for
+# intelligent ranking; we tolerate slightly-stale rankings for the
+# TTL window in exchange for skipping the ~1.6s rebuild on every
+# completion. Always-load instructions are query-independent so
+# they're always correct; only intelligent ranking lags.
+_INSTRUCTIONS_CACHE: Dict[Tuple[str, Tuple[str, ...], Optional[str], str], Tuple[float, Any]] = {}
+_INSTRUCTIONS_CACHE_TTL_S: float = 30.0
+
+
+def invalidate_schema_cache(org_id: Optional[str] = None) -> None:
+    """Drop cached schema entries. Pass org_id to scope; None drops all."""
+    if org_id is None:
+        _SCHEMA_CACHE.clear()
+        return
+    for k in list(_SCHEMA_CACHE.keys()):
+        if k[0] == str(org_id):
+            _SCHEMA_CACHE.pop(k, None)
+
+
+def invalidate_instructions_cache(org_id: Optional[str] = None) -> None:
+    """Drop cached instruction-build entries. Pass org_id to scope."""
+    if org_id is None:
+        _INSTRUCTIONS_CACHE.clear()
+        return
+    for k in list(_INSTRUCTIONS_CACHE.keys()):
+        if k[0] == str(org_id):
+            _INSTRUCTIONS_CACHE.pop(k, None)
 
 from .context_specs import (
     ContextMetadata, ContextSnapshot, ContextBuildSpec,
@@ -538,10 +579,51 @@ class ContextHub:
             _hub_logger.info(f"[context_hub:prime_static] {name} done +{(time.monotonic()-t)*1000:.0f}ms")
             return result
 
-        # Run all static builders in parallel
+        # Schema cache: by (org, ds-ids, build_id). Schemas dominate the
+        # prime_static cost (~1.6s of ~1.9s) and are stable across user
+        # prompts; the `query` only affects instructions, not schemas.
+        org_id = str(self.organization.id) if self.organization else ""
+        ds_ids: Tuple[str, ...] = tuple(sorted(str(d.id) for d in (self.data_sources or [])))
+        cache_key = (org_id, ds_ids, str(self.build_id) if self.build_id else None)
+        now = time.monotonic()
+        cached = _SCHEMA_CACHE.get(cache_key)
+
+        async def _build_or_get_schemas():
+            if cached is not None and (now - cached[0]) < _SCHEMA_CACHE_TTL_S:
+                _hub_logger.info(
+                    f"[context_hub:prime_static] schemas cache hit (age={now - cached[0]:.1f}s)"
+                )
+                return cached[1]
+            t = time.monotonic()
+            built = await self.schema_builder.build()
+            _hub_logger.info(
+                f"[context_hub:prime_static] schemas done (cache miss) +{(time.monotonic()-t)*1000:.0f}ms"
+            )
+            _SCHEMA_CACHE[cache_key] = (time.monotonic(), built)
+            return built
+
+        instr_key = (org_id, ds_ids, str(self.build_id) if self.build_id else None, str(query or ""))
+        instr_cached = _INSTRUCTIONS_CACHE.get(instr_key)
+
+        async def _build_or_get_instructions():
+            if instr_cached is not None and (now - instr_cached[0]) < _INSTRUCTIONS_CACHE_TTL_S:
+                _hub_logger.info(
+                    f"[context_hub:prime_static] instructions cache hit (age={now - instr_cached[0]:.1f}s)"
+                )
+                return instr_cached[1]
+            t = time.monotonic()
+            built = await self.instruction_builder.build(query, build_id=self.build_id)
+            _hub_logger.info(
+                f"[context_hub:prime_static] instructions done (cache miss) +{(time.monotonic()-t)*1000:.0f}ms"
+            )
+            _INSTRUCTIONS_CACHE[instr_key] = (time.monotonic(), built)
+            return built
+
+        # Run static builders in parallel; schemas/instructions come from
+        # the cache when warm.
         schemas, instructions, resources, files = await asyncio.gather(
-            _timed("schemas", self.schema_builder.build()),
-            _timed("instructions", self.instruction_builder.build(query, build_id=self.build_id)),
+            _build_or_get_schemas(),
+            _build_or_get_instructions(),
             _timed("resources", self.resource_builder.build()),
             _timed("files", self.files_builder.build()),
             return_exceptions=True,
