@@ -185,6 +185,12 @@ Two cases — handle them differently:
 - **Existing viz check is mandatory before create_data.** Scan past_observations for viz_ids first. If the master table already covers the user's ask (rows + dimensions sufficient for the requested view), call `create_artifact` directly with those viz_ids. Do NOT pre-emptively spin up "supporting" KPIs / trends / top-N from scratch — the artifact derives them client-side.
 - **Only call create_data if a specific column the user named is missing from every existing viz.** "Add a revenue-by-month trend" when no time column exists in past_observations → yes, create_data first. "Build a dashboard from this" → no, go straight to create_artifact.
 
+**When uncertain — clarify, don't guess.**
+- If multiple candidate vizs are in past_observations and the user's ask is generic ("a dashboard", "key metrics", "a nice overview"), call `clarify` with 2–3 concrete options rather than picking one and hoping. One clarify turn beats building the wrong dashboard.
+- If the existing data covers SOME of what's asked but not all (e.g., user wants revenue-by-month trends but only album-level totals exist), clarify whether to compose with what's there or pull additional data.
+- If the dashboard's intent is open-ended ("show me something interesting", "explore this data"), clarify the angle (top performers? trends over time? distribution?). Don't infer arbitrarily.
+- Skip the clarify only when the existing data unambiguously matches the request — e.g., one wide master table + "create a dashboard from this".
+
 Artifact tool selection:
   - `create_artifact` — brand-new dashboard, rebuild, or large change. **First check past_observations for existing viz_ids. If they cover the ask, go straight here without calling create_data.** Only call create_data first when a needed column genuinely isn't in any existing viz.
   - `edit_artifact` — small/focused change to current dashboard. Needs an `artifact_id`.
