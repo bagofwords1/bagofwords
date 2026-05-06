@@ -2153,6 +2153,12 @@ class AgentV2:
                                         data={"status": "success"}
                                     ))
                                 completion_finished_emitted = True
+                                # Schedule the final transcript rebuild now
+                                # (per-iteration rebuilds were removed to avoid
+                                # racing deferred entity creation in
+                                # _handle_tool_output). Drain awaits it before
+                                # the queue closes.
+                                self._request_rebuild_transcript()
                                 # Drain in the background so the queue stays open
                                 # until persist_tool/rebuild land, but we don't
                                 # block on them before signalling done.
@@ -2485,6 +2491,8 @@ class AgentV2:
                                             data={"status": "success"}
                                         ))
                                     completion_finished_emitted = True
+                                    # Final transcript rebuild now; drain awaits it.
+                                    self._request_rebuild_transcript()
                                     asyncio.create_task(
                                         self._drain_bg_writes(),
                                         name="agent.post_finished_drain",
@@ -2676,9 +2684,18 @@ class AgentV2:
                                         raise
 
                             self._schedule_bg_write("persist_tool", _bg_persist_tool())
-                            # Rebuild transcript — coalesced with any pending
-                            # rebuild from the post-plan_decision path above.
-                            self._request_rebuild_transcript()
+                            # Per-iteration rebuild removed: rebuild_completion_from_blocks
+                            # was the dominant lock contender against deferred entity
+                            # creation in _handle_tool_output (Path B). The rebuild's
+                            # output (completion.completion JSON) is only consumed as
+                            # a FALLBACK in message_context_builder when no
+                            # completion_blocks rows exist; the primary context path
+                            # reads blocks directly. So skipping the per-iteration
+                            # rebuild doesn't affect the next planner turn's
+                            # context. The final rebuild fires at completion.finished
+                            # via _request_rebuild_transcript inserted at those drain
+                            # sites — that produces the correct end-of-completion
+                            # rendered transcript for the UI.
 
                             # Emit tool.finished with result
                             _is_stopped = bool(observation and observation.get("stopped"))
@@ -2905,11 +2922,13 @@ class AgentV2:
                     )
                     await self.event_queue.put(finished_event)
                 completion_finished_emitted = True
+                # Final transcript rebuild now; drain awaits it.
+                self._request_rebuild_transcript()
                 asyncio.create_task(
                     self._drain_bg_writes(),
                     name="agent.post_finished_drain",
                 )
-            
+
         except Exception as e:
             # Handle errors and finish execution with error status
             if self.current_execution:
