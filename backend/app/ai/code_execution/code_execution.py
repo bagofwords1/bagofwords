@@ -4,6 +4,7 @@ import os
 import sys
 import ast
 import re
+import threading
 import time as _time
 import pandas as pd
 import numpy as np
@@ -13,6 +14,16 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
+
+# `redirect_stdout` mutates the *global* sys.stdout. When the code-exec
+# thread pool runs N executions concurrently, the enter/exit ordering
+# can leave sys.stdout pointing at a sibling thread's already-closed
+# StringIO buffer. The next print/df.info()/etc. inside ANY thread then
+# raises ValueError("I/O operation on closed file"). Serializing the
+# redirect_stdout window with a lock keeps the (very brief) duration of
+# the redirect race-free; user code executes inside the lock but it's
+# already CPU-bound by the GIL, so wall-clock impact is negligible.
+_STDOUT_REDIRECT_LOCK = threading.Lock()
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from typing import TYPE_CHECKING
@@ -492,14 +503,15 @@ class StreamingCodeExecutor:
         }
         if self.logger:
             self.logger.debug(f"Executing code:\n{code}")
-        with io.StringIO() as stdout_capture:
-            with redirect_stdout(stdout_capture):
-                exec(code, local_namespace)
-                generate_df = local_namespace.get('generate_df')
-                if not generate_df:
-                    raise Exception("No generate_df function found in code")
-                df = generate_df(wrapped_clients, excel_files)
-            output_log = stdout_capture.getvalue()
+        with _STDOUT_REDIRECT_LOCK:
+            with io.StringIO() as stdout_capture:
+                with redirect_stdout(stdout_capture):
+                    exec(code, local_namespace)
+                    generate_df = local_namespace.get('generate_df')
+                    if not generate_df:
+                        raise Exception("No generate_df function found in code")
+                    df = generate_df(wrapped_clients, excel_files)
+                output_log = stdout_capture.getvalue()
         return df, output_log, executed_queries
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,

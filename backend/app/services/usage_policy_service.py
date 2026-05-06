@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -120,12 +120,44 @@ class EffectiveUsageLimits:
 
 @dataclass
 class UsageLimitContext:
+    """Per-agent quota state.
+
+    The hot path (`add_tokens`) used to issue a SELECT FOR UPDATE +
+    UPDATE per LLM call, blocking the LLM completion on a row lock.
+    Now we accumulate in-memory and `flush()` once at end of agent run
+    (or when explicitly drained). Tradeoff: counter lags behind reality
+    by one agent run; preflight enforcement gets a slight grace window.
+    Acceptable for monthly quotas; not for hard rate limits.
+
+    The check path (`check_tokens`) caches the effective limit + the
+    last-known used amount and only refreshes from DB on a TTL or when
+    the cached budget is about to be exceeded. Without this, every LLM
+    call (~6 per agent) does a SELECT against usage_counters; at 20
+    concurrent agents that's ~120 connection checkouts in a few seconds,
+    blowing past the singleton pool size. The cache makes the steady-
+    state check purely in-memory.
+    """
+
     organization_id: str
     user_id: str
     source: str
     source_ref_id: Optional[str] = None
     session_maker: Optional[Callable[[], AsyncSession]] = None
     loop: Optional[asyncio.AbstractEventLoop] = None
+    # Accumulated, not yet persisted. Plain int because CPython GIL
+    # makes `int += int` atomic; only one thread/loop adds at a time
+    # in our LLM call path so explicit locking is unnecessary here.
+    _pending_tokens: int = field(default=0, init=False, repr=False)
+    _last_metadata: Optional[dict] = field(default=None, init=False, repr=False)
+    # Cached limit + counter snapshot. `_cache_loaded_at` < 0 means
+    # "never loaded"; the next check_tokens() will load it. Refresh
+    # cadence is the TTL below; we additionally force-refresh when the
+    # uncached headroom is about to be exceeded by pending+requested.
+    _cached_limit: Optional[int] = field(default=None, init=False, repr=False)
+    _cached_used: int = field(default=0, init=False, repr=False)
+    _cache_loaded_at: float = field(default=-1.0, init=False, repr=False)
+    _CACHE_TTL_SECONDS: float = field(default=30.0, init=False, repr=False)
+    _cache_lock: Optional[asyncio.Lock] = field(default=None, init=False, repr=False)
 
     def for_source(self, source: str, source_ref_id: Optional[str] = None) -> "UsageLimitContext":
         return UsageLimitContext(
@@ -136,6 +168,116 @@ class UsageLimitContext:
             session_maker=self.session_maker,
             loop=self.loop,
         )
+
+    def add_tokens(self, amount: int, metadata: Optional[dict] = None) -> None:
+        """Buffer tokens for a later flush. Cheap, no IO, no lock.
+
+        Skips entirely when the `usage_limits` feature is off — no point
+        buffering data that flush() would no-op on anyway, and avoids
+        firing the end-of-agent bg task at all in the common case.
+        """
+        if amount <= 0:
+            return
+        if not has_feature("usage_limits"):
+            return
+        self._pending_tokens += int(amount)
+        if metadata is not None:
+            self._last_metadata = metadata
+
+    @property
+    def pending_tokens(self) -> int:
+        return self._pending_tokens
+
+    async def _refresh_quota_cache(self) -> None:
+        """Load `_cached_limit` and `_cached_used` from the DB. ~1 SELECT each."""
+        if self.session_maker is None:
+            return
+        async with self.session_maker() as db:
+            limits = await usage_policy_service.resolve_effective_limits(
+                db, self.organization_id, self.user_id
+            )
+            self._cached_limit = limits.monthly_token_limit
+            if limits.monthly_token_limit is not None:
+                self._cached_used = await usage_policy_service._get_counter_used(
+                    db,
+                    org_id=self.organization_id,
+                    user_id=self.user_id,
+                    metric=METRIC_LLM_TOKENS,
+                    scope_type=SCOPE_ORGANIZATION,
+                    scope_ref_id="",
+                )
+            else:
+                self._cached_used = 0
+        import time as _time
+        self._cache_loaded_at = _time.monotonic()
+
+    async def check_tokens(self, requested_tokens: int) -> None:
+        """Cheap pre-LLM-call quota check. Hits the DB at most once per
+        TTL window; otherwise compares against the cached limit/used.
+
+        Raises UsageLimitExceeded if the call would push us over.
+        """
+        if not has_feature("usage_limits") or self.session_maker is None:
+            return
+        if requested_tokens <= 0:
+            requested_tokens = 1
+
+        import time as _time
+        now = _time.monotonic()
+        # Need a refresh? First call ever, or TTL expired.
+        if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
+            # Serialize concurrent refreshers — only one DB roundtrip even
+            # when N tasks race here at the same agent run's first call.
+            if self._cache_lock is None:
+                self._cache_lock = asyncio.Lock()
+            async with self._cache_lock:
+                if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
+                    await self._refresh_quota_cache()
+
+        if self._cached_limit is None:
+            return  # no quota configured, nothing to check
+
+        projected = self._cached_used + self._pending_tokens + int(requested_tokens)
+        if projected <= self._cached_limit:
+            return
+
+        # We *might* be over — but our cache could be stale low. Force a
+        # refresh and re-check before raising.
+        if self._cache_lock is None:
+            self._cache_lock = asyncio.Lock()
+        async with self._cache_lock:
+            await self._refresh_quota_cache()
+        if self._cached_limit is None:
+            return
+        projected = self._cached_used + self._pending_tokens + int(requested_tokens)
+        if projected > self._cached_limit:
+            raise UsageLimitExceeded(
+                "Monthly LLM token quota exceeded.",
+                metric=METRIC_LLM_TOKENS,
+                limit=self._cached_limit,
+                used=self._cached_used + self._pending_tokens,
+                requested=int(requested_tokens),
+            )
+
+    async def flush(self) -> None:
+        """Persist any buffered tokens. Called by the agent at end of run."""
+        if self._pending_tokens <= 0 or self.session_maker is None:
+            return
+        amount = self._pending_tokens
+        meta = self._last_metadata
+        self._pending_tokens = 0
+        self._last_metadata = None
+        try:
+            await usage_policy_service.record_llm_tokens_with_context(self, amount, meta)
+            # Reflect the just-persisted amount in the cache so the next
+            # check_tokens doesn't undercount.
+            self._cached_used += amount
+        except Exception:
+            # Best-effort. Re-credit so a future flush retries.
+            self._pending_tokens += amount
+            if meta is not None:
+                self._last_metadata = meta
+            raise
 
     def run_blocking(self, coroutine):
         if self.loop and self.loop.is_running():
@@ -917,26 +1059,84 @@ class UsagePolicyService:
         amount: int,
         limit: Optional[int],
         enforce_limit: bool = True,
-    ) -> UsageCounter:
-        counter = await self._get_counter(
-            db,
-            org_id=org_id,
-            user_id=user_id,
-            metric=metric,
-            scope_type=scope_type,
-            scope_ref_id=scope_ref_id or "",
-        )
-        if enforce_limit and limit is not None and counter.used + amount > limit:
-            raise UsageLimitExceeded(
-                "Monthly usage quota exceeded.",
-                metric=metric,
-                limit=limit,
-                used=counter.used,
-                requested=amount,
+    ) -> None:
+        """Atomically add ``amount`` to the counter. No SELECT FOR UPDATE.
+
+        Previously this acquired a row-level lock via `with_for_update()`,
+        held it across the limit check + the in-Python increment + the
+        flush. Every LLM call took that lock, so two requests for the
+        same (org, user) serialized end-to-end and stacked
+        `idle in transaction` connections under load.
+
+        New shape:
+          1. issue a single ``UPDATE ... SET used = used + :amount``
+             — Postgres handles the row lock for the duration of the
+             statement only, then releases.
+          2. if zero rows were updated the counter row doesn't exist
+             yet, so insert it; on a race the UNIQUE constraint trips
+             and we retry the UPDATE once.
+          3. enforcement uses a follow-up SELECT (only when callers
+             pass ``enforce_limit=True`` AND a finite limit). Slight
+             over-shoot under heavy contention is acceptable for a
+             monthly quota and far cheaper than the lock.
+        """
+        window_start, window_end = current_month_window()
+        scope_ref_id = scope_ref_id or ""
+        amount = int(amount)
+        if amount <= 0:
+            return
+
+        update_stmt = (
+            update(UsageCounter)
+            .where(
+                UsageCounter.organization_id == org_id,
+                UsageCounter.user_id == user_id,
+                UsageCounter.metric == metric,
+                UsageCounter.scope_type == scope_type,
+                UsageCounter.scope_ref_id == scope_ref_id,
+                UsageCounter.window_start == window_start,
             )
-        counter.used = int(counter.used or 0) + int(amount)
-        await db.flush()
-        return counter
+            .values(used=UsageCounter.used + amount)
+        )
+
+        result = await db.execute(update_stmt)
+        if result.rowcount == 0:
+            # Counter doesn't exist yet — insert. On race another tx wins
+            # the unique constraint; retry the UPDATE once.
+            counter = UsageCounter(
+                organization_id=org_id,
+                user_id=user_id,
+                metric=metric,
+                scope_type=scope_type,
+                scope_ref_id=scope_ref_id,
+                window_start=window_start,
+                window_end=window_end,
+                used=amount,
+            )
+            db.add(counter)
+            try:
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
+                await db.execute(update_stmt)
+
+        if enforce_limit and limit is not None:
+            used_now = await self._get_counter_used(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                metric=metric,
+                scope_type=scope_type,
+                scope_ref_id=scope_ref_id,
+            )
+            if used_now > limit:
+                raise UsageLimitExceeded(
+                    "Monthly usage quota exceeded.",
+                    metric=metric,
+                    limit=limit,
+                    used=used_now - amount,
+                    requested=amount,
+                )
 
     def _add_event(
         self,

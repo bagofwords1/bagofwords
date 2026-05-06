@@ -10,6 +10,7 @@ class LLMModel(BaseModel):
     model_id: str
     model_name: str
     is_default: bool = False
+    is_small_default: bool = False
     is_enabled: bool = True
 
 

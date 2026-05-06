@@ -161,7 +161,16 @@ def _attach_async_iam_auth_hook(engine, db_config):
     )
 
 
-def create_async_database_engine():
+# Singleton async engine. Every call site that previously called
+# `create_async_database_engine()` (or the wrapper `create_async_session_factory()`)
+# was building a brand-new engine + 15-conn pool that never got disposed.
+# In production this leaks idle Postgres backends until the singleton pool
+# (via dependencies.async_session_maker) starves and `get_current_organization`
+# starts timing out at 30s. We cache here and let session_factory rebind.
+_async_engine_singleton = None
+
+
+def _build_async_database_engine():
     if settings.TESTING:
         database_url = _get_test_database_url()
 
@@ -211,13 +220,19 @@ def create_async_database_engine():
         if "postgresql+asyncpg" in database_url:
             connect_args = _get_async_ssl_connect_args(db_config) if db_config.uses_iam_auth else {}
             # PostgreSQL: use connection pooling for production
+            # Pool sizing assumes one uvicorn worker. Each in-flight SSE
+            # completion holds the agent's primary session for its entire
+            # main loop (~30s per `create_data`), plus 2-3 short-lived
+            # background-task sessions. 5+10=15 was too tight even at
+            # ~5 concurrent users; 20+20 keeps headroom while still bounded.
+            # Scale `pool_size * num_workers` against your DB's max_connections.
             engine = create_async_engine(
                 database_url,
                 echo=False,
-                pool_size=5,           # connections per worker
-                max_overflow=10,       # extra connections under load
+                pool_size=20,          # connections per worker
+                max_overflow=20,       # extra under load
                 pool_timeout=30,       # wait time for connection
-                pool_recycle=1800,     # recycle connections every 30min (avoids stale connections)
+                pool_recycle=1800,     # recycle every 30min (avoids stale connections)
                 pool_pre_ping=True,    # check connection health before use
                 connect_args=connect_args,
             )
@@ -238,6 +253,26 @@ def create_async_database_engine():
     instrument_db(engine, settings.bow_config.otel)
 
     return engine
+
+
+def create_async_database_engine():
+    """Return the process-wide async engine, building it on first call.
+
+    The conftest test fixture calls `engine.dispose()` between tests; that's
+    fine — dispose closes the existing connections but leaves the engine
+    reusable, so we keep the same instance. If a future test fixture needs
+    a truly fresh engine it can call `reset_async_engine_singleton()`.
+    """
+    global _async_engine_singleton
+    if _async_engine_singleton is None:
+        _async_engine_singleton = _build_async_database_engine()
+    return _async_engine_singleton
+
+
+def reset_async_engine_singleton():
+    """Drop the cached engine. Tests use this when they need a fresh one."""
+    global _async_engine_singleton
+    _async_engine_singleton = None
 
 
 def create_async_session_factory():

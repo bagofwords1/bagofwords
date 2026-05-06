@@ -6,6 +6,12 @@ from app.websocket_manager import websocket_manager
 from sqlalchemy import event
 import asyncio
 import json
+import logging
+
+# These after_update listeners spawn fire-and-forget bg tasks; print()
+# in those tasks would raise ValueError("I/O operation on closed file")
+# whenever uvicorn rotated stdout. Log via the standard logger instead.
+logger = logging.getLogger(__name__)
 
 class Widget(BaseSchema):
     __tablename__ = 'widgets'
@@ -42,25 +48,19 @@ def after_update_widget(mapper, connection, target):
             "height": target.height
         }
 
-        print(f"Broadcasting widget update: {data}")
+        logger.debug("Broadcasting widget update: %s", data.get("widget_id"))
         asyncio.create_task(broadcast_widget_update(data))
     except Exception as e:
-        print(f"Error in after_update_widget: {e}")
+        logger.warning("Error in after_update_widget: %s", e)
 
 async def broadcast_widget_update(data):
     try:
-        # Print all running tasks before broadcasting
-        tasks = asyncio.all_tasks()
-        print(f"Current running tasks ({len(tasks)}):")
-        for task in tasks:
-            print(f"- {task.get_name()}: {task}")
-            
         await websocket_manager.broadcast_to_report(
             str(data["report_id"]),
             json.dumps(data)
         )
-        print(f"Broadcasted widget update: {data}")
+        logger.debug("Broadcasted widget update: %s", data.get("widget_id"))
     except Exception as e:
-        print(f"Error broadcasting widget update: {e}")
+        logger.warning("Error broadcasting widget update: %s", e)
 
 event.listen(Widget, 'after_update', after_update_widget)

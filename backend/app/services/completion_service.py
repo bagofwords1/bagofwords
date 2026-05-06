@@ -2002,6 +2002,7 @@ class CompletionService:
                                 event_queue=event_queue,  # Pass event queue for streaming
                                 clients=clients,
                                 build_id=resolved_build_id,
+                                session_maker=async_session,
                             )
                             _alog("agent_initialized")
 
@@ -2100,6 +2101,21 @@ class CompletionService:
             # Start agent execution in background
             asyncio.create_task(run_agent_with_streaming())
             _log("task_spawned")
+
+            # Release the request-scoped DB connection before we hand the
+            # client a StreamingResponse. FastAPI normally only tears down
+            # `Depends(get_async_db)` after the response finishes — for SSE
+            # that's the entire agent run (minutes). Keeping the conn open
+            # leaves it `idle in transaction` and starves the pool, which
+            # is exactly how `get_current_organization` started timing out
+            # at 30s under concurrent load. The agent task uses its own
+            # session, so `db` is no longer needed here.
+            try:
+                await db.commit()
+            except Exception:
+                pass
+            await db.close()
+            _log("request_session_released")
 
             # Stream events
             async def completion_stream_generator():

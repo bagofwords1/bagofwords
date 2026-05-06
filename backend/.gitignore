@@ -1,1 +1,4 @@
 .dev.env
+.dev.*.env
+*.db-shm
+*.db-wal
