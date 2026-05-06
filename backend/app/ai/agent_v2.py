@@ -200,7 +200,17 @@ class AgentV2:
         # `_bg_write_failures` for observability.
         self._pending_writes: list[asyncio.Task] = []
         self._bg_write_failures: int = 0
-        
+
+        # Coalesce rebuild_completion_from_blocks requests. Used to fire
+        # twice per loop iteration (once after plan_decision saved, once
+        # after tool_execution saved). They read the same set of blocks
+        # — the post-tool rebuild fully supersedes the post-plan one.
+        # Now we keep at most one rebuild in flight per agent: if a new
+        # request arrives while one is running, we mark "another wanted"
+        # and spawn a single follow-up after the current one finishes.
+        self._rebuild_task: Optional[asyncio.Task] = None
+        self._rebuild_pending: bool = False
+
         # Widget/step state management
         self.current_widget = None
         self.current_step = None
@@ -1263,6 +1273,10 @@ class AgentV2:
         on a stuck DB; any tasks still pending after the timeout are
         logged but not awaited further (they continue running on the loop).
         """
+        # Pull in the rebuild task too — `completion.finished` shouldn't
+        # land before the transcript reflects the latest blocks.
+        if self._rebuild_task is not None and not self._rebuild_task.done():
+            self._pending_writes.append(self._rebuild_task)
         if not self._pending_writes:
             return
         pending = list(self._pending_writes)
@@ -1283,6 +1297,66 @@ class AgentV2:
                 self._pending_writes.extend(still_pending)
         except Exception as exc:
             logger.error("[agent.bg_write] drain failed: %r", exc, exc_info=True)
+
+    def _request_rebuild_transcript(self):
+        """Coalesced rebuild_completion_from_blocks scheduler.
+
+        Two call sites used to spawn a rebuild task each — once after
+        plan_decision was saved, once after tool_execution was saved.
+        rebuild_completion_from_blocks reads ALL blocks for the current
+        agent execution; the second rebuild fully supersedes the first.
+        Under load this doubled the bg-write traffic against the singleton
+        pool for no gain.
+
+        Now we keep at most one rebuild task in flight per agent:
+          - if no task is running, spawn one immediately
+          - if a task is running, set `_rebuild_pending` so the running
+            task chains a follow-up after it completes
+          - the follow-up captures any state that landed during the
+            previous run, so we never miss a request
+
+        Drains via `_drain_bg_writes` so `completion.finished` doesn't
+        race ahead of the final transcript build.
+        """
+        # If a task is already running, just mark that another is wanted.
+        if self._rebuild_task is not None and not self._rebuild_task.done():
+            self._rebuild_pending = True
+            return
+
+        if not self.system_completion or not self.current_execution:
+            return
+
+        comp_id = str(self.system_completion.id)
+        exec_id = str(self.current_execution.id)
+
+        async def _runner(_loop_index=getattr(self, "_loop_index_marker", None)):
+            from app.models.agent_execution import AgentExecution as _AE
+            from app.models.completion import Completion as _Comp
+            _max_attempts = 4
+            for _attempt in range(_max_attempts):
+                try:
+                    async with self._session_maker() as bg_db:
+                        bg_exec = await bg_db.get(_AE, exec_id)
+                        bg_comp = await bg_db.get(_Comp, comp_id)
+                        if bg_exec and bg_comp:
+                            await self.project_manager.rebuild_completion_from_blocks(
+                                bg_db, bg_comp, bg_exec
+                            )
+                    break
+                except Exception as exc:
+                    if "database is locked" in str(exc).lower() and _attempt < _max_attempts - 1:
+                        await asyncio.sleep(2 ** _attempt)
+                        continue
+                    logger.warning(f"[agent] rebuild_completion failed: {exc!r}")
+                    break
+            # Chain a follow-up if requests piled up during this run.
+            if self._rebuild_pending:
+                self._rebuild_pending = False
+                self._rebuild_task = asyncio.create_task(
+                    _runner(), name="agent.rebuild_transcript"
+                )
+
+        self._rebuild_task = asyncio.create_task(_runner(), name="agent.rebuild_transcript")
 
     async def main_execution(self):
         try:
@@ -1989,40 +2063,11 @@ class AgentV2:
                                 )
                                 block = None
 
-                            # Rebuild transcript in background — not needed before tool runs.
-                            _snap_comp_id = str(self.system_completion.id)
-                            _snap_exec_id = str(self.current_execution.id)
-                            _snap_loop = loop_index
-
-                            async def _bg_rebuild():
-                                import asyncio as _aio
-                                _max_attempts = 4
-                                for _attempt in range(_max_attempts):
-                                    try:
-                                        SessionLocal = self._session_maker
-                                        async with SessionLocal() as bg_db:
-                                            from app.models.agent_execution import AgentExecution as _AE
-                                            from app.models.completion import Completion as _Comp
-                                            bg_execution = await bg_db.get(_AE, _snap_exec_id)
-                                            bg_completion = await bg_db.get(_Comp, _snap_comp_id)
-                                            if bg_execution and bg_completion:
-                                                await self.project_manager.rebuild_completion_from_blocks(
-                                                    bg_db, bg_completion, bg_execution
-                                                )
-                                        return
-                                    except Exception as _rb_exc:
-                                        if "database is locked" in str(_rb_exc).lower() and _attempt < _max_attempts - 1:
-                                            _backoff = 2 ** _attempt
-                                            logger.warning(f"[agent] SQLite locked in _bg_rebuild (attempt {_attempt + 1}), retrying in {_backoff}s")
-                                            await _aio.sleep(_backoff)
-                                            continue
-                                        logger.warning(
-                                            f"[agent] Background rebuild_completion failed "
-                                            f"(loop={_snap_loop}): {_rb_exc!r}"
-                                        )
-                                        return
-
-                            asyncio.create_task(_bg_rebuild())
+                            # Rebuild transcript in background. The post-tool
+                            # rebuild below supersedes this one when both
+                            # land in the same iteration; coalesced through
+                            # _request_rebuild_transcript.
+                            self._request_rebuild_transcript()
                         else:
                             # plan_decision save failed — warn so it's observable.
                             try:
@@ -2593,31 +2638,9 @@ class AgentV2:
                                         raise
 
                             self._schedule_bg_write("persist_tool", _bg_persist_tool())
-                            _rb_tool_comp_id = str(self.system_completion.id)
-                            _rb_tool_exec_id = str(self.current_execution.id)
-                            async def _bg_rebuild_tool():
-                                import asyncio as _aio
-                                _max_attempts = 4
-                                for _attempt in range(_max_attempts):
-                                    try:
-                                        from app.models.agent_execution import AgentExecution as _AE
-                                        from app.models.completion import Completion as _Comp
-                                        SessionLocal = self._session_maker
-                                        async with SessionLocal() as bg_db:
-                                            bg_exec = await bg_db.get(_AE, _rb_tool_exec_id)
-                                            bg_comp = await bg_db.get(_Comp, _rb_tool_comp_id)
-                                            if bg_exec and bg_comp:
-                                                await self.project_manager.rebuild_completion_from_blocks(bg_db, bg_comp, bg_exec)
-                                        return
-                                    except Exception as _e:
-                                        if "database is locked" in str(_e).lower() and _attempt < _max_attempts - 1:
-                                            _backoff = 2 ** _attempt
-                                            logger.warning(f"[agent] SQLite locked in _bg_rebuild_tool (attempt {_attempt + 1}), retrying in {_backoff}s")
-                                            await _aio.sleep(_backoff)
-                                            continue
-                                        logger.warning(f"[agent] Background rebuild (tool) failed: {_e!r}")
-                                        return
-                            asyncio.create_task(_bg_rebuild_tool())
+                            # Rebuild transcript — coalesced with any pending
+                            # rebuild from the post-plan_decision path above.
+                            self._request_rebuild_transcript()
 
                             # Emit tool.finished with result
                             _is_stopped = bool(observation and observation.get("stopped"))
