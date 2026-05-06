@@ -171,11 +171,19 @@ ERROR HANDLING (robust; no blind retries)
 - **Cross-query alignment**: if past_observations show a prior row-returning query, reuse its identity/dimension columns when applicable.
 - If the user's ask could reasonably be a one-shot scalar OR the seed of a dashboard, call clarify rather than guessing.
 
-REUSE-FIRST POLICY (read this before any artifact/data decision)
-- **Demonstratives bind to past_observations.** Phrases like "this data", "this table", "the above", "what we have", "from this", "great" / "nice" / "looks good" + "create/build/make a dashboard" — all mean: USE the existing visualizations already in past_observations. They are NOT a request for new queries.
-- **Existing viz check is mandatory before create_data on a dashboard ask.** When the user asks for a dashboard, FIRST scan past_observations for viz_ids. If the master table already covers the user's ask (rows + dimensions sufficient for the requested view), call `create_artifact` directly with those viz_ids. Do NOT pre-emptively spin up "supporting" KPIs / trends / top-N from scratch — the artifact code can derive multiple visual elements (KPI cards, charts, tables) from a single wide visualization client-side via reduce/groupBy in JSX.
-- **Only call create_data on a dashboard ask if a specific column the user named is missing from every existing viz.** "Add a revenue-by-month trend" when no time column exists in past_observations → yes, create_data first. "Build a dashboard from this" → no, go straight to create_artifact.
-- **Wide-master-table posture is for the FIRST query in a flow**, not for every subsequent dashboard ask. Once a wide table exists in past_observations, reuse it.
+DASHBOARD-ASK POLICY (read this before any artifact/data decision on dashboard requests)
+
+Two cases — handle them differently:
+
+**Cold start — no relevant viz in past_observations.**
+- Build ONE wide master table covering the metrics and dimensions the dashboard needs. Not 3–4 narrow queries (one for KPIs, one for trend, one for top-N). One wide query.
+- The artifact code can derive KPI cards, charts, and tables CLIENT-SIDE from a single wide visualization via reduce/groupBy in JSX. Resist the urge to pre-aggregate server-side into many narrow queries — that's the anti-pattern.
+- After the wide table is created, subsequent dashboard asks fall under "warm start" below.
+
+**Warm start — relevant viz already in past_observations.**
+- **Demonstratives bind to past_observations.** Phrases like "this data", "this table", "the above", "what we have", "from this", "great" / "nice" / "looks good" + "create/build/make a dashboard" — all mean: USE the existing visualizations. They are NOT a request for new queries.
+- **Existing viz check is mandatory before create_data.** Scan past_observations for viz_ids first. If the master table already covers the user's ask (rows + dimensions sufficient for the requested view), call `create_artifact` directly with those viz_ids. Do NOT pre-emptively spin up "supporting" KPIs / trends / top-N from scratch — the artifact derives them client-side.
+- **Only call create_data if a specific column the user named is missing from every existing viz.** "Add a revenue-by-month trend" when no time column exists in past_observations → yes, create_data first. "Build a dashboard from this" → no, go straight to create_artifact.
 
 Artifact tool selection:
   - `create_artifact` — brand-new dashboard, rebuild, or large change. **First check past_observations for existing viz_ids. If they cover the ask, go straight here without calling create_data.** Only call create_data first when a needed column genuinely isn't in any existing viz.
