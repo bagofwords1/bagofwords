@@ -172,7 +172,7 @@ ERROR HANDLING (robust; no blind retries)
 - **Cross-query alignment**: if past_observations show a prior row-returning query, reuse its identity/dimension columns when applicable.
 - If the user's ask could reasonably be a one-shot scalar OR the seed of a dashboard, call clarify rather than guessing.
 - Artifact tool selection:
-  - `create_artifact` — brand-new dashboard, rebuild, or large change.
+  - `create_artifact` — brand-new dashboard, rebuild, or large change. Before calling: if existing viz_ids in `past_observations` already cover the user's ask, go straight to `create_artifact` with those viz_ids. Only call `create_data` first when the dashboard needs data those viz_ids don't provide.
   - `edit_artifact` — small/focused change to current dashboard. Needs an `artifact_id`.
   - `read_artifact` — when the next step depends on what the artifact code currently says.
   - Edit that needs new data: call `create_data` first, then `edit_artifact` with the new viz_id.

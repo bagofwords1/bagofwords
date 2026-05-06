@@ -12,6 +12,7 @@ class CreateArtifactInput(BaseModel):
     """
 
     prompt: str = Field(..., description=(
+        "PRECONDITION: If existing viz_ids in `past_observations` or message history already cover the user's dashboard ask, call this tool directly with those viz_ids. Only call `create_data` first when the dashboard needs data those viz_ids don't provide.\n\n"
         "Structured build plan for the dashboard. This prompt drives the entire code generation — be specific and use these sections:\n\n"
         "## Layout\n"
         "Overall structure and viz placement. For each viz in `visualization_ids`: title, chart type, position, local filter yes/no. "
