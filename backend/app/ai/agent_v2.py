@@ -3370,7 +3370,7 @@ class AgentV2:
         widget_id_for_artifact = str(self.current_widget.id) if getattr(self, 'current_widget', None) else None
 
         try:
-            async with self._session_maker() as fresh_db:
+            async with self._writes_session() as fresh_db:
                 # Re-fetch what we actually need into the fresh session so
                 # any subsequent update_*/refresh ops bind to a live conn.
                 exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
@@ -3693,7 +3693,7 @@ class AgentV2:
         ) else None
 
         try:
-            async with self._session_maker() as fresh_db:
+            async with self._writes_session() as fresh_db:
                 # Re-fetch only the rows we'll need; cheaper than refreshing
                 # every relationship and bounded to this method's scope.
                 report_obj = await fresh_db.get(Report, report_id) if report_id else None
