@@ -3212,6 +3212,19 @@ class AgentV2:
         if event_type != "tool.progress":
             return
 
+        # Path B (SQLite contention fix): for create_data, defer all entity
+        # persistence (query/step/visualization rows + step.data_model updates)
+        # to _handle_tool_output. Streaming events otherwise race the concurrent
+        # bg writes (rebuild_completion_from_blocks, _bg_persist_tool, snapshot
+        # saves) on the SQLite write lock — under contention the streaming-side
+        # INSERTs lose, the silent except handlers below null
+        # self.current_visualization, and viz_ids vanish from the next planner
+        # turn's context. Postgres mostly hides this with row-level locks, but
+        # the same architectural race exists. Other tools (create_widget,
+        # describe_entity, write_csv) keep the streaming creation path for now.
+        if tool_name == "create_data":
+            return
+
         stage = payload.get("stage")
 
         # IDs read from any pre-existing ORM references attached to a now-stale
@@ -3565,6 +3578,83 @@ class AgentV2:
                     success = tool_output.get("success", False)
                     data_model_from_tool = tool_output.get("data_model") or {}
                     view_options_from_tool = tool_output.get("view_options") or {}
+
+                    # Path B: for create_data, _handle_streaming_event is a no-op
+                    # so query/step/visualization haven't been created yet. Create
+                    # them here — sequentially on this fresh_db session — before
+                    # the existing update logic runs. Doing it here means a single
+                    # writer (no bg-write concurrency on these rows), which
+                    # eliminates the SQLite-lock race that nulled
+                    # current_visualization in the old streaming path.
+                    if tool_name == "create_data" and step_id is None and report_obj and success:
+                        query_title = (
+                            (tool_input.get("title") if isinstance(tool_input, dict) else None)
+                            or (tool_input.get("widget_title") if isinstance(tool_input, dict) else None)
+                            or "Untitled Query"
+                        )
+                        data_model_type = (data_model_from_tool or {}).get("type") or "table"
+                        try:
+                            new_query = await self.project_manager.create_query_v2(
+                                fresh_db, report_obj, query_title
+                            )
+                            self.current_query = new_query
+                            new_step = await self.project_manager.create_step_for_query(
+                                fresh_db, new_query, query_title, "chart",
+                                {"type": data_model_type, "columns": [], "series": []},
+                            )
+                            self.current_step = new_step
+                            self.current_step_id = str(new_step.id)
+                            step_id = self.current_step_id
+                            await self.project_manager.set_query_default_step_if_empty(
+                                fresh_db, new_query, self.current_step_id
+                            )
+                            new_viz = await self.project_manager.create_visualization_v2(
+                                fresh_db, str(report_obj.id), str(new_query.id),
+                                query_title, view={"type": data_model_type}, status="draft",
+                            )
+                            self.current_visualization = new_viz
+                            viz_id = str(new_viz.id) if new_viz else None
+                            # Emit the SSE events that used to fire from streaming.
+                            try:
+                                seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="query.created",
+                                    completion_id=sys_completion_id,
+                                    agent_execution_id=exec_id,
+                                    seq=seq,
+                                    data={
+                                        "query_id": str(new_query.id),
+                                        "report_id": report_id,
+                                        "title": query_title,
+                                    },
+                                ))
+                                if new_viz:
+                                    seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="visualization.created",
+                                        completion_id=sys_completion_id,
+                                        agent_execution_id=exec_id,
+                                        seq=seq,
+                                        data={
+                                            "visualization_id": str(new_viz.id),
+                                            "query_id": str(new_query.id),
+                                            "report_id": report_id,
+                                            "step_id": str(new_step.id),
+                                            "view": {"type": data_model_type},
+                                        },
+                                    ))
+                            except Exception:
+                                pass
+                        except Exception as _create_exc:
+                            logger.error(
+                                f"[agent.path_b] deferred entity creation failed for create_data: {_create_exc!r}",
+                                exc_info=True,
+                            )
+                            # Fall through — step_obj will be None below and the
+                            # existing branch (`if step_obj and success and widget_data:`)
+                            # will skip the update path. The orchestrator's
+                            # current_visualization stays None and the planner sees
+                            # no viz_id, but at least the failure is loud.
 
                     step_obj = None
                     if step_id:
