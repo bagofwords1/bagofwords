@@ -1530,7 +1530,10 @@ class AgentV2:
             
             # Record instruction usage in background (non-blocking)
             if view.static.instructions and view.static.instructions.items:
-                asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
+                if self._use_single_write_session():
+                    await self._record_instruction_usage_background(view.static.instructions.items)
+                else:
+                    asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
                 # Emit instructions.context SSE so frontend knows which instructions were loaded
                 try:
                     seq_inst = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -1572,12 +1575,24 @@ class AgentV2:
 
             # Build slim context snapshot with only usage tracking (excludes full schemas/instructions)
             context_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
-            
-            asyncio.create_task(self._save_context_snapshot_background(
-                kind="initial",
-                context_view_json=context_view_data,
-                prompt_text=prompt_text,
-            ))
+
+            # Single-writer mode: run sync inline (sharing self._writes across
+            # concurrent asyncio tasks isn't safe — SQLAlchemy AsyncSession is
+            # task-bound). Legacy mode: fire-and-forget bg task on a fresh
+            # session (each bg task opens its own fresh session via the
+            # _writes_session() fallback path).
+            if self._use_single_write_session():
+                await self._save_context_snapshot_background(
+                    kind="initial",
+                    context_view_json=context_view_data,
+                    prompt_text=prompt_text,
+                )
+            else:
+                asyncio.create_task(self._save_context_snapshot_background(
+                    kind="initial",
+                    context_view_json=context_view_data,
+                    prompt_text=prompt_text,
+                ))
             
             # Use cached schemas from prime_static() - no duplicate build
             schemas_ctx = view.static.schemas
@@ -1689,10 +1704,16 @@ class AgentV2:
                 # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
                 if loop_index > 0:
                     pre_tool_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
-                    asyncio.create_task(self._save_context_snapshot_background(
-                        kind="pre_tool",
-                        context_view_json=pre_tool_view_data,
-                    ))
+                    if self._use_single_write_session():
+                        await self._save_context_snapshot_background(
+                            kind="pre_tool",
+                            context_view_json=pre_tool_view_data,
+                        )
+                    else:
+                        asyncio.create_task(self._save_context_snapshot_background(
+                            kind="pre_tool",
+                            context_view_json=pre_tool_view_data,
+                        ))
 
                 # Build enhanced planner input with validation and retry on failure
                 try:
@@ -2667,7 +2688,10 @@ class AgentV2:
                                 except Exception as _e:
                                     logger.warning(f"[agent] post_snap failed: {_e!r}")
 
-                            asyncio.create_task(_bg_post_snap())
+                            if self._use_single_write_session():
+                                await _bg_post_snap()
+                            else:
+                                asyncio.create_task(_bg_post_snap())
 
                             # Telemetry: tool finished
                             try:
@@ -2933,7 +2957,10 @@ class AgentV2:
                             )
                 except Exception as _e:
                     logger.warning(f"[agent] final_snap failed: {_e!r}")
-            asyncio.create_task(_bg_final_snap())
+            if self._use_single_write_session():
+                await _bg_final_snap()
+            else:
+                asyncio.create_task(_bg_final_snap())
             
             # Generate report title if this is the first completion (non-blocking)
             try:
