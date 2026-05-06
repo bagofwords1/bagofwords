@@ -2002,6 +2002,7 @@ class CompletionService:
                                 event_queue=event_queue,  # Pass event queue for streaming
                                 clients=clients,
                                 build_id=resolved_build_id,
+                                session_maker=async_session,
                             )
                             _alog("agent_initialized")
 

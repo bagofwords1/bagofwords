@@ -112,8 +112,19 @@ class AgentV2:
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
-                 messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
+                 messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None,
+                 session_maker=None):
         self.db = db
+        # session_maker lets fragile post-tool / post-decision paths open
+        # short-lived sessions instead of leaning on `self.db` (which can
+        # die mid-run when an asyncio.wait_for cancels a greenlet on it,
+        # closing the asyncpg transport — that's the "I/O operation on
+        # closed file" → MissingGreenlet cascade we used to see). Falls
+        # back to the singleton session_maker if not provided.
+        if session_maker is None:
+            from app.dependencies import async_session_maker as _default_sm
+            session_maker = _default_sm
+        self._session_maker = session_maker
         self.build_id = build_id
         # True when this AgentV2 instance is running inside a TestRun. The
         # ``run_eval`` tool refuses nested invocations against this flag.
@@ -3434,206 +3445,235 @@ class AgentV2:
             # Don't re-raise; this is streaming and shouldn't break the main flow
 
     async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None):
-        """Handle tool outputs and manage final state updates."""
+        """Handle tool outputs and manage final state updates.
+
+        Runs entirely in a SHORT-LIVED session opened from session_maker
+        rather than the long-lived self.db. This was the dominant source
+        of "I/O operation on closed file" → MissingGreenlet cascades:
+        an asyncio.wait_for inside one of the project_manager helpers
+        could cancel a greenlet on the long-lived connection mid-flight,
+        closing its asyncpg transport. Every subsequent self.db.* in the
+        same agent run then died. By scoping this whole block to a fresh
+        session, a transport death here can't poison the rest of the run.
+        """
         if not observation or observation.get("error"):
             return  # Don't process failed tool executions
-            
+
+        # All ORM references that come into this method (self.current_step,
+        # self.current_visualization, self.current_execution, self.report,
+        # self.head_completion) are attached to self.db. We re-fetch by ID
+        # inside the fresh session, then operate exclusively on the new
+        # instances. Identity values (ids, user_id) are read off the old
+        # instances first since those don't trip lazy-loading.
+        step_id = self.current_step_id
+        viz_id = str(self.current_visualization.id) if getattr(self, 'current_visualization', None) else None
+        exec_id = str(self.current_execution.id) if getattr(self, 'current_execution', None) else None
+        report_id = str(self.report.id) if self.report else None
+        sys_completion_id = str(self.system_completion.id) if self.system_completion else None
+        head_user_id = str(getattr(self.head_completion, 'user_id', None)) if (
+            self.head_completion and getattr(self.head_completion, 'user_id', None)
+        ) else None
+
         try:
-            if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
-                # Update current step with code and data using tool_output
-                if not tool_output:
-                    return
-                
-                code = tool_output.get("code", "")
-                widget_data = tool_output.get("widget_data", {}) or tool_output.get("data", {})
-                success = tool_output.get("success", False)
-                data_model_from_tool = tool_output.get("data_model") or {}
-                view_options_from_tool = tool_output.get("view_options") or {}
-                
-                step_obj = None
-                if self.current_step_id:
-                    step_obj = await self.db.get(Step, self.current_step_id)
-                
-                if step_obj and success and widget_data:
-                    # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
-                    try:
-                        if isinstance(data_model_from_tool, dict) and data_model_from_tool:
-                            existing_dm = (getattr(step_obj, "data_model", {}) or {}).copy()
-                            merged = existing_dm.copy()
-                            # Preserve existing type; only set if missing
-                            if not merged.get("type") and data_model_from_tool.get("type"):
-                                merged["type"] = data_model_from_tool.get("type")
-                            # Merge series/grouping fields
-                            for key in ("series", "group_by", "sort", "limit"):
-                                if data_model_from_tool.get(key) is not None:
-                                    merged[key] = data_model_from_tool.get(key)
-                            await self.project_manager.update_step_with_data_model(self.db, step_obj, merged)
-                            # Refresh the object to read the updated data_model
-                            await self.db.refresh(step_obj)
-                    except Exception:
-                        pass
-                    # Update step with code
-                    await self.project_manager.update_step_with_code(
-                        self.db, step_obj, code
-                    )
-                    # Update step with full data (not just preview)
-                    await self.project_manager.update_step_with_data(
-                        self.db, step_obj, widget_data
-                    )
-                    
-                    # Update step status
-                    await self.project_manager.update_step_status(
-                        self.db, step_obj, "success"
-                    )
+            async with self._session_maker() as fresh_db:
+                # Re-fetch only the rows we'll need; cheaper than refreshing
+                # every relationship and bounded to this method's scope.
+                report_obj = await fresh_db.get(Report, report_id) if report_id else None
+                exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
 
-                    # Emit table usage events based on the step's data model (align with legacy agent)
-                    try:
-                        await self.project_manager.emit_table_usage(
-                            db=self.db,
-                            report=self.report,
-                            step=step_obj,
-                            data_model=getattr(step_obj, "data_model", {}) or {},
-                            user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
-                            user_role=None
+                if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
+                    # Update current step with code and data using tool_output
+                    if not tool_output:
+                        return
+
+                    code = tool_output.get("code", "")
+                    widget_data = tool_output.get("widget_data", {}) or tool_output.get("data", {})
+                    success = tool_output.get("success", False)
+                    data_model_from_tool = tool_output.get("data_model") or {}
+                    view_options_from_tool = tool_output.get("view_options") or {}
+
+                    step_obj = None
+                    if step_id:
+                        step_obj = await fresh_db.get(Step, step_id)
+
+                    if step_obj and success and widget_data:
+                        # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
+                        try:
+                            if isinstance(data_model_from_tool, dict) and data_model_from_tool:
+                                existing_dm = (getattr(step_obj, "data_model", {}) or {}).copy()
+                                merged = existing_dm.copy()
+                                # Preserve existing type; only set if missing
+                                if not merged.get("type") and data_model_from_tool.get("type"):
+                                    merged["type"] = data_model_from_tool.get("type")
+                                # Merge series/grouping fields
+                                for key in ("series", "group_by", "sort", "limit"):
+                                    if data_model_from_tool.get(key) is not None:
+                                        merged[key] = data_model_from_tool.get(key)
+                                await self.project_manager.update_step_with_data_model(fresh_db, step_obj, merged)
+                                # Refresh the object to read the updated data_model
+                                await fresh_db.refresh(step_obj)
+                        except Exception:
+                            pass
+                        # Update step with code
+                        await self.project_manager.update_step_with_code(
+                            fresh_db, step_obj, code
                         )
-                    except Exception:
-                        pass
+                        # Update step with full data (not just preview)
+                        await self.project_manager.update_step_with_data(
+                            fresh_db, step_obj, widget_data
+                        )
 
-                    # Fallback for create_data: if no columns in data_model, emit usage from tool_input.tables_by_source
-                    try:
-                        if tool_name == "create_data":
+                        # Update step status
+                        await self.project_manager.update_step_status(
+                            fresh_db, step_obj, "success"
+                        )
+
+                        # Emit table usage events based on the step's data model (align with legacy agent)
+                        try:
+                            await self.project_manager.emit_table_usage(
+                                db=fresh_db,
+                                report=report_obj,
+                                step=step_obj,
+                                data_model=getattr(step_obj, "data_model", {}) or {},
+                                user_id=head_user_id,
+                                user_role=None
+                            )
+                        except Exception:
+                            pass
+
+                        # Fallback for create_data: if no columns in data_model, emit usage from tool_input.tables_by_source
+                        try:
+                            if tool_name == "create_data":
+                                dm = getattr(step_obj, "data_model", {}) or {}
+                                cols = dm.get("columns") if isinstance(dm, dict) else None
+                                has_columns = isinstance(cols, list) and len(cols) > 0
+                                if not has_columns and isinstance(tool_input, dict):
+                                    tbs = tool_input.get("tables_by_source")
+                                    if tbs:
+                                        await self.project_manager.emit_table_usage_from_tables_by_source(
+                                            db=fresh_db,
+                                            report=report_obj,
+                                            step=step_obj,
+                                            tables_by_source=tbs,
+                                            user_id=head_user_id,
+                                            user_role=None,
+                                            source_type="sql",
+                                        )
+                        except Exception:
+                            pass
+
+                        # Finalize visualization view.encoding and status
+                        try:
                             dm = getattr(step_obj, "data_model", {}) or {}
-                            cols = dm.get("columns") if isinstance(dm, dict) else None
-                            has_columns = isinstance(cols, list) and len(cols) > 0
-                            if not has_columns and isinstance(tool_input, dict):
-                                tbs = tool_input.get("tables_by_source")
-                                if tbs:
-                                    await self.project_manager.emit_table_usage_from_tables_by_source(
-                                        db=self.db,
-                                        report=self.report,
-                                        step=step_obj,
-                                        tables_by_source=tbs,
-                                        user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
-                                        user_role=None,
-                                        source_type="sql",
-                                    )
-                    except Exception:
-                        pass
-
-                    # Finalize visualization view.encoding and status
-                    try:
-                        dm = getattr(step_obj, "data_model", {}) or {}
-                        if getattr(self, 'current_visualization', None):
-                            # Prefer tool-provided view (ViewSchema v2) if available
-                            view_from_tool = tool_output.get("view")
-                            if isinstance(view_from_tool, dict) and view_from_tool.get("version") == "v2":
-                                # Use the new ViewSchema v2 format directly
-                                view = view_from_tool
-                            else:
-                                # Legacy fallback: compute encoding from step.data_model.series
-                                enc = self.project_manager.derive_encoding_from_data_model(dm)
-                                view = {"type": dm.get("type")}
-                                if enc:
-                                    view["encoding"] = enc
-                                # Merge any tool-provided view options (e.g., colors palette)
+                            viz_obj = None
+                            if viz_id:
+                                from app.models.visualization import Visualization as _Viz
+                                viz_obj = await fresh_db.get(_Viz, viz_id)
+                            if viz_obj:
+                                # Prefer tool-provided view (ViewSchema v2) if available
+                                view_from_tool = tool_output.get("view")
+                                if isinstance(view_from_tool, dict) and view_from_tool.get("version") == "v2":
+                                    # Use the new ViewSchema v2 format directly
+                                    view = view_from_tool
+                                else:
+                                    # Legacy fallback: compute encoding from step.data_model.series
+                                    enc = self.project_manager.derive_encoding_from_data_model(dm)
+                                    view = {"type": dm.get("type")}
+                                    if enc:
+                                        view["encoding"] = enc
+                                    # Merge any tool-provided view options (e.g., colors palette)
+                                    try:
+                                        if isinstance(view_options_from_tool, dict) and view_options_from_tool:
+                                            current_options = (view.get("options") or {})
+                                            merged_options = {**current_options, **view_options_from_tool}
+                                            view["options"] = merged_options
+                                    except Exception:
+                                        pass
+                                await self.project_manager.update_visualization_view(fresh_db, viz_obj, view)
+                                await self.project_manager.set_visualization_status(fresh_db, viz_obj, "success")
+                                # Emit visualization.updated
                                 try:
-                                    if isinstance(view_options_from_tool, dict) and view_options_from_tool:
-                                        current_options = (view.get("options") or {})
-                                        merged_options = {**current_options, **view_options_from_tool}
-                                        view["options"] = merged_options
+                                    seq = await self.project_manager.next_seq(fresh_db, exec_obj)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="visualization.updated",
+                                        completion_id=sys_completion_id,
+                                        agent_execution_id=exec_id,
+                                        seq=seq,
+                                        data={
+                                            "visualization_id": viz_id,
+                                            "view": view,
+                                            "status": "success",
+                                        }
+                                    ))
                                 except Exception:
                                     pass
-                            await self.project_manager.update_visualization_view(self.db, self.current_visualization, view)
-                            await self.project_manager.set_visualization_status(self.db, self.current_visualization, "success")
-                            # Emit visualization.updated
-                            try:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="visualization.updated",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={
-                                        "visualization_id": str(self.current_visualization.id),
-                                        "view": view,
-                                        "status": "success",
-                                    }
-                                ))
-                            except Exception:
-                                pass
-                            # Add created_visualization_ids to observation result for tool.finished
-                            observation.setdefault("created_visualization_ids", [])
-                            observation["created_visualization_ids"].append(str(self.current_visualization.id))
+                                # Add created_visualization_ids to observation result for tool.finished
+                                observation.setdefault("created_visualization_ids", [])
+                                observation["created_visualization_ids"].append(viz_id)
+                        except Exception:
+                            pass
+
+                        # Ensure observation carries ids for auditing/tracking
+                        observation["step_id"] = step_id
+
+                elif tool_name == "inspect_data":
+                    # Track table usage for inspection
+                    try:
+                        if isinstance(tool_input, dict):
+                            tbs = tool_input.get("tables_by_source")
+                            if tbs:
+                                await self.project_manager.emit_table_usage_from_tables_by_source(
+                                    db=fresh_db,
+                                    report=report_obj,
+                                    step=None,
+                                    tables_by_source=tbs,
+                                    user_id=head_user_id,
+                                    user_role=None,
+                                    source_type="sql",
+                                )
                     except Exception:
                         pass
 
-                    # Ensure observation carries ids for auditing/tracking
-                    observation["step_id"] = self.current_step_id
-
-            elif tool_name == "inspect_data":
-                # Track table usage for inspection
-                try:
-                    if isinstance(tool_input, dict):
-                        tbs = tool_input.get("tables_by_source")
-                        if tbs:
-                            await self.project_manager.emit_table_usage_from_tables_by_source(
-                                db=self.db,
-                                report=self.report,
-                                step=None,
-                                tables_by_source=tbs,
-                                user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
-                                user_role=None,
-                                source_type="sql",
+                elif tool_name == "create_dashboard":
+                    # Finalize: ensure observation has the latest active layout blocks
+                    try:
+                        if report_id:
+                            blocks = await self.project_manager.get_active_dashboard_layout_blocks(
+                                fresh_db, report_id
                             )
-                except Exception:
-                    pass
-            
-            elif tool_name == "create_dashboard":
-                # Finalize: ensure observation has the latest active layout blocks
-                try:
-                    if self.report:
-                        blocks = await self.project_manager.get_active_dashboard_layout_blocks(
-                            self.db, str(self.report.id)
-                        )
-                        observation.setdefault("layout", {})
-                        observation["layout"]["blocks"] = blocks
-                except Exception:
-                    pass
+                            observation.setdefault("layout", {})
+                            observation["layout"]["blocks"] = blocks
+                    except Exception:
+                        pass
 
-                # Optional: publish widgets per input (kept from previous behavior)
-                try:
-                    widget_ids = []
-                    use_all_widgets = True
-                    if isinstance(tool_input, dict):
-                        widget_ids = tool_input.get("widget_ids") or []
-                        use_all_widgets = tool_input.get("use_all_widgets", True)
+                    # Optional: publish widgets per input (kept from previous behavior)
+                    try:
+                        widget_ids = []
+                        use_all_widgets = True
+                        if isinstance(tool_input, dict):
+                            widget_ids = tool_input.get("widget_ids") or []
+                            use_all_widgets = tool_input.get("use_all_widgets", True)
 
-                    if widget_ids:
-                        for wid in widget_ids:
-                            w = await self.db.get(Widget, str(wid))
-                            if w and str(getattr(w, "report_id", "")) == str(getattr(self.report, "id", "")):
-                                w.status = "published"
-                                self.db.add(w)
-                    elif use_all_widgets and self.report:
-                        res = await self.db.execute(select(Widget).where(Widget.report_id == str(self.report.id)))
-                        for w in res.scalars().all():
-                            if w.status != "published":
-                                w.status = "published"
-                                self.db.add(w)
-                    await self.db.commit()
-                except Exception:
-                    pass
+                        if widget_ids:
+                            for wid in widget_ids:
+                                w = await fresh_db.get(Widget, str(wid))
+                                if w and str(getattr(w, "report_id", "")) == report_id:
+                                    w.status = "published"
+                                    fresh_db.add(w)
+                        elif use_all_widgets and report_id:
+                            res = await fresh_db.execute(select(Widget).where(Widget.report_id == report_id))
+                            for w in res.scalars().all():
+                                if w.status != "published":
+                                    w.status = "published"
+                                    fresh_db.add(w)
+                        await fresh_db.commit()
+                    except Exception:
+                        pass
         except Exception as e:
             # Import logging if not already available
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error handling tool output for {tool_name}: {e}")
-            # Rollback the session so the next decision/action can use it.
-            # Without this, the next `self.db.execute` raises
-            # `PendingRollbackError` and the whole agent run dies — which
-            # is the cascade we saw paired with `I/O operation on closed file`.
-            try:
-                await self.db.rollback()
-            except Exception:
-                pass
-            # Don't re-raise; this is post-processing and shouldn't break the main flow
+            # The fresh session is closed by the `async with` exit. self.db
+            # was never touched in this block, so the agent's main loop can
+            # continue on its own session without rollback ceremony.
