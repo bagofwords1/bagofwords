@@ -19,16 +19,19 @@ _hub_logger = logging.getLogger(__name__)
 # within the window. For correctness-critical change events, callers
 # can call `invalidate_schema_cache(org_id)` directly.
 _SCHEMA_CACHE: Dict[Tuple[str, Tuple[str, ...], Optional[str]], Tuple[float, Any]] = {}
-_SCHEMA_CACHE_TTL_S: float = 60.0
+# 5 minutes: schemas only change on re-introspection / stats rollup,
+# and a typical user reads + types between prompts longer than 60s.
+# Bump cautiously — table_stats updates won't show up until the next
+# refresh or explicit invalidate_schema_cache() call.
+_SCHEMA_CACHE_TTL_S: float = 300.0
 
-# Same idea for instructions — the build() output is keyed on
-# (org, data_sources, build_id, query). The query bit is for
-# intelligent ranking; we tolerate slightly-stale rankings for the
-# TTL window in exchange for skipping the ~1.6s rebuild on every
-# completion. Always-load instructions are query-independent so
-# they're always correct; only intelligent ranking lags.
+# Instructions are keyed on query, so cross-prompt hits are rare; the
+# main win is when the same prompt fires twice (retries, scheduled
+# reruns). 2 minutes covers that without giving stale rankings a long
+# tail. Always-load instructions are query-independent so they're
+# always correct; only LLM-ranked load_mode="auto" entries lag.
 _INSTRUCTIONS_CACHE: Dict[Tuple[str, Tuple[str, ...], Optional[str], str], Tuple[float, Any]] = {}
-_INSTRUCTIONS_CACHE_TTL_S: float = 30.0
+_INSTRUCTIONS_CACHE_TTL_S: float = 120.0
 
 
 def invalidate_schema_cache(org_id: Optional[str] = None) -> None:
