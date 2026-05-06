@@ -508,18 +508,20 @@ class LLM:
         return max(int(total), 0)
 
     def _check_usage_limit_sync(self, requested_tokens: int, *, should_record: bool) -> None:
+        """Pre-LLM-call quota check. Routed through the context cache so
+        steady-state checks are in-memory (no DB roundtrip per call).
+        """
         context = self._usage_limit_context
         if not should_record or context is None or context.session_maker is None:
             return
-        context.run_blocking(
-            usage_policy_service.check_llm_tokens_with_context(context, requested_tokens)
-        )
+        context.run_blocking(context.check_tokens(requested_tokens))
 
     async def _check_usage_limit_async(self, requested_tokens: int, *, should_record: bool) -> None:
+        """Async variant of the cache-aware quota check."""
         context = self._usage_limit_context
         if not should_record or context is None or context.session_maker is None:
             return
-        await usage_policy_service.check_llm_tokens_with_context(context, requested_tokens)
+        await context.check_tokens(requested_tokens)
 
     def _record_usage_limit_sync(
         self,
