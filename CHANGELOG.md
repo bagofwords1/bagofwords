@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.369 (May 6, 2026)
+- Performance/reliability improvements
+
 ## Version 0.0.369 (May 3, 2026)
 - add usage / quota limits policies organization wide
 
