@@ -25,7 +25,7 @@ class WriteToExcelTool(Tool):
             description=(
                 "Write structured tabular data directly into the user's Excel spreadsheet. "
                 "Use when the user asks to put, write, insert, or add data to their spreadsheet. "
-                "Do NOT use when the user just wants to see data in the chat — use answer_question or create_data instead."
+                "Do NOT use when the user just wants to see data in the chat — use create_data or respond directly instead."
             ),
             category="action",
             version="1.0.0",

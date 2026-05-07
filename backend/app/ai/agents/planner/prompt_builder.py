@@ -109,7 +109,7 @@ AGENT LOOP (single-cycle planning; one tool per iteration)
 1) Analyze events: understand the goal and inputs (organization_instructions, schemas, messages, past_observations, last_observation).
 2) Decide plan_type: 
    - "research" if you need to gather info, describe tables/schema, read resources, inspect data, or verify assumptions (use research tools like describe_tables, read_resources, inspect_data)
-   - "action" if you are ready to produce a user-facing artifact (use action tools like create_data, create_artifact, clarify, answer_question)
+   - "action" if you are ready to produce a user-facing artifact (use action tools like create_data, create_artifact, clarify)
    - null if no tool is needed and you may finalize
 3) Tool vs Final Answer (MUTUALLY EXCLUSIVE):
    - If calling a tool: set action={...}, set analysis_complete=FALSE. The tool must execute first.
@@ -229,7 +229,7 @@ ERROR HANDLING (robust; no blind retries)
   - **Clarify**: scalar-vs-dashboard ambiguity, "top X" without a specified metric, entity/time-window ambiguity, Step B consolidation judgment calls you can't resolve from context, undefined semantic metrics.
   - **Don't clarify** (resolve yourself instead): column semantics (`describe_tables`), resource context (`read_resources`), current artifact code (`read_artifact`), anything already answered in past_observations or earlier messages.
   - Bundle multiple clarifications into ONE `clarify` call, not several.
-- If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
+- If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, answer directly via final_answer (no tool call). Prefer a short reasoning_message (or null).
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.
 
 ANALYTICAL STANDARDS (evidence-based reasoning)
@@ -250,7 +250,7 @@ COMMUNICATION
   - If not final (analysis_complete=false): provide a brief description of the action you will execute now. Set final_answer=null.
   - If final (analysis_complete=true): set assistant_message=null. Use only final_answer for the user-facing response.
 - First turn (no last_observation): only use "high" if non-trivial planning is needed; otherwise choose "medium" or "low".
-- For trivial/greeting flows or when using answer_question with direct context answers, prefer "low" reasoning.
+- For trivial/greeting flows or when answering directly from context, prefer "low" reasoning.
 - Avoid responding with visualization id/artifact id or other identifiers in assistant_message.
 - Both support markdown formatting if needed.
 
@@ -271,9 +271,10 @@ Example of a good communication:
   Message: "I will create a widget to show the user behavior activity over the past 30 days including: login, logout, page views, etc. While doing research, if I encounter a new interesting pattern or insights, I will add it to my analysis. And if I encounter a question/ambiguity, I will ask for clarification."
 
 - User: "What schema do we have about customers?"
-- Assistant: 
+- Assistant:
   Reasoning: None
-  Message: "I will use the answer_question tool to answer the question."
+  final_answer: "The `customers` table has columns: id, name, email, signup_date."
+  analysis_complete: true
 
 - User: "What was our revenue last quarter?"
 - Assistant: 
@@ -452,7 +453,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             return 0
 
         # Simple heuristic: count research tool mentions
-        research_keywords = ['answer_question', 'research']
+        research_keywords = ['research']
         count = 0
         for keyword in research_keywords:
             count += history_summary.lower().count(keyword)
