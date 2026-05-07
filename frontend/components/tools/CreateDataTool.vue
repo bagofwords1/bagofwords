@@ -21,6 +21,9 @@
           </template>
         </span>
       </Transition>
+      <span v-if="status === 'running' && liveStageKey" class="ms-1.5 text-gray-400">
+        · <span class="tool-shimmer">{{ $t(`tools.createData.${liveStageKey}`) }}</span>
+      </span>
       <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
@@ -233,6 +236,19 @@ const hasPreview = computed(() => {
   const hasQuery = !!(te?.result_json?.query_id)
   const hasRows = Array.isArray(te?.result_json?.data?.rows) || Array.isArray(te?.result_json?.widget_data?.rows)
   return !!(hasObject || hasViz || hasQuery || hasRows)
+})
+
+// Compact i18n key for the live progress stage shown inline in the header.
+// Maps backend progress_stage to one of three coarse labels.
+const liveStageKey = computed<string>(() => {
+  const stage = progressStage.value
+  if (!stage) return ''
+  if (stage === 'generating_code') return 'generatingCode'
+  if (stage === 'executing_code' || stage === 'retry') return 'executing'
+  if (['formatting_widget', 'inferring_visualization', 'visualization_inferred', 'series_configured'].includes(stage)) {
+    return 'visualizing'
+  }
+  return ''
 })
 
 // Stage-based state

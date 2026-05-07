@@ -451,6 +451,7 @@
 					:trainingInstructions="summaryInstructions"
 						:pendingTrainingBuild="pendingTrainingBuild"
 						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
+						:isPublishingBuild="isPublishingBuild"
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
 					:hasArtifacts="hasArtifacts"
@@ -840,6 +841,7 @@ const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
 const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
 const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
+const isPublishingBuild = ref(false)
 
 async function loadPendingBuildDiff() {
     const build = pendingTrainingBuild.value
@@ -875,7 +877,8 @@ async function loadPendingBuildDiff() {
 async function onApproveTrainingBuild(payload: { buildId: string; instructionIds: string[] } | string) {
     const buildId = typeof payload === 'string' ? payload : payload?.buildId
     const instructionIds = typeof payload === 'string' ? undefined : payload?.instructionIds
-    if (!buildId) return
+    if (!buildId || isPublishingBuild.value) return
+    isPublishingBuild.value = true
     try {
         const body: any = {}
         if (instructionIds && instructionIds.length > 0) body.instruction_ids = instructionIds
@@ -888,6 +891,8 @@ async function onApproveTrainingBuild(payload: { buildId: string; instructionIds
         mobileAgentPanelRef.value?.refreshInstructions?.()
     } catch (e) {
         console.error('Failed to approve training build', e)
+    } finally {
+        isPublishingBuild.value = false
     }
 }
 

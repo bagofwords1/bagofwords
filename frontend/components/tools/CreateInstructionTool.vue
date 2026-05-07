@@ -8,7 +8,7 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400" />
-          <span v-if="instructionText" class="truncate max-w-[300px]">{{ $t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</span>
+          <span v-if="instructionText" dir="auto" class="truncate max-w-[300px]">{{ $t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</span>
           <span v-else>{{ $t('tools.createInstruction.creating') }}</span>
           <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
           <Icon
@@ -19,7 +19,7 @@
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-green-500" />
-          <span class="truncate max-w-[300px]">{{ truncatedText }}</span>
+          <span dir="auto" class="truncate max-w-[300px]">{{ truncatedText }}</span>
           <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] shrink-0">{{ category }}</span>
           <span v-if="lineCount > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ lineCount }}</span>
           <Icon
@@ -55,6 +55,7 @@
           <!-- Instruction text - click to edit -->
           <div
             v-if="instructionText"
+            dir="auto"
             class="instruction-content text-[12px] text-gray-800 leading-relaxed mb-2 cursor-pointer"
             @click="currentGlobalStatus !== 'approved' ? handleEdit() : null"
           >
@@ -92,7 +93,7 @@
           </div>
 
           <!-- Evidence (if available) -->
-          <div v-if="evidence" class="text-[10px] text-gray-500 italic mb-2">
+          <div v-if="evidence" dir="auto" class="text-[10px] text-gray-500 italic mb-2">
             <span class="font-medium">{{ $t('tools.createInstruction.evidence') }}</span> {{ evidence }}
           </div>
 
@@ -162,7 +163,7 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
-const isExpanded = ref(false)
+const isExpanded = ref(true)
 const showInstructionModal = ref(false)
 const editingInstruction = ref<any>(null)
 const isPublishing = ref(false)

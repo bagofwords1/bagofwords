@@ -1834,6 +1834,14 @@ class ReportService:
                     total_instructions=build_obj.total_instructions or 0,
                 )
 
+        # Restrict the instructions list to the current pending build so the
+        # session pill only shows truly-pending changes. Without this, edits
+        # whose builds were already published earlier in the session leak in.
+        if pending_build:
+            instructions = [i for i in instructions if i.build_id == pending_build.id]
+        else:
+            instructions = []
+
         return {
             "queries": queries,
             "instructions": instructions,

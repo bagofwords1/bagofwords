@@ -100,7 +100,7 @@
                     </div>
                     <div
                         v-if="showTrainingDropdown"
-                        class="absolute start-0 bottom-full w-96 z-20"
+                        class="absolute start-0 bottom-full w-[28rem] z-20"
                     >
                         <div class="bg-white border border-gray-200 rounded-lg shadow-lg py-2 mb-0">
                             <div class="px-3 pb-1.5 flex items-center gap-1.5 text-[11px] text-gray-500">
@@ -108,39 +108,15 @@
                                 <span class="text-gray-300">·</span>
                                 <span>{{ props.trainingInstructions.length }} {{ props.trainingInstructions.length === 1 ? $t('prompt.changeSingular', 'change') : $t('prompt.changePlural', 'changes') }}</span>
                             </div>
-                            <div class="max-h-64 overflow-y-auto">
-                                <div
+                            <div class="max-h-[28rem] overflow-y-auto">
+                                <PendingInstructionItem
                                     v-for="inst in props.trainingInstructions"
                                     :key="inst.instructionId"
-                                    :class="[
-                                        'flex items-start gap-2 px-3 py-1.5 mx-1 rounded border border-gray-150 bg-gray-50 hover:bg-gray-100 cursor-pointer mb-1',
-                                        !selectedInstructionIds.has(inst.instructionId) ? 'opacity-60' : ''
-                                    ]"
-                                    @click="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
-                                >
-                                    <UCheckbox
-                                        :model-value="selectedInstructionIds.has(inst.instructionId)"
-                                        color="blue"
-                                        @update:model-value="toggleInstructionSelection(inst.instructionId, $event)"
-                                        @click.stop
-                                        class="mt-0.5"
-                                    />
-                                    <div class="flex-1 min-w-0">
-                                        <div class="flex items-center gap-1.5">
-                                            <span
-                                                :class="[
-                                                    'text-[9px] font-mono font-semibold uppercase tracking-wide',
-                                                    inst.isEdit ? 'text-blue-600' : 'text-green-600'
-                                                ]"
-                                            >
-                                                {{ inst.isEdit ? $t('prompt.changeEdit', 'edit') : $t('prompt.changeNew', 'new') }}
-                                            </span>
-                                            <span class="text-[12px] text-gray-700 truncate hover:text-gray-900">{{ inst.title }}</span>
-                                            <span v-if="inst.lineCount > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ inst.lineCount }}</span>
-                                        </div>
-                                        <div v-if="inst.category" class="text-[10px] text-gray-400 mt-0.5">{{ inst.category }}</div>
-                                    </div>
-                                </div>
+                                    :inst="inst"
+                                    :selected="selectedInstructionIds.has(inst.instructionId)"
+                                    @update:selected="toggleInstructionSelection(inst.instructionId, $event)"
+                                    @open="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
+                                />
                             </div>
                             <div
                                 v-if="props.pendingTrainingBuild"
@@ -539,6 +515,7 @@ import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
+import PendingInstructionItem from '@/components/prompt/PendingInstructionItem.vue'
 import { useCan } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
 import { useExcel } from '@/composables/useExcel'
@@ -585,6 +562,8 @@ const props = defineProps({
         type: Object as () => { added_lines: number; removed_lines: number } | null,
         default: null
     },
+    // Parent-controlled flag: true while the publish API call is in flight.
+    isPublishingBuild: { type: Boolean, default: false },
     // Whether the report has artifacts (for "View dashboard" pill)
     hasArtifacts: { type: Boolean, default: false },
     // Hide the schedule button (when embedded inside ScheduledPromptModal)
@@ -597,7 +576,7 @@ const props = defineProps({
 
 const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','openInstructions','update:selectedDataSources'])
 
-const isApprovingBuild = ref(false)
+const isApprovingBuild = computed(() => props.isPublishingBuild)
 const isDiscardingBuild = ref(false)
 const selectedInstructionIds = ref<Set<string>>(new Set())
 
@@ -634,19 +613,13 @@ const approveButtonText = computed(() => {
     return t('prompt.approveMany', { n, default: `Publish ${n} changes` })
 })
 
-async function handleApproveTrainingBuild() {
+function handleApproveTrainingBuild() {
     if (!props.pendingTrainingBuild || isApprovingBuild.value) return
     if (selectedInstructionIds.value.size === 0) return
-    isApprovingBuild.value = true
-    try {
-        await Promise.resolve(emit('approveTrainingBuild', {
-            buildId: props.pendingTrainingBuild.id,
-            instructionIds: Array.from(selectedInstructionIds.value),
-        }))
-    } finally {
-        isApprovingBuild.value = false
-        showTrainingDropdown.value = false
-    }
+    emit('approveTrainingBuild', {
+        buildId: props.pendingTrainingBuild.id,
+        instructionIds: Array.from(selectedInstructionIds.value),
+    })
 }
 async function handleDiscardTrainingBuild() {
     if (!props.pendingTrainingBuild || isDiscardingBuild.value) return

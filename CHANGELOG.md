@@ -1,6 +1,11 @@
 # Release Notes
 
-## Version 0.0.369 (May 6, 2026)
+## Version 0.0.371 (May 7, 2026)
+- Agent db writes - performance/reliability
+- better signal in create data tool
+- instructions ui fixes
+
+## Version 0.0.370 (May 6, 2026)
 - Performance/reliability improvements
 
 ## Version 0.0.369 (May 3, 2026)

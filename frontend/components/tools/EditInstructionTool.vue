@@ -12,7 +12,7 @@
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-blue-500" />
-          <span class="truncate max-w-[300px]">{{ $t('tools.editInstruction.editedPrefix', { text: truncatedText }) }}</span>
+          <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editInstruction.editedPrefix', { text: truncatedText }) }}</span>
           <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
           <span v-if="linesAdded > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
           <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
@@ -71,6 +71,7 @@
           <!-- Instruction text - click to edit -->
           <div
             v-if="displayText"
+            dir="auto"
             class="instruction-content text-[12px] text-gray-800 leading-relaxed mb-2 cursor-pointer"
             @click="currentGlobalStatus !== 'approved' ? handleEdit() : null"
           >
@@ -185,7 +186,7 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
-const isExpanded = ref(false)
+const isExpanded = ref(true)
 const showInstructionModal = ref(false)
 const editingInstruction = ref<any>(null)
 const isPublishing = ref(false)
@@ -353,7 +354,7 @@ watch(isExpanded, async (expanded) => {
   if (expanded && instructionId.value && previousText.value === null) {
     await fetchVersionsForDiff()
   }
-})
+}, { immediate: true })
 
 async function fetchVersionsForDiff() {
   if (!instructionId.value) return
