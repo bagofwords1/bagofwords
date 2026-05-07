@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import uuid as _uuid_mod
+from contextlib import asynccontextmanager
 from typing import Dict, Optional
 from pydantic import ValidationError
 
@@ -92,6 +93,7 @@ from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
 from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
@@ -210,6 +212,14 @@ class AgentV2:
         # and spawn a single follow-up after the current one finishes.
         self._rebuild_task: Optional[asyncio.Task] = None
         self._rebuild_pending: bool = False
+
+        # Single dedicated write session for the entire agent run.
+        # When BOW_AGENT_SINGLE_WRITE_SESSION is set, main_execution opens
+        # this once and writes route through it sequentially. Eliminates the
+        # multi-session write contention that produced silent state
+        # corruption on SQLite under load. None means legacy multi-session
+        # mode. See docs/design/single-writer-agent-refactor.md.
+        self._writes: Optional[AsyncSession] = None
 
         # Widget/step state management
         self.current_widget = None
@@ -1121,10 +1131,11 @@ class AgentV2:
         return data
 
     async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
-        """Save context snapshot in background to avoid blocking main execution flow."""
+        """Save context snapshot. Routes through _writes_session so single-
+        writer mode shares self._writes (no fresh session, no contention),
+        while legacy mode opens a fresh short-lived session as before."""
         try:
-            SessionLocal = self._session_maker
-            async with SessionLocal() as session:
+            async with self._writes_session() as session:
                 try:
                     # Re-fetch agent execution in this session
                     agent_execution = await session.get(type(self.current_execution), self.current_execution.id)
@@ -1142,12 +1153,13 @@ class AgentV2:
             pass
 
     async def _record_instruction_usage_background(self, instruction_items: list):
-        """Record instruction usage events in background to avoid blocking main execution flow."""
+        """Record instruction usage events. Routes through _writes_session
+        so single-writer mode shares self._writes (no extra session, no
+        contention); legacy mode opens a fresh short-lived session."""
         if not instruction_items:
             return
         try:
-            SessionLocal = self._session_maker
-            async with SessionLocal() as session:
+            async with self._writes_session() as session:
                 try:
                     service = InstructionUsageService()
                     items_data = []
@@ -1264,6 +1276,42 @@ class AgentV2:
         self._pending_writes.append(task)
         return task
 
+    def _use_single_write_session(self) -> bool:
+        """Whether this agent run should route writes through the single
+        dedicated `self._writes` session (the single-writer architecture
+        from docs/design/single-writer-agent-refactor.md).
+
+        Off by default — opt in with BOW_AGENT_SINGLE_WRITE_SESSION=true.
+        Enable in CI/eval first, then production once soak passes.
+        """
+        return os.environ.get(
+            "BOW_AGENT_SINGLE_WRITE_SESSION", ""
+        ).lower() in ("1", "true", "yes")
+
+    @asynccontextmanager
+    async def _writes_session(self):
+        """Yield a session for write operations.
+
+        - When ``BOW_AGENT_SINGLE_WRITE_SESSION`` is on AND ``self._writes``
+          is open: yield ``self._writes`` directly (no enter/exit). All
+          writers in this run share one session, eliminating the
+          multi-session contention that produced silent state corruption.
+        - Otherwise: open a fresh short-lived session via
+          ``self._session_maker()`` and close it on exit. Mirrors current
+          behavior; safe rollback path while phase 2 migrations land.
+
+        Caller responsibilities:
+        - Use ``async with self._writes_session() as db: ...``
+        - Do NOT close the yielded session yourself in single-writer mode;
+          the context manager keeps it open until run completion.
+        - Commit explicitly when needed; the manager doesn't auto-commit.
+        """
+        if self._use_single_write_session() and self._writes is not None:
+            yield self._writes
+        else:
+            async with self._session_maker() as db:
+                yield db
+
     async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
         """Wait for all scheduled background writes to complete.
 
@@ -1358,7 +1406,47 @@ class AgentV2:
 
         self._rebuild_task = asyncio.create_task(_runner(), name="agent.rebuild_transcript")
 
+    async def _rebuild_completion_sync_if_single_writer(self) -> bool:
+        """Run rebuild_completion_from_blocks synchronously on self._writes.
+
+        Returns True when single-writer mode handled the rebuild (caller
+        should skip _request_rebuild_transcript). Returns False in legacy
+        mode so the caller falls through to the bg-task scheduler.
+
+        No retry-on-lock loop — by construction nothing else writes to the
+        DB while this runs, so the lock is always free.
+        """
+        if not (self._use_single_write_session() and self._writes is not None):
+            return False
+        if not self.system_completion or not self.current_execution:
+            return True  # claim handled — nothing to rebuild
+        try:
+            from app.models.agent_execution import AgentExecution as _AE
+            from app.models.completion import Completion as _Comp
+            sw_exec = await self._writes.get(_AE, str(self.current_execution.id))
+            sw_comp = await self._writes.get(_Comp, str(self.system_completion.id))
+            if sw_exec and sw_comp:
+                await self.project_manager.rebuild_completion_from_blocks(
+                    self._writes, sw_comp, sw_exec
+                )
+        except Exception as _e:
+            logger.warning(f"[agent.single_writer] rebuild failed: {_e!r}")
+        return True
+
     async def main_execution(self):
+        # Single-writer mode: route all migrated writers through self.db
+        # (the agent's existing main session) via self._writes_session().
+        # We deliberately do NOT open a separate session — that would
+        # create two concurrent writers (self.db for plan_decision /
+        # block_upsert / completion status, plus the new session) which
+        # contend on the SQLite WAL writer lock and produce the same
+        # silent state corruption the refactor is meant to eliminate.
+        # Reusing self.db means every write in the main coroutine is
+        # serialized through one connection — the only writer in flight
+        # at a time. Legacy mode keeps self._writes=None so writers fall
+        # back to opening fresh short-lived sessions.
+        if self._use_single_write_session():
+            self._writes = self.db
         try:
             import time as _time
             _t0 = _time.monotonic()
@@ -1437,7 +1525,10 @@ class AgentV2:
             
             # Record instruction usage in background (non-blocking)
             if view.static.instructions and view.static.instructions.items:
-                asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
+                if self._use_single_write_session():
+                    await self._record_instruction_usage_background(view.static.instructions.items)
+                else:
+                    asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
                 # Emit instructions.context SSE so frontend knows which instructions were loaded
                 try:
                     seq_inst = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -1479,12 +1570,24 @@ class AgentV2:
 
             # Build slim context snapshot with only usage tracking (excludes full schemas/instructions)
             context_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
-            
-            asyncio.create_task(self._save_context_snapshot_background(
-                kind="initial",
-                context_view_json=context_view_data,
-                prompt_text=prompt_text,
-            ))
+
+            # Single-writer mode: run sync inline (sharing self._writes across
+            # concurrent asyncio tasks isn't safe — SQLAlchemy AsyncSession is
+            # task-bound). Legacy mode: fire-and-forget bg task on a fresh
+            # session (each bg task opens its own fresh session via the
+            # _writes_session() fallback path).
+            if self._use_single_write_session():
+                await self._save_context_snapshot_background(
+                    kind="initial",
+                    context_view_json=context_view_data,
+                    prompt_text=prompt_text,
+                )
+            else:
+                asyncio.create_task(self._save_context_snapshot_background(
+                    kind="initial",
+                    context_view_json=context_view_data,
+                    prompt_text=prompt_text,
+                ))
             
             # Use cached schemas from prime_static() - no duplicate build
             schemas_ctx = view.static.schemas
@@ -1596,10 +1699,16 @@ class AgentV2:
                 # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
                 if loop_index > 0:
                     pre_tool_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
-                    asyncio.create_task(self._save_context_snapshot_background(
-                        kind="pre_tool",
-                        context_view_json=pre_tool_view_data,
-                    ))
+                    if self._use_single_write_session():
+                        await self._save_context_snapshot_background(
+                            kind="pre_tool",
+                            context_view_json=pre_tool_view_data,
+                        )
+                    else:
+                        asyncio.create_task(self._save_context_snapshot_background(
+                            kind="pre_tool",
+                            context_view_json=pre_tool_view_data,
+                        ))
 
                 # Build enhanced planner input with validation and retry on failure
                 try:
@@ -2063,11 +2172,11 @@ class AgentV2:
                                 )
                                 block = None
 
-                            # Rebuild transcript in background. The post-tool
-                            # rebuild below supersedes this one when both
-                            # land in the same iteration; coalesced through
-                            # _request_rebuild_transcript.
-                            self._request_rebuild_transcript()
+                            # Rebuild transcript. Single-writer mode runs sync
+                            # on self._writes; legacy mode schedules a bg task
+                            # (coalesced with the post-tool rebuild below).
+                            if not await self._rebuild_completion_sync_if_single_writer():
+                                self._request_rebuild_transcript()
                         else:
                             # plan_decision save failed — warn so it's observable.
                             try:
@@ -2558,8 +2667,7 @@ class AgentV2:
                                 try:
                                     from app.models.agent_execution import AgentExecution as _AE
                                     from app.models.tool_execution import ToolExecution as _TE
-                                    SessionLocal = self._session_maker
-                                    async with SessionLocal() as bg_db:
+                                    async with self._writes_session() as bg_db:
                                         bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
                                         if bg_exec:
                                             snap = await self.project_manager.save_context_snapshot(
@@ -2573,9 +2681,12 @@ class AgentV2:
                                                 bg_db.add(bg_te)
                                                 await bg_db.commit()
                                 except Exception as _e:
-                                    logger.warning(f"[agent] Background post_snap failed: {_e!r}")
+                                    logger.warning(f"[agent] post_snap failed: {_e!r}")
 
-                            asyncio.create_task(_bg_post_snap())
+                            if self._use_single_write_session():
+                                await _bg_post_snap()
+                            else:
+                                asyncio.create_task(_bg_post_snap())
 
                             # Telemetry: tool finished
                             try:
@@ -2656,10 +2767,48 @@ class AgentV2:
                                             continue
                                         raise
 
-                            self._schedule_bg_write("persist_tool", _bg_persist_tool())
+                            # Single-writer mode: persist sync on the dedicated
+                            # write session — no bg task, no retries, no race
+                            # because no other writer is running concurrently.
+                            # Legacy mode keeps the bg-task + retry pattern.
+                            if self._use_single_write_session() and self._writes is not None:
+                                try:
+                                    from app.models.agent_execution import AgentExecution as _AE
+                                    from app.models.completion import Completion as _Comp
+                                    sw_exec = await self._writes.get(_AE, _bg_exec_id)
+                                    sw_comp = await self._writes.get(_Comp, _bg_comp_id)
+                                    if sw_exec and sw_comp:
+                                        block = await self.project_manager.commit_tool_and_attach_block(
+                                            self._writes, sw_comp, sw_exec, _bg_tool_exec,
+                                            block_id=_bg_block_id_local,
+                                        )
+                                        if block is not None:
+                                            try:
+                                                block_schema = await serialize_block_v2(self._writes, block)
+                                                seq_blk = await self.project_manager.next_seq(self._writes, sw_exec)
+                                                await self._emit_sse_event(SSEEvent(
+                                                    event="block.upsert",
+                                                    completion_id=_bg_comp_id,
+                                                    agent_execution_id=_bg_exec_id,
+                                                    seq=seq_blk,
+                                                    data={"block": block_schema.model_dump()},
+                                                ))
+                                            except Exception as _e:
+                                                logger.warning(
+                                                    f"[agent.single_writer] persist_tool block.upsert emit failed: {_e!r}"
+                                                )
+                                except Exception as _persist_exc:
+                                    logger.error(
+                                        f"[agent.single_writer] persist_tool failed: {_persist_exc!r}",
+                                        exc_info=True,
+                                    )
+                            else:
+                                self._schedule_bg_write("persist_tool", _bg_persist_tool())
                             # Rebuild transcript — coalesced with any pending
                             # rebuild from the post-plan_decision path above.
-                            self._request_rebuild_transcript()
+                            # Single-writer mode runs sync on self._writes.
+                            if not await self._rebuild_completion_sync_if_single_writer():
+                                self._request_rebuild_transcript()
 
                             # Emit tool.finished with result
                             _is_stopped = bool(observation and observation.get("stopped"))
@@ -2794,8 +2943,7 @@ class AgentV2:
             async def _bg_final_snap():
                 try:
                     from app.models.agent_execution import AgentExecution as _AE
-                    SessionLocal = self._session_maker
-                    async with SessionLocal() as bg_db:
+                    async with self._writes_session() as bg_db:
                         bg_exec = await bg_db.get(_AE, _final_snap_exec_id)
                         if bg_exec:
                             await self.project_manager.save_context_snapshot(
@@ -2803,8 +2951,11 @@ class AgentV2:
                                 kind="final", context_view_json=_final_snap_data,
                             )
                 except Exception as _e:
-                    logger.warning(f"[agent] Background final_snap failed: {_e!r}")
-            asyncio.create_task(_bg_final_snap())
+                    logger.warning(f"[agent] final_snap failed: {_e!r}")
+            if self._use_single_write_session():
+                await _bg_final_snap()
+            else:
+                asyncio.create_task(_bg_final_snap())
             
             # Generate report title if this is the first completion (non-blocking)
             try:
@@ -2952,6 +3103,11 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Single-writer mode: drop the self._writes alias. self.db's
+            # lifecycle is owned by the caller (FastAPI dependency); we
+            # only ever aliased to it, never opened/owned a separate
+            # session. So nothing to close here.
+            self._writes = None
             # Cleanup
             try:
                 websocket_manager.remove_handler(self._handle_completion_update)
@@ -3226,7 +3382,7 @@ class AgentV2:
         widget_id_for_artifact = str(self.current_widget.id) if getattr(self, 'current_widget', None) else None
 
         try:
-            async with self._session_maker() as fresh_db:
+            async with self._writes_session() as fresh_db:
                 # Re-fetch what we actually need into the fresh session so
                 # any subsequent update_*/refresh ops bind to a live conn.
                 exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
@@ -3549,7 +3705,7 @@ class AgentV2:
         ) else None
 
         try:
-            async with self._session_maker() as fresh_db:
+            async with self._writes_session() as fresh_db:
                 # Re-fetch only the rows we'll need; cheaper than refreshing
                 # every relationship and bounded to this method's scope.
                 report_obj = await fresh_db.get(Report, report_id) if report_id else None
