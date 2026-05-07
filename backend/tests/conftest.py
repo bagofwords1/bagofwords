@@ -32,22 +32,30 @@ def _setup_test_database():
     
     db_backend = _get_db_backend_from_argv()
     print(f"\n📊 Test database backend: {db_backend}")
-    
-    if db_backend == "postgres":
+
+    if db_backend == "external":
+        # Use a pre-existing Postgres pointed to by TEST_DATABASE_URL.
+        # Skips the testcontainers spin-up (requires Docker), useful when
+        # validating against a sandbox PG already running on the host.
+        external_url = os.environ.get("TEST_DATABASE_URL")
+        if not external_url:
+            raise RuntimeError("--db=external requires TEST_DATABASE_URL to be set")
+        print(f"🔗 Using external test database: {external_url.split('@')[1] if '@' in external_url else external_url}")
+    elif db_backend == "postgres":
         from testcontainers.postgres import PostgresContainer
-        
+
         print("🐘 Starting PostgreSQL container...")
         _postgres_container = PostgresContainer("postgres:15")
         _postgres_container.start()
-        
+
         # Get connection URL and set as environment variable BEFORE settings loads
         sync_url = _postgres_container.get_connection_url()
         # testcontainers returns postgresql+psycopg2:// URL
         clean_url = sync_url.replace("postgresql+psycopg2://", "postgresql://")
-        
+
         os.environ["TEST_DATABASE_URL"] = clean_url
         print(f"✅ PostgreSQL container ready: {clean_url.split('@')[1] if '@' in clean_url else clean_url}")
-        
+
         # Register cleanup on exit
         atexit.register(_cleanup_container)
     else:
@@ -82,8 +90,8 @@ def pytest_addoption(parser):
         "--db",
         action="store",
         default="sqlite",
-        choices=["sqlite", "postgres"],
-        help="Database backend for tests: sqlite (default, fast) or postgres (thorough)"
+        choices=["sqlite", "postgres", "external"],
+        help="Database backend for tests: sqlite (default, fast), postgres (testcontainers, thorough), or external (use pre-set TEST_DATABASE_URL — for sandboxes without Docker)"
     )
 
 
@@ -313,20 +321,26 @@ def _dispose_async_engine():
 def run_migrations(alembic_config, db_backend):
     """Run migrations per test function for isolation."""
     
-    if db_backend == "postgres":
-        # PostgreSQL: reset schema BEFORE test to avoid stale async connections
+    if db_backend in ("postgres", "external"):
+        # PostgreSQL (testcontainer or external): reset schema BEFORE test to
+        # avoid stale async connections and to start each test from a clean slate.
+        # Also dispose the engine so the in-memory pool drops any connections
+        # that the prior test left in a closed/aborted state — without this,
+        # the next test inherits half-dead conns and gets "underlying connection
+        # is closed" on first rollback.
         print("Resetting PostgreSQL schema...")
+        _dispose_async_engine()
         _reset_postgres_schema(alembic_config)
     elif db_backend == "sqlite":
         # SQLite: dispose engine before migrations to release any stale connections
         _dispose_async_engine()
-    
+
     print("Starting migrations...")
     command.upgrade(alembic_config, "head")
     print("Migrations completed!")
-    
+
     yield
-    
+
     # Cleanup after test
     if db_backend == "sqlite":
         # SQLite: dispose engine first to release connections, then downgrade and remove file
