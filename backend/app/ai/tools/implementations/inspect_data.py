@@ -36,6 +36,7 @@ Use when:
 	•	A previous create_data attempt failed and you need to diagnose the issue.
 Don't use on images
 
+Queries are subject to a per-connection timeout.
             """,
             category="research",
             version="1.0.0",

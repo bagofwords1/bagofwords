@@ -32,6 +32,11 @@ if TYPE_CHECKING:
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
+from app.errors.app_error import AppError
+from app.errors.codes import ErrorCode
+
+# Hard fallback when neither connection nor org settings define a value.
+DEFAULT_QUERY_TIMEOUT_SECONDS = 60
 
 _tracer = get_tracer(__name__)
 
@@ -64,6 +69,52 @@ class UnsafePythonError(CodeSecurityError):
 class UnsafeSQLError(CodeSecurityError):
     """Raised when SQL query contains dangerous operations."""
     pass
+
+
+class QueryTimeoutError(AppError):
+    """Raised when a wrapped client.execute_query exceeds its wall-clock budget.
+
+    Caught by the surrounding exception handler in generate_and_execute_stream_v2
+    and surfaced to the planner via captured_timings -> observation.db_message.
+    The underlying DB query may keep running on the server until the connection
+    is closed; we just stop waiting for it.
+    """
+
+    def __init__(self, timeout_seconds: int, sql: Optional[str] = None) -> None:
+        message = (
+            f"Query exceeded {timeout_seconds}s timeout. "
+            "Retry with a smaller query (LIMIT, narrower filters, or aggregation)."
+        )
+        super().__init__(
+            ErrorCode.QUERY_TIMEOUT,
+            message,
+            status_code=408,
+            params={"timeout_seconds": int(timeout_seconds)},
+        )
+        self.timeout_seconds = int(timeout_seconds)
+        self.sql = sql
+
+
+def resolve_query_timeout(client, organization_settings) -> int:
+    """Per-connection timeout resolution.
+
+    Connection.config['query_timeout_seconds'] (stashed onto the client as
+    `_bow_connection_query_timeout`) wins. Otherwise the org default; otherwise
+    the hard fallback. A connection setting can only tighten the budget — values
+    <= 0 are ignored at every layer.
+    """
+    conn_value = getattr(client, "_bow_connection_query_timeout", None)
+    if isinstance(conn_value, (int, float)) and conn_value > 0:
+        return int(conn_value)
+    if organization_settings is not None:
+        try:
+            org_cfg = organization_settings.get_config("query_timeout_seconds")
+            org_value = org_cfg.value if hasattr(org_cfg, "value") else org_cfg
+            if isinstance(org_value, (int, float)) and org_value > 0:
+                return int(org_value)
+        except Exception:
+            pass
+    return DEFAULT_QUERY_TIMEOUT_SECONDS
 
 
 # =============================================================================
@@ -296,6 +347,10 @@ class QueryCapturingClientWrapper:
 
     Works with any client that has an execute_query method (SQL, MongoDB, etc.).
     Optionally accumulates per-query wall-clock timing into captured_timings.
+    Enforces a per-query wall-clock timeout: if the underlying call doesn't return
+    in `query_timeout_seconds`, raises QueryTimeoutError. The orphan thread is left
+    daemon so it doesn't block process exit; the DB-side query may continue until
+    the connection is closed.
     """
 
     def __init__(
@@ -305,12 +360,18 @@ class QueryCapturingClientWrapper:
         captured_timings: List[dict],
         usage_context: Optional[UsageLimitContext] = None,
         client_key: Optional[str] = None,
+        query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
     ):
         self._original = original_client
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
         self._usage_context = usage_context
         self._client_key = client_key
+        self._query_timeout_seconds = (
+            int(query_timeout_seconds)
+            if isinstance(query_timeout_seconds, (int, float)) and query_timeout_seconds > 0
+            else DEFAULT_QUERY_TIMEOUT_SECONDS
+        )
 
     def execute_query(self, query: str, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration."""
@@ -320,9 +381,10 @@ class QueryCapturingClientWrapper:
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
             span.set_attribute("datasource.type", type(self._original).__name__)
+            span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
                 self._consume_query_quota(query)
-                result = self._original.execute_query(query, *args, **kwargs)
+                result = self._call_with_timeout(query, args, kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
@@ -338,6 +400,20 @@ class QueryCapturingClientWrapper:
                     "sql": query[:500] if isinstance(query, str) else None,
                 })
                 return result
+            except QueryTimeoutError as e:
+                _q_ms = (_time.monotonic() - _q_start) * 1000.0
+                self._captured_timings.append({
+                    "index": idx,
+                    "query_ms": round(_q_ms, 1),
+                    "rows": None,
+                    "sql": query[:500] if isinstance(query, str) else None,
+                    "error": str(e)[:200],
+                    "error_type": "timeout",
+                    "timeout_seconds": self._query_timeout_seconds,
+                })
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
             except Exception as e:
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 self._captured_timings.append({
@@ -350,6 +426,38 @@ class QueryCapturingClientWrapper:
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
+
+    def _call_with_timeout(self, query, args, kwargs):
+        """Run original.execute_query in a daemon thread; abandon it on timeout.
+
+        Threading is intentional rather than asyncio.wait_for: we're already
+        inside a sync code-exec worker (user code is run via exec()), so we
+        cannot await. ThreadPoolExecutor would risk pool exhaustion when many
+        long queries pile up, hence a fresh per-call daemon thread.
+        """
+        holder: Dict[str, Any] = {}
+
+        def runner():
+            try:
+                holder["value"] = self._original.execute_query(query, *args, **kwargs)
+            except BaseException as exc:
+                holder["exc"] = exc
+
+        t = threading.Thread(
+            target=runner,
+            name="bow_query_timeout_guard",
+            daemon=True,
+        )
+        t.start()
+        t.join(self._query_timeout_seconds)
+        if t.is_alive():
+            raise QueryTimeoutError(
+                self._query_timeout_seconds,
+                sql=query if isinstance(query, str) else None,
+            )
+        if "exc" in holder:
+            raise holder["exc"]
+        return holder.get("value")
 
     def _consume_query_quota(self, query: str) -> None:
         context = self._usage_context
@@ -411,8 +519,14 @@ def wrap_clients_for_capture(
     captured_queries: List[str],
     captured_timings: List[dict],
     usage_context: Optional[UsageLimitContext] = None,
+    organization_settings: Optional[OrganizationSettingsConfig] = None,
 ) -> Dict:
-    """Wrap all database clients to capture queries and per-query timing."""
+    """Wrap all database clients to capture queries and per-query timing.
+
+    The per-query timeout is resolved per-client so that a single tool
+    invocation hitting multiple connections gets the right value for each
+    underlying database.
+    """
     wrapped = {}
     for key, client in (ds_clients or {}).items():
         if client is not None and hasattr(client, 'execute_query'):
@@ -422,6 +536,7 @@ def wrap_clients_for_capture(
                 captured_timings,
                 usage_context=usage_context,
                 client_key=str(key),
+                query_timeout_seconds=resolve_query_timeout(client, organization_settings),
             )
         else:
             wrapped[key] = client
@@ -493,7 +608,13 @@ class StreamingCodeExecutor:
         _timings: List[dict] = captured_timings if captured_timings is not None else []
 
         # Wrap clients to capture all queries passed to execute_query
-        wrapped_clients = wrap_clients_for_capture(ds_clients, executed_queries, _timings, self.usage_context)
+        wrapped_clients = wrap_clients_for_capture(
+            ds_clients,
+            executed_queries,
+            _timings,
+            self.usage_context,
+            organization_settings=self.organization_settings,
+        )
 
         local_namespace = {
             'pd': pd,
