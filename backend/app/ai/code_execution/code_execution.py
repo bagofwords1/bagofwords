@@ -83,7 +83,9 @@ class QueryTimeoutError(AppError):
     def __init__(self, timeout_seconds: int, sql: Optional[str] = None) -> None:
         message = (
             f"Query exceeded {timeout_seconds}s timeout. "
-            "Retry with a smaller query (LIMIT, narrower filters, or aggregation)."
+            f"Run multiple smaller queries instead of one large scan — "
+            f"each execute_query call gets its own {timeout_seconds}s budget. "
+            "Use LIMIT, narrower filters, or aggregation."
         )
         super().__init__(
             ErrorCode.QUERY_TIMEOUT,
