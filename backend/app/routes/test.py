@@ -380,7 +380,6 @@ async def get_rules_catalog(db: AsyncSession = Depends(get_async_db), organizati
             {"id": "create_widget.output.code", "group": "Tools · create_widget", "label": "Output · code includes", "scope": "tool_output", "valueType": "text"},
             {"id": "create_widget.output.data.rows", "group": "Tools · create_widget", "label": "Output · data.rows count", "scope": "tool_output", "valueType": "count"},
             {"id": "describe_table.input.name", "group": "Tools · describe_table", "label": "Input · name", "scope": "tool_input", "valueType": "text"},
-            {"id": "answer_question.output.content", "group": "Tools · answer_question", "label": "Output · content includes", "scope": "tool_output", "valueType": "text"},
             {"id": "create_dashboard.output.items.count", "group": "Tools · create_dashboard", "label": "Output · items count", "scope": "tool_output", "valueType": "count"},
             {"id": "clarify.exists", "group": "Tools", "label": "clarify called (exists)", "scope": "tool_calls", "valueType": "exists"},
             {"id": "metadata.total_duration_ms", "group": "Agent Execution", "label": "total_duration_ms", "scope": "agent_execution", "valueType": "numeric"},

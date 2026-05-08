@@ -493,11 +493,6 @@ class MessageContextBuilder:
                                             pass
                                     if names:
                                         tool_info += f" - tables: {', '.join(names)}"
-                                elif tool_execution.tool_name == 'answer_question' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)
-                                    if answer_text:
-                                        tool_info += f" - AI answer: {answer_text}"
                                 elif tool_execution.tool_name == 'create_artifact' and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     digest_parts = []
@@ -1052,11 +1047,6 @@ class MessageContextBuilder:
                                         pass
                                 if names:
                                     tool_info += f" - tables: {', '.join(names)}"
-                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'answer_question' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)
-                                if answer_text:
-                                    tool_info += f" - AI answer: {answer_text}"
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_artifact' and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
                                 digest_parts = []
