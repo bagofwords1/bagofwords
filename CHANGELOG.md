@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.373 (May 8, 2026)
+- Query timeout settings
+
 ## Version 0.0.372 (May 7, 2026)
 - Fix clarify tool not verbose enough
 
