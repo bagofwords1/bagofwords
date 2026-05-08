@@ -162,7 +162,7 @@
                                                 <!-- Fallback to generic expandable tool display -->
                                                 <div v-else>
                                                     <div class="text-xs text-gray-500 mb-1">
-                                                        <span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
+                                                        <span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
                                                             {{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
                                                         </span>
                                                         <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
@@ -222,7 +222,6 @@ import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
-import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const route = useRoute()
@@ -359,8 +358,6 @@ function getToolComponent(toolName: string) {
         case 'execute_sql':
         case 'create_and_execute_code':
             return ExecuteCodeTool
-        case 'answer_question':
-            return AnswerQuestionTool
         default:
             return null
     }

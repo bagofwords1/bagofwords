@@ -263,7 +263,7 @@
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
 													<div class="text-xs text-gray-500 mb-1">
-														<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
+														<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
 															{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
 														</span>
 														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
@@ -644,7 +644,6 @@ import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
-import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
@@ -1255,8 +1254,6 @@ function getToolComponent(toolName: string) {
 			return ReadQueryTool
 		case 'edit_artifact':
 			return EditArtifactTool
-		case 'answer_question':
-			return AnswerQuestionTool
 		case 'read_resources':
 			return ReadResourcesTool
 		case 'inspect_data':
@@ -2041,7 +2038,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'tool.partial':
-			// Streamed partial output for tools (e.g., answer_question)
+			// Streamed partial output for tools
 			if (payload.tool_name) {
 				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
 				if (lastBlock) {

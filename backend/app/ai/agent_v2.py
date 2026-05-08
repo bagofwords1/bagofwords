@@ -2439,7 +2439,7 @@ class AgentV2:
                                 "pending_officejs_registry": pending_officejs_registry,
                             }
 
-                            # Emit generic output event for tools that stream results (inspect_data, answer_question)
+                            # Emit generic output event for tools that stream results (inspect_data)
                             if tool_name == "inspect_data":
                                 # Ensure streaming stdout is enabled by default for this tool
                                 pass
