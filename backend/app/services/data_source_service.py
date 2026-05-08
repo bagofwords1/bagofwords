@@ -1428,6 +1428,20 @@ class DataSourceService:
             setattr(client, "_bow_data_source_id", str(data_source.id))
             setattr(client, "_bow_data_source_name", data_source.name)
             setattr(client, "_bow_client_key", client_key)
+            # Per-connection query timeout override (read by the code-execution
+            # wrapper). Stored on the client so the wrapper does not need DB
+            # access to resolve it.
+            try:
+                conn_config = (
+                    json.loads(connection.config)
+                    if isinstance(connection.config, str)
+                    else (connection.config or {})
+                )
+                conn_timeout = conn_config.get("query_timeout_seconds") if isinstance(conn_config, dict) else None
+                if isinstance(conn_timeout, (int, float)) and conn_timeout > 0:
+                    setattr(client, "_bow_connection_query_timeout", int(conn_timeout))
+            except Exception:
+                pass
         except Exception:
             pass
 

@@ -3331,6 +3331,8 @@ onMounted(async () => {
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
 	li { @apply mb-1.5; unicode-bidi: plaintext; }
+	li > p:only-child,
+	li > p:last-child { margin-bottom: 0; }
 
 	/* Code blocks (fenced with ```) — always LTR regardless of surrounding direction */
 	pre {

@@ -51,3 +51,6 @@ class ErrorCode(str, Enum):
 
     # Settings
     SETTING_UPDATE_FAILED = "setting.update_failed"
+
+    # Data execution
+    QUERY_TIMEOUT = "query.timeout"

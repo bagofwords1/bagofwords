@@ -14,8 +14,9 @@ from app.ai.tools.schemas.events import (
 class ClarifyTool(Tool):
     """Clarify tool - signals that the planner needs user clarification.
 
-    The actual questions are output by the planner in assistant_message.
-    This tool just marks analysis_complete=True to stop the loop and wait for user response.
+    The user-facing questions live in the model's message text (preceding this
+    tool_use). This tool only marks analysis_complete=True to stop the loop and
+    wait for the user's response.
     """
 
     @property
@@ -23,8 +24,10 @@ class ClarifyTool(Tool):
         return ToolMetadata(
             name="clarify",
             description=(
-                "ACTION: Signal that you need clarification from the user. "
-                "Output your questions in assistant_message, then call this tool to pause and wait for response."
+                "Pause and wait for the user to clarify. "
+                "Your message text must contain the full clarification questions for the user — "
+                "see the clarify protocol in the system prompt for the required format. "
+                "This tool's `context` arg is an optional internal note, not shown to the user."
             ),
             category="action",
             version="1.0.0",
@@ -38,13 +41,13 @@ class ClarifyTool(Tool):
             examples=[
                 {
                     "input": {
-                        "context": "User requested revenue analysis but didn't specify time period"
+                        "context": "user requested revenue analysis but didn't specify time period"
                     },
-                    "description": "Signal need for clarification (questions go in assistant_message)"
+                    "description": "pause for clarification (questions live in the model's message text, not here)"
                 },
                 {
                     "input": {},
-                    "description": "Simple clarification signal with no context"
+                    "description": "pause for clarification with no internal context note"
                 }
             ]
         )

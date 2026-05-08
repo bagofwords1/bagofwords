@@ -570,6 +570,8 @@ onUnmounted(() => {
     ul { @apply list-disc; }
     ol { @apply list-decimal; }
     li { @apply mb-1.5; }
+    li > p:only-child,
+    li > p:last-child { margin-bottom: 0; }
 
     pre {
         @apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto;
