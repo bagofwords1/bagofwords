@@ -338,15 +338,26 @@ const discoveredColumns = computed(() => {
   const keys = Object.keys(sampleRow || {})
 
   for (const key of keys) {
-    const values = props.rows.slice(0, 100).map(r => r[key]).filter(v => v != null)
-    const uniqueVals = [...new Set(values)].slice(0, 50)
+    // Type inference is fine on a small sample
+    const sampleValues = props.rows.slice(0, 100).map(r => r[key]).filter(v => v != null)
+
+    // Unique values: scan all rows so the dropdown isn't blind to values past row 100.
+    // Early-exit at 51 — beyond shouldShowSelect's 50-cap the UI falls back to a text input,
+    // so we don't need to keep accumulating.
+    const valueSet = new Set<any>()
+    for (const row of props.rows) {
+      const v = row[key]
+      if (v == null) continue
+      valueSet.add(v)
+      if (valueSet.size > 50) break
+    }
 
     cols.push({
       key,
       name: key,
       label: formatColumnLabel(key),
-      type: inferColumnType(values),
-      uniqueValues: uniqueVals
+      type: inferColumnType(sampleValues),
+      uniqueValues: [...valueSet]
     })
   }
 

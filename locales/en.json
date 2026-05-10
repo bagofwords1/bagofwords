@@ -2035,7 +2035,20 @@
       "createFailed": "Failed to create instruction",
       "updateFailed": "Failed to update instruction",
       "deleteFailed": "Failed to delete instruction",
-      "enhanceFailed": "Failed to enhance instruction"
+      "enhanceFailed": "Failed to enhance instruction",
+      "revertSuccess": "Reverted to v{n}",
+      "revertFailed": "Failed to revert instruction"
+    },
+    "versions": {
+      "label": "Version",
+      "current": "current",
+      "compareLabel": "Compared to current",
+      "noChanges": "No content differences vs. current version",
+      "fieldChanges": "Field changes",
+      "revert": "Revert to this version",
+      "reverting": "Reverting...",
+      "confirmRevert": "Revert this instruction to v{n}? A new build will be created.",
+      "loadFailed": "Failed to load versions"
     }
   },
   "mcpServerModal": {

@@ -399,15 +399,15 @@
                                         class="mt-2 ms-10 text-[11px]"
                                     >
                                         <template v-if="item.change_type === 'modified'">
-                                            <div class="space-y-1.5">
-                                                <div>
-                                                    <div class="text-[9px] font-medium uppercase tracking-wide text-red-600 mb-0.5">Before</div>
-                                                    <pre class="whitespace-pre-wrap break-words bg-red-50/40 border-s-2 border-s-red-300 ps-2 py-1 text-gray-700 font-sans">{{ item.previous_text || '(empty)' }}</pre>
-                                                </div>
-                                                <div>
-                                                    <div class="text-[9px] font-medium uppercase tracking-wide text-green-600 mb-0.5">After</div>
-                                                    <pre class="whitespace-pre-wrap break-words bg-green-50/40 border-s-2 border-s-green-300 ps-2 py-1 text-gray-700 font-sans">{{ item.text || '(empty)' }}</pre>
-                                                </div>
+                                            <div class="border border-gray-150 rounded-md overflow-hidden">
+                                                <ClientOnly>
+                                                    <MonacoDiffEditor
+                                                        :original="item.previous_text || ''"
+                                                        :modified="item.text || ''"
+                                                        height="180px"
+                                                        language="plaintext"
+                                                    />
+                                                </ClientOnly>
                                             </div>
                                         </template>
                                         <template v-else-if="item.change_type === 'added'">
@@ -707,6 +707,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'

@@ -120,6 +120,7 @@
               :key="selectedInstruction?.id || 'new'"
               :instruction="selectedInstruction || undefined"
               :default-status="canCreateInstructions ? 'published' : 'draft'"
+              :initial-version-number="initialVersionNumberForInstruction ?? undefined"
               @instruction-saved="onInstructionSaved"
               @cancel="closeInstructionForm"
             />
@@ -425,6 +426,9 @@ const evalsCache = ref<Record<string, any[]>>({})
 const selectedInstruction = ref<any | null>(null)
 const creatingInstruction = ref(false)
 const instructionLoading = ref(false)
+// Optional preselected version for the form (used by EditInstructionTool to
+// open the pane already showing a diff against the current version).
+const initialVersionNumberForInstruction = ref<number | null>(null)
 
 const canCreateInstructions = computed(() => {
   if (useCan('manage_instructions')) return true
@@ -668,6 +672,7 @@ watch(selectedAgentId, () => {
   activeTab.value = 'instructions'
   selectedInstruction.value = null
   creatingInstruction.value = false
+  initialVersionNumberForInstruction.value = null
   instructionsError.value = null
   queriesError.value = null
   evalsError.value = null
@@ -677,10 +682,11 @@ watch(selectedAgentId, () => {
 })
 
 // Expose methods for external callers
-function openInstruction(instruction: any) {
+function openInstruction(instruction: any, opts?: { initialVersionNumber?: number | null }) {
   activeTab.value = 'instructions'
   instructionLoading.value = false
   creatingInstruction.value = false
+  initialVersionNumberForInstruction.value = opts?.initialVersionNumber ?? null
   selectedInstruction.value = instruction
 }
 
@@ -689,6 +695,7 @@ function setInstructionLoading(value: boolean) {
   if (value) {
     selectedInstruction.value = null
     creatingInstruction.value = false
+    initialVersionNumberForInstruction.value = null
   }
   instructionLoading.value = value
 }

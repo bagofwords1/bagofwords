@@ -942,7 +942,7 @@ watch(() => report.value?.data_sources, (val) => {
     if (val && currentAgents.value.length === 0) currentAgents.value = [...val]
 }, { immediate: true })
 
-async function openInstructionById(instructionId: string) {
+async function openInstructionById(instructionId: string, opts?: { initialVersionNumber?: number | null }) {
 	// Immediately switch to agent panel with loading state
 	const panelRef = isMobile.value ? mobileAgentPanelRef : agentPanelRef
 	if (isMobile.value) {
@@ -957,7 +957,7 @@ async function openInstructionById(instructionId: string) {
 	try {
 		const { data, error } = await useMyFetch(`/instructions/${instructionId}`)
 		if (!error.value && data.value) {
-			panelRef.value?.openInstruction(data.value)
+			panelRef.value?.openInstruction(data.value, { initialVersionNumber: opts?.initialVersionNumber ?? null })
 			return
 		}
 	} catch {}

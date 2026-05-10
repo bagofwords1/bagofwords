@@ -16,22 +16,111 @@
                             <span class="text-[11px] font-mono text-gray-500 truncate">{{ filePath }}</span>
                         </div>
                     </div>
-                    <div v-if="props.isGitSourced" class="shrink-0">
-                        <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600">
-                            <GitBranchIcon class="w-3 h-3" />
-                            {{ $t('instructionGlobalCreate.status.synced') }}
-                        </span>
-                        <span v-else class="text-[10px] text-gray-400">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <!-- Version picker -->
+                        <div v-if="versionList.length > 1 || isLoadingVersions" class="relative" ref="versionDropdownRef">
+                            <button
+                                type="button"
+                                @click.stop="versionDropdownOpen = !versionDropdownOpen"
+                                class="flex items-center gap-1.5 px-2 py-1 border border-gray-200 rounded-md text-[11px] text-gray-700 hover:bg-gray-50 bg-white"
+                            >
+                                <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
+                                <span v-if="selectedVersion">v{{ selectedVersion.version_number }}</span>
+                                <span v-else-if="isLoadingVersions" class="text-gray-400">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
+                                <span v-else>{{ $t('instructionGlobalCreate.versions.label') }}</span>
+                                <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': versionDropdownOpen }" />
+                            </button>
+                            <div v-if="versionDropdownOpen" class="absolute z-20 mt-1 end-0 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden min-w-[200px] max-h-72 overflow-y-auto">
+                                <button
+                                    v-for="v in versionList"
+                                    :key="v.id"
+                                    type="button"
+                                    @click.stop="selectVersion(v.id)"
+                                    class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
+                                    :class="selectedVersionId === v.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'"
+                                >
+                                    <span class="font-mono font-medium shrink-0">v{{ v.version_number }}</span>
+                                    <span v-if="v.id === currentVersionId" class="text-[9px] px-1 py-0.5 bg-green-100 text-green-700 rounded shrink-0">
+                                        {{ $t('instructionGlobalCreate.versions.current') }}
+                                    </span>
+                                    <span class="text-gray-400 truncate">{{ formatVersionDate(v.created_at) }}</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div v-if="props.isGitSourced">
+                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600">
+                                <GitBranchIcon class="w-3 h-3" />
+                                {{ $t('instructionGlobalCreate.status.synced') }}
+                            </span>
+                            <span v-else class="text-[10px] text-gray-400">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Content Display -->
-                <div class="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                <!-- Version diff view (selected historical version vs. current) -->
+                <div v-if="isComparingHistorical" class="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                    <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2 text-[11px]">
+                            <span class="text-gray-500">{{ $t('instructionGlobalCreate.versions.compareLabel') }}:</span>
+                            <span class="font-mono font-medium text-gray-700">v{{ selectedVersion?.version_number }}</span>
+                            <Icon name="heroicons:arrow-right" class="w-3 h-3 text-gray-400 rtl-flip" />
+                            <span class="font-mono font-medium text-gray-700">{{ $t('instructionGlobalCreate.versions.current') }}</span>
+                        </div>
+                        <UButton
+                            v-if="canRevertInstructions"
+                            size="xs"
+                            color="orange"
+                            variant="soft"
+                            :loading="isReverting"
+                            :disabled="isReverting || isLoadingSelectedVersion"
+                            @click="revertToSelectedVersion"
+                        >
+                            <Icon name="heroicons:arrow-uturn-left" class="w-3 h-3 me-1 rtl-flip" />
+                            {{ isReverting ? $t('instructionGlobalCreate.versions.reverting') : $t('instructionGlobalCreate.versions.revert') }}
+                        </UButton>
+                    </div>
+                    <div v-if="isLoadingSelectedVersion" class="flex items-center justify-center py-8">
+                        <Spinner class="w-4 h-4 me-2" />
+                        <span class="text-[11px] text-gray-500">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
+                    </div>
+                    <template v-else>
+                        <ClientOnly v-if="hasVersionDiff">
+                            <MonacoDiffEditor
+                                :original="selectedVersionText || ''"
+                                :modified="instructionForm.text || ''"
+                                height="240px"
+                                language="plaintext"
+                            />
+                        </ClientOnly>
+                        <!-- Non-text field changes (title, status, references...). -->
+                        <div v-if="versionFieldChanges.length > 0" class="px-3 py-2 space-y-1" :class="hasVersionDiff ? 'border-t border-gray-200' : ''">
+                            <div class="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                                {{ $t('instructionGlobalCreate.versions.fieldChanges') }}
+                            </div>
+                            <div
+                                v-for="change in versionFieldChanges"
+                                :key="change.field"
+                                class="flex items-baseline gap-2 text-[11px]"
+                            >
+                                <span class="font-medium text-gray-600 shrink-0">{{ formatFieldName(change.field) }}:</span>
+                                <span class="text-red-600 line-through truncate">{{ formatFieldValue(change.field, change.from) }}</span>
+                                <Icon name="heroicons:arrow-right" class="w-3 h-3 text-gray-400 shrink-0 rtl-flip" />
+                                <span class="text-green-700 truncate">{{ formatFieldValue(change.field, change.to) }}</span>
+                            </div>
+                        </div>
+                        <div v-if="!hasVersionDiff && versionFieldChanges.length === 0" class="px-3 py-4 text-[11px] text-gray-500 italic">
+                            {{ $t('instructionGlobalCreate.versions.noChanges') }}
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Content Display (current version) -->
+                <div v-else class="border border-gray-200 rounded-xl overflow-hidden bg-white">
                     <!-- Markdown rendered content (for .md files or non-git-linked) -->
                     <div v-if="shouldRenderAsMarkdown" class="p-4 markdown-wrapper">
                         <MDC :value="instructionForm.text || ''" class="markdown-content" />
                     </div>
-                    
+
                     <!-- Code block for other file types -->
                     <div v-else class="p-4 bg-gray-50">
                         <pre class="text-xs leading-relaxed font-mono text-gray-800 whitespace-pre-wrap overflow-x-auto"><code>{{ instructionForm.text }}</code></pre>
@@ -259,6 +348,7 @@
                         <!-- Highlight backdrop -->
                         <div
                             ref="backdropRef"
+                            dir="auto"
                             class="mention-backdrop"
                             aria-hidden="true"
                             v-html="highlightedText"
@@ -268,6 +358,7 @@
                         <textarea
                             ref="textareaRef"
                             v-model="instructionForm.text"
+                            dir="auto"
                             :placeholder="$t('instructionGlobalCreate.textareaPlaceholder')"
                             class="mention-textarea"
                             required
@@ -723,6 +814,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
+import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
 import { useAgent } from '~/composables/useAgent'
 
 const { t } = useI18n()
@@ -772,6 +864,8 @@ const props = defineProps<{
     isGitSynced?: boolean
     targetBuildId?: string  // If set, update instruction within this existing build (no new build created)
     defaultStatus?: 'draft' | 'published' | 'archived'  // Initial status for new instructions (default: 'draft')
+    initialVersionId?: string  // If set, preselect this version in the version picker on open
+    initialVersionNumber?: number  // If set (and initialVersionId not), preselect by version_number after the version list loads
 }>()
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git', 'view-mode-changed'])
@@ -797,6 +891,184 @@ const showDeleteGitConfirm = ref(false)
 const originalText = ref('')
 const codeView = ref(false)
 const isViewMode = ref(true)  // Start in view mode for existing instructions
+
+// === Version picker / diff / revert ===
+interface VersionItem {
+    id: string
+    version_number: number
+    title?: string | null
+    created_at?: string | null
+    created_by_user_id?: string | null
+    load_mode?: string
+}
+const versionList = ref<VersionItem[]>([])
+const isLoadingVersions = ref(false)
+const selectedVersionId = ref<string | null>(null)
+const selectedVersionText = ref<string | null>(null)
+const isLoadingSelectedVersion = ref(false)
+const isReverting = ref(false)
+const versionDropdownOpen = ref(false)
+const versionDropdownRef = ref<HTMLElement | null>(null)
+// Field-level diff from /versions/compare. Each entry: { field, from, to }.
+// Used to surface non-text changes (title, status, load_mode, references...)
+// since the Monaco diff above only covers `text`.
+interface VersionFieldChange { field: string; from: any; to: any }
+const versionFieldChanges = ref<VersionFieldChange[]>([])
+
+const currentInstructionId = computed(() => (props.instruction as any)?.id || null)
+const currentVersionId = computed(() => (props.instruction as any)?.current_version_id || null)
+const selectedVersion = computed(() =>
+    versionList.value.find(v => v.id === selectedVersionId.value) || null
+)
+const isComparingHistorical = computed(() =>
+    !!selectedVersionId.value &&
+    !!currentVersionId.value &&
+    selectedVersionId.value !== currentVersionId.value
+)
+const hasVersionDiff = computed(() => {
+    if (!isComparingHistorical.value || selectedVersionText.value === null) return false
+    return selectedVersionText.value !== (instructionForm.value.text || '')
+})
+const formatVersionDate = (raw?: string | null) => {
+    if (!raw) return ''
+    const d = new Date(raw.endsWith('Z') ? raw : raw + 'Z')
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+        d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
+async function loadVersionList() {
+    if (!currentInstructionId.value) return
+    isLoadingVersions.value = true
+    try {
+        const { data, error } = await useMyFetch(`/instructions/${currentInstructionId.value}/versions?limit=200`)
+        if (!error.value && data.value) {
+            const payload: any = data.value
+            versionList.value = (payload.items || []).map((v: any) => ({
+                id: v.id,
+                version_number: v.version_number,
+                title: v.title,
+                created_at: v.created_at,
+                created_by_user_id: v.created_by_user_id,
+                load_mode: v.load_mode,
+            }))
+        } else {
+            versionList.value = []
+        }
+    } catch {
+        versionList.value = []
+    } finally {
+        isLoadingVersions.value = false
+    }
+}
+
+async function selectVersion(versionId: string | null) {
+    versionDropdownOpen.value = false
+    selectedVersionId.value = versionId
+    selectedVersionText.value = null
+    versionFieldChanges.value = []
+    if (!versionId || !currentInstructionId.value) return
+    // No fetch needed when picking the current version — diff is hidden anyway.
+    if (versionId === currentVersionId.value) return
+    isLoadingSelectedVersion.value = true
+    try {
+        // Fetch the selected version (for text diff) and the field-level
+        // compare against current in parallel. The compare endpoint also
+        // reports `text` changes, so we strip that field here — the Monaco
+        // diff above renders the text comparison.
+        const versionFetch = useMyFetch(
+            `/instructions/${currentInstructionId.value}/versions/${versionId}`
+        )
+        const compareFetch = currentVersionId.value
+            ? useMyFetch(
+                `/instructions/${currentInstructionId.value}/versions/compare`,
+                { query: { from_version_id: versionId, to_version_id: currentVersionId.value } }
+            )
+            : null
+        const versionRes: any = await versionFetch
+        if (!versionRes.error?.value && versionRes.data?.value) {
+            selectedVersionText.value = (versionRes.data.value as any).text || ''
+        }
+        if (compareFetch) {
+            const compareRes: any = await compareFetch
+            if (!compareRes.error?.value && compareRes.data?.value) {
+                const changes = ((compareRes.data.value as any).changes || []) as VersionFieldChange[]
+                versionFieldChanges.value = changes.filter(c => c.field !== 'text')
+            }
+        }
+    } finally {
+        isLoadingSelectedVersion.value = false
+    }
+}
+
+// Compact "from → to" formatter for non-text fields. Arrays/objects are
+// summarized rather than dumped verbatim so the panel stays readable.
+function formatFieldValue(field: string, value: any): string {
+    if (value === null || value === undefined || value === '') return '∅'
+    if (Array.isArray(value)) {
+        if (value.length === 0) return '∅'
+        if (field === 'references_json') {
+            return value.length === 1 ? '1 reference' : `${value.length} references`
+        }
+        // For label_ids / data_source_ids / category_ids: just show count.
+        if (field.endsWith('_ids')) {
+            return value.length === 1 ? '1 item' : `${value.length} items`
+        }
+        return value.join(', ')
+    }
+    if (typeof value === 'object') return '…'
+    return String(value)
+}
+function formatFieldName(field: string): string {
+    const map: Record<string, string> = {
+        title: 'title',
+        status: 'status',
+        load_mode: 'load mode',
+        references_json: 'references',
+        data_source_ids: 'data sources',
+        label_ids: 'labels',
+        category_ids: 'category',
+        structured_data: 'structured data',
+        formatted_content: 'formatted content',
+    }
+    return map[field] || field
+}
+
+async function revertToSelectedVersion() {
+    if (!currentInstructionId.value || !selectedVersionId.value) return
+    if (!isComparingHistorical.value) return
+    const versionNum = selectedVersion.value?.version_number || '?'
+    if (!confirm(t('instructionGlobalCreate.versions.confirmRevert', { n: versionNum }))) return
+    isReverting.value = true
+    try {
+        const { data, error } = await useMyFetch(
+            `/instructions/${currentInstructionId.value}/versions/${selectedVersionId.value}/revert`,
+            { method: 'POST' }
+        )
+        if (error.value) throw new Error('revert failed')
+        toast.add({
+            title: t('instructionGlobalCreate.toast.successTitle'),
+            description: t('instructionGlobalCreate.toast.revertSuccess', { n: versionNum }),
+            color: 'green',
+        })
+        emit('instructionSaved', data.value)
+    } catch {
+        toast.add({
+            title: t('instructionGlobalCreate.toast.errorTitle'),
+            description: t('instructionGlobalCreate.toast.revertFailed'),
+            color: 'red',
+        })
+    } finally {
+        isReverting.value = false
+    }
+}
+
+function onVersionDropdownOutsideClick(e: MouseEvent) {
+    if (versionDropdownRef.value && !versionDropdownRef.value.contains(e.target as Node)) {
+        versionDropdownOpen.value = false
+    }
+}
+onMounted(() => document.addEventListener('click', onVersionDropdownOutsideClick))
+onUnmounted(() => document.removeEventListener('click', onVersionDropdownOutsideClick))
 
 // @ Mention feature
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -1199,6 +1471,9 @@ const canEditInstructions = computed(() => {
 const canDeleteInstructions = canEditInstructions
 const canSuggestInstructions = computed(() => true)
 const isSuggestMode = computed(() => !canEditInstructions.value && canSuggestInstructions.value)
+// Revert is strictly admin-only — matches backend _is_admin_permissions check.
+// Per-DS managers cannot revert; they edit through the regular suggestion flow.
+const canRevertInstructions = computed(() => useCan('manage_instructions'))
 
 const createdAtDisplay = computed(() => {
     const raw = props.instruction?.created_at
@@ -1964,20 +2239,53 @@ watch(() => props.instruction, async (newInstruction) => {
         selectedDataSources.value = newInstruction.data_sources?.map((ds: DataSource) => ds.id) || []
         selectedLabelIds.value = newInstruction.labels?.map((label: InstructionLabel) => label.id) || []
         emit('update-form', { label_ids: selectedLabelIds.value })
-        
+
         // Start in view mode for existing instructions
         isViewMode.value = true
-        
+
+        // Reset version picker, then load history
+        selectedVersionId.value = null
+        selectedVersionText.value = null
+        versionList.value = []
+        await loadVersionList()
+        // If caller asked us to preselect a version (e.g. EditInstructionTool
+        // wants the diff against current pre-rendered), select it now.
+        if (props.initialVersionId) {
+            await selectVersion(props.initialVersionId)
+        } else if (props.initialVersionNumber != null) {
+            const match = versionList.value.find(v => v.version_number === props.initialVersionNumber)
+            if (match) await selectVersion(match.id)
+        }
+
         // Fetch full instruction to get references, then init
         await fetchFullInstruction()
         initReferencesFromInstruction()
     } else {
         fullInstruction.value = null
+        versionList.value = []
+        selectedVersionId.value = null
+        selectedVersionText.value = null
         // Start in edit mode for new instructions
         isViewMode.value = false
         resetForm()
     }
 }, { immediate: true })
+
+// React to changes in the requested initial version while staying on the same
+// instruction (e.g. user clicks a different EditInstructionTool tile in the
+// chat — same instruction, new version to preselect).
+watch(() => props.initialVersionId, async (newVid) => {
+    if (!newVid || !currentInstructionId.value) return
+    if (newVid === selectedVersionId.value) return
+    await selectVersion(newVid)
+})
+watch(() => props.initialVersionNumber, async (newNum) => {
+    if (newNum == null || !currentInstructionId.value) return
+    const match = versionList.value.find(v => v.version_number === newNum)
+    if (match && match.id !== selectedVersionId.value) {
+        await selectVersion(match.id)
+    }
+})
 
 // Validate references when data sources change
 watch(() => selectedDataSources.value, () => {

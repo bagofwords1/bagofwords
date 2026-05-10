@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.374 (May 10, 2026)
+- Enrich instructions mgmt and diff
+- Fix filter bug in widget preview
+
 ## Version 0.0.373 (May 8, 2026)
 - Query timeout settings
 - remove answer tool

@@ -73,7 +73,7 @@
             v-if="displayText"
             dir="auto"
             class="instruction-content text-[12px] text-gray-800 leading-relaxed mb-2 cursor-pointer"
-            @click="currentGlobalStatus !== 'approved' ? handleEdit() : null"
+            @click="handleEdit()"
           >
             <MDC :value="displayText" class="markdown-content" />
           </div>
@@ -145,21 +145,12 @@
         </div>
       </div>
     </Transition>
-
-    <!-- Instruction Modal -->
-    <InstructionModalComponent
-      v-model="showInstructionModal"
-      :instruction="editingInstruction"
-      :initial-type="'global'"
-      @instruction-saved="handleInstructionSaved"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
 
@@ -183,14 +174,10 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'instruction-updated'): void
+  (e: 'openInstruction', id: string, opts?: { initialVersionNumber?: number | null }): void
 }>()
 
-const toast = useToast()
 const isExpanded = ref(true)
-const showInstructionModal = ref(false)
-const editingInstruction = ref<any>(null)
-const isPublishing = ref(false)
-const isDeleting = ref(false)
 const localGlobalStatus = ref<string | null>(null)
 const isLoadingVersions = ref(false)
 const fetchedInstruction = ref<any>(null)
@@ -349,9 +336,9 @@ const errorMessage = computed(() => {
   return ''
 })
 
-// Fetch instruction and previous version when expanded
-watch(isExpanded, async (expanded) => {
-  if (expanded && instructionId.value && previousText.value === null) {
+// Watch instructionId too — it lands after mount with result_json, so a single watch on isExpanded misses it.
+watch([isExpanded, instructionId], async ([expanded, id]) => {
+  if (expanded && id && previousText.value === null) {
     await fetchVersionsForDiff()
   }
 }, { immediate: true })
@@ -410,81 +397,15 @@ function toggleExpanded() {
 
 async function handleEdit() {
   if (!instructionId.value) return
-
-  if (fetchedInstruction.value) {
-    editingInstruction.value = fetchedInstruction.value
-  } else {
-    editingInstruction.value = {
-      id: instructionId.value,
-      text: displayText.value,
-      category: displayCategory.value || 'general',
-      load_mode: displayLoadMode.value
-    }
-  }
-  showInstructionModal.value = true
+  // Open the right-pane instruction view with this tool's edited version
+  // preselected so the user immediately sees a diff against the current
+  // version. The pane resolves the version_number to a version_id from its
+  // already-loaded version list.
+  emit('openInstruction', instructionId.value, {
+    initialVersionNumber: versionNumber.value ?? null,
+  })
 }
 
-async function handlePublish() {
-  if (!instructionId.value) return
-
-  isPublishing.value = true
-  try {
-    const { error } = await useMyFetch(`/instructions/${instructionId.value}`, {
-      method: 'PUT',
-      body: {
-        status: 'published',
-        global_status: 'approved'
-      }
-    })
-    if (!error.value) {
-      localGlobalStatus.value = 'approved'
-      toast.add({ title: t('tools.editInstruction.toastSuccess'), description: t('tools.editInstruction.toastPublished'), color: 'green' })
-      emit('instruction-updated')
-    } else {
-      throw new Error('Failed to publish')
-    }
-  } catch (e) {
-    console.error('Failed to publish instruction:', e)
-    toast.add({ title: t('tools.editInstruction.toastError'), description: t('tools.editInstruction.toastFailedPublish'), color: 'red' })
-  } finally {
-    isPublishing.value = false
-  }
-}
-
-async function handleDelete() {
-  if (!instructionId.value) return
-  if (!confirm(t('tools.editInstruction.confirmDelete'))) return
-
-  isDeleting.value = true
-  try {
-    const { error } = await useMyFetch(`/instructions/${instructionId.value}`, { method: 'DELETE' })
-    if (!error.value) {
-      localGlobalStatus.value = 'deleted'
-      toast.add({ title: t('tools.editInstruction.toastDeleted'), description: t('tools.editInstruction.toastDeletedDesc'), color: 'orange' })
-      emit('instruction-updated')
-    } else {
-      throw new Error('Failed to delete')
-    }
-  } catch (e) {
-    console.error('Failed to delete instruction:', e)
-    toast.add({ title: t('tools.editInstruction.toastError'), description: t('tools.editInstruction.toastFailedDelete'), color: 'red' })
-  } finally {
-    isDeleting.value = false
-  }
-}
-
-function handleInstructionSaved(data: any) {
-  const updated = data?.data || data
-  if (updated) {
-    fetchedInstruction.value = updated
-    if (updated.global_status) {
-      localGlobalStatus.value = updated.global_status
-    }
-  }
-  showInstructionModal.value = false
-  toast.add({ title: t('tools.editInstruction.toastSuccess'), description: t('tools.editInstruction.toastSaved'), color: 'green' })
-  emit('instruction-updated')
-}
 </script>
 
 <style scoped>

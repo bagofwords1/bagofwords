@@ -769,6 +769,94 @@ class InstructionService:
 
         return await self._instruction_to_schema_with_references(db, instruction)
 
+    async def revert_instruction_to_version(
+        self,
+        db: AsyncSession,
+        instruction_id: str,
+        version_id: str,
+        organization: Organization,
+        current_user: User,
+    ) -> Optional[InstructionSchema]:
+        """Revert an instruction to a prior version by creating a NEW version
+        that copies the target version's content and adding it to a draft build.
+
+        Admin-only. The version's status field is copied as-is — what is
+        actually live is gated by the build promotion (see BuildService.promote_build),
+        not the version's status field.
+        """
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        if not self._is_admin_permissions(user_permissions):
+            raise HTTPException(status_code=403, detail="Permission denied: admin only")
+
+        instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        if not instruction:
+            return None
+
+        target_version = await self.version_service.get_version(db, version_id)
+        if not target_version or target_version.instruction_id != instruction.id:
+            raise HTTPException(status_code=404, detail="Version not found for this instruction")
+
+        # Create a new version copying everything from the target version.
+        # Audit trail is preserved: the new version has its own version_number,
+        # created_by_user_id, and created_at — readers can see "v7 created by X
+        # at time T with same content as v3".
+        new_version = await self.version_service.create_version_from_data(
+            db,
+            instruction_id=instruction.id,
+            text=target_version.text,
+            title=target_version.title,
+            structured_data=target_version.structured_data,
+            formatted_content=target_version.formatted_content,
+            status=target_version.status or 'published',
+            load_mode=target_version.load_mode or 'always',
+            references_json=target_version.references_json,
+            data_source_ids=target_version.data_source_ids,
+            label_ids=target_version.label_ids,
+            category_ids=target_version.category_ids,
+            user_id=current_user.id,
+        )
+
+        # Sync the live row so non-version-aware readers see the new content
+        # immediately on promotion. (current_version_id is updated by the build
+        # promote step; field sync also happens there. Setting here is safe
+        # because the build will overwrite with the same values.)
+        instruction.current_version_id = new_version.id
+        await db.commit()
+
+        # Stage in a draft build and auto-finalize. Admins auto-promote to main;
+        # if anything is unusual the build sits in pending_approval and the
+        # banner in ReportAgentPanel will surface it.
+        build = await self.build_service.get_or_create_draft_build(
+            db, organization.id, source='user', user_id=current_user.id
+        )
+        await self.build_service.add_to_build(
+            db, build.id, instruction.id, new_version.id
+        )
+        await db.commit()
+        await self._auto_finalize_build(db, build, current_user, user_permissions)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="instruction.reverted",
+                user_id=str(current_user.id),
+                resource_type="instruction",
+                resource_id=str(instruction.id),
+                details={
+                    "from_version_id": str(target_version.id),
+                    "from_version_number": target_version.version_number,
+                    "new_version_id": str(new_version.id),
+                    "new_version_number": new_version.version_number,
+                },
+            )
+        except Exception:
+            pass
+
+        # Return the refreshed instruction
+        return await self.get_instruction(db, instruction.id, organization, current_user)
+
     async def enhance_instruction(
         self, 
         db: AsyncSession, 

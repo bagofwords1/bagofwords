@@ -421,6 +421,39 @@ async def get_instruction_versions(
     )
 
 
+# NB: /versions/compare must be declared BEFORE /versions/{version_id} so the
+# literal segment isn't captured as a path param.
+@router.get("/instructions/{instruction_id}/versions/compare")
+async def compare_instruction_versions(
+    instruction_id: str,
+    from_version_id: str = Query(..., description="The base version to diff from"),
+    to_version_id: str = Query(..., description="The target version to diff to"),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Compare two versions of the same instruction."""
+    instruction = await instruction_service.get_instruction(
+        db, instruction_id, organization, current_user
+    )
+    if not instruction:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+
+    from_version = await instruction_version_service.get_version(db, from_version_id)
+    to_version = await instruction_version_service.get_version(db, to_version_id)
+    if not from_version or not to_version:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_VERSION_NOT_FOUND, "Version not found")
+    if from_version.instruction_id != instruction_id or to_version.instruction_id != instruction_id:
+        raise AppError.bad_request(
+            "instruction.version_mismatch",
+            "Version does not belong to this instruction",
+        )
+
+    return await instruction_version_service.compare_versions(
+        db, from_version_id, to_version_id
+    )
+
+
 @router.get("/instructions/{instruction_id}/versions/{version_id}", response_model=InstructionVersionSchema)
 async def get_instruction_version(
     instruction_id: str,
@@ -436,17 +469,53 @@ async def get_instruction_version(
     )
     if not instruction:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    
+
     version = await instruction_version_service.get_version(db, version_id)
-    
+
     if not version:
         raise AppError.not_found(ErrorCode.INSTRUCTION_VERSION_NOT_FOUND, "Version not found")
-    
+
     if version.instruction_id != instruction_id:
         raise AppError.bad_request(
             "instruction.version_mismatch",
             "Version does not belong to this instruction",
         )
-    
+
     return InstructionVersionSchema.model_validate(version)
+
+
+@router.post("/instructions/{instruction_id}/versions/{version_id}/revert", response_model=InstructionSchema)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+async def revert_instruction_to_version(
+    instruction_id: str,
+    version_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Revert an instruction to a prior version (admin only).
+
+    Creates a new version copying the target version's content and stages it
+    in a draft build. For admins, the build is auto-promoted to main; the
+    instruction's status field is secondary — what is live is gated by the
+    build promotion, not the instruction's status field.
+    """
+    existing = await instruction_service.get_instruction(
+        db, instruction_id, organization, current_user
+    )
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if existing_ds_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "data_source", existing_ds_ids, "manage_instructions",
+        )
+
+    reverted = await instruction_service.revert_instruction_to_version(
+        db, instruction_id, version_id, organization, current_user
+    )
+    if reverted is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    return reverted
 
