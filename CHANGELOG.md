@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.375 (May 10, 2026)
+- Fix MSSQL "0 tables" on case-sensitive / binary collations (e.g. Hebrew_BIN)
+- Surface MSSQL schema introspection errors instead of silently returning empty
+
 ## Version 0.0.374 (May 10, 2026)
 - Enrich instructions mgmt and diff
 - Fix filter bug in widget preview

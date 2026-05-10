@@ -1,5 +1,6 @@
 from app.data_sources.clients.base import DataSourceClient
 
+import logging
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
@@ -8,6 +9,8 @@ from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+
+logger = logging.getLogger(__name__)
 
 
 class MSSQLClient(DataSourceClient):
@@ -83,6 +86,7 @@ class MSSQLClient(DataSourceClient):
         try:
             return self._get_tables_enriched()
         except Exception:
+            logger.exception("MSSQL enriched table introspection failed; falling back to basic query")
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
@@ -108,7 +112,7 @@ class MSSQLClient(DataSourceClient):
                     c.data_type,
                     CAST(ep_col.value AS NVARCHAR(MAX)) AS column_comment,
                     CAST(ep_tbl.value AS NVARCHAR(MAX)) AS table_comment
-                FROM information_schema.columns c
+                FROM INFORMATION_SCHEMA.COLUMNS c
                 LEFT JOIN sys.columns sc
                     ON sc.name = c.column_name
                     AND sc.object_id = OBJECT_ID(c.table_schema + '.' + c.table_name)
@@ -149,44 +153,40 @@ class MSSQLClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
-        try:
-            with self.connect() as conn:
-                params = {"database": self.database}
-                where_clauses = ["table_catalog = :database"]
+        with self.connect() as conn:
+            params = {"database": self.database}
+            where_clauses = ["table_catalog = :database"]
 
-                if self._schemas:
-                    in_keys = []
-                    for idx, sch in enumerate(self._schemas):
-                        key = f"s{idx}"
-                        params[key] = sch
-                        in_keys.append(f":{key}")
-                    where_clauses.append(f"table_schema IN ({', '.join(in_keys)})")
+            if self._schemas:
+                in_keys = []
+                for idx, sch in enumerate(self._schemas):
+                    key = f"s{idx}"
+                    params[key] = sch
+                    in_keys.append(f":{key}")
+                where_clauses.append(f"table_schema IN ({', '.join(in_keys)})")
 
-                where_sql = " AND ".join(where_clauses)
-                sql = text(f"""
-                    SELECT table_schema, table_name, column_name, data_type
-                    FROM information_schema.columns
-                    WHERE {where_sql}
-                    ORDER BY table_schema, table_name, ordinal_position
-                """)
-                result = conn.execute(sql, params).fetchall()
+            where_sql = " AND ".join(where_clauses)
+            sql = text(f"""
+                SELECT table_schema, table_name, column_name, data_type
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE {where_sql}
+                ORDER BY table_schema, table_name, ordinal_position
+            """)
+            result = conn.execute(sql, params).fetchall()
 
-                tables = {}
-                for row in result:
-                    table_schema, table_name, column_name, data_type = row
-                    key = (table_schema, table_name)
-                    fqn = f"{table_schema}.{table_name}"
+            tables = {}
+            for row in result:
+                table_schema, table_name, column_name, data_type = row
+                key = (table_schema, table_name)
+                fqn = f"{table_schema}.{table_name}"
 
-                    if key not in tables:
-                        tables[key] = Table(
-                            name=fqn, columns=[], pks=None, fks=None,
-                            metadata_json={"schema": table_schema})
-                    tables[key].columns.append(
-                        TableColumn(name=column_name, dtype=data_type))
-                return list(tables.values())
-        except Exception as e:
-            print(f"Error retrieving tables: {e}")
-            return []
+                if key not in tables:
+                    tables[key] = Table(
+                        name=fqn, columns=[], pks=None, fks=None,
+                        metadata_json={"schema": table_schema})
+                tables[key].columns.append(
+                    TableColumn(name=column_name, dtype=data_type))
+            return list(tables.values())
 
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
