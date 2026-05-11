@@ -269,6 +269,77 @@ def create_async_database_engine():
     return _async_engine_singleton
 
 
+def create_async_database_engine_for_indexing():
+    """Dedicated NullPool async engine for the connection-indexing background
+    loop. Mirrors the main engine's URL / IAM / SSL / sqlite pragma wiring,
+    but forces NullPool so connections never get shared across event loops.
+
+    Rationale: the main engine pools asyncpg connections, and each pooled
+    connection binds to the first loop that uses it. Indexing runs on a
+    daemon-thread event loop separate from FastAPI's; sharing the main pool
+    between them causes 'attached to a different loop' / 'unknown protocol
+    state' crashes. NullPool opens a fresh connection on the caller's loop
+    for every session, so cross-loop is structurally impossible.
+    """
+    if settings.TESTING:
+        database_url = _get_test_database_url()
+        if "sqlite" in database_url:
+            database_url = database_url.replace('sqlite:', 'sqlite+aiosqlite:')
+            engine = create_async_engine(
+                database_url,
+                echo=False,
+                future=True,
+                poolclass=NullPool,
+                connect_args={"check_same_thread": False, "timeout": 30},
+            )
+            event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
+        else:
+            database_url = database_url.replace(
+                "postgres://", "postgresql+asyncpg://"
+            ).replace(
+                "postgresql://", "postgresql+asyncpg://"
+            )
+            engine = create_async_engine(
+                database_url,
+                echo=False,
+                future=True,
+                poolclass=NullPool,
+                connect_args={
+                    "server_settings": {
+                        "idle_in_transaction_session_timeout": "60000",
+                    },
+                },
+            )
+    else:
+        db_config = settings.bow_config.database
+        database_url = _get_async_database_url()
+        if "postgresql+asyncpg" in database_url:
+            connect_args = _get_async_ssl_connect_args(db_config) if db_config.uses_iam_auth else {}
+            engine = create_async_engine(
+                database_url,
+                echo=False,
+                future=True,
+                poolclass=NullPool,
+                connect_args=connect_args,
+            )
+            if db_config.uses_iam_auth:
+                _attach_async_iam_auth_hook(engine, db_config)
+        else:
+            if "sqlite" not in database_url:
+                database_url = "sqlite+aiosqlite:///./app.db"
+            engine = create_async_engine(
+                database_url,
+                echo=False,
+                future=True,
+                poolclass=NullPool,
+                connect_args={"check_same_thread": False, "timeout": 30},
+            )
+            event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
+
+    instrument_db(engine, settings.bow_config.otel)
+    return engine
+
+
 def reset_async_engine_singleton():
     """Drop the cached engine. Tests use this when they need a fresh one."""
     global _async_engine_singleton
