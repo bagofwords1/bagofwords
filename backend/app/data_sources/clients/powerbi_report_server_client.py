@@ -1086,9 +1086,16 @@ class PowerBIReportServerClient(DataSourceClient):
                                 references_column=TableColumn(name=rel["to_column"], dtype="unknown"),
                             ))
 
+                        pbix_table_desc = (
+                            f"Internal table in Power BI report '{name}'. Queryable via DuckDB over a "
+                            "cached Parquet snapshot of the PBIX semantic model (reflects last PBIX refresh, "
+                            "not live upstream)."
+                            if self.enable_pbix_query
+                            else f"Internal table in Power BI report '{name}'. Not queryable via PBIRS (PBIX query disabled)."
+                        )
                         tables.append(Table(
                             name=f"pbix:{name}/{tname}",
-                            description=f"Internal table in Power BI report '{name}'. Not queryable via PBIRS.",
+                            description=pbix_table_desc,
                             columns=columns,
                             pks=[],
                             fks=fks,
