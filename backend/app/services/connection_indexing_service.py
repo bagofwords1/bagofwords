@@ -21,13 +21,8 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select, desc
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.settings.database import create_async_session_factory as _make_session_factory
-
-def _new_session():
-    """Fresh session bound to the calling event loop — avoids cross-loop errors with asyncpg."""
-    return _make_session_factory()()
 from app.models.connection import Connection
 from app.models.connection_indexing import (
     ConnectionIndexing,
@@ -216,12 +211,23 @@ class ConnectionIndexingService:
         """
         # Avoid circular import at module load.
         from app.services.connection_service import ConnectionService
+        from app.settings.database import create_async_database_engine_for_indexing
 
         # The loop this coroutine is currently executing on. Progress callbacks
         # fire from worker threads (via `asyncio.to_thread` inside aget_schemas)
         # and must post their flush coroutine BACK to this loop.
         runner_loop = asyncio.get_running_loop()
         start = time.perf_counter()
+
+        # Dedicated NullPool engine for this run — see
+        # `create_async_database_engine_for_indexing` for the rationale.
+        engine = create_async_database_engine_for_indexing()
+        session_factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False,
+        )
+
+        def _new_session():
+            return session_factory()
 
         async def _append_event(level: str, phase: str | None, message: str,
                                 done: int = 0, total: int = 0) -> None:
@@ -379,7 +385,8 @@ class ConnectionIndexingService:
                 # Fan schema out to every DataSource linked to this connection so
                 # the domain-level view (DataSourceTable) reflects the new schema.
                 synced_domains = await self._sync_linked_data_sources(
-                    db, connection_id=row.connection_id
+                    db, connection_id=row.connection_id,
+                    session_factory=session_factory,
                 )
 
                 fresh = await db.get(ConnectionIndexing, indexing_id)
@@ -418,12 +425,18 @@ class ConnectionIndexingService:
                         await err_db.commit()
             except Exception:
                 pass
+        finally:
+            try:
+                await engine.dispose()
+            except Exception:
+                logger.debug("indexing.engine_dispose_failed", exc_info=True)
 
     async def _sync_linked_data_sources(
         self,
         db: AsyncSession,
         *,
         connection_id: str,
+        session_factory,
     ) -> int:
         """After a successful refresh_schema, mirror the new ConnectionTable set
         onto every DataSource that links this connection.
@@ -458,7 +471,7 @@ class ConnectionIndexingService:
         synced = 0
         for ds_id in ds_ids:
             try:
-                async with _new_session() as per_db:
+                async with session_factory() as per_db:
                     # Re-fetch the DS in the per-DS session. If it was deleted
                     # (hard or soft) between snapshot and now, skip cleanly.
                     ds_row = await per_db.execute(

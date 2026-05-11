@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.376 (May 11, 2026)
+- Fix connection-indexing crashes ("attached to a different loop" / "unknown protocol state 3") on long Postgres-backed indexing runs by giving the background runner its own NullPool engine
+
 ## Version 0.0.375 (May 10, 2026)
 - Fix MSSQL "0 tables" on case-sensitive / binary collations (e.g. Hebrew_BIN)
 - Surface MSSQL schema introspection errors instead of silently returning empty
