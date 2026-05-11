@@ -115,12 +115,29 @@ class TablesSchemaContext(ContextSection):
                     metadata_xml = xml_tag("metadata", "", attrs)
             except Exception:
                 metadata_xml = ""
+            # PowerBI Report Server metadata — surface queryability so the planner
+            # knows pbix model tables, RDL reports, and shared datasets can be queried.
+            pbi_xml = ""
+            try:
+                pbi = (t.metadata_json or {}).get("powerbi_report_server") if isinstance(t.metadata_json, dict) else None
+                if isinstance(pbi, dict):
+                    pbi_attrs = {}
+                    for k in ("queryable", "report_type", "upstream_source"):
+                        v = pbi.get(k)
+                        if v is not None and v != "":
+                            pbi_attrs[k] = str(v).lower() if isinstance(v, bool) else str(v)
+                    pbi_note = pbi.get("query_note")
+                    pbi_inner = xml_escape(pbi_note) if pbi_note else ""
+                    if pbi_attrs or pbi_inner:
+                        pbi_xml = xml_tag("powerbi_report_server", pbi_inner, pbi_attrs)
+            except Exception:
+                pbi_xml = ""
             # Add query instructions for semantic views
             is_semantic_view = isinstance(t.metadata_json, dict) and t.metadata_json.get("type") == "semantic_view"
             note_xml = ""
             if is_semantic_view:
                 note_xml = xml_tag("note", "Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1, dim2 METRICS metric1, metric2 WHERE condition). Use DIMENSIONS for role=dimension columns, METRICS for role=measure/metric columns.")
-            inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), metadata_xml, metrics_xml]))
+            inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), metadata_xml, pbi_xml, metrics_xml]))
             table_attrs = {"name": t.name}
             # Mark semantic views
             if is_semantic_view:
@@ -320,7 +337,24 @@ class TablesSchemaContext(ContextSection):
                 note_xml = ""
                 if is_sv:
                     note_xml = xml_tag("note", "Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1, dim2 METRICS metric1, metric2 WHERE condition). Use DIMENSIONS for role=dimension columns, METRICS for role=measure/metric columns.")
-                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else ""]))
+                # PowerBI Report Server metadata — surface queryability so the planner
+                # knows pbix model tables / RDL reports / datasets are queryable here.
+                pbi_xml = ""
+                try:
+                    pbi = (t.metadata_json or {}).get("powerbi_report_server") if isinstance(getattr(t, 'metadata_json', None), dict) else None
+                    if isinstance(pbi, dict):
+                        pbi_attrs = {}
+                        for k in ("queryable", "report_type", "upstream_source"):
+                            v = pbi.get(k)
+                            if v is not None and v != "":
+                                pbi_attrs[k] = str(v).lower() if isinstance(v, bool) else str(v)
+                        pbi_note = pbi.get("query_note")
+                        pbi_inner = xml_escape(pbi_note) if pbi_note else ""
+                        if pbi_attrs or pbi_inner:
+                            pbi_xml = xml_tag("powerbi_report_server", pbi_inner, pbi_attrs)
+                except Exception:
+                    pbi_xml = ""
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else "", pbi_xml]))
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:
