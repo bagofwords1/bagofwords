@@ -162,7 +162,7 @@ test.describe.serial('Member Flow', () => {
         return;
       }
       
-      if (errorText?.includes('must be invited') || errorText?.includes('registration is disabled')) {
+      if (errorText?.includes('Sign-up is disabled') || errorText?.includes('Ask your admin')) {
         throw new Error(`Member was not invited properly. Run invite test first. Error: ${errorText}`);
       }
       throw new Error(`Member sign-up failed: ${errorText}`);

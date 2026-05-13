@@ -404,7 +404,7 @@ class UserManager(BaseUserManager[User, str]):
                                 status_code=403,
                                 detail={
                                     "code": "invitation_required",
-                                    "message": "New user registration is disabled. You must be invited to create an account.",
+                                    "message": "Sign-up is disabled. Ask your admin for an invite.",
                                 },
                             )
                 # Fetch user info if needed (e.g., from Google)
@@ -583,7 +583,7 @@ class UserManager(BaseUserManager[User, str]):
                 if not open_membership:
                     raise HTTPException(
                         status_code=400,
-                        detail="New user registration is disabled. You must be invited to create an account."
+                        detail="Sign-up is disabled. Ask your admin for an invite."
                     )
 
         
