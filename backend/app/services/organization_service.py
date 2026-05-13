@@ -1,9 +1,18 @@
+import csv
+import io
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.organization import Organization
 from app.models.membership import Membership
 from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema, OrganizationUpdate
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
+from app.schemas.organization_schema import (
+    MembershipImportRow,
+    MembershipImportSummary,
+    MembershipImportReport,
+    MEMBERSHIP_NOTE_MAX_LENGTH,
+)
 from app.schemas.organization_settings_schema import OrganizationSettingsCreate
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.schemas.user_schema import UserSchema
@@ -344,12 +353,21 @@ class OrganizationService:
         if membership.user_id and membership_data.role and membership_data.role != membership.role:
             await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
 
-        # currently only updating role
-        membership.role = membership_data.role
+        update = membership_data.dict(exclude_unset=True)
+        if "role" in update and update["role"] is not None:
+            membership.role = update["role"]
+        if "note" in update:
+            membership.note = update["note"]
         await db.commit()
-        await db.refresh(membership)
 
-        return MembershipSchema.from_orm(membership)
+        # Reload with the user relationship so MembershipSchema serialization
+        # doesn't trigger an async lazy-load in a session that's already done.
+        result = await db.execute(
+            select(Membership)
+            .options(selectinload(Membership.user))
+            .where(Membership.id == membership.id)
+        )
+        return MembershipSchema.from_orm(result.scalar_one())
 
     async def update_organization(self, db: AsyncSession, organization: Organization, data: OrganizationUpdate, current_user: User) -> OrganizationSchema:
         """Update organization basic fields like name/description."""
@@ -421,3 +439,215 @@ class OrganizationService:
         result = await db.execute(select(User).where(User.id.in_(user_ids)))
         users = result.scalars().all()
         return [UserSchema.from_orm(user) for user in users]
+
+    # ------------------------------------------------------------------
+    # Excel / CSV import of memberships
+    # ------------------------------------------------------------------
+
+    MEMBERSHIP_IMPORT_MAX_ROWS = 1000
+    _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+    async def import_members(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        file_bytes: bytes,
+        filename: str,
+        dry_run: bool,
+        current_user: User,
+    ) -> MembershipImportReport:
+        """Import memberships from .xlsx or .csv.
+
+        Columns: `email` (required), `note` (optional). Other columns are ignored.
+        Re-import is additive: existing roles/groups/status are never touched;
+        only the `note` field is overwritten. Invites are not re-sent for rows
+        whose email already has a (pending or active) membership.
+        """
+        rows = self._parse_membership_import(file_bytes, filename)
+        report_rows: List[MembershipImportRow] = []
+        summary = MembershipImportSummary()
+
+        for idx, raw in enumerate(rows, start=2):  # data starts at row 2 (header is row 1)
+            email = (raw.get("email") or "").strip()
+            note = raw.get("note")
+            if note is not None:
+                note = str(note).strip() or None
+                if note and len(note) > MEMBERSHIP_NOTE_MAX_LENGTH:
+                    report_rows.append(MembershipImportRow(
+                        row=idx, email=email, note=note, status="error",
+                        error=f"Note exceeds {MEMBERSHIP_NOTE_MAX_LENGTH} characters",
+                    ))
+                    summary.errors += 1
+                    continue
+
+            if not email:
+                report_rows.append(MembershipImportRow(
+                    row=idx, email=None, status="error", error="Missing email",
+                ))
+                summary.errors += 1
+                continue
+            if not self._EMAIL_RE.match(email):
+                report_rows.append(MembershipImportRow(
+                    row=idx, email=email, status="error", error="Invalid email format",
+                ))
+                summary.errors += 1
+                continue
+
+            existing = await self._find_membership_by_email(db, email, organization.id)
+            if existing:
+                if (existing.note or None) == (note or None):
+                    report_rows.append(MembershipImportRow(
+                        row=idx, email=email, note=note, status="unchanged",
+                    ))
+                    summary.unchanged += 1
+                else:
+                    if not dry_run:
+                        existing.note = note
+                        await db.flush()
+                    report_rows.append(MembershipImportRow(
+                        row=idx, email=email, note=note, status="updated",
+                    ))
+                    summary.updated += 1
+                continue
+
+            # New email — invite as a new pending membership.
+            if dry_run:
+                report_rows.append(MembershipImportRow(
+                    row=idx, email=email, note=note, status="created",
+                ))
+                summary.created += 1
+            else:
+                try:
+                    await self.add_member(
+                        db,
+                        MembershipCreate(
+                            organization_id=organization.id,
+                            email=email,
+                            role="member",
+                            note=note,
+                        ),
+                        current_user,
+                    )
+                    report_rows.append(MembershipImportRow(
+                        row=idx, email=email, note=note, status="created",
+                    ))
+                    summary.created += 1
+                except HTTPException as e:
+                    report_rows.append(MembershipImportRow(
+                        row=idx, email=email, note=note, status="error",
+                        error=str(e.detail),
+                    ))
+                    summary.errors += 1
+
+        if not dry_run:
+            await db.commit()
+
+        return MembershipImportReport(dry_run=dry_run, summary=summary, rows=report_rows)
+
+    async def _find_membership_by_email(self, db: AsyncSession, email: str, organization_id: str) -> Optional[Membership]:
+        """Find a membership in this org by email, whether the user has registered or not."""
+        user_q = await db.execute(select(User).where(User.email == email))
+        user = user_q.scalar_one_or_none()
+        if user:
+            m_q = await db.execute(
+                select(Membership).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == organization_id,
+                )
+            )
+            membership = m_q.scalar_one_or_none()
+            if membership:
+                return membership
+
+        m_q = await db.execute(
+            select(Membership).where(
+                Membership.email == email,
+                Membership.organization_id == organization_id,
+            )
+        )
+        return m_q.scalar_one_or_none()
+
+    def _parse_membership_import(self, file_bytes: bytes, filename: str) -> List[dict]:
+        """Parse .xlsx or .csv into a list of {email, note} dicts.
+
+        Header row is required. Column matching is case-insensitive and
+        whitespace-trimmed. Columns other than ``email`` and ``note`` are
+        ignored. Raises HTTPException(400) on unparseable input or empty file.
+        """
+        name = (filename or "").lower()
+        ext = name.rsplit(".", 1)[-1] if "." in name else ""
+
+        if ext in ("xlsx", "xlsm"):
+            try:
+                from openpyxl import load_workbook
+            except ImportError as e:
+                raise HTTPException(status_code=500, detail=f"Excel parsing unavailable: {e}")
+            try:
+                wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to read xlsx: {e}")
+            ws = wb.active
+            rows_iter = ws.iter_rows(values_only=True)
+            try:
+                header = next(rows_iter)
+            except StopIteration:
+                raise HTTPException(status_code=400, detail="Empty file")
+            header_map = self._build_header_map(header)
+            self._require_email_column(header_map)
+            data_rows = []
+            for raw in rows_iter:
+                if all(cell is None or (isinstance(cell, str) and not cell.strip()) for cell in raw):
+                    continue
+                data_rows.append({key: raw[idx] if idx < len(raw) else None for key, idx in header_map.items()})
+                if len(data_rows) >= self.MEMBERSHIP_IMPORT_MAX_ROWS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Import exceeds max {self.MEMBERSHIP_IMPORT_MAX_ROWS} rows",
+                    )
+            return data_rows
+
+        if ext == "csv" or not ext:
+            try:
+                text = file_bytes.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = file_bytes.decode("latin-1")
+            reader = csv.reader(io.StringIO(text))
+            try:
+                header = next(reader)
+            except StopIteration:
+                raise HTTPException(status_code=400, detail="Empty file")
+            header_map = self._build_header_map(header)
+            self._require_email_column(header_map)
+            data_rows = []
+            for raw in reader:
+                if not any((c or "").strip() for c in raw):
+                    continue
+                data_rows.append({key: raw[idx] if idx < len(raw) else None for key, idx in header_map.items()})
+                if len(data_rows) >= self.MEMBERSHIP_IMPORT_MAX_ROWS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Import exceeds max {self.MEMBERSHIP_IMPORT_MAX_ROWS} rows",
+                    )
+            return data_rows
+
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
+
+    @staticmethod
+    def _build_header_map(header_row) -> dict:
+        """Map known column names (case-insensitive) to their column indexes."""
+        mapping = {}
+        for idx, name in enumerate(header_row or []):
+            if name is None:
+                continue
+            key = str(name).strip().lower()
+            if key in ("email", "note") and key not in mapping:
+                mapping[key] = idx
+        return mapping
+
+    @staticmethod
+    def _require_email_column(header_map: dict) -> None:
+        if "email" not in header_map:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required 'email' column in header row",
+            )

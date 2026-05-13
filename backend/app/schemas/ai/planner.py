@@ -100,6 +100,11 @@ class PlannerInput(BaseModel):
     # Identity
     organization_name: Optional[str] = None
     organization_ai_analyst_name: Optional[str] = None
+    # End-user (asker) identity — surfaced to the model as <user_profile>.
+    # ``user_note`` is admin-managed per-org context about the asker (e.g.
+    # "CFO, focuses on monthly close metrics"). Both are optional.
+    user_name: Optional[str] = None
+    user_note: Optional[str] = None
 
     # Org-wide limits
     limit_row_count: Optional[int] = None

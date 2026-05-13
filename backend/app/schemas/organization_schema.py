@@ -1,8 +1,12 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 from typing import Dict, List, Optional
 from app.schemas.user_schema import UserSchema
 from app.schemas.usage_policy_schema import UsageQuotaSummarySchema
+
+# Per-org note about a member. Surfaced to the AI planner. Capped to keep
+# prompt overhead negligible.
+MEMBERSHIP_NOTE_MAX_LENGTH = 500
 
 class OrganizationCreate(BaseModel):
     name: str
@@ -19,9 +23,34 @@ class MembershipCreate(BaseModel):
     user_id: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = "member"
+    note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
 
 class MembershipUpdate(BaseModel):
     role: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
+
+
+# Import row outcomes returned to the caller. Mirrors what the UI shows
+# in the preview / commit report.
+class MembershipImportRow(BaseModel):
+    row: int  # 1-based source row (header is row 1, first data row is row 2)
+    email: Optional[str] = None
+    note: Optional[str] = None
+    status: str  # "created" | "updated" | "unchanged" | "error"
+    error: Optional[str] = None
+
+
+class MembershipImportSummary(BaseModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    errors: int = 0
+
+
+class MembershipImportReport(BaseModel):
+    dry_run: bool
+    summary: MembershipImportSummary
+    rows: List[MembershipImportRow]
 
 class RoleSummarySchema(BaseModel):
     id: str

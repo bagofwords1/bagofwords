@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from app.dependencies import get_async_db
 from app.services.organization_service import OrganizationService
 from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema, OrganizationUpdate
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
+from app.schemas.organization_schema import MembershipImportReport
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
@@ -97,6 +98,47 @@ async def update_member(
     except Exception:
         pass
     return result
+
+
+@router.post("/organizations/{organization_id}/members/import", response_model=MembershipImportReport)
+@requires_permission('manage_members')
+async def import_members(
+    organization_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    dry_run: bool = True,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+    report = await organization_service.import_members(
+        db=db,
+        organization=organization,
+        file_bytes=file_bytes,
+        filename=file.filename or "",
+        dry_run=dry_run,
+        current_user=current_user,
+    )
+    if not dry_run:
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=organization_id,
+                action="member.imported",
+                user_id=current_user.id,
+                resource_type="membership",
+                details={
+                    "filename": file.filename,
+                    "summary": report.summary.dict(),
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+    return report
 
 @router.get("/organizations", response_model=List[OrganizationAndRoleSchema])
 async def get_organizations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):

@@ -11,6 +11,7 @@ class Membership(BaseSchema):
     organization_id = Column(String(36), ForeignKey('organizations.id'), primary_key=True)
     email = Column(String, nullable=True)
     invite_token = Column(String(36), nullable=True, unique=True, default=lambda: str(uuid.uuid4()))
+    note = Column(String, nullable=True)
 
     user = relationship("User", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")
