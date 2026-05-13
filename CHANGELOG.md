@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.377 (May 13, 2026)
+- Allow SMTP without credentials (use_credentials: false) for anonymous/open relays
+
 ## Version 0.0.376 (May 11, 2026)
 - Fix connection-indexing crashes ("attached to a different loop" / "unknown protocol state 3") on long Postgres-backed indexing runs by giving the background runner its own NullPool engine
 
