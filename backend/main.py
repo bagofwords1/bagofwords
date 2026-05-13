@@ -160,14 +160,20 @@ enable_sso = auth_mode in ("hybrid", "sso_only")
 if enable_sso:
     app.include_router(auth_routes.router, prefix="/api", tags=["auth"])
 
-# Local auth routes
-if enable_local:
+# JWT login/logout route. Mounted in every mode, including sso_only — in
+# that mode the sign-in form is hidden behind the `?local=true` UI escape
+# hatch and UserManager.authenticate restricts the route to admins so
+# regular users can't bypass SSO via password.
+if enable_local or auth_mode == "sso_only":
     app.include_router(
         fastapi_users.get_auth_router(auth_backend),
         prefix="/api/auth/jwt",
         tags=["auth"]
     )
 
+# Register / reset / verify remain disabled in sso_only mode — accounts
+# are provisioned via SSO, not the local form.
+if enable_local:
     app.include_router(
         fastapi_users.get_register_router(UserRead, UserCreate),
         prefix="/api/auth",
