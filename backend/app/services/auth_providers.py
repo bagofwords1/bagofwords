@@ -239,7 +239,7 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
             )
         except HTTPException as e:
             if isinstance(e.detail, dict) and e.detail.get("code") == "invitation_required":
-                msg = urllib.parse.quote(e.detail.get("message") or "You must be invited to create an account.")
+                msg = urllib.parse.quote(e.detail.get("message") or "Sign-up is disabled. Ask your admin for an invite.")
                 return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
             raise
 
@@ -366,7 +366,7 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
         )
     except HTTPException as e:
         if isinstance(e.detail, dict) and e.detail.get("code") == "invitation_required":
-            msg = urllib.parse.quote(e.detail.get("message") or "You must be invited to create an account.")
+            msg = urllib.parse.quote(e.detail.get("message") or "Sign-up is disabled. Ask your admin for an invite.")
             return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
         raise
 

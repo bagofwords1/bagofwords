@@ -19,6 +19,16 @@
             <div class="flex items-center justify-end gap-2 w-full md:w-auto">
                 <UButton
                     v-if="useCan('add_organization_members')"
+                    color="gray"
+                    variant="outline"
+                    size="xs"
+                    icon="i-heroicons-arrow-up-tray"
+                    @click="openImportModal"
+                >
+                    Import
+                </UButton>
+                <UButton
+                    v-if="useCan('add_organization_members')"
                     color="blue"
                     variant="solid"
                     size="xs"
@@ -81,6 +91,7 @@
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colGroups') }}</th>
                             <th v-if="showQuotaColumn" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colQuota') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colStatus') }}</th>
+                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Note</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colExternalPlatforms') }}</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Last Login</th>
                             <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
@@ -239,6 +250,21 @@
                                         {{ $t('settings.members.statusPending') }}
                                     </span>
                                 </td>
+                                <td class="px-6 py-4 max-w-xs">
+                                    <input
+                                        v-if="useCan('update_organization_members')"
+                                        :value="member.note || ''"
+                                        @change="onNoteChange(member, ($event.target as HTMLInputElement).value)"
+                                        type="text"
+                                        maxlength="500"
+                                        placeholder="Add a note…"
+                                        class="w-full text-sm border border-transparent hover:border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-2 py-1 outline-none bg-transparent"
+                                    />
+                                    <UTooltip v-else-if="member.note" :text="member.note">
+                                        <span class="text-sm text-gray-700 truncate block max-w-[16rem]">{{ member.note }}</span>
+                                    </UTooltip>
+                                    <span v-else class="text-gray-400 italic text-sm">—</span>
+                                </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div v-if="member.user?.external_user_mappings.length > 0">
                                         <div v-for="mapping in member.user?.external_user_mappings" :key="mapping.id">
@@ -345,6 +371,95 @@
             </form>
         </div>
     </UModal>
+
+    <!-- Import Modal -->
+    <UModal v-model="importModalOpen" :ui="{ width: 'sm:max-w-2xl' }">
+        <div class="p-4 relative">
+            <button @click="closeImportModal" class="absolute top-2 end-2 text-gray-500 hover:text-gray-700 outline-none">
+                <Icon name="heroicons:x-mark" class="w-5 h-5" />
+            </button>
+            <h1 class="text-lg font-semibold">Import members</h1>
+            <p class="text-sm text-gray-500 mt-1">
+                Upload an Excel (.xlsx) or CSV file with columns <code class="text-xs bg-gray-100 px-1 rounded">email</code> (required) and <code class="text-xs bg-gray-100 px-1 rounded">note</code> (optional).
+                Re-importing the same file is safe — existing roles and group memberships are never touched; only the note is updated.
+            </p>
+            <hr class="my-4" />
+
+            <div v-if="!importReport" class="space-y-3">
+                <input
+                    ref="importFileInput"
+                    type="file"
+                    accept=".xlsx,.csv"
+                    @change="onImportFileSelected"
+                    class="block w-full text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                <button
+                    type="button"
+                    @click="downloadImportTemplate"
+                    class="text-xs text-blue-600 hover:underline"
+                >
+                    Download CSV template
+                </button>
+                <div v-if="importError" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+                    {{ importError }}
+                </div>
+                <div v-if="importLoading" class="flex items-center gap-2 text-sm text-gray-500">
+                    <Spinner class="w-4 h-4" />
+                    <span>Validating file…</span>
+                </div>
+            </div>
+
+            <div v-else class="space-y-3">
+                <div class="flex flex-wrap gap-2 text-sm">
+                    <UBadge color="blue" variant="subtle">{{ importReport.summary.created }} to create</UBadge>
+                    <UBadge color="green" variant="subtle">{{ importReport.summary.updated }} to update</UBadge>
+                    <UBadge color="gray" variant="subtle">{{ importReport.summary.unchanged }} unchanged</UBadge>
+                    <UBadge v-if="importReport.summary.errors > 0" color="red" variant="subtle">{{ importReport.summary.errors }} error(s)</UBadge>
+                    <UBadge v-if="importReport.dry_run" color="yellow" variant="solid">Preview — not applied</UBadge>
+                    <UBadge v-else color="green" variant="solid">Applied</UBadge>
+                </div>
+                <div class="max-h-80 overflow-auto border border-gray-200 rounded">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-gray-50 sticky top-0">
+                            <tr>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Row</th>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Email</th>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Note</th>
+                                <th class="px-3 py-2 text-start font-medium text-gray-500 text-xs uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            <tr v-for="row in importReport.rows" :key="row.row">
+                                <td class="px-3 py-2 text-gray-500">{{ row.row }}</td>
+                                <td class="px-3 py-2">{{ row.email || '—' }}</td>
+                                <td class="px-3 py-2 text-gray-600 truncate max-w-[16rem]">{{ row.note || '—' }}</td>
+                                <td class="px-3 py-2">
+                                    <UBadge v-if="row.status === 'error'" color="red" variant="subtle" size="xs">{{ row.error }}</UBadge>
+                                    <UBadge v-else-if="row.status === 'created'" color="blue" variant="subtle" size="xs">created</UBadge>
+                                    <UBadge v-else-if="row.status === 'updated'" color="green" variant="subtle" size="xs">updated</UBadge>
+                                    <UBadge v-else color="gray" variant="subtle" size="xs">unchanged</UBadge>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-4">
+                <UButton type="button" variant="ghost" @click="closeImportModal">
+                    {{ importReport && !importReport.dry_run ? 'Close' : $t('settings.members.cancel') }}
+                </UButton>
+                <UButton
+                    v-if="importReport && importReport.dry_run && (importReport.summary.created + importReport.summary.updated) > 0"
+                    color="blue"
+                    :loading="importLoading"
+                    @click="commitImport"
+                >
+                    Import {{ importReport.summary.created + importReport.summary.updated }} row(s)
+                </UButton>
+            </div>
+        </div>
+    </UModal>
 </template>
 
 <script setup lang="ts">
@@ -370,7 +485,29 @@ interface Member {
     email?: string
     role?: string
     roles?: { id: string; name: string; source?: string }[]
+    note?: string | null
     created_at: string
+}
+
+interface MembershipImportRow {
+    row: number
+    email?: string | null
+    note?: string | null
+    status: 'created' | 'updated' | 'unchanged' | 'error'
+    error?: string | null
+}
+
+interface MembershipImportSummary {
+    created: number
+    updated: number
+    unchanged: number
+    errors: number
+}
+
+interface MembershipImportReport {
+    dry_run: boolean
+    summary: MembershipImportSummary
+    rows: MembershipImportRow[]
 }
 
 interface GroupData {
@@ -409,7 +546,7 @@ const groupMemberships = ref<Record<string, string[]>>({}) // groupId -> userIds
 const usagePolicies = ref<UsagePolicySummary[]>([])
 const { hasFeature } = useEnterprise()
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
-const membersColspan = computed(() => 7 + (showQuotaColumn.value ? 1 : 0) + (useCan('remove_organization_members') ? 1 : 0))
+const membersColspan = computed(() => 8 + (showQuotaColumn.value ? 1 : 0) + (useCan('remove_organization_members') ? 1 : 0))
 
 // Filters
 const statusFilter = ref<'all' | 'active' | 'pending'>('all')
@@ -686,6 +823,111 @@ const inviteForm = ref({
     role: 'member',
     organization_id: organizationId
 })
+
+const importModalOpen = ref(false)
+const importFile = ref<File | null>(null)
+const importFileInput = ref<HTMLInputElement | null>(null)
+const importReport = ref<MembershipImportReport | null>(null)
+const importLoading = ref(false)
+const importError = ref<string | null>(null)
+
+function openImportModal() {
+    importFile.value = null
+    importReport.value = null
+    importError.value = null
+    importLoading.value = false
+    importModalOpen.value = true
+}
+
+function closeImportModal() {
+    importModalOpen.value = false
+    importFile.value = null
+    importReport.value = null
+    importError.value = null
+    importLoading.value = false
+    if (importFileInput.value) importFileInput.value.value = ''
+}
+
+function downloadImportTemplate() {
+    const csv = 'email,note\nalice@example.com,"CFO, focuses on monthly close"\nbob@example.com,"Data analyst, revenue ops"\n'
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'members-import-template.csv'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+}
+
+async function runImport(file: File, dryRun: boolean): Promise<MembershipImportReport | null> {
+    const form = new FormData()
+    form.append('file', file)
+    const { data, error } = await useMyFetch(
+        `/organizations/${organizationId}/members/import?dry_run=${dryRun}`,
+        { method: 'POST', body: form }
+    )
+    if (error.value) {
+        const detail = (error.value as any)?.data?.detail || 'Import failed'
+        importError.value = typeof detail === 'string' ? detail : 'Import failed'
+        return null
+    }
+    return (data.value || null) as MembershipImportReport | null
+}
+
+async function onImportFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+    importFile.value = file
+    importError.value = null
+    importLoading.value = true
+    try {
+        const report = await runImport(file, true)
+        importReport.value = report
+    } finally {
+        importLoading.value = false
+    }
+}
+
+async function commitImport() {
+    if (!importFile.value) return
+    importError.value = null
+    importLoading.value = true
+    try {
+        const report = await runImport(importFile.value, false)
+        if (report) {
+            importReport.value = report
+            const refreshed = await useMyFetch(`/organizations/${organizationId}/members`)
+            members.value = (refreshed.data.value || []) as Member[]
+            toast.add({
+                title: 'Import complete',
+                description: `${report.summary.created} created, ${report.summary.updated} updated, ${report.summary.errors} error(s)`,
+                color: report.summary.errors > 0 ? 'yellow' : 'green',
+            })
+        }
+    } finally {
+        importLoading.value = false
+    }
+}
+
+async function onNoteChange(member: Member, value: string) {
+    const trimmed = value.trim()
+    const next = trimmed.length === 0 ? null : trimmed
+    if ((member.note || null) === next) return
+    const { data, error } = await useMyFetch(
+        `/organizations/${organizationId}/members/${member.id}`,
+        { method: 'PUT', body: { note: next } }
+    )
+    if (error.value) {
+        const detail = (error.value as any)?.data?.detail || 'Failed to save note'
+        toast.add({ title: typeof detail === 'string' ? detail : 'Failed to save note', color: 'red' })
+        return
+    }
+    member.note = (data.value as any)?.note ?? next
+    toast.add({ title: 'Note saved', color: 'green' })
+}
 
 const removeMember = async (member: Member) => {
     const name = member.user?.name || member.email || ''

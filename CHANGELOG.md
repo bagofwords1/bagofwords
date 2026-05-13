@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.378 (May 13, 2026)
+- Per-member admin-managed `note` (per-org) injected into the planner prompt as `<user_profile>` context
+- Bulk import members from Excel/CSV with dry-run preview; idempotent — never touches roles or group memberships
+- Local password sign-in now works for admins as a break-glass when `auth.mode = sso_only`
+- Cleaner sign-up disabled error message
+
 ## Version 0.0.377 (May 13, 2026)
 - Allow SMTP without credentials (use_credentials: false) for anonymous/open relays
 

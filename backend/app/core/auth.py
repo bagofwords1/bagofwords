@@ -59,7 +59,19 @@ class UserManager(BaseUserManager[User, str]):
         - If LDAP bind succeeds, return the user
         - If LDAP bind fails (wrong password), only superusers get local fallback (break-glass)
         - If LDAP server is unreachable, fall back to local auth for everyone
+
+        In ``auth.mode = sso_only``, the local form is a break-glass: SSO is
+        the source of truth, so we only let admins (or superusers) sign in
+        with password to avoid handing regular users a parallel login surface.
         """
+        user = await self._do_authenticate(credentials)
+        if user is None:
+            return None
+        if settings.bow_config.auth.mode == "sso_only" and not await self._user_can_use_local_login(user):
+            return None
+        return user
+
+    async def _do_authenticate(self, credentials) -> Optional[User]:
         ldap_config = settings.bow_config.ldap
         if ldap_config.enabled:
             ldap_result = await self._ldap_authenticate(credentials.username, credentials.password)
@@ -85,6 +97,24 @@ class UserManager(BaseUserManager[User, str]):
 
         # No LDAP — standard local auth
         return await super().authenticate(credentials)
+
+    async def _user_can_use_local_login(self, user: User) -> bool:
+        """Allow local login in sso_only mode only for admins / superusers.
+
+        "Admin" means the user holds a Membership with ``role='admin'`` in
+        any organization — same definition the rest of the app uses.
+        """
+        if user.is_superuser:
+            return True
+        from app.dependencies import async_session_maker
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(Membership.role).where(
+                    Membership.user_id == str(user.id),
+                    Membership.role == "admin",
+                )
+            )
+            return result.first() is not None
 
     async def _ldap_authenticate(self, email: str, password: str) -> str:
         """
@@ -374,7 +404,7 @@ class UserManager(BaseUserManager[User, str]):
                                 status_code=403,
                                 detail={
                                     "code": "invitation_required",
-                                    "message": "New user registration is disabled. You must be invited to create an account.",
+                                    "message": "Sign-up is disabled. Ask your admin for an invite.",
                                 },
                             )
                 # Fetch user info if needed (e.g., from Google)
@@ -553,7 +583,7 @@ class UserManager(BaseUserManager[User, str]):
                 if not open_membership:
                     raise HTTPException(
                         status_code=400,
-                        detail="New user registration is disabled. You must be invited to create an account."
+                        detail="Sign-up is disabled. Ask your admin for an invite."
                     )
 
         

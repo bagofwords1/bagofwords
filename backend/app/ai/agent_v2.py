@@ -321,6 +321,31 @@ class AgentV2:
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
 
+    async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str]]:
+        """Return (user_name, user_note) for the asker.
+
+        ``user_note`` is the per-org admin-managed note on the asker's
+        Membership row — same source of truth as the members table UI.
+        Returns ``(None, None)`` for system/non-user runs.
+        """
+        user = getattr(self.head_completion, 'user', None) if self.head_completion else None
+        if not user or not self.organization:
+            return None, None
+        user_name = getattr(user, 'name', None)
+        user_note = None
+        try:
+            from app.models.membership import Membership
+            result = await self.db.execute(
+                select(Membership.note).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == self.organization.id,
+                )
+            )
+            user_note = result.scalar_one_or_none()
+        except Exception:
+            user_note = None
+        return user_name, user_note
+
     async def _get_active_artifact(self) -> Optional[dict]:
         """Get the most recent artifact for the current report, enriched with
         visualization-level state so the planner treats it as the starting
@@ -703,6 +728,7 @@ class AgentV2:
                     break
                 step_count += 1
 
+                user_name, user_note = await self._resolve_user_profile()
                 planner_input = PlannerInput(
                     organization_name=self.organization.name,
                     organization_ai_analyst_name=self.ai_analyst_name,
@@ -716,6 +742,8 @@ class AgentV2:
                     mode="knowledge",
                     trigger_conditions=trigger_block,
                     external_platform=self.platform,
+                    user_name=user_name,
+                    user_note=user_note,
                 )
 
                 # Run the planner and capture the final decision
@@ -1754,6 +1782,7 @@ class AgentV2:
 
                     # Combine user images + observation images
                     all_images = user_images + observation_images
+                    user_name, user_note = await self._resolve_user_profile()
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
@@ -1780,6 +1809,8 @@ class AgentV2:
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                         scheduled_context=await self._build_scheduled_context(),
+                        user_name=user_name,
+                        user_note=user_note,
                     )
                     # Trim context if it exceeds the model's token budget
                     from app.ai.context.context_hub import trim_context_to_budget
@@ -3165,6 +3196,7 @@ class AgentV2:
 
         active_artifact = await self._get_active_artifact()
 
+        user_name, user_note = await self._resolve_user_profile()
         planner_input = PlannerInput(
             organization_name=self.organization.name,
             organization_ai_analyst_name=self.ai_analyst_name,
@@ -3189,6 +3221,8 @@ class AgentV2:
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             scheduled_context=await self._build_scheduled_context(),
+            user_name=user_name,
+            user_note=user_note,
         )
 
         from app.ai.context.context_hub import trim_context_to_budget
