@@ -87,21 +87,25 @@ class Settings(BaseSettings):
         else:
             raise ValueError(f"Unknown environment: {environment}")
             
-        # Setup email client only when SMTP settings are fully configured.
-        # In dev/test, BOW_SMTP_PASSWORD is often unset and resolves to None;
-        # in that case, leave email_client unset rather than failing to start.
-        if bow_config.smtp_settings and bow_config.smtp_settings.password:
+        # Setup email client.
+        # - With use_credentials=True (default), both username and password must be
+        #   present. In dev/test, BOW_SMTP_PASSWORD is often unset and resolves to
+        #   None; in that case, leave email_client unset rather than failing to start.
+        # - With use_credentials=False, the relay accepts mail without auth and
+        #   username/password are not required.
+        smtp = bow_config.smtp_settings
+        if smtp and ((not smtp.use_credentials) or (smtp.username and smtp.password)):
             email_config = ConnectionConfig(
-                MAIL_USERNAME=bow_config.smtp_settings.username,
-                MAIL_PASSWORD=bow_config.smtp_settings.password,
-                MAIL_FROM_NAME=bow_config.smtp_settings.from_name,
-                MAIL_FROM=bow_config.smtp_settings.from_email,
-                MAIL_PORT=bow_config.smtp_settings.port,
-                MAIL_SERVER=bow_config.smtp_settings.host,
-                MAIL_STARTTLS=bow_config.smtp_settings.use_tls,
-                MAIL_SSL_TLS=bow_config.smtp_settings.use_ssl,
-                USE_CREDENTIALS=bow_config.smtp_settings.use_credentials,
-                VALIDATE_CERTS=bow_config.smtp_settings.validate_certs,
+                MAIL_USERNAME=smtp.username or "",
+                MAIL_PASSWORD=smtp.password or "",
+                MAIL_FROM_NAME=smtp.from_name,
+                MAIL_FROM=smtp.from_email,
+                MAIL_PORT=smtp.port,
+                MAIL_SERVER=smtp.host,
+                MAIL_STARTTLS=smtp.use_tls,
+                MAIL_SSL_TLS=smtp.use_ssl,
+                USE_CREDENTIALS=smtp.use_credentials,
+                VALIDATE_CERTS=smtp.validate_certs,
                 TEMPLATE_FOLDER=None
             )
             settings.email_client = FastMail(email_config)
