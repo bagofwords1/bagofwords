@@ -57,6 +57,9 @@ services:
       - BOW_ENCRYPTION_KEY=${BOW_ENCRYPTION_KEY:-}
       # Enterprise license key (optional)
       - BOW_LICENSE_KEY=${BOW_LICENSE_KEY:-}
+      # SMTP credentials (optional — only needed if smtp_settings in bow-config.yaml uses these)
+      # - BOW_SMTP_USERNAME=${BOW_SMTP_USERNAME:-}
+      # - BOW_SMTP_PASSWORD=${BOW_SMTP_PASSWORD:-}
       # Config path
       - BOW_CONFIG_PATH=/app/bow-config.yaml
     volumes:

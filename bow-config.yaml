@@ -49,6 +49,21 @@ google_oauth:
 #   sync_interval_minutes: 60
 #   auto_provision_users: false
 
+# SMTP / Email
+# smtp_settings:
+#   host: smtp.example.com
+#   port: 587
+#   from_name: "Bag of words"
+#   from_email: noreply@example.com
+#   use_tls: true
+#   use_ssl: false
+#   validate_certs: true
+#   # Authentication is optional. For anonymous/open relays set
+#   # use_credentials: false and omit username/password.
+#   use_credentials: true
+#   username: ${BOW_SMTP_USERNAME}
+#   password: ${BOW_SMTP_PASSWORD}
+
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
 intercom:

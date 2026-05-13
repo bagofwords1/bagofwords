@@ -156,7 +156,7 @@ class LDAPConfig(BaseModel):
 class SMTPSettings(BaseModel):
     host: str = "smtp.resend.com"
     port: int = 587
-    username: str = "resend"
+    username: Optional[str] = None
     password: Optional[str] = None
     from_name: str = "Bag of words"
     from_email: str = "hi@bagofwords.com"
