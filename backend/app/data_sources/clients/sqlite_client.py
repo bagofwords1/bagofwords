@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -52,7 +53,12 @@ class SqliteClient(DataSourceClient):
                 tables: List[Table] = []
                 for table_name in names:
                     reporter.item(table_name)
-                    cursor.execute(f"PRAGMA table_info('{table_name}')")
+                    # PRAGMA does not accept bound parameters for object names,
+                    # so validate the name shape before interpolating to guard
+                    # against any odd values from sqlite_master.
+                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table_name):
+                        continue
+                    cursor.execute(f'PRAGMA table_info("{table_name}")')
                     columns = [
                         TableColumn(name=row["name"], dtype=row["type"] or "unknown")
                         for row in cursor.fetchall()

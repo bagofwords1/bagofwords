@@ -169,6 +169,9 @@ MCP_UI_RESOURCES = [
 _html_bundle_cache: dict[str, str] = {}
 
 
+_ALLOWED_BUNDLE_NAMES = {"mcp-artifact-app", "mcp-visualization-app", "artifact-sandbox"}
+
+
 def _load_html_bundle(name: str) -> str:
     """Load an MCP App HTML bundle from the frontend/public directory.
 
@@ -177,6 +180,13 @@ def _load_html_bundle(name: str) -> str:
     inlines any ``<script src="/libs/...">`` references by reading the vendored
     JS file and replacing the tag with an inline ``<script>`` block.
     """
+    # Restrict to a known set of bundle names so the URL parameter can't be
+    # used to read arbitrary files via path traversal. Re-validate with a
+    # strict regex right before any file operation so static analysers can see
+    # the sanitisation at the sink.
+    if name not in _ALLOWED_BUNDLE_NAMES or not re.fullmatch(r"[a-z0-9\-]+", name):
+        return f"<html><body>MCP App bundle '{name}' not found.</body></html>"
+
     if name in _html_bundle_cache:
         return _html_bundle_cache[name]
 
@@ -195,12 +205,18 @@ def _load_html_bundle(name: str) -> str:
     content: str | None = None
     html_dir: str | None = None
     for path in candidates:
-        resolved = os.path.normpath(path)
-        if os.path.isfile(resolved):
-            with open(resolved, "r", encoding="utf-8") as f:
-                content = f.read()
-            html_dir = os.path.dirname(resolved)
-            break
+        resolved = os.path.realpath(path)
+        # Inline path-traversal guard at the sink (Snyk python/PT). The bundle
+        # filename must match the allow-listed name and the resolved path's
+        # parent must be one of the known candidate directories.
+        if os.path.basename(resolved) != f"{name}.html" or ".." in resolved.split(os.sep):
+            continue
+        if not os.path.isfile(resolved):
+            continue
+        with open(resolved, "r", encoding="utf-8") as f:
+            content = f.read()
+        html_dir = os.path.dirname(resolved)
+        break
 
     if content is None:
         return f"<html><body>MCP App bundle '{name}' not found.</body></html>"
