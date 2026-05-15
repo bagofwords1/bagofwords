@@ -145,7 +145,7 @@
     return value
   }
 
-  const OAUTH_REDIRECT_KEY = 'bow:postSignInRedirect'
+  const OAUTH_REDIRECT_STORAGE_NAME = 'bow:postSignInRedirect'
 
   // Helper to extract error message from server response
   function extractErrorMessage(error: any, fallback: string): string {
@@ -196,8 +196,8 @@
       } else {
         let pendingRedirect: string | null = null
         try {
-          pendingRedirect = safeRedirectTarget(sessionStorage.getItem(OAUTH_REDIRECT_KEY))
-          sessionStorage.removeItem(OAUTH_REDIRECT_KEY)
+          pendingRedirect = safeRedirectTarget(sessionStorage.getItem(OAUTH_REDIRECT_STORAGE_NAME))
+          sessionStorage.removeItem(OAUTH_REDIRECT_STORAGE_NAME)
         } catch (_) {}
         navigateTo(pendingRedirect || '/')
       }
@@ -211,9 +211,9 @@
     const target = safeRedirectTarget(route.query.redirect)
     try {
       if (target) {
-        sessionStorage.setItem(OAUTH_REDIRECT_KEY, target)
+        sessionStorage.setItem(OAUTH_REDIRECT_STORAGE_NAME, target)
       } else {
-        sessionStorage.removeItem(OAUTH_REDIRECT_KEY)
+        sessionStorage.removeItem(OAUTH_REDIRECT_STORAGE_NAME)
       }
     } catch (_) {}
   }

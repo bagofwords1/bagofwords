@@ -36,14 +36,25 @@ class Settings(BaseSettings):
             print(f"Loading .env from: {dotenv_path}")
             load_dotenv(dotenv_path)
 
-        # Load and validate bow-config using Pydantic
+        # Load and validate bow-config using Pydantic.
+        # BOW_CONFIG_PATH overrides the default; restrict it to an absolute
+        # path with a yaml extension so this env var can't be used to read
+        # an arbitrary file off disk via path traversal.
         yaml_path = os.environ.get('BOW_CONFIG_PATH')
-        if not yaml_path:
+        if yaml_path:
+            yaml_path = os.path.abspath(yaml_path)
+            if not yaml_path.endswith((".yaml", ".yml")):
+                raise RuntimeError(
+                    f"BOW_CONFIG_PATH must point to a .yaml or .yml file: {yaml_path!r}"
+                )
+            if not os.path.isfile(yaml_path):
+                raise RuntimeError(f"BOW_CONFIG_PATH does not exist: {yaml_path!r}")
+        else:
             yaml_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                 "configs/bow-config.dev.yaml" if environment == "development" else "bow-config.yaml"
             )
-        
+
         print(f"Loading config from: {yaml_path}")
         
         # Process environment variables in the YAML before validation
@@ -67,7 +78,15 @@ class Settings(BaseSettings):
                 return None  # Env var not set — return None instead of raw placeholder
             return config
 
-        with open(yaml_path, "r") as yaml_file:
+        # Inline path-traversal guard at the sink (Snyk python/PT). Reject
+        # traversal sequences and ensure the resolved path exists.
+        if ".." in yaml_path or not yaml_path.endswith((".yaml", ".yml")):
+            raise RuntimeError(f"Config path is not a yaml file: {yaml_path!r}")
+        yaml_path_safe = os.path.realpath(yaml_path)
+        if not os.path.isfile(yaml_path_safe):
+            raise RuntimeError(f"Config path is not a regular file: {yaml_path!r}")
+
+        with open(yaml_path_safe, "r") as yaml_file:
             yaml_config = yaml.safe_load(yaml_file)
             # Resolve environment variables before validation
             yaml_config = resolve_env_vars(yaml_config)

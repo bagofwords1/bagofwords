@@ -63,18 +63,25 @@ def mount_spa(app: FastAPI) -> None:
             "Did `nuxt generate` run during the image build?"
         )
 
+    dist_dir_str = str(dist_dir)
+    index_file_str = str(index_file)
+
     @app.get("/{spa_path:path}", include_in_schema=False)
     async def spa_fallback(spa_path: str, request: Request):
         if _is_api_path(spa_path):
             raise HTTPException(status_code=404)
 
-        candidate = (dist_dir / spa_path).resolve()
-        try:
-            candidate.relative_to(dist_dir)
-        except ValueError:
+        # Inline path-traversal guard at the sink (Snyk python/PT). Reject
+        # absolute paths, parent refs, and backslashes before joining; then
+        # verify the resolved path stays under the dist dir.
+        if ".." in spa_path or spa_path.startswith("/") or "\\" in spa_path:
             raise HTTPException(status_code=404)
 
-        if candidate.is_file():
-            return FileResponse(candidate)
+        resolved = os.path.realpath(os.path.join(dist_dir_str, spa_path))
+        if not resolved.startswith(dist_dir_str + os.sep) and resolved != dist_dir_str:
+            raise HTTPException(status_code=404)
 
-        return FileResponse(index_file)
+        if os.path.isfile(resolved):
+            return FileResponse(resolved)
+
+        return FileResponse(index_file_str)

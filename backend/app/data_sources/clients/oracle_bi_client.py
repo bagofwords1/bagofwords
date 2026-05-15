@@ -3,7 +3,8 @@ from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional
 import requests
 import pandas as pd
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
+from xml.etree.ElementTree import Element
 from xml.sax.saxutils import escape as xml_escape
 
 
@@ -460,7 +461,7 @@ df = client.execute_query('''
     # SOAP transport
     # ------------------------------------------------------------------
 
-    def _soap_call(self, service: str, body_xml: str) -> ET.Element:
+    def _soap_call(self, service: str, body_xml: str) -> Element:
         """
         POST a SOAP request to /analytics-ws/saw.dll?SoapImpl=<service> and
         return the parsed response root element. Raises on HTTP errors and

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Mapping, Optional
@@ -14,9 +15,14 @@ try:
 except Exception:  # pragma: no cover - safe import guard
     Posthog = None  # type: ignore
 
-# Hardcoded PostHog credentials per user request
-POSTHOG_API_KEY = "phc_aWBVqSFPK846NT5XRUm9NmiiX0ElKNDJwA97lZ3DfGq"
-POSTHOG_HOST = "https://us.i.posthog.com"
+# PostHog "phc_*" ingest keys are write-only project keys intended to ship in
+# client code (see https://posthog.com/docs/api). Override via env for self-
+# hosted PostHog deployments. Default is the bagofwords cloud project.
+POSTHOG_API_KEY = os.environ.get(
+    "BOW_POSTHOG_KEY",
+    "phc_aWBVqSFPK846NT5XRUm9NmiiX0ElKNDJwA97lZ3DfGq",
+)
+POSTHOG_HOST = os.environ.get("BOW_POSTHOG_HOST", "https://us.i.posthog.com")
 
 # Thread pool for running blocking PostHog calls without blocking the event loop
 _telemetry_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="telemetry")

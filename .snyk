@@ -1,0 +1,23 @@
+# Snyk (https://snyk.io) policy file
+#
+# Snyk Code ignores are managed in the Snyk web UI per Snyk's docs:
+# "Ignoring issues or vulnerabilities using the .snyk file is not supported
+#  for Snyk Code." The block below excludes paths from scanning entirely —
+# test suites, immutable migration history, vendored JS bundles, false-
+# positive sites in i18n keymaps, local dev helpers.
+version: v1.0.0
+exclude:
+  code:
+    - 'backend/tests'
+    - 'backend/tests/**'
+    - 'backend/tests/**/*'
+    - '**/spider_eval.py'
+    - 'frontend/tests'
+    - 'frontend/tests/**'
+    - 'backend/alembic/versions'
+    - 'backend/alembic/versions/**'
+    - 'frontend/public/libs'
+    - 'frontend/public/libs/**'
+    - 'frontend/pages/agents/*/evals.vue'
+    - 'frontend/pages/evals/index.vue'
+    - 'scripts/pw-shot.js'

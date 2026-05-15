@@ -381,8 +381,8 @@ function enterPolishMode() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  // Tell iframe to enable pick mode
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
+  // Tell iframe to enable pick mode (srcdoc iframe inherits parent origin)
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
 }
 
 function exitPolishMode() {
@@ -390,16 +390,14 @@ function exitPolishMode() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  // Tell iframe to disable pick mode
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, '*');
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_EXIT' }, window.location.origin);
 }
 
 function cancelPolishPrompt() {
   polishPromptVisible.value = false;
   polishSelectedElement.value = null;
   polishInstruction.value = '';
-  // Re-enter pick mode so user can select another element
-  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, '*');
+  iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
 }
 
 function submitPolishPrompt() {
@@ -474,13 +472,21 @@ async function exportPptx() {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const blob = await response.blob();
-
-    // Create download link
-    const url = window.URL.createObjectURL(blob);
+    // Materialise the response body as bytes, then wrap in a fresh local
+    // Blob with an explicit MIME type. Going through ArrayBuffer + new Blob
+    // detaches the download URL from the remote response (binary content
+    // never reaches the DOM as HTML).
+    const arrayBuffer = await response.arrayBuffer();
+    const localBlob = new Blob([arrayBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    });
+    const rawTitle = selectedArtifact.value?.title || 'presentation';
+    const safeName = String(rawTitle).replace(/[^\w\s.-]/g, '').slice(0, 120) || 'presentation';
+    const url = window.URL.createObjectURL(localBlob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `${selectedArtifact.value?.title || 'presentation'}.pptx`;
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${safeName}.pptx`);
+    link.style.display = 'none';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -736,7 +742,7 @@ function sendDataToIframe() {
     iframeRef.value.contentWindow.postMessage({
       type: 'ARTIFACT_DATA',
       payload
-    }, '*');
+    }, window.location.origin);
   } catch (err: any) {
     console.error('[ArtifactFrame] Failed to send data to iframe:', err);
     iframeError.value = err?.message || 'Failed to send data to dashboard iframe';

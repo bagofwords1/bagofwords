@@ -1,5 +1,6 @@
 from app.data_sources.clients.base import DataSourceClient
 
+import re
 import pandas as pd
 from typing import List, Generator, Optional, Dict, Any
 from contextlib import contextmanager
@@ -112,8 +113,13 @@ class PinotClient(DataSourceClient):
 
         for t in table_names:
             columns: List[TableColumn] = []
+            # Pinot doesn't parameterize table names; only schema-discovered
+            # identifiers (letters/digits/_/.) are eligible to be probed.
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", t):
+                tables[t] = Table(name=t, columns=columns, pks=[], fks=[], metadata_json={})
+                continue
             try:
-                probe_sql = f"SELECT * FROM {t} LIMIT 0"
+                probe_sql = f'SELECT * FROM "{t}" LIMIT 0'
                 with self.connect() as conn:
                     cursor = conn.cursor()
                     if self.query_options:

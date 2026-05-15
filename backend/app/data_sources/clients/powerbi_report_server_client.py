@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import tempfile
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 import pandas as pd
 import requests
@@ -63,13 +63,13 @@ def _safe_view_name(name: str) -> str:
 
 def _pbix_cache_path(report_id: str, modified_date: Optional[str]) -> Path:
     key = f"{report_id}|{modified_date or ''}"
-    h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    h = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     return _PBIX_SCHEMA_CACHE_DIR / f"{h}.json"
 
 
 def _pbix_data_cache_dir(report_id: str, modified_date: Optional[str]) -> Path:
     key = f"{report_id}|{modified_date or ''}"
-    h = hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+    h = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     return _PBIX_DATA_CACHE_DIR / h
 
 

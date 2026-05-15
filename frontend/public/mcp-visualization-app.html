@@ -87,6 +87,8 @@
 
   // Listen for all messages from host
   window.addEventListener('message', function(event) {
+    // Only accept messages from the embedding host (covers srcdoc/null too).
+    if (event.origin !== window.location.origin && event.origin !== 'null') return;
     var msg = event.data;
     if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return;
 

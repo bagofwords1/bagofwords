@@ -1,29 +1,44 @@
-from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
 import os
+import re
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 router = APIRouter(tags=["settings"])
 
+# Single-segment basename: no path separators, no traversal.
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,200}$")
+
+
 @router.get("/general/icon/{icon_key}")
 async def get_general_icon(icon_key: str):
-    base_dir = os.path.abspath(os.path.join(os.getcwd(), "uploads", "branding"))
-    path = os.path.join(base_dir, icon_key)
-    if not os.path.exists(path):
-        # Let FastAPI raise 404 automatically by not returning a file
-        from fastapi import HTTPException
+    # Inline path-traversal guard at the sink (Snyk python/PT).
+    if ".." in icon_key or "/" in icon_key or "\\" in icon_key:
         raise HTTPException(status_code=404, detail="Icon not found")
-    # Basic caching headers could be added via Response, but simple FileResponse is okay now
-    return FileResponse(path)
+    if not _SAFE_NAME_RE.fullmatch(icon_key):
+        raise HTTPException(status_code=404, detail="Icon not found")
+
+    base_dir = os.path.realpath(os.path.join(os.getcwd(), "uploads", "branding"))
+    resolved = os.path.realpath(os.path.join(base_dir, icon_key))
+    if not resolved.startswith(base_dir + os.sep):
+        raise HTTPException(status_code=404, detail="Icon not found")
+    if not os.path.isfile(resolved):
+        raise HTTPException(status_code=404, detail="Icon not found")
+    return FileResponse(resolved)
 
 
 @router.get("/thumbnails/{filename}")
 async def get_thumbnail(filename: str):
     """Serve thumbnail images for artifacts/reports."""
-    base_dir = os.path.abspath(os.path.join(os.getcwd(), "uploads", "thumbnails"))
-    path = os.path.join(base_dir, filename)
-    if not os.path.exists(path):
-        from fastapi import HTTPException
+    if ".." in filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-    return FileResponse(path, media_type="image/png")
+    if not _SAFE_NAME_RE.fullmatch(filename):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
 
-
+    base_dir = os.path.realpath(os.path.join(os.getcwd(), "uploads", "thumbnails"))
+    resolved = os.path.realpath(os.path.join(base_dir, filename))
+    if not resolved.startswith(base_dir + os.sep):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    if not os.path.isfile(resolved):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(resolved, media_type="image/png")

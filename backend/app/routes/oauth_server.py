@@ -98,8 +98,11 @@ async def authorize_redirect(
             status_code=400,
         )
 
-    # Build redirect to frontend consent page
-    base = _base_url(request)
+    # Build redirect to frontend consent page. Use a path-only URL so this
+    # endpoint can never be used to bounce users to an external origin
+    # (Snyk python/OR open-redirect). The actual OAuth redirect_uri the client
+    # passes is preserved as a query param and validated against registered
+    # URIs when the consent is approved.
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -113,7 +116,7 @@ async def authorize_redirect(
     if code_challenge_method:
         params["code_challenge_method"] = code_challenge_method
 
-    consent_url = f"{base}/authorize?{urlencode(params)}"
+    consent_url = f"/authorize?{urlencode(params)}"
     return RedirectResponse(url=consent_url, status_code=302)
 
 

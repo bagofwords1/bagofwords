@@ -333,9 +333,11 @@ async def export_artifact_pptx(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Export a slides artifact as PowerPoint (PPTX)."""
+    import os as _os
     from pathlib import Path
     from fastapi.responses import FileResponse
     from app.ee.audit.service import audit_service
+    from app.core.path_safety import UnsafePathError, ensure_within
 
     artifact = await service.get(db, artifact_id)
     if not artifact:
@@ -371,11 +373,12 @@ async def export_artifact_pptx(
         pass
 
     # Check if we have a pre-generated PPTX file (new python-pptx approach)
-    if artifact.pptx_path:
-        pptx_file = Path(artifact.pptx_path)
-        if pptx_file.exists():
+    if artifact.pptx_path and ".." not in artifact.pptx_path:
+        upload_base = _os.path.realpath(_os.path.join(_os.getcwd(), "uploads"))
+        resolved_pptx = _os.path.realpath(artifact.pptx_path)
+        if resolved_pptx.startswith(upload_base + _os.sep) and _os.path.isfile(resolved_pptx):
             return FileResponse(
-                path=str(pptx_file),
+                path=resolved_pptx,
                 media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 filename=filename,
             )

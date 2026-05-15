@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import threading
 import time
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, List, Optional
@@ -30,11 +30,24 @@ _HEADER_END_TAG = b"</QvdTableHeader>"
 _HEADER_SCAN_LIMIT = 4 * 1024 * 1024
 
 # Resolved once at import. Override with QVD2PARQUET_BIN for dev/test.
-_QVD2PARQUET_BIN = (
-    os.environ.get("QVD2PARQUET_BIN")
-    or shutil.which("qvd2parquet")
-    or "/usr/local/bin/qvd2parquet"
-)
+# Validate strictly: an env-supplied override must be an absolute path to an
+# existing regular file so the binary location can't be swapped to an arbitrary
+# program (Snyk python/CommandInjection — env input flowing into subprocess.run).
+def _resolve_qvd2parquet_bin() -> str:
+    override = os.environ.get("QVD2PARQUET_BIN")
+    if override:
+        if not re.fullmatch(r"[A-Za-z0-9_./\-]+", override) or not os.path.isabs(override):
+            raise RuntimeError(
+                f"QVD2PARQUET_BIN must be an absolute path with no shell metacharacters: {override!r}"
+            )
+        resolved = os.path.realpath(override)
+        if not os.path.isfile(resolved):
+            raise RuntimeError(f"QVD2PARQUET_BIN points to a non-existent file: {override!r}")
+        return resolved
+    return shutil.which("qvd2parquet") or "/usr/local/bin/qvd2parquet"
+
+
+_QVD2PARQUET_BIN = _resolve_qvd2parquet_bin()
 
 # Per-cache-path lock so concurrent threads (connect() calls) don't race writing
 # the same .parquet.tmp file. Keyed by the final cache_path (Path).
@@ -156,7 +169,7 @@ class QVDClient(DataSourceClient):
     def _cache_key(filepath: str) -> tuple[str, Path]:
         """Return (file_hash, cache_path) for the given QVD file + its current mtime."""
         abs_path = os.path.abspath(filepath)
-        file_hash = hashlib.sha1(abs_path.encode("utf-8")).hexdigest()[:16]
+        file_hash = hashlib.sha256(abs_path.encode("utf-8")).hexdigest()[:16]
         mtime_ns = os.stat(abs_path).st_mtime_ns
         return file_hash, _CACHE_DIR / f"{file_hash}_{mtime_ns}.parquet"
 
