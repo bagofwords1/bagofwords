@@ -127,14 +127,12 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
     if not file.path or not os.path.exists(file.path):
         raise HTTPException(status_code=404, detail="File content not found")
 
-    # Inline path guard at the sink (Snyk python/PT). The DB-stored path was
-    # written by our own upload handler, but verify it still resolves under
-    # the uploads dir before serving — defence in depth.
-    if ".." in file.path:
-        raise HTTPException(status_code=404, detail="File content not found")
-    upload_base = os.path.realpath(os.path.join(os.getcwd(), "uploads"))
-    safe_path = os.path.realpath(file.path)
-    if not safe_path.startswith(upload_base + os.sep):
+    # Centralised path-traversal guard. The DB-stored path was written by our
+    # own upload handler; verify it still resolves under uploads/ at the sink
+    # (Snyk python/PT, defence in depth).
+    try:
+        safe_path = str(ensure_within(file.path, [os.path.join(os.getcwd(), "uploads")]))
+    except UnsafePathError:
         raise HTTPException(status_code=404, detail="File content not found")
 
     try:
