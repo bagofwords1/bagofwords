@@ -1,5 +1,6 @@
 """MCP Tool: edit_artifact - Surgically edit an existing dashboard/artifact."""
 
+import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 
@@ -215,10 +216,14 @@ class EditArtifactMCPTool(MCPTool):
             report_title=getattr(report, 'title', None),
         )
 
-        # LLM inference (non-streaming for MCP)
+        # LLM inference (non-streaming for MCP). Offloaded to a worker
+        # thread because `LLM.inference` is sync and runs the pre-call
+        # usage-limit check via `run_blocking`; that check raises if
+        # called from inside a running event loop without `loop` set.
         llm = LLM(rich_ctx.model, usage_session_maker=async_session_maker)
         try:
-            response = llm.inference(
+            response = await asyncio.to_thread(
+                llm.inference,
                 prompt,
                 usage_scope="mcp_edit_artifact",
                 usage_scope_ref_id=str(report.id),

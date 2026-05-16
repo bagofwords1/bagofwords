@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata, FileSchemaWithCompletionId
@@ -319,8 +321,11 @@ class FileService:
         try:
             processed_sheets_count = 0
             for index, sheet_name in enumerate(sheet_names):
-                ea = ExcelAgent(file, model) 
-                schema = ea.get_schema(index)
+                ea = ExcelAgent(file, model)
+                # Offload — `get_schema` ultimately calls sync
+                # `LLM.inference` which can't run its usage-limit check
+                # from an active event loop without a wired `loop`.
+                schema = await asyncio.to_thread(ea.get_schema, index)
 
                 if schema and "sheet_name" in schema:
                     sc = SheetSchema(
@@ -374,7 +379,10 @@ class FileService:
 
         for i in range(0, len(tokens), chunk_size - overlap):
             chunk = tokenizer.decode(tokens[i:i+chunk_size])
-            new_tags = da.get_tags_from_text(chunk, tags)
+            # Offload to a thread — `get_tags_from_text` calls sync
+            # `LLM.inference`, whose pre-call usage-limit check raises
+            # when invoked from a running event loop with no `loop` set.
+            new_tags = await asyncio.to_thread(da.get_tags_from_text, chunk, tags)
             tags.extend(new_tags)
         
         file_tags = []

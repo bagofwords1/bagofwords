@@ -579,21 +579,29 @@ class CompletionService:
             if background:
                 logging.info("CompletionService: Scheduling background agent (non-stream API)")
 
-                # Capture primitive IDs — ORM objects cannot cross session boundaries
+                # Capture primitive IDs — ORM objects cannot cross session boundaries.
+                # Reading any attribute (even .id) on an expired/detached instance from the
+                # outer request session raises DetachedInstanceError once FastAPI tears the
+                # request session down, which races with this task starting.
                 _model_id = model.id
                 _small_model_id = small_model.id
                 _organization_id = organization.id
                 _current_user_id = current_user.id
+                _report_id = report.id
+                _head_completion_id = head_completion.id
+                _system_completion_id = system_completion.id
+                _widget_id = widget.id if widget else None
+                _step_id = step.id if step else None
 
                 async def run_agent_task():
                     async_session = create_async_session_factory()
                     async with async_session() as session:
                         try:
-                            report_obj = await session.get(Report, report.id)
-                            head_obj = await session.get(Completion, head_completion.id)
-                            system_obj = await session.get(Completion, system_completion.id)
-                            widget_obj = await session.get(Widget, widget.id) if widget else None
-                            step_obj = await session.get(Step, step.id) if step else None
+                            report_obj = await session.get(Report, _report_id)
+                            head_obj = await session.get(Completion, _head_completion_id)
+                            system_obj = await session.get(Completion, _system_completion_id)
+                            widget_obj = await session.get(Widget, _widget_id) if _widget_id else None
+                            step_obj = await session.get(Step, _step_id) if _step_id else None
                             model_obj = await session.get(LLMModel, _model_id)
                             small_model_obj = await session.get(LLMModel, _small_model_id)
                             organization_obj = await session.get(Organization, _organization_id)
@@ -638,16 +646,21 @@ class CompletionService:
                             )
                             await agent.main_execution()
                         except Exception as e:
-                            logging.error(f"Agent background execution failed: {e}")
+                            logging.exception("Agent background execution failed")
+                            # Mark the completion as errored on a fresh session — the
+                            # current one may be poisoned (e.g. after IntegrityError or a
+                            # mid-transaction failure) and its commit would silently fail,
+                            # leaving the row stuck in 'in_progress' forever.
                             try:
-                                await session.execute(
-                                    update(Completion)
-                                    .where(Completion.id == system_completion.id)
-                                    .values(status='error', completion={'content': f"Agent failed: {str(e)}", 'error': True})
-                                )
-                                await session.commit()
+                                async with async_session() as recovery_session:
+                                    await recovery_session.execute(
+                                        update(Completion)
+                                        .where(Completion.id == _system_completion_id)
+                                        .values(status='error', completion={'content': f"Agent failed: {str(e)}", 'error': True})
+                                    )
+                                    await recovery_session.commit()
                             except Exception:
-                                pass
+                                logging.exception("Failed to mark background completion as errored")
 
                 asyncio.create_task(run_agent_task())
                 # Return minimal v2 response with just created placeholders

@@ -1,5 +1,7 @@
 from typing import Optional, Callable
 
+import asyncio
+
 from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,4 +47,8 @@ class Reporter:
         "Reconcile inventory between our system and our warehouse" -> Inventory Reconciliation
         """
 
-        return self.llm.inference(text)
+        # `LLM.inference` is sync and runs the pre-call quota check via
+        # `run_blocking`. Called from a running event loop with no `loop`
+        # wired on the usage context, that check raises immediately. Offload
+        # to a worker thread so the sync check has no loop to collide with.
+        return await asyncio.to_thread(self.llm.inference, text)

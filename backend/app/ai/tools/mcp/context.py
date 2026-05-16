@@ -6,6 +6,7 @@ access to the same rich context (instructions, resources, schemas) that
 the main agent uses.
 """
 
+import asyncio
 import json
 import re
 import logging
@@ -310,7 +311,11 @@ Return ONLY the JSON array, no explanation or markdown. If no tables are relevan
 
     try:
         llm = LLM(model, usage_session_maker=async_session_maker)
-        response = llm.inference(
+        # Offloaded to a worker thread — `LLM.inference` is sync and the
+        # pre-call usage-limit check raises if invoked from inside a
+        # running event loop without `loop` set on the context.
+        response = await asyncio.to_thread(
+            llm.inference,
             selection_prompt,
             usage_scope="mcp_table_selection",
             should_record=True,
