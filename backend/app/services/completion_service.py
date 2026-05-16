@@ -584,16 +584,21 @@ class CompletionService:
                 _small_model_id = small_model.id
                 _organization_id = organization.id
                 _current_user_id = current_user.id
+                _report_id = report.id
+                _head_id = head_completion.id
+                _system_id = system_completion.id
+                _widget_id = widget.id if widget else None
+                _step_id = step.id if step else None
 
                 async def run_agent_task():
                     async_session = create_async_session_factory()
                     async with async_session() as session:
                         try:
-                            report_obj = await session.get(Report, report.id)
-                            head_obj = await session.get(Completion, head_completion.id)
-                            system_obj = await session.get(Completion, system_completion.id)
-                            widget_obj = await session.get(Widget, widget.id) if widget else None
-                            step_obj = await session.get(Step, step.id) if step else None
+                            report_obj = await session.get(Report, _report_id)
+                            head_obj = await session.get(Completion, _head_id)
+                            system_obj = await session.get(Completion, _system_id)
+                            widget_obj = await session.get(Widget, _widget_id) if _widget_id else None
+                            step_obj = await session.get(Step, _step_id) if _step_id else None
                             model_obj = await session.get(LLMModel, _model_id)
                             small_model_obj = await session.get(LLMModel, _small_model_id)
                             organization_obj = await session.get(Organization, _organization_id)
@@ -638,11 +643,13 @@ class CompletionService:
                             )
                             await agent.main_execution()
                         except Exception as e:
-                            logging.error(f"Agent background execution failed: {e}")
+                            import traceback
+                            logging.error(f"Agent background execution failed: {e}\n{traceback.format_exc()}")
                             try:
+                                await session.rollback()
                                 await session.execute(
                                     update(Completion)
-                                    .where(Completion.id == system_completion.id)
+                                    .where(Completion.id == _system_id)
                                     .values(status='error', completion={'content': f"Agent failed: {str(e)}", 'error': True})
                                 )
                                 await session.commit()

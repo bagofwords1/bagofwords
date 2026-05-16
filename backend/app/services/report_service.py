@@ -365,6 +365,8 @@ class ReportService:
 
         # Create the report object
         report = Report(**report_data.dict())
+        if not report.title:
+            report.title = "untitled report"
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
