@@ -3,7 +3,8 @@ import zipfile
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple, Any, Optional
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
+from xml.etree.ElementTree import Element
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class TableauTDSResourceExtractor:
 
         return self.resources, self.columns_by_resource, self.docs_by_resource
 
-    def _parse_tds_tree(self, root: ET.Element, rel_path: str, file_hint: Optional[str] = None) -> None:
+    def _parse_tds_tree(self, root: Element, rel_path: str, file_hint: Optional[str] = None) -> None:
         """Parse a TDS XML root element, populating resources."""
         tag = _strip_namespace(root.tag)
         if tag != 'datasource':

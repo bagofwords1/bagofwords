@@ -94,6 +94,11 @@
 
       // Listen for data from parent window
       window.addEventListener('message', function(event) {
+        // Only accept messages from the embedding document. 'null' covers
+        // srcdoc / data: framings where the parent reports an opaque origin.
+        if (event.origin !== window.location.origin && event.origin !== 'null') {
+          return;
+        }
         // Handle data payload
         if (event.data && event.data.type === 'ARTIFACT_DATA') {
           window.ARTIFACT_DATA = event.data.payload;

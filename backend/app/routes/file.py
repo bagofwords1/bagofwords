@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.dependencies import get_db
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from app.models.report import Report
 from app.ee.audit.service import audit_service
+from app.core.path_safety import UnsafePathError, ensure_within
 
 router = APIRouter(tags=["files"])
 file_service = FileService()
@@ -108,6 +109,14 @@ async def get_files(current_user: User = Depends(current_user), db: AsyncSession
 @requires_permission('manage_files')
 async def get_file_content(file_id: str, request: Request, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Serve file content (for displaying images in chat)."""
+    # file_id must be a UUID — reject anything else at the entry so the
+    # parameter cannot smuggle path characters further down (Snyk python/PT).
+    import uuid as _uuid
+    try:
+        _uuid.UUID(file_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="File not found")
+
     stmt = select(FileModel).filter(FileModel.id == file_id, FileModel.organization_id == organization.id)
     result = await db.execute(stmt)
     file = result.scalar_one_or_none()
@@ -116,6 +125,14 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
         raise HTTPException(status_code=404, detail="File not found")
 
     if not file.path or not os.path.exists(file.path):
+        raise HTTPException(status_code=404, detail="File content not found")
+
+    # Centralised path-traversal guard. The DB-stored path was written by our
+    # own upload handler; verify it still resolves under uploads/ at the sink
+    # (Snyk python/PT, defence in depth).
+    try:
+        safe_path = str(ensure_within(file.path, [os.path.join(os.getcwd(), "uploads")]))
+    except UnsafePathError:
         raise HTTPException(status_code=404, detail="File content not found")
 
     try:
@@ -132,8 +149,15 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
     except Exception:
         pass
 
-    return FileResponse(
-        path=file.path,
-        filename=file.filename,
-        media_type=file.content_type
+    # safe_path is verified above to live under uploads/ — read its bytes and
+    # serve as an in-memory response so no path string is handed to a
+    # framework file API.
+    with open(safe_path, "rb") as _fh:
+        content = _fh.read()
+    return Response(
+        content=content,
+        media_type=file.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{file.filename}"',
+        },
     )

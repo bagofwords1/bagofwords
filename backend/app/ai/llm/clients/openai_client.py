@@ -26,12 +26,12 @@ class OpenAi(LLMClient):
         super().__init__()
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if not verify_ssl:
-            kwargs["http_client"] = httpx.Client(verify=False)
+            kwargs["http_client"] = httpx.Client(verify=verify_ssl)
         self.client = OpenAI(**kwargs)
 
         async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if not verify_ssl:
-            async_kwargs["http_client"] = httpx.AsyncClient(verify=False)
+            async_kwargs["http_client"] = httpx.AsyncClient(verify=verify_ssl)
         self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod
