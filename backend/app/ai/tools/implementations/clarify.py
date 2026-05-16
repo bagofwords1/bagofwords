@@ -12,11 +12,11 @@ from app.ai.tools.schemas.events import (
 
 
 class ClarifyTool(Tool):
-    """Clarify tool - signals that the planner needs user clarification.
+    """Clarify tool — pause and ask the user a question.
 
-    The user-facing questions live in the model's message text (preceding this
-    tool_use). This tool only marks analysis_complete=True to stop the loop and
-    wait for the user's response.
+    The user-facing text lives in ``question`` (required tool input). Emits
+    ``final_answer`` in the observation so the existing terminal-tool path in
+    ``agent_v2`` routes it into the block's content and the completion message.
     """
 
     @property
@@ -24,10 +24,9 @@ class ClarifyTool(Tool):
         return ToolMetadata(
             name="clarify",
             description=(
-                "Pause and wait for the user to clarify. "
-                "Your message text must contain the full clarification questions for the user — "
-                "see the clarify protocol in the system prompt for the required format. "
-                "This tool's `context` arg is an optional internal note, not shown to the user."
+                "Pause and ask the user a clarifying question. "
+                "Put the full user-facing message in `question` (markdown OK). "
+                "The agent loop stops after this tool runs and waits for the user's reply."
             ),
             category="action",
             version="1.0.0",
@@ -41,14 +40,17 @@ class ClarifyTool(Tool):
             examples=[
                 {
                     "input": {
-                        "context": "user requested revenue analysis but didn't specify time period"
+                        "question": (
+                            "Which definition of \"active user\" should I use?\n"
+                            "- logged in within the last 30 days\n"
+                            "- performed any tracked action within the last 30 days\n"
+                            "- has an active subscription\n"
+                            "- or specify your own."
+                        ),
+                        "context": "user asked about active users; not defined in instructions",
                     },
-                    "description": "pause for clarification (questions live in the model's message text, not here)"
+                    "description": "ask the user to pick a definition before computing",
                 },
-                {
-                    "input": {},
-                    "description": "pause for clarification with no internal context note"
-                }
             ]
         )
 
@@ -65,26 +67,25 @@ class ClarifyTool(Tool):
 
         yield ToolStartEvent(
             type="tool.start",
-            payload={"context": data.context}
+            payload={"question": data.question, "context": data.context},
         )
 
-        # Simple observation - just mark that we're waiting for user response
-        # The actual questions are in the planner's assistant_message
-        summary = "Waiting for user clarification"
+        summary = "Awaiting user clarification"
         if data.context:
-            summary = f"Waiting for user clarification: {data.context}"
+            summary = f"Awaiting user clarification: {data.context}"
 
         yield ToolEndEvent(
             type="tool.end",
             payload={
-                "output": {
-                    "status": "awaiting_response"
-                },
+                "output": {"status": "awaiting_response"},
                 "observation": {
                     "summary": summary,
                     "artifacts": [],
                     "analysis_complete": True,
-                    # No final_answer - the planner's assistant_message has the questions
+                    # final_answer carries the question text → agent_v2's
+                    # terminal-tool branch updates the completion message
+                    # and re-upserts the block with this as its content.
+                    "final_answer": data.question,
                 },
             }
         )
