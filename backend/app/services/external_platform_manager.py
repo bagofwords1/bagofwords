@@ -348,7 +348,7 @@ class ExternalPlatformManager:
                 )
 
         # Create completion data
-        from app.schemas.completion_schema import CompletionCreate, PromptSchema
+        from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
 
         completion_data = CompletionCreate(
             prompt=PromptSchema(
@@ -359,7 +359,8 @@ class ExternalPlatformManager:
                     {'name': 'MEMORY', 'items': []},
                     {'name': 'FILES', 'items': []},
                     {'name': 'DATA SOURCES', 'items': []}
-                ]
+                ],
+                platform=platform_type,
             )
         )
 
