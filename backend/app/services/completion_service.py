@@ -14,6 +14,7 @@ from app.models.mention import Mention, MentionType
 from app.models.organization import Organization
 from app.models.step import Step
 from app.models.user import User
+from app.models.llm_model import LLMModel
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.completion_schema import CompletionSchema, PromptSchema
@@ -578,6 +579,12 @@ class CompletionService:
             if background:
                 logging.info("CompletionService: Scheduling background agent (non-stream API)")
 
+                # Capture primitive IDs — ORM objects cannot cross session boundaries
+                _model_id = model.id
+                _small_model_id = small_model.id
+                _organization_id = organization.id
+                _current_user_id = current_user.id
+
                 async def run_agent_task():
                     async_session = create_async_session_factory()
                     async with async_session() as session:
@@ -587,15 +594,21 @@ class CompletionService:
                             system_obj = await session.get(Completion, system_completion.id)
                             widget_obj = await session.get(Widget, widget.id) if widget else None
                             step_obj = await session.get(Step, step.id) if step else None
+                            model_obj = await session.get(LLMModel, _model_id)
+                            small_model_obj = await session.get(LLMModel, _small_model_id)
+                            organization_obj = await session.get(Organization, _organization_id)
+                            user_obj = await session.get(User, _current_user_id)
 
-                            if not all([report_obj, head_obj, system_obj]):
+                            if not all([report_obj, head_obj, system_obj, model_obj, organization_obj, user_obj]):
                                 logging.error("Background agent init failed: missing objects")
                                 return
-                            
+
+                            org_settings_obj = await organization_obj.get_settings(session)
+
                             clients = {}
                             for data_source in report_obj.data_sources:
                                 try:
-                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, user_obj)
                                     clients.update(ds_clients)
                                 except HTTPException as e:
                                     if e.status_code == 403:
@@ -608,10 +621,10 @@ class CompletionService:
                             resolved_platform = external_platform or (completion_data.prompt.platform if completion_data.prompt else None)
                             agent = AgentV2(
                                 db=session,
-                                organization=organization,
-                                organization_settings=org_settings,
-                                model=model,
-                                small_model=small_model,
+                                organization=organization_obj,
+                                organization_settings=org_settings_obj,
+                                model=model_obj,
+                                small_model=small_model_obj,
                                 report=report_obj,
                                 messages=[],
                                 head_completion=head_obj,

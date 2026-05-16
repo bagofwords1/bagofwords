@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.379 (May 16, 2026)
+- fix background completion API
+- security patches and fixes
+
+
 ## Version 0.0.378 (May 13, 2026)
 - Per-member admin-managed `note` (per-org) injected into the planner prompt as `<user_profile>` context
 - Bulk import members from Excel/CSV with dry-run preview; idempotent — never touches roles or group memberships
