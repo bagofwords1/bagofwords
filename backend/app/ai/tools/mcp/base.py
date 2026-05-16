@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, TypedDict
 
 from sqlalchemy import select, and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -173,29 +174,41 @@ class MCPTool(ABC):
         This enables the MCP icon to appear in the Members page for users
         who have made MCP API calls.
         """
-        # Check if mapping already exists
+        # Match the DB unique constraint (organization_id, platform_type,
+        # external_user_id) so we don't miss rows tied to a different
+        # platform_id for the same logical MCP user.
+        external_user_id = f"mcp_{user.id}"
         stmt = select(ExternalUserMapping).where(
             and_(
-                ExternalUserMapping.app_user_id == str(user.id),
-                ExternalUserMapping.platform_id == str(platform.id),
+                ExternalUserMapping.organization_id == str(organization.id),
                 ExternalUserMapping.platform_type == "mcp",
+                ExternalUserMapping.external_user_id == external_user_id,
             )
         )
         existing = (await db.execute(stmt)).scalar_one_or_none()
-        
-        if not existing:
-            mapping = ExternalUserMapping(
-                organization_id=str(organization.id),
-                app_user_id=str(user.id),
-                platform_id=str(platform.id),
-                platform_type="mcp",
-                external_user_id=f"mcp_{user.id}",  # Synthetic ID for MCP
-                external_email=user.email,
-                external_name=user.name,
-                is_verified=True,
-            )
-            db.add(mapping)
-            await db.flush()
+        if existing:
+            return
+
+        mapping = ExternalUserMapping(
+            organization_id=str(organization.id),
+            app_user_id=str(user.id),
+            platform_id=str(platform.id),
+            platform_type="mcp",
+            external_user_id=external_user_id,
+            external_email=user.email,
+            external_name=user.name,
+            is_verified=True,
+        )
+        # SAVEPOINT so a concurrent insert losing the race doesn't poison
+        # the outer transaction.
+        db.add(mapping)
+        try:
+            async with db.begin_nested():
+                await db.flush([mapping])
+        except IntegrityError:
+            # A concurrent request inserted the row first. Expunge the
+            # pending object so a later flush doesn't retry the INSERT.
+            db.expunge(mapping)
     
     async def _create_tracking_context(
         self,
