@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import logging
 
@@ -543,12 +544,15 @@ class DataSourceService:
 
         data_source_agent = DataSourceAgent(data_source=data_source, schema=schema, model=model)
         response = {}
+        # Each `generate_*` calls sync `LLM.inference` which can't run
+        # its pre-call usage-limit check from an active event loop with
+        # no `loop` set; offload to a worker thread.
         if item == "summary":
-            response["summary"] = data_source_agent.generate_summary()
+            response["summary"] = await asyncio.to_thread(data_source_agent.generate_summary)
         elif item == "conversation_starters":
-            response["conversation_starters"] = data_source_agent.generate_conversation_starters()
+            response["conversation_starters"] = await asyncio.to_thread(data_source_agent.generate_conversation_starters)
         elif item == "description":
-            response["description"] = data_source_agent.generate_description()
+            response["description"] = await asyncio.to_thread(data_source_agent.generate_description)
 
         return response
 
@@ -600,7 +604,10 @@ class DataSourceService:
             schema = await self._get_prompt_schema(db=db, data_source=data_source, organization=organization, current_user=current_user or User())
             from app.ai.agents.data_source.data_source import DataSourceAgent
             agent = DataSourceAgent(data_source=data_source, schema=schema, model=model)
-            instruction_data_raw = agent.generate_datasource_instruction()
+            # Offload — sync `generate_datasource_instruction` calls
+            # `LLM.inference` whose pre-call usage-limit check can't run
+            # from an active event loop without `loop` set.
+            instruction_data_raw = await asyncio.to_thread(agent.generate_datasource_instruction)
 
             text = (instruction_data_raw or {}).get("text", "").strip()
             title = (instruction_data_raw or {}).get("title", "").strip()

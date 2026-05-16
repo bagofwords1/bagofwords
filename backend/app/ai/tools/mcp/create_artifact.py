@@ -1,5 +1,6 @@
 """MCP Tool: create_artifact - Generate dashboards/slides from visualizations."""
 
+import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 
@@ -148,10 +149,14 @@ class CreateArtifactMCPTool(MCPTool):
             allow_llm_see_data=allow_llm_see_data,
         )
 
-        # LLM inference (non-streaming for MCP)
+        # LLM inference (non-streaming for MCP). Offloaded to a worker
+        # thread because `LLM.inference` is sync and runs the pre-call
+        # usage-limit check via `run_blocking`; that check raises if
+        # called from inside a running event loop without `loop` set.
         llm = LLM(rich_ctx.model, usage_session_maker=async_session_maker)
         try:
-            response = llm.inference(
+            response = await asyncio.to_thread(
+                llm.inference,
                 prompt,
                 usage_scope="mcp_create_artifact",
                 usage_scope_ref_id=str(report.id),

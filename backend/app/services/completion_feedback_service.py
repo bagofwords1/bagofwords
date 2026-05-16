@@ -1132,7 +1132,11 @@ EXISTING (id, prompt, tools):
 
         llm = LLM(small_model)
         try:
-            text = llm.inference(
+            # Offloaded to a worker thread — `LLM.inference` is sync and
+            # the pre-call usage-limit check raises if invoked from
+            # inside a running event loop without `loop` set.
+            text = await asyncio.to_thread(
+                llm.inference,
                 prompt,
                 usage_scope="suggest_eval.dedupe_classifier",
                 usage_scope_ref_id=None,
