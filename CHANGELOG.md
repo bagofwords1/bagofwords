@@ -1,8 +1,11 @@
 # Release Notes
 
+## Version 0.0.380 (May 18, 2026)
+- web fetch tool
+- custom system prompt for each platform
+
 ## Version 0.0.380 (May 17, 2026)
 - Tableau performance and reliability improvements
-
 
 ## Version 0.0.379 (May 16, 2026)
 - fix background completion API
