@@ -3,6 +3,7 @@
 ## Version 0.0.380 (May 18, 2026)
 - web fetch tool
 - custom system prompt for each platform
+- add timestamps for completions
 
 ## Version 0.0.380 (May 17, 2026)
 - Tableau performance and reliability improvements
