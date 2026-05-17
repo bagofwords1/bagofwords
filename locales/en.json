@@ -400,6 +400,12 @@
       "retrying": "Retrying · attempt {n}",
       "visualizing": "Visualizing"
     },
+    "webFetch": {
+      "fetching": "Fetching",
+      "fetched": "Fetched",
+      "failed": "Failed to fetch",
+      "errorOccurred": "An error occurred"
+    },
     "createArtifact": {
       "creating": "Creating Artifact",
       "created": "Artifact Created",

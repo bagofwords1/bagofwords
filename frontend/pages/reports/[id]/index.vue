@@ -657,6 +657,7 @@ import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
@@ -1288,6 +1289,8 @@ function getToolComponent(toolName: string) {
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
+		case 'web_fetch':
+			return WebFetchTool
 		default:
 			return null
 	}
