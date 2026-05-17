@@ -2926,7 +2926,8 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		id: `user-${Date.now()}`,
 		role: 'user',
 		prompt: { content: text },
-		files: data.files || []
+		files: data.files || [],
+		created_at: new Date().toISOString()
 	}
 	messages.value.push(userMsg)
 
