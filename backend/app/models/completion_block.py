@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, DateTime, Float, UniqueConstraint, event, select
+from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, DateTime, Float, UniqueConstraint, event, select, or_
 from sqlalchemy.orm import relationship, selectinload
 from .base import BaseSchema
 import asyncio
@@ -10,6 +10,7 @@ from app.services.platform_adapters.adapter_factory import PlatformAdapterFactor
 from app.models.external_platform import ExternalPlatform
 from app.models.completion import Completion
 from app.models.tool_execution import ToolExecution
+from app.models.plan_decision import PlanDecision
 from app.services.slack_notification_service import send_step_result_to_slack
 
 
@@ -90,12 +91,18 @@ async def send_completion_blocks_to_slack(completion_id: str):
             else:
                 response_channel = channel_id if channel_type == "channel" else None
 
-            # Get all terminal completion blocks for this completion
-            blocks_stmt = select(CompletionBlock).where(
-                CompletionBlock.completion_id == completion_id,
-                CompletionBlock.source_type.in_(['decision', 'tool', 'final']),
-                CompletionBlock.status.in_(['completed', 'success', 'error'])
-            ).order_by(CompletionBlock.block_index)
+            # Get all terminal completion blocks for this completion, excluding knowledge harness
+            blocks_stmt = (
+                select(CompletionBlock)
+                .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
+                .where(
+                    CompletionBlock.completion_id == completion_id,
+                    CompletionBlock.source_type.in_(['decision', 'tool', 'final']),
+                    CompletionBlock.status.in_(['completed', 'success', 'error']),
+                    or_(CompletionBlock.plan_decision_id == None, PlanDecision.phase != 'knowledge_harness'),
+                )
+                .order_by(CompletionBlock.block_index)
+            )
 
             blocks_result = await db.execute(blocks_stmt)
             blocks = blocks_result.scalars().all()
@@ -174,6 +181,13 @@ async def _send_block_to_slack(block_id: str):
             block = block_result.scalar_one_or_none()
             if not block:
                 return
+
+            # Skip knowledge harness blocks — not surfaced in messaging contexts
+            if block.plan_decision_id:
+                pd_result = await db.execute(select(PlanDecision).where(PlanDecision.id == block.plan_decision_id))
+                pd = pd_result.scalar_one_or_none()
+                if pd and pd.phase == 'knowledge_harness':
+                    return
 
             # Load parent completion with report for organization routing
             comp_stmt = select(Completion).options(selectinload(Completion.report)).where(Completion.id == block.completion_id)
