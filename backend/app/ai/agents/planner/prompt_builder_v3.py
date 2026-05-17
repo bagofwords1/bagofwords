@@ -101,6 +101,9 @@ class PromptBuilderV3:
         if row_limit and row_limit > 0:
             row_limit_text = f"ROW LIMIT POLICY SET BY ORG: {row_limit}\n"
 
+        platform_directives = PromptBuilderV3._platform_system_directives(planner_input)
+        platform_directives_text = f"{platform_directives}\n\n" if platform_directives else ""
+
         # NOTE: do NOT embed wall-clock time in the system prompt — it would
         # invalidate Anthropic's prompt cache on every call. The current date
         # is rendered into the per-turn user message instead (see
@@ -151,7 +154,7 @@ PLAN TYPE GUIDANCE
 - If the user attached a screenshot or an image — describe it briefly in message text — don't use inspect_data for images.
 - When working with data files (excel, csv, etc), ALWAYS use inspect_data to verify the file content and structure before creating data widgets.
 
-clarify protocol (read this every time)
+{platform_directives_text}clarify protocol (read this every time)
 
 when to call clarify (mandatory — do not skip and do not guess):
 - the user mentions a business term, metric, kpi, or domain concept that is not defined in the organization instructions and cannot be mapped unambiguously to a single column or table. examples: "active users", "churn", "engagement", "high-value customer", "successful order", "systemic antibiotic", "hospitalization", "session".
@@ -261,6 +264,66 @@ Examples of good behavior:
                 "you may emit multiple tool calls per turn when independent",
             )
         return system
+
+    @staticmethod
+    def _platform_system_directives(planner_input: PlannerInput) -> str:
+        """Return platform-specific system-prompt rules for the planner.
+
+        Different delivery channels (Slack, Teams, WhatsApp, Excel) have different
+        rendering capabilities and tone expectations. Static rules live in the
+        cached system prompt; dynamic per-turn snapshots (e.g. Excel selection)
+        stay in the user message via ``_format_platform_context``.
+        """
+        platform = (planner_input.external_platform or "").lower()
+
+        if platform == "slack":
+            return (
+                "SLACK PLATFORM (the user messaged you in Slack)\n"
+                "- BE BRIEF. Slack is a chat — answer like a person texting back, not a report. "
+                "1-3 sentences for the answer, no preambles, no recaps, no \"let me know if...\".\n"
+                "- Format with Slack mrkdwn ONLY: *bold*, _italic_, `code`, ```block```, <url|label>. "
+                "NEVER use HTML or markdown headers (#, ##) — they render as literal text.\n"
+                "- create_data visualizations render as image attachments — use them when a chart is the "
+                "clearest answer. Prefer a chart over a wide table; Slack renders tables as monospace "
+                "blocks that wrap badly on mobile.\n"
+                "- No section headers or bullet lists unless the user explicitly asked."
+            )
+        if platform == "teams":
+            return (
+                "TEAMS PLATFORM (the user messaged you in Microsoft Teams)\n"
+                "- BE BRIEF. Lead with the answer in 1-3 sentences. No preambles, no recaps.\n"
+                "- Visualizations from create_data do NOT render inline in Teams — the user only sees "
+                "your text. Never say \"see the chart above\". State the key numbers in prose.\n"
+                "- You should still call create_data when the question needs real data — it's how you "
+                "get accurate values. Just communicate the finding explicitly in text.\n"
+                "- For tabular results, render a compact markdown table in the message with clear "
+                "headers and units. Include the rows the user needs to act on — no more.\n"
+                "- Format with basic markdown: **bold**, _italic_, `code`, ```block```. No HTML."
+            )
+        if platform == "whatsapp":
+            return (
+                "WHATSAPP PLATFORM (the user messaged you over WhatsApp)\n"
+                "- BE VERY BRIEF. Answer in 1-2 sentences, plain text. Treat this like SMS — one "
+                "focused answer per turn, no lists, no multi-paragraph replies.\n"
+                "- Limited formatting only: *bold*, _italic_, ~strikethrough~, ```monospace```. "
+                "No headers, no HTML, no markdown links, no bullet lists.\n"
+                "- Visualizations from create_data do NOT render in WhatsApp. Put the key numbers "
+                "inline in prose (e.g. \"Revenue was $1.2M, up 8% MoM\").\n"
+                "- Do not produce tables — they wrap unreadably on phone screens. If the answer "
+                "genuinely needs one, say so and point the user to the web app."
+            )
+        if platform == "excel":
+            return (
+                "EXCEL PLATFORM (the user is inside the Excel add-in — see <excel_context> and "
+                "<officejs_cheatsheet> in the user turn)\n"
+                "- The active workbook is NOT a connected database. Its cells do not appear in the "
+                "schema index.\n"
+                "- For questions about the live sheet, use read_excel_as_csv / read_excel_range to "
+                "read, reason locally, then write_to_excel / write_officejs_code to respond.\n"
+                "- Use create_data / describe_tables / inspect_data ONLY when the user is asking about "
+                "connected database tables visible in the schema index, not the active workbook."
+            )
+        return ""
 
     # ------------------------------------------------------------------
     # User message: prompt + all context blocks rendered as one text payload
