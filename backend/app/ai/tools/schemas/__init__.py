@@ -16,6 +16,7 @@ from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
 from .edit_artifact import EditArtifactInput, EditArtifactOutput
 from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
+from .web_fetch import WebFetchInput, WebFetchOutput
 from .write_csv import WriteCsvInput, WriteCsvOutput
 from .write_to_excel import WriteToExcelInput, WriteToExcelOutput
 from .write_officejs_code import WriteOfficeJsCodeInput, WriteOfficeJsCodeOutput
@@ -66,6 +67,8 @@ __all__ = [
     "SearchMCPsOutput",
     "ExecuteMCPInput",
     "ExecuteMCPOutput",
+    "WebFetchInput",
+    "WebFetchOutput",
     "WriteCsvInput",
     "WriteCsvOutput",
     "WriteToExcelInput",
