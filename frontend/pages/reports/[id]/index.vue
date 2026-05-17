@@ -158,30 +158,45 @@
 						>
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
-								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
-									<!-- User message bubble -->
-									<div class="flex-1 flex justify-end">
-										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start " dir="auto">
-											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
-												<MDC :value="m.prompt.content" class="markdown-content" />
-											</div>
-											<!-- Attached images thumbnail -->
-											<div v-if="getAttachedImages(m).length > 0" class="mt-2 flex flex-wrap gap-1.5">
-												<div v-for="file in getAttachedImages(m)" :key="file.id" class="relative group">
-													<AuthenticatedImage
-														:file-id="file.id"
-														:alt="file.filename"
-														img-class="h-16 w-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
-														@click="openImagePreview(file)" />
+								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
+									<div class="flex items-start gap-2 w-full">
+										<!-- User message bubble -->
+										<div class="flex-1 flex justify-end">
+											<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto">
+												<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
+													<MDC :value="m.prompt.content" class="markdown-content" />
+												</div>
+												<!-- Attached images thumbnail -->
+												<div v-if="getAttachedImages(m).length > 0" class="mt-2 flex flex-wrap gap-1.5">
+													<div v-for="file in getAttachedImages(m)" :key="file.id" class="relative group">
+														<AuthenticatedImage
+															:file-id="file.id"
+															:alt="file.filename"
+															img-class="h-16 w-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
+															@click="openImagePreview(file)" />
+													</div>
 												</div>
 											</div>
 										</div>
-									</div>
-									<!-- User avatar on the right (hidden on mobile) -->
-									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
-											{{ report.user.name.charAt(0) }}
+										<!-- User avatar on the right (hidden on mobile) -->
+										<div class="flex-shrink-0 hidden md:block md:w-[28px]">
+											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+												{{ report.user.name.charAt(0) }}
+											</div>
 										</div>
+									</div>
+									<!-- Hover-reveal: copy + timestamp -->
+									<div class="flex items-center gap-2 me-[36px] mt-1 opacity-0 group-hover/usermsg:opacity-100 transition-opacity duration-150">
+										<UTooltip :text="copiedMessageId === m.id ? 'Copied!' : 'Copy'" :popper="{ placement: 'bottom' }">
+											<button
+												@click="copyToClipboard(m.prompt?.content, m.id)"
+												class="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
+											>
+												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
+												{{ copiedMessageId === m.id ? 'Copied!' : 'Copy' }}
+											</button>
+										</UTooltip>
+										<span v-if="m.created_at" class="text-[10px] text-gray-400">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
 							</template>
@@ -349,6 +364,9 @@
 											>
 												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
 											</button>
+
+											<!-- AI message timestamp -->
+											<span v-if="m.created_at" class="text-[10px] text-gray-400 ms-1">{{ formatMessageDate(m.created_at) }}</span>
 										</div>
 									</div>
 
@@ -657,6 +675,7 @@ import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
@@ -807,6 +826,7 @@ const isStreaming = ref<boolean>(false)
 // Flips to false on completion.finished/error, even though isStreaming stays true
 // for the knowledge harness tail. Used to unblock the prompt box early.
 const isCompletionInProgress = ref<boolean>(false)
+const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
 const scrollAnchor = ref<HTMLElement | null>(null)
@@ -1000,6 +1020,23 @@ function isScheduledSystemExpanded(msg: ChatMessage): boolean {
 function formatScheduledDate(date?: string) {
 	if (!date) return ''
 	return new Date(date).toLocaleString()
+}
+
+function formatMessageDate(date?: string) {
+	if (!date) return ''
+	return new Date(date).toLocaleString(undefined, {
+		month: 'short', day: 'numeric',
+		hour: 'numeric', minute: '2-digit'
+	})
+}
+
+function copyToClipboard(text?: string, messageId?: string) {
+	if (!text) return
+	navigator.clipboard.writeText(text)
+	if (messageId) {
+		copiedMessageId.value = messageId
+		setTimeout(() => { copiedMessageId.value = null }, 1500)
+	}
 }
 
 function getScheduledStats(userMsg: ChatMessage): string | null {
@@ -1288,6 +1325,8 @@ function getToolComponent(toolName: string) {
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
+		case 'web_fetch':
+			return WebFetchTool
 		default:
 			return null
 	}
@@ -2887,7 +2926,8 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		id: `user-${Date.now()}`,
 		role: 'user',
 		prompt: { content: text },
-		files: data.files || []
+		files: data.files || [],
+		created_at: new Date().toISOString()
 	}
 	messages.value.push(userMsg)
 

@@ -222,6 +222,7 @@ import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
+import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const route = useRoute()
@@ -358,6 +359,8 @@ function getToolComponent(toolName: string) {
         case 'execute_sql':
         case 'create_and_execute_code':
             return ExecuteCodeTool
+        case 'web_fetch':
+            return WebFetchTool
         default:
             return null
     }
