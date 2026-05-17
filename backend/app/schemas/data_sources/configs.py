@@ -378,6 +378,7 @@ class TableauConfig(BaseModel):
     verify_ssl: bool = Field(True, title="Verify SSL", description="", json_schema_extra={"ui:type": "boolean"})
     timeout_sec: int = Field(30, ge=1, le=300, title="Timeout (sec)", description="", json_schema_extra={"ui:type": "number"})
     default_project_id: Optional[str] = Field(None, title="Default Project ID", description="", json_schema_extra={"ui:type": "string"})
+    api_version: str = Field("3.21", title="API Version", description="Tableau REST API version. Change only for older on-prem Tableau Server.", json_schema_extra={"ui:type": "string"})
     #include_datasource_ids: Optional[List[str]] = None
 
 

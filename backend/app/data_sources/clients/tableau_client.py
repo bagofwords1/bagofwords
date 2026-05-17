@@ -18,6 +18,7 @@ class TableauClient(DataSourceClient):
         verify_ssl: bool = True,
         timeout_sec: int = 30,
         default_project_id: Optional[str] = None,
+        api_version: str = "3.21",
         include_datasource_ids: Optional[List[str]] = None,
     ):
         self.server_url = server_url
@@ -34,7 +35,7 @@ class TableauClient(DataSourceClient):
         self._site_id = None
         self._auth_token = None
         self._http = None
-        self._api_version = "3.21"  # REST API version
+        self._api_version = api_version
 
     def connect(self):
         """
@@ -99,13 +100,16 @@ class TableauClient(DataSourceClient):
             health_resp = self._http.get(health_url, headers=headers, timeout=self.timeout_sec, verify=self.verify_ssl)
             health_status = health_resp.status_code
 
-            # Query-datasource probe (best-effort): use first datasource LUID if available
+            # Query-datasource probe (best-effort): fetch only the first page to get one datasource LUID
             query_url = f"{base_url}/api/v1/vizql-data-service/query-datasource"
             datasource_id = None
             try:
-                dss = self.list_published_datasources()
-                if dss:
-                    datasource_id = dss[0].get("id")
+                url = f"{self.server_url.rstrip('/')}/api/{self._api_version}/sites/{self._site_id}/datasources?pageNumber=1&pageSize=1&format=json"
+                resp = self._http.get(url, headers=headers, timeout=self.timeout_sec, verify=self.verify_ssl)
+                if resp.status_code < 300:
+                    ds_items = ((resp.json() or {}).get("datasources") or {}).get("datasource") or []
+                    if ds_items:
+                        datasource_id = ds_items[0].get("id")
             except Exception:
                 datasource_id = None
 
@@ -177,39 +181,48 @@ class TableauClient(DataSourceClient):
         Build Table objects representing published datasources with columns
         discovered by combining VizQL read-metadata with Metadata GraphQL API (publishedDatasources).
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         datasources = self.list_published_datasources()
         tables: List[Table] = []
-        for ds in datasources:
-            ds_description, fields = self._combined_fields_for_datasource(ds["id"])
-            columns = [
-                TableColumn(
-                    name=(f.get("fieldCaption") or f.get("fieldName") or ""),
-                    dtype=(f.get("dataType") or "unknown"),
-                    description=f.get("description"),
-                    metadata=f.get("metadata"),
-                )
-                for f in fields
-            ]
-            table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
-            metadata_json = {
-                "tableau": {
-                    "datasourceLuid": ds.get("id"),
-                    "projectId": ds.get("project_id"),
-                    "projectName": ds.get("project_name"),
-                    "name": ds.get("name"),
-                    "path": table_name,
-                    "siteName": self.site_name,
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(self._combined_fields_for_datasource, ds["id"]): ds for ds in datasources}
+            for fut in as_completed(futures):
+                ds = futures[fut]
+                try:
+                    ds_description, fields = fut.result()
+                except Exception:
+                    continue
+                columns = [
+                    TableColumn(
+                        name=(f.get("fieldCaption") or f.get("fieldName") or ""),
+                        dtype=(f.get("dataType") or "unknown"),
+                        description=f.get("description"),
+                        metadata=f.get("metadata"),
+                    )
+                    for f in fields
+                ]
+                table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
+                metadata_json = {
+                    "tableau": {
+                        "datasourceLuid": ds.get("id"),
+                        "projectId": ds.get("project_id"),
+                        "projectName": ds.get("project_name"),
+                        "name": ds.get("name"),
+                        "path": table_name,
+                        "siteName": self.site_name,
+                    }
                 }
-            }
-            tables.append(Table(
-                name=table_name,
-                description=ds_description,
-                columns=columns,
-                pks=[],
-                fks=[],
-                is_active=True,
-                metadata_json=metadata_json
-            ))
+                tables.append(Table(
+                    name=table_name,
+                    description=ds_description,
+                    columns=columns,
+                    pks=[],
+                    fks=[],
+                    is_active=True,
+                    metadata_json=metadata_json
+                ))
         return tables
 
     def get_schema(self, table_name: str) -> Table:
@@ -280,7 +293,6 @@ class TableauClient(DataSourceClient):
 
     def execute_query(
         self,
-        *,
         datasource_luid: str,
         fields: List[Dict],
         filters: Optional[List[Dict]] = None,
@@ -363,7 +375,7 @@ Executes VizQL queries against Tableau data sources to answer business questions
 ```python
 # Quick profiling: record count
 df = client.execute_query(
-  datasource_Luid="version-4 UUID (take it from the schema)",
+  datasource_luid="version-4 UUID (take it from the schema)",
   fields=[{"fieldCaption": "Order ID", "function": "COUNT", "fieldAlias": "Total Records"}]
 )
 ```
@@ -371,7 +383,7 @@ df = client.execute_query(
 ```python
 # Top 10 customers by revenue (with current year filter)
 df = client.execute_query(
-  datasource_Luid="version-4 UUID (take it from the schema)",
+  datasource_luid="version-4 UUID (take it from the schema)",
   fields=[
     {"fieldCaption": "Customer Name"},
     {
@@ -403,7 +415,7 @@ df = client.execute_query(
 ```python
 # Monthly sales trend (last 12 months)
 df = client.execute_query(
-  datasource_Luid="version-4 UUID (take it from the schema)",
+  datasource_luid="version-4 UUID (take it from the schema)",
   fields=[
     {
       "fieldCaption": "Order Date",

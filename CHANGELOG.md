@@ -1,9 +1,12 @@
 # Release Notes
 
+## Version 0.0.380 (May 17, 2026)
+- Tableau performance and reliability improvements
+
+
 ## Version 0.0.379 (May 16, 2026)
 - fix background completion API
 - security patches and fixes
-
 
 ## Version 0.0.378 (May 13, 2026)
 - Per-member admin-managed `note` (per-org) injected into the planner prompt as `<user_profile>` context
