@@ -181,6 +181,7 @@
 import DashboardComponent from '~/components/DashboardComponent.vue';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
+import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
 
 const route = useRoute();
 const report_id = route.params.id;
@@ -424,73 +425,23 @@ async function loadVisualizationData(artifactId?: string) {
 
 // Build the iframe srcdoc - only compute once all data is ready
 const iframeSrcdoc = computed(() => {
-    // Wait until all data is loaded to prevent multiple iframe reloads
     if (!dataReady.value) return null;
 
     const artifactCode = artifact.value?.content?.code;
     if (!artifactCode) return null;
 
-    const embeddedData = JSON.stringify({
-        report: {
-            id: report.value.id,
-            title: report.value.title,
-            theme: report.value.theme_name || report.value.report_theme_name
+    return buildArtifactIframeHtml({
+        data: {
+            report: {
+                id: report.value.id,
+                title: report.value.title,
+                theme: report.value.theme_name || report.value.report_theme_name
+            },
+            visualizations: visualizationsData.value
         },
-        visualizations: visualizationsData.value
+        code: artifactCode,
+        mode: artifact.value?.mode || 'page',
     });
-    const artifactMode = artifact.value?.mode || 'page';
-
-    const SC = '</' + 'script>';
-
-    // Slides mode: Pure HTML + Tailwind (no React/Babel)
-    if (artifactMode === 'slides') {
-        return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <style>
-    html, body { height: 100%; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; }
-    .slide { transition: opacity 0.3s ease-in-out; }
-  </style>
-</head>
-<body class="bg-slate-900">
-  <script>
-    window.ARTIFACT_DATA = ${embeddedData};
-  ${SC}
-
-  ${artifactCode}
-</body>
-</html>`;
-    }
-
-    // Dashboard mode: React + Babel + ECharts
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <script crossorigin src="/libs/react-18.production.min.js">${SC}
-  <script crossorigin src="/libs/react-dom-18.production.min.js">${SC}
-  <script src="/libs/babel-standalone.min.js">${SC}
-  <script src="/libs/echarts-5.min.js">${SC}
-  <style>
-    html, body, #root { height: 100%; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; }
-  </style>
-</head>
-<body>
-  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">Loading...</div></div>
-
-  <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
-  <script src="/libs/artifact-globals.js">${SC}
-
-  ${artifactCode}
-</body>
-</html>`;
 });
 
 onMounted(async () => {

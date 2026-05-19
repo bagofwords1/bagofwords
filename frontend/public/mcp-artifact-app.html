@@ -19,6 +19,18 @@
   <!-- ECharts -->
   <script src="/libs/echarts-5.min.js"></script>
 
+  <!--
+    Shared sandbox runtime globals (useMemo/useState/useEffect/useRef/useCallback,
+    KPICard, SectionCard, FilterSelect, useFilters, fmt, exportCSV, …). Loaded
+    here so LLM-generated artifact code that uses these as bare globals — per
+    the prompt in backend/app/ai/tools/implementations/_sandbox_context.py —
+    works inside MCP hosts (Claude Desktop, Cursor, …) the same way it does in
+    the in-app /reports/[id] and standalone /r/[id] iframes. The MCP runtime
+    block below overrides useArtifactData with an event-driven variant because
+    MCP delivers ARTIFACT_DATA via postMessage rather than inlined srcdoc.
+  -->
+  <script src="/libs/artifact-globals.js"></script>
+
   <style>
     html, body, #root {
       height: 100%;

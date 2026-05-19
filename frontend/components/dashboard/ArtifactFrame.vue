@@ -286,6 +286,7 @@ import CronModal from '../CronModal.vue';
 import ShareModal from '../ShareModal.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
+import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -1120,238 +1121,22 @@ const iframeSrcdoc = computed(() => {
   // If artifacts exist, wait for the selected artifact to be fully loaded
   if (artifactsList.value.length > 0 && !selectedArtifact.value?.content?.code) return undefined;
 
-  const embeddedData = JSON.stringify({
-    report: reportData.value,
-    visualizations: visualizationsData.value
-  });
-
   // Priority: props > selected artifact from DB > sample code
   const artifactCode = props.artifactCode
     || selectedArtifact.value?.content?.code
     || sampleArtifactCode.value;
 
-  const artifactMode = selectedArtifact.value?.mode || 'page';
-  const SC = '</' + 'script>';
-
-  // Slides mode: Pure HTML + Tailwind (no React/Babel)
-  if (artifactMode === 'slides') {
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <style>
-    html, body { height: 100%; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; }
-    .slide { transition: opacity 0.3s ease-in-out; }
-  </style>
-</head>
-<body class="bg-slate-900">
-  <script>
-    window.ARTIFACT_DATA = ${embeddedData};
-    console.log('[Slides] Data loaded:', window.ARTIFACT_DATA?.visualizations?.length || 0, 'visualizations');
-  ${SC}
-
-  ${artifactCode}
-</body>
-</html>`;
-  }
-
-  // Dashboard mode: React + Babel + ECharts
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <script crossorigin src="/libs/react-18.development.js">${SC}
-  <script crossorigin src="/libs/react-dom-18.development.js">${SC}
-  <script src="/libs/babel-standalone.min.js">${SC}
-  <script src="/libs/echarts-5.min.js">${SC}
-  <style>
-    html, body, #root { height: 100%; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; }
-  </style>
-</head>
-<body>
-  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">${t('artifactFrame.loadingArtifact')}</div></div>
-
-  <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
-  <script src="/libs/artifact-globals.js">${SC}
-
-  <script>
-    // Polish mode: element pick, highlight & custom cursor
-    (function() {
-      var polishActive = false;
-      var currentHighlight = null;
-
-      // Styles: highlight outline + custom cursor pill + hide native cursor
-      var polishStyle = document.createElement('style');
-      polishStyle.textContent = [
-        '.__polish-highlight { outline: 2px solid #6366f1 !important; outline-offset: 2px; }',
-        '.__polish-active { cursor: crosshair !important; }',
-        '.__polish-active * { cursor: crosshair !important; }',
-        '.__polish-cursor { position: fixed; pointer-events: none; z-index: 99999; display: none; }',
-        '.__polish-cursor-inner { display: flex; align-items: center; gap: 6px; background: #4f46e5; color: white; font-size: 12px; font-weight: 500; font-family: system-ui, sans-serif; padding: 5px 10px 5px 8px; border-radius: 20px; box-shadow: 0 4px 12px rgba(79,70,229,0.35); white-space: nowrap; }'
-      ].join('\\n');
-      document.head.appendChild(polishStyle);
-
-      // Create custom cursor element
-      var cursorEl = document.createElement('div');
-      cursorEl.className = '__polish-cursor';
-      cursorEl.innerHTML = '<div class="__polish-cursor-inner"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/><path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/><path d="M14.5 17.5 4.5 15"/></svg>Click to select</div>';
-      document.body.appendChild(cursorEl);
-
-      function onMouseMove(e) {
-        cursorEl.style.left = (e.clientX + 12) + 'px';
-        cursorEl.style.top = (e.clientY + 12) + 'px';
-      }
-
-      function snapToMeaningful(el) {
-        // If the element itself is a heading, paragraph, table, list, or image — it's already meaningful
-        var selfTag = (el.tagName || '').toLowerCase();
-        if (/^(h[1-6]|table|ul|ol|img|svg|canvas|section|article|header|footer|nav|main)$/.test(selfTag)) {
-          return el;
-        }
-        var node = el;
-        var maxDepth = 6;
-        while (node && node !== document.body && node.id !== 'root' && maxDepth-- > 0) {
-          var cls = node.className || '';
-          if (typeof cls === 'string' && (
-            /rounded-(lg|xl|2xl)/.test(cls) ||
-            /shadow/.test(cls) ||
-            /\\bp-[4-9]\\b/.test(cls) ||
-            /\\bp-1[0-9]/.test(cls) ||
-            node.getAttribute('role') ||
-            node.hasAttribute('data-section') ||
-            node.hasAttribute('data-card')
-          )) {
-            return node;
-          }
-          if (node.parentElement && node.parentElement !== document.body && node.parentElement.id !== 'root') {
-            node = node.parentElement;
-          } else {
-            break;
-          }
-        }
-        return el;
-      }
-
-      function onHover(e) {
-        if (!polishActive) return;
-        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-        var target = snapToMeaningful(e.target);
-        target.classList.add('__polish-highlight');
-        currentHighlight = target;
-      }
-      function onOut(e) {
-        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-        currentHighlight = null;
-      }
-      function onClick(e) {
-        if (!polishActive) return;
-        e.preventDefault();
-        e.stopPropagation();
-        var target = snapToMeaningful(e.target);
-        var rect = target.getBoundingClientRect();
-        if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-        polishActive = false;
-        document.body.classList.remove('__polish-active');
-        cursorEl.style.display = 'none';
-        document.removeEventListener('mousemove', onMouseMove, true);
-        window.parent.postMessage({
-          type: 'POLISH_ELEMENT_SELECTED',
-          element: {
-            tag: target.tagName,
-            classes: target.className.replace(/__polish-highlight/g, '').trim(),
-            text: (target.textContent || '').slice(0, 100).trim(),
-            htmlSnippet: target.outerHTML.replace(/ class="[^"]*__polish[^"]*"/g, function(m) { return m.replace(/__polish-highlight/g, '').replace(/\\s+/g, ' '); }).slice(0, 500),
-            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
-          }
-        }, '*');
-      }
-
-      window.addEventListener('message', function(e) {
-        if (e.data && e.data.type === 'POLISH_ENTER') {
-          polishActive = true;
-          document.body.classList.add('__polish-active');
-          cursorEl.style.display = 'block';
-          document.addEventListener('mousemove', onMouseMove, true);
-          document.body.addEventListener('mouseover', onHover, true);
-          document.body.addEventListener('mouseout', onOut, true);
-          document.body.addEventListener('click', onClick, true);
-        } else if (e.data && e.data.type === 'POLISH_EXIT') {
-          polishActive = false;
-          document.body.classList.remove('__polish-active');
-          cursorEl.style.display = 'none';
-          document.removeEventListener('mousemove', onMouseMove, true);
-          if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-          currentHighlight = null;
-          document.body.removeEventListener('mouseover', onHover, true);
-          document.body.removeEventListener('mouseout', onOut, true);
-          document.body.removeEventListener('click', onClick, true);
-        }
-      });
-    })();
-
-    // Error reporting: send compile/runtime errors to parent
-    window.__artifactErrorSent = false;
-    function reportArtifactError(msg) {
-      if (window.__artifactErrorSent) return;
-      window.__artifactErrorSent = true;
-      window.parent.postMessage({
-        type: 'ARTIFACT_ERROR',
-        payload: { message: msg }
-      }, '*');
-    }
-
-    // Catch uncaught runtime errors
-    window.onerror = function(msg, source, line, col, err) {
-      var message = (err && err.message) || String(msg);
-      if (message.indexOf('ResizeObserver') !== -1) return false;
-      reportArtifactError(message);
-    };
-    window.addEventListener('unhandledrejection', function(e) {
-      reportArtifactError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
-    });
-
-    // Patch ReactDOM.render to wrap with error boundary
-    (function() {
-      class ArtifactErrorBoundary extends React.Component {
-        constructor(props) { super(props); this.state = { hasError: false }; }
-        static getDerivedStateFromError() { return { hasError: true }; }
-        componentDidCatch(error) { reportArtifactError(error.message || String(error)); }
-        render() { return this.state.hasError ? null : this.props.children; }
-      }
-      var origRender = ReactDOM.render;
-      ReactDOM.render = function(element, container) {
-        var wrapped = React.createElement(ArtifactErrorBoundary, null, element);
-        return origRender.call(ReactDOM, wrapped, container);
-      };
-    })();
-  ${SC}
-
-  ${artifactCode}
-
-  <script>
-    // After Babel processes text/babel scripts, check if render succeeded
-    // Babel standalone transforms on DOMContentLoaded, so we check shortly after
-    window.addEventListener('DOMContentLoaded', function() {
-      setTimeout(function() {
-        if (!window.__artifactErrorSent) {
-          var root = document.getElementById('root');
-          if (root && root.children.length > 0) {
-            window.parent.postMessage({ type: 'ARTIFACT_READY' }, '*');
-          } else if (!window.__artifactErrorSent) {
-            reportArtifactError('Dashboard code did not render any content');
-          }
-        }
-      }, 500);
-    });
-  ${SC}
-</body>
-</html>`;
+  return buildArtifactIframeHtml({
+    data: {
+      report: reportData.value,
+      visualizations: visualizationsData.value,
+    },
+    code: artifactCode,
+    mode: selectedArtifact.value?.mode || 'page',
+    polishMode: true,
+    loadingLabel: t('artifactFrame.loadingArtifact'),
+    reactBuild: 'development',
+  });
 });
 
 // Re-send data when it changes
