@@ -12,7 +12,7 @@ import uuid as uuid_module
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 
@@ -186,15 +186,20 @@ class ConnectionService:
         organization: Organization,
     ) -> List[Connection]:
         """Get all connections for an organization."""
-        from sqlalchemy.orm import selectinload
         # The list route never reads connection_tables; it uses a COUNT(*) query
         # instead. Eager-loading the relationship hydrates every row (25K+ on
         # large connections) just to discard it.
+        #
+        # lazyload("*") suppresses DataSource's model-level lazy="selectin"
+        # cascade (reports → widgets/queries/completions/…) that would
+        # otherwise fire when Connection.data_sources is loaded — the route
+        # only reads ds.id and ds.name for the access filter and agent_names.
         result = await db.execute(
             select(Connection)
             .filter(Connection.organization_id == organization.id)
             .options(
-                selectinload(Connection.data_sources),
+                lazyload("*"),
+                selectinload(Connection.data_sources).options(lazyload("*")),
             )
             .order_by(Connection.name)
         )
