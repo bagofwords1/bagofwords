@@ -1,6 +1,11 @@
 # Release Notes
 
-## Version 0.0.380 (May 18, 2026)
+## Version 0.0.382 (May 20, 2026)
+- speed improvements
+- web fetch tool v2
+
+
+## Version 0.0.381 (May 18, 2026)
 - web fetch tool
 - custom system prompt for each platform
 - add timestamps for completions
