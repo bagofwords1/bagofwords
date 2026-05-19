@@ -44,7 +44,7 @@ from app.models.datasource_table import DataSourceTable  # Add this import at th
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 
 from typing import List, Dict, Any, Optional
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
 from app.core.telemetry import telemetry
@@ -792,12 +792,17 @@ class DataSourceService:
             db, str(current_user.id), str(organization.id)
         )
 
+        # lazyload("*") suppresses the model-level lazy="selectin" cascade
+        # (reports, instructions, entities, files, …); without it, listing
+        # data sources triggers ~20 SELECTs hauling in the full report/
+        # widget/query graph that this endpoint never returns. We only need
+        # connections, and we suppress the cascade on the loaded Connection
+        # objects too (Connection.data_sources is also lazy="selectin").
         query = (
             select(DataSource)
             .options(
-                selectinload(DataSource.git_repository),
-                selectinload(DataSource.data_source_memberships),
-                selectinload(DataSource.connections),
+                lazyload("*"),
+                selectinload(DataSource.connections).options(lazyload("*")),
             )
             .filter(DataSource.organization_id == organization.id)
         )

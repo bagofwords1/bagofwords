@@ -382,12 +382,18 @@ class DemoDataSourceService:
         
         Returns a dict mapping demo_id -> DataSource.
         """
-        from sqlalchemy.orm import selectinload
-        
-        # Query all data sources for this org with their connections
+        from sqlalchemy.orm import selectinload, lazyload
+
+        # Query all data sources for this org with their connections.
+        # lazyload("*") suppresses DataSource's model-level lazy="selectin"
+        # cascade — the demo lookup only needs each connection's config to
+        # find the demo_id marker.
         stmt = select(DataSource).where(
             DataSource.organization_id == organization_id
-        ).options(selectinload(DataSource.connections))
+        ).options(
+            lazyload("*"),
+            selectinload(DataSource.connections).options(lazyload("*")),
+        )
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
 
