@@ -9,6 +9,10 @@
                     <span v-if="isLoading" class="flex items-center">
                         <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
                     </span>
+                    <span v-else-if="isAutoMode" class="flex items-center">
+                        <Icon name="heroicons-bolt" class="h-4 w-4" />
+                        <span v-if="!isCompactFinal" class="ms-1 text-xs">Auto</span>
+                    </span>
                     <span v-else-if="internalSelectedDataSources.length > 0" class="flex items-center">
                         <template v-if="isCompactFinal">
                             <!-- Compact: show only first icon -->
@@ -44,21 +48,33 @@
                         <div v-if="visibleDataSources.length === 0" class="text-center text-gray-500 py-4">
                             No data sources found
                         </div>
-                        <div
-                            v-else
-                            v-for="ds in visibleDataSources"
-                            :key="ds.id"
-                            class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
-                            @click="() => { toggleDataSource(ds); }"
-                            @mouseenter="onDataSourceHover(ds.id, $event)"
-                            @mouseleave="onDataSourceHoverLeave()"
-                        >
-                            <div class="flex items-center">
-                                <DataSourceIcon :type="ds.type" class="h-4" />
-                                <span class="ms-2 text-[13px]">{{ ds.name }}</span>
+                        <template v-else>
+                            <div
+                                class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                                @click="toggleAutoMode"
+                            >
+                                <div class="flex items-center">
+                                    <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 me-2" />
+                                    <span class="text-[13px]">Auto</span>
+                                </div>
+                                <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                             </div>
-                            <Icon v-if="isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-                        </div>
+                            <div class="my-1 border-t border-gray-100" />
+                            <div
+                                v-for="ds in visibleDataSources"
+                                :key="ds.id"
+                                class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                                @click="() => { toggleDataSource(ds); }"
+                                @mouseenter="onDataSourceHover(ds.id, $event)"
+                                @mouseleave="onDataSourceHoverLeave()"
+                            >
+                                <div class="flex items-center">
+                                    <DataSourceIcon :type="ds.type" class="h-4" />
+                                    <span class="ms-2 text-[13px]">{{ ds.name }}</span>
+                                </div>
+                                <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
+                            </div>
+                        </template>
                     </template>
                 </div>
             </template>
@@ -90,6 +106,10 @@ const isOpen = ref(false)
 const containerRef = ref<HTMLElement | null>(null)
 const isCompact = ref(false)
 const isCompactFinal = computed(() => isCompact.value)
+const isAutoMode = computed(() =>
+    visibleDataSources.value.length > 0 &&
+    visibleDataSources.value.every(ds => internalSelectedDataSources.value.some(s => s.id === ds.id))
+)
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
@@ -218,9 +238,8 @@ async function getDataSources() {
             internalSelectedDataSources.value = dataSources.value.filter((ds: any) => ids.has(ds.id))
             handleSelectionChange()
         } else if (!props.reportId) {
-            // Landing page (no report): default to ALL active data sources
-            // (filtered by `permission` if set).
-            internalSelectedDataSources.value = visibleDataSources.value
+            // Landing page (no report): default to all data sources (auto).
+            internalSelectedDataSources.value = [...visibleDataSources.value]
             handleSelectionChange()
         }
     } finally {
@@ -236,12 +255,27 @@ function isSelected(option: any) {
     return internalSelectedDataSources.value.some((ds: any) => ds.id === option.id)
 }
 
-function toggleDataSource(ds: DataSource) {
-    const exists = internalSelectedDataSources.value.find((x) => x.id === ds.id)
-    if (exists) {
-        internalSelectedDataSources.value = internalSelectedDataSources.value.filter((x) => x.id !== ds.id)
+function toggleAutoMode() {
+    if (isAutoMode.value) {
+        internalSelectedDataSources.value = []
     } else {
-        internalSelectedDataSources.value = [...internalSelectedDataSources.value, ds]
+        internalSelectedDataSources.value = [...visibleDataSources.value]
+    }
+    handleSelectionChange()
+    persistSelectionIfReport()
+}
+
+function toggleDataSource(ds: DataSource) {
+    if (isAutoMode.value) {
+        // Exit auto: start fresh with only this source selected
+        internalSelectedDataSources.value = [ds]
+    } else {
+        const exists = internalSelectedDataSources.value.find((x) => x.id === ds.id)
+        if (exists) {
+            internalSelectedDataSources.value = internalSelectedDataSources.value.filter((x) => x.id !== ds.id)
+        } else {
+            internalSelectedDataSources.value = [...internalSelectedDataSources.value, ds]
+        }
     }
     handleSelectionChange()
     // If we are in a report context, persist selection at report level immediately

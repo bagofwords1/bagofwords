@@ -1,9 +1,11 @@
 # Release Notes
 
+## Version 0.0.383 (May 21, 2026)
+- Improve ds selector to support 'auto' mode
+
 ## Version 0.0.382 (May 20, 2026)
 - speed improvements
 - web fetch tool v2
-
 
 ## Version 0.0.381 (May 18, 2026)
 - web fetch tool
