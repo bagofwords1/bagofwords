@@ -277,23 +277,17 @@ class ReportService:
         
 
     async def get_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> ReportSchema:
-        # See get_reports above for the lazyload("*") rationale. The detail
-        # response reads user/data_sources/external_platform/shares/queries/
-        # artifacts/scheduled_prompts; others on the Report cascade are unused.
+        # Same pattern as get_reports: suppress only the DataSource cascade
+        # (the actual cost), let Report's own lazy="selectin" fire so
+        # downstream serialization of user/widgets/etc. works unchanged.
         result = await db.execute(
             select(Report)
             .options(
-                lazyload("*"),
                 selectinload(Report.user),
-                selectinload(Report.external_platform),
-                selectinload(Report.shares),
                 selectinload(Report.data_sources).options(
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
-                selectinload(Report.queries),
-                selectinload(Report.artifacts),
-                selectinload(Report.scheduled_prompts),
             )
             .filter(Report.id == report_id)
         )
@@ -1053,28 +1047,19 @@ class ReportService:
             total_result = await db.execute(count_query)
             total = total_result.scalar()
 
-            # lazyload("*") suppresses Report's model-level lazy="selectin"
-            # cascade (14 relationships including completions/queries/text_widgets/
-            # files/visualizations/shares/forked_from/etc.). We then opt back in
-            # only to what the list response reads: user, widgets, dashboard
-            # layout versions, external_platform (via ReportSchema.from_orm),
-            # data_sources (with connections for type), queries / artifacts /
-            # scheduled_prompts (for counts and thumbnails). The chained
-            # lazyload("*") on DataSource stops its own cascade (reports →
-            # widgets/queries/completions/…) from firing per loaded DS.
+            # Suppress DataSource's lazy="selectin" cascade (reports →
+            # widgets/queries/completions/…) that would otherwise fire per
+            # loaded Report.data_sources. We don't lazyload at Report level
+            # because that propagates into Report.user and breaks
+            # UserSchema.external_user_mappings serialization.
             query = base_query.options(
-                lazyload("*"),
                 selectinload(Report.user),
                 selectinload(Report.widgets),
-                selectinload(Report.dashboard_layout_versions),
-                selectinload(Report.external_platform),
                 selectinload(Report.data_sources).options(
                     lazyload("*"),
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
-                selectinload(Report.queries),
-                selectinload(Report.artifacts),
-                selectinload(Report.scheduled_prompts),
+                selectinload(Report.artifacts)
             ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
 
             result = await db.execute(query)
