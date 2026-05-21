@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from sqlalchemy import and_, or_
 from typing import List, Optional, Any, Dict
 from fastapi import HTTPException
@@ -1813,12 +1813,16 @@ class InstructionService:
                 )
             )
         
-        # Build the main query
+        # Build the main query. lazyload("*") suppresses DataSource's
+        # lazy="selectin" cascade (reports → widgets/queries/completions/…)
+        # that would otherwise fire per loaded Instruction.data_sources.
+        # The list response uses DataSourceMinimalSchema (id/name/description
+        # only), so DS sub-relationships are pure waste.
         query = (
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.labels),
             )

@@ -1,7 +1,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.schemas.data_source_schema import DataSourceReportSchema
@@ -277,11 +277,23 @@ class ReportService:
         
 
     async def get_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> ReportSchema:
+        # See get_reports above for the lazyload("*") rationale. The detail
+        # response reads user/data_sources/external_platform/shares/queries/
+        # artifacts/scheduled_prompts; others on the Report cascade are unused.
         result = await db.execute(
             select(Report)
             .options(
-                selectinload(Report.user),  # Use selectinload for async loading
-                selectinload(Report.data_sources).selectinload(DataSource.connections)  # Load data sources and their connections
+                lazyload("*"),
+                selectinload(Report.user),
+                selectinload(Report.external_platform),
+                selectinload(Report.shares),
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
+                selectinload(Report.queries),
+                selectinload(Report.artifacts),
+                selectinload(Report.scheduled_prompts),
             )
             .filter(Report.id == report_id)
         )
@@ -1041,12 +1053,28 @@ class ReportService:
             total_result = await db.execute(count_query)
             total = total_result.scalar()
 
-            # Get paginated results - load data_sources with connections to get type
+            # lazyload("*") suppresses Report's model-level lazy="selectin"
+            # cascade (14 relationships including completions/queries/text_widgets/
+            # files/visualizations/shares/forked_from/etc.). We then opt back in
+            # only to what the list response reads: user, widgets, dashboard
+            # layout versions, external_platform (via ReportSchema.from_orm),
+            # data_sources (with connections for type), queries / artifacts /
+            # scheduled_prompts (for counts and thumbnails). The chained
+            # lazyload("*") on DataSource stops its own cascade (reports →
+            # widgets/queries/completions/…) from firing per loaded DS.
             query = base_query.options(
+                lazyload("*"),
                 selectinload(Report.user),
                 selectinload(Report.widgets),
-                selectinload(Report.data_sources).selectinload(DataSource.connections),
-                selectinload(Report.artifacts)
+                selectinload(Report.dashboard_layout_versions),
+                selectinload(Report.external_platform),
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
+                selectinload(Report.queries),
+                selectinload(Report.artifacts),
+                selectinload(Report.scheduled_prompts),
             ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
 
             result = await db.execute(query)
