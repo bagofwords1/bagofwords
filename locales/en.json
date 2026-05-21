@@ -406,6 +406,11 @@
       "failed": "Failed to fetch",
       "errorOccurred": "An error occurred"
     },
+    "clarify": {
+      "clarifying": "Clarifying questions for user",
+      "placeholder": "Your answer…",
+      "submit": "Submit"
+    },
     "createArtifact": {
       "creating": "Creating Artifact",
       "created": "Artifact Created",

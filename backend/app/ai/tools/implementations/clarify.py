@@ -12,11 +12,12 @@ from app.ai.tools.schemas.events import (
 
 
 class ClarifyTool(Tool):
-    """Clarify tool — pause and ask the user a question.
+    """Clarify tool — ask the user one or more questions before proceeding.
 
-    The user-facing text lives in ``question`` (required tool input). Emits
-    ``final_answer`` in the observation so the existing terminal-tool path in
-    ``agent_v2`` routes it into the block's content and the completion message.
+    All questions are rendered as an interactive form in the UI (chip-pickers
+    for enumerated options, text inputs for free-form answers). The user fills
+    in every answer and submits them in a single reply, which re-enters the
+    agent loop with the answers as context.
     """
 
     @property
@@ -24,12 +25,14 @@ class ClarifyTool(Tool):
         return ToolMetadata(
             name="clarify",
             description=(
-                "Pause and ask the user a clarifying question. "
-                "Put the full user-facing message in `question` (markdown OK). "
-                "The agent loop stops after this tool runs and waits for the user's reply."
+                "Ask the user one or more clarifying questions before proceeding. "
+                "Each question is rendered as an interactive form row: "
+                "a chip-picker when `options` is supplied, a text field otherwise. "
+                "Use `options` for enumerable choices; include 'Other…' when the list may not cover every case. "
+                "The agent loop pauses until the user submits all answers."
             ),
             category="action",
-            version="1.0.0",
+            version="2.0.0",
             input_schema=ClarifyInput.model_json_schema(),
             output_schema=ClarifyOutput.model_json_schema(),
             max_retries=1,
@@ -40,18 +43,38 @@ class ClarifyTool(Tool):
             examples=[
                 {
                     "input": {
-                        "question": (
-                            "Which definition of \"active user\" should I use?\n"
-                            "- logged in within the last 30 days\n"
-                            "- performed any tracked action within the last 30 days\n"
-                            "- has an active subscription\n"
-                            "- or specify your own."
-                        ),
-                        "context": "user asked about active users; not defined in instructions",
+                        "questions": [
+                            {
+                                "text": "Which date range should I use?",
+                                "options": [
+                                    "Last 7 days",
+                                    "Last 30 days",
+                                    "Last 90 days",
+                                    "Year to date",
+                                    "Other…",
+                                ],
+                            },
+                            {
+                                "text": "Which metric should I focus on?",
+                                "options": ["Revenue", "Orders", "Sessions", "Conversion rate", "Other…"],
+                            },
+                        ],
+                        "context": "report scope is ambiguous — need date range and primary KPI before querying",
                     },
-                    "description": "ask the user to pick a definition before computing",
+                    "description": "ask the user to pick a date range and metric before building a report",
                 },
-            ]
+                {
+                    "input": {
+                        "questions": [
+                            {
+                                "text": "What should the chart title be?",
+                            }
+                        ],
+                        "context": "user did not specify a title",
+                    },
+                    "description": "ask a single free-form question",
+                },
+            ],
         )
 
     @property
@@ -67,12 +90,22 @@ class ClarifyTool(Tool):
 
         yield ToolStartEvent(
             type="tool.start",
-            payload={"question": data.question, "context": data.context},
+            payload={"questions": [q.model_dump() for q in data.questions], "context": data.context},
         )
 
-        summary = "Awaiting user clarification"
+        n = len(data.questions)
+        summary = f"Awaiting user answers to {n} question{'s' if n != 1 else ''}"
         if data.context:
-            summary = f"Awaiting user clarification: {data.context}"
+            summary += f": {data.context}"
+
+        # Build a plain-text representation for the final_answer (shown if the
+        # component is not rendered, e.g. in non-UI contexts).
+        final_answer = "\n\n".join(
+            q.text + (
+                "\n" + " / ".join(q.options) if q.options else ""
+            )
+            for q in data.questions
+        )
 
         yield ToolEndEvent(
             type="tool.end",
@@ -82,10 +115,7 @@ class ClarifyTool(Tool):
                     "summary": summary,
                     "artifacts": [],
                     "analysis_complete": True,
-                    # final_answer carries the question text → agent_v2's
-                    # terminal-tool branch updates the completion message
-                    # and re-upserts the block with this as its content.
-                    "final_answer": data.question,
+                    "final_answer": final_answer,
                 },
-            }
+            },
         )

@@ -249,7 +249,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper" dir="auto">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -315,7 +315,7 @@
 									</div>
 
 									<!-- Show status messages for stopped/error completions -->
-									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
+									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success' && !hasClarifyBlock(m)">
 										<div class="flex items-center gap-1">
 											<CompletionItemFeedback
 												:completion="{ id: (m.system_completion_id || m.id) }"
@@ -676,6 +676,7 @@ import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
@@ -1268,6 +1269,10 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped' || block.plan_decision?.analysis_complete || block.plan_decision?.final_answer)
 }
 
+function hasClarifyBlock(m: ChatMessage): boolean {
+	return (m.completion_blocks || []).some(b => b.tool_execution?.tool_name === 'clarify')
+}
+
 function getToolComponent(toolName: string) {
 	switch (toolName) {
     // 'create_data_model' removed
@@ -1327,6 +1332,8 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'web_fetch':
 			return WebFetchTool
+		case 'clarify':
+			return ClarifyTool
 		default:
 			return null
 	}
@@ -1814,6 +1821,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'instructions'))
 							;(lastBlock.tool_execution.result_json as any).search_query = q
 							lastBlock.tool_execution.result_summary = `Searching instructions for ${qStr}…`
+						}
+						if (payload.tool_name === 'clarify' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
 					} catch {}
 					lastBlock.status = 'in_progress'
