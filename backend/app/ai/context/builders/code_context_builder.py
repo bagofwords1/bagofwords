@@ -10,6 +10,7 @@ from sqlalchemy import select, func, case
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.step import Step
+from app.models.data_source import DataSource
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
 from app.ai.context.sections.code_section import CodeSection
@@ -385,15 +386,27 @@ class CodeContextBuilder:
         return float(inter) / float(union)
 
     async def _get_access_and_time(self, time_window_days: Optional[int]) -> Tuple[Set[str], Optional[datetime], datetime]:
-        # Lazy import to avoid circular dependency
-        from app.services.data_source_service import DataSourceService
-        ds_service = DataSourceService()
-        allowed_ds = await ds_service.get_active_data_sources(
-            db=self.db,
-            organization=self.organization,
-            current_user=self.current_user,
+        # We only need accessible DS ids here — bypass get_active_data_sources
+        # (which builds full Pydantic list items + per-DS user_status) and
+        # query ids directly.
+        from app.core.permission_resolver import get_accessible_data_source_ids
+        from sqlalchemy import or_
+
+        is_admin, accessible_ids = await get_accessible_data_source_ids(
+            self.db, str(self.current_user.id), str(self.organization.id),
         )
-        allowed_ds_ids: Set[str] = set(str(ds.id) for ds in allowed_ds)
+        stmt = select(DataSource.id).where(
+            DataSource.organization_id == self.organization.id,
+            DataSource.is_active == True,
+        )
+        if not is_admin:
+            clauses = [DataSource.is_public == True]
+            if accessible_ids:
+                clauses.append(DataSource.id.in_(accessible_ids))
+            stmt = stmt.where(or_(*clauses))
+        rows = await self.db.execute(stmt)
+        allowed_ds_ids: Set[str] = {str(r[0]) for r in rows.all()}
+
         now_utc = datetime.now(timezone.utc)
         since_ts = now_utc - timedelta(days=time_window_days) if time_window_days and time_window_days > 0 else None
         return allowed_ds_ids, since_ts, now_utc

@@ -786,7 +786,14 @@ class MessageContextBuilder:
                 pass
         if ds_ids:
             try:
-                rows = await self.db.execute(select(DataSource).where(DataSource.id.in_(list(ds_ids))))
+                # Only ds.id and ds.name are read downstream — suppress the
+                # model-level lazy="selectin" cascade (reports → widgets/
+                # queries/completions/…) that would otherwise fire per row.
+                from sqlalchemy.orm import lazyload
+                rows = await self.db.execute(
+                    select(DataSource).where(DataSource.id.in_(list(ds_ids)))
+                    .options(lazyload("*"))
+                )
                 for ds in rows.scalars().all():
                     ds_map[str(getattr(ds, 'id', ''))] = ds
             except Exception:
@@ -806,7 +813,11 @@ class MessageContextBuilder:
                 # If we discovered new ds_ids from tables, try to fill missing ones
                 missing_ds = [x for x in ds_ids if x not in ds_map]
                 if missing_ds:
-                    rows2 = await self.db.execute(select(DataSource).where(DataSource.id.in_(missing_ds)))
+                    from sqlalchemy.orm import lazyload
+                    rows2 = await self.db.execute(
+                        select(DataSource).where(DataSource.id.in_(missing_ds))
+                        .options(lazyload("*"))
+                    )
                     for ds in rows2.scalars().all():
                         ds_map[str(getattr(ds, 'id', ''))] = ds
             except Exception:
