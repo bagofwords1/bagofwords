@@ -201,7 +201,7 @@ function selectOption(index: number, option: string) {
 
 function assemblePrompt(): string {
   return questions.value
-    .map((q, i) => `Q: ${q.text}\n\nA: ${effectiveAnswer(i)}`)
+    .map((q, i) => `Q: ${q.text}  \nA: ${effectiveAnswer(i)}`)
     .join('\n\n')
 }
 
