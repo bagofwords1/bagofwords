@@ -283,6 +283,7 @@ class AgentExecutionSummaryItem(BaseModel):
     feedback_direction: Optional[int] = None  # 1, -1, or 0
     feedback_message: Optional[str] = None
     step_titles: List[str] = []
+    tool_names: List[str] = []
     user_name: Optional[str] = None
     user_email: Optional[str] = None
     report_id: str

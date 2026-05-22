@@ -3,7 +3,25 @@
     <div class="p-6">
       <h2 class="text-lg font-semibold mb-4">{{ isEditMode ? $t('settings.mcpModal.editTitle') : $t('settings.mcpModal.connectTitle') }}</h2>
 
+      <!-- Use existing connection (create mode only) -->
+      <div v-if="!isEditMode && existingConnections.length > 0" class="mb-4">
+        <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.useExistingLabel') }}</label>
+        <select
+          v-model="selectedExistingId"
+          class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">{{ $t('settings.mcpModal.selectExistingPlaceholder') }}</option>
+          <option v-for="conn in existingConnections" :key="conn.id" :value="conn.id">{{ conn.name }}</option>
+        </select>
+        <div v-if="!selectedExistingId" class="relative my-4">
+          <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200" /></div>
+          <div class="relative flex justify-center"><span class="bg-white px-2 text-xs text-gray-400">{{ $t('settings.mcpModal.orCreateNew') }}</span></div>
+        </div>
+      </div>
+
       <form @submit.prevent="handleSubmit" class="space-y-4">
+        <!-- Form fields hidden when using an existing connection -->
+        <template v-if="!selectedExistingId">
         <!-- Name -->
         <div>
           <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.nameLabel') }}</label>
@@ -88,10 +106,12 @@
         <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
           {{ testResult.message }}
         </div>
+        </template>
 
         <!-- Actions -->
         <div class="flex items-center justify-between pt-2">
           <button
+            v-if="!selectedExistingId"
             type="button"
             @click="testConnection"
             :disabled="testing || !form.server_url"
@@ -100,10 +120,11 @@
             <Spinner v-if="testing" class="w-3 h-3 inline me-1" />
             {{ $t('settings.mcpModal.testConnection') }}
           </button>
+          <span v-else />
 
           <div class="flex items-center gap-2">
             <UButton color="gray" variant="ghost" size="sm" @click="isOpen = false">{{ $t('settings.mcpModal.cancel') }}</UButton>
-            <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="!form.server_url || !form.name">
+            <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="selectedExistingId ? false : (!form.server_url || !form.name)">
               {{ isEditMode ? $t('settings.mcpModal.save') : $t('settings.mcpModal.connect') }}
             </UButton>
           </div>
@@ -120,8 +141,11 @@ const { t } = useI18n()
 const isOpen = defineModel<boolean>({ default: false })
 const props = defineProps<{
   editConnection?: any
+  existingConnections?: any[]
 }>()
 const emit = defineEmits(['created'])
+
+const selectedExistingId = ref('')
 const toast = useToast()
 
 const isEditMode = computed(() => !!props.editConnection)
@@ -169,6 +193,7 @@ watch(isOpen, (open) => {
 
 function resetForm() {
   Object.assign(form, { name: '', server_url: '', transport: 'sse', auth_type: 'none', token: '', api_key: '', api_key_header: 'X-API-Key' })
+  selectedExistingId.value = ''
   testResult.value = null
 }
 
@@ -201,6 +226,18 @@ async function testConnection() {
 }
 
 async function handleSubmit() {
+  // Use existing connection path
+  if (selectedExistingId.value) {
+    const conn = (props.existingConnections || []).find((c: any) => c.id === selectedExistingId.value)
+    if (conn) {
+      toast.add({ title: t('settings.mcpModal.connected'), color: 'green' })
+      isOpen.value = false
+      emit('created', conn)
+      resetForm()
+    }
+    return
+  }
+
   submitting.value = true
   try {
     const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type }

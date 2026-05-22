@@ -174,12 +174,16 @@ async def get_agent_execution_summaries(
     page: int = 1,
     page_size: int = 20,
     filter: Optional[str] = None,
+    tool_name: Optional[str] = None,
+    prompt_search: Optional[str] = None,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Agent execution summaries joined with completion, feedback, and tool stats."""
-    return await console_service.get_agent_execution_summaries(db, organization, params, page, page_size, filter)
+    return await console_service.get_agent_execution_summaries(
+        db, organization, params, page, page_size, filter, tool_name, prompt_search
+    )
 
 @router.get("/console/diagnosis/metrics")
 @requires_permission("manage_settings")

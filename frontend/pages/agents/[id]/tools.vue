@@ -14,10 +14,10 @@
         </div>
 
         <!-- Add MCP Modal -->
-        <AddMCPModal v-model="showMCPModal" @created="onConnectionCreated" />
+        <AddMCPModal v-model="showMCPModal" :existing-connections="availableMcpConnections" @created="onConnectionCreated" />
 
         <!-- Add Custom API Modal -->
-        <AddCustomAPIModal v-model="showCustomAPIModal" @created="onConnectionCreated" />
+        <AddCustomAPIModal v-model="showCustomAPIModal" :existing-connections="availableCustomApiConnections" @created="onConnectionCreated" />
 
         <!-- Edit Modal (type-aware) -->
         <AddMCPModal v-if="editingConnection?.type === 'mcp'" v-model="showEditModal" :edit-connection="editingConnection" @created="onConnectionUpdated" />
@@ -70,6 +70,33 @@ const mcpConnections = computed(() => {
     return connections.filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
 
+// All org-level MCP/custom API connections (for "use existing" picker)
+const allOrgToolConnections = ref<any[]>([])
+
+async function fetchOrgToolConnections() {
+    try {
+        const res = await useMyFetch('/connections', { method: 'GET' })
+        if (res.data.value) {
+            allOrgToolConnections.value = (res.data.value as any[]).filter(
+                (c: any) => c.type === 'mcp' || c.type === 'custom_api'
+            )
+        }
+    } catch {}
+}
+
+onMounted(fetchOrgToolConnections)
+
+// Connections not yet linked to this agent
+const availableMcpConnections = computed(() => {
+    const linkedIds = new Set(mcpConnections.value.map((c: any) => String(c.id)))
+    return allOrgToolConnections.value.filter((c: any) => c.type === 'mcp' && !linkedIds.has(String(c.id)))
+})
+
+const availableCustomApiConnections = computed(() => {
+    const linkedIds = new Set(mcpConnections.value.map((c: any) => String(c.id)))
+    return allOrgToolConnections.value.filter((c: any) => c.type === 'custom_api' && !linkedIds.has(String(c.id)))
+})
+
 async function onConnectionCreated(conn: any) {
     try {
         await useMyFetch(`/data_sources/${id.value}/connections/${conn.id}`, { method: 'POST' })
@@ -78,6 +105,7 @@ async function onConnectionCreated(conn: any) {
         await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' })
     } catch {}
     await fetchIntegration()
+    await fetchOrgToolConnections()
 }
 
 async function onConnectionUpdated() {

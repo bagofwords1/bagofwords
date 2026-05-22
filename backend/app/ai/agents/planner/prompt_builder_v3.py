@@ -87,13 +87,34 @@ class PromptBuilderV3:
           - Call a tool to take an action; respond as plain text for a final answer
           - Never write reasoning AND call a tool for the same final answer
         """
-        mode_label = "Deep Analytics" if planner_input.mode == "deep" else "Chat"
+        mode_label = "Deep Analytics" if planner_input.mode == "deep" else ("Training" if planner_input.mode == "training" else "Chat")
 
         deep_analytics_text = ""
         if planner_input.mode == "deep":
             deep_analytics_text = (
                 "Deep Analytics mode: perform heavier planning, run multiple iterations of "
                 "widgets/observations, and end with a create_artifact call to present findings.\n"
+            )
+
+        training_mode_text = ""
+        if planner_input.mode == "training":
+            training_mode_text = (
+                "TRAINING MODE: Your purpose is to help improve this AI system's performance. "
+                "You have direct access to platform execution history via list_agent_executions — "
+                "no data source, no schema, no clarification needed to use it.\n"
+                "Key tools:\n"
+                "- list_agent_executions: list past agent runs with prompts, responses, tool outcomes, feedback\n"
+                "- search_instructions: find existing instructions before creating new ones\n"
+                "- create_instruction / edit_instruction: write or update instructions\n"
+                "- create_data: create data visualizations as usual\n\n"
+                "Training mode routing examples (follow these exactly):\n"
+                "- User: \"show low confidence responses\" → list_agent_executions(filter='low_confidence')\n"
+                "- User: \"list bad AI answers\" → list_agent_executions(filter='low_confidence')\n"
+                "- User: \"show failed queries\" → list_agent_executions(filter='failed_queries')\n"
+                "- User: \"review negative feedback\" → list_agent_executions(filter='negative_feedback')\n"
+                "- User: \"find instruction gaps\" → list_agent_executions(filter='low_instruction_coverage')\n"
+                "- User: \"show recent agent runs\" → list_agent_executions() (no filter)\n"
+                "No clarification, no capability disclaimer, no schema inspection before calling list_agent_executions.\n"
             )
 
         row_limit = planner_input.limit_row_count
@@ -111,9 +132,9 @@ class PromptBuilderV3:
         # model's "what is today" reasoning and changes rarely.
         system = f"""SYSTEM
 Mode: {mode_label}
-
+{training_mode_text}
 You are an AI Analytics Agent. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
-You are an expert in business, product and data analysis. You are familiar with popular (product/business) data analysis KPIs, measures, metrics and patterns -- but you also know that each business is unique and has its own unique data analysis patterns. When in doubt, use the clarify tool.
+{"" if planner_input.mode == "training" else "You are an expert in business, product and data analysis. You are familiar with popular (product/business) data analysis KPIs, measures, metrics and patterns -- but you also know that each business is unique and has its own unique data analysis patterns. When in doubt, use the clarify tool."}
 
 - Domain: business/data analysis, SQL/data modeling, code-aware reasoning, and UI/chart/widget recommendations.
 - Constraints: at most one tool call per turn; never hallucinate schema/table/column names; follow tool schemas exactly.
@@ -134,6 +155,7 @@ AGENT LOOP (single-cycle planning; one tool per iteration)
 2) Decide if a tool is needed:
    - "research" tools (describe_tables, read_resources, inspect_data): gather info / verify assumptions
    - "action" tools (create_data, create_artifact, clarify): produce user-facing output
+   - "training" tools (list_agent_executions, search_instructions): direct answers about platform history and instructions — call these immediately, no prior research step needed
    - no tool: finalize with a text response
 3) Communicate clearly:
    - Message before a tool call (optional): brief reason for the next step.
@@ -163,7 +185,7 @@ when to call clarify (mandatory — do not skip and do not guess):
 - the available data covers some but not all of what the user asked for, and you would have to guess to fill the gap.
 - never invent a definition. never silently pick one interpretation when multiple are plausible. when in doubt, clarify — one clarify turn beats building the wrong thing.
 
-how to write a clarify call:
+{"EXCEPTION — training mode: requests about agent runs, AI responses, response quality, confidence, feedback, or instruction gaps are NOT ambiguous — they route directly to list_agent_executions. Never clarify for these. See the training mode routing examples above." + chr(10) + chr(10) if planner_input.mode == "training" else ""}how to write a clarify call:
 - put the entire user-facing clarification into the tool's `question` argument. this is what the user sees. do NOT split the question across pre-tool text and the tool args — keep it all in `question`.
 - pre-tool text is optional for clarify; if you write any, keep it to ≤1 short sentence of preamble. don't repeat the question there.
 - format inside `question`: one numbered question per ambiguity. when you can enumerate 2-4 plausible interpretations, list them as bullets under the question and end the bullet list with "or specify your own.". when the answer space is open (date ranges, specific names, custom thresholds), just ask the question — no bullets.

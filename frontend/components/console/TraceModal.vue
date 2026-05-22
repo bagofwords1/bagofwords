@@ -440,6 +440,7 @@ import CreateDataTool from '../tools/CreateDataTool.vue'
 import InspectDataTool from '../tools/InspectDataTool.vue'
 import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
 import EditInstructionTool from '../tools/EditInstructionTool.vue'
+import ListAgentExecutionsTool from '../tools/ListAgentExecutionsTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
@@ -891,6 +892,8 @@ function getToolComponent(toolName: string) {
             return CreateInstructionTool
         case 'edit_instruction':
             return EditInstructionTool
+        case 'list_agent_executions':
+            return ListAgentExecutionsTool
         default:
             return null
     }

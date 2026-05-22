@@ -3,7 +3,24 @@
     <div class="p-6">
       <h2 class="text-lg font-semibold mb-4">{{ isEditMode ? 'Edit Custom API Connection' : 'Connect Custom API' }}</h2>
 
+      <!-- Use existing connection (create mode only) -->
+      <div v-if="!isEditMode && existingConnections.length > 0" class="mb-4">
+        <label class="block text-xs font-medium text-gray-700 mb-1">Use existing connection</label>
+        <select
+          v-model="selectedExistingId"
+          class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">Select existing…</option>
+          <option v-for="conn in existingConnections" :key="conn.id" :value="conn.id">{{ conn.name }}</option>
+        </select>
+        <div v-if="!selectedExistingId" class="relative my-4">
+          <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200" /></div>
+          <div class="relative flex justify-center"><span class="bg-white px-2 text-xs text-gray-400">— or create new —</span></div>
+        </div>
+      </div>
+
       <form @submit.prevent="handleSubmit" class="space-y-4">
+        <template v-if="!selectedExistingId">
         <!-- Name -->
         <div>
           <label class="block text-xs font-medium text-gray-700 mb-1">Connection Name</label>
@@ -135,10 +152,12 @@
         <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
           {{ testResult.message }}
         </div>
+        </template>
 
         <!-- Actions -->
         <div class="flex items-center justify-between pt-2">
           <button
+            v-if="!selectedExistingId"
             type="button"
             @click="testConnection"
             :disabled="testing || !form.base_url"
@@ -147,10 +166,11 @@
             <Spinner v-if="testing" class="w-3 h-3 inline me-1" />
             Test Connection
           </button>
+          <span v-else />
 
           <div class="flex items-center gap-2">
             <UButton color="gray" variant="ghost" size="sm" @click="isOpen = false">Cancel</UButton>
-            <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="!form.base_url || !form.name">
+            <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="selectedExistingId ? false : (!form.base_url || !form.name)">
               {{ isEditMode ? 'Save' : 'Connect' }}
             </UButton>
           </div>
@@ -166,9 +186,12 @@ import Spinner from '~/components/Spinner.vue'
 const isOpen = defineModel<boolean>({ default: false })
 const props = defineProps<{
   editConnection?: any
+  existingConnections?: any[]
 }>()
 const emit = defineEmits(['created'])
 const toast = useToast()
+
+const selectedExistingId = ref('')
 
 const isEditMode = computed(() => !!props.editConnection)
 
@@ -224,6 +247,7 @@ watch(isOpen, (open) => {
 function resetForm() {
   Object.assign(form, { name: '', base_url: '', auth_type: 'none', token: '', api_key: '', api_key_header: 'X-API-Key', endpoints_json: '[]' })
   customHeaders.splice(0)
+  selectedExistingId.value = ''
   testResult.value = null
 }
 
@@ -278,6 +302,18 @@ async function testConnection() {
 }
 
 async function handleSubmit() {
+  // Use existing connection path
+  if (selectedExistingId.value) {
+    const conn = (props.existingConnections || []).find((c: any) => c.id === selectedExistingId.value)
+    if (conn) {
+      toast.add({ title: 'Custom API connected', color: 'green' })
+      isOpen.value = false
+      emit('created', conn)
+      resetForm()
+    }
+    return
+  }
+
   if (endpointsError.value) return
   submitting.value = true
   try {

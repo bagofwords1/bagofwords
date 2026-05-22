@@ -2,6 +2,9 @@
 
 ## Version 0.0.383 (May 21, 2026)
 - Improve ds selector to support 'auto' mode
+- Performance & reliability fixes
+- Clarify tool enhancement
+- Added new tool: list agent execution in training mode
 
 ## Version 0.0.382 (May 20, 2026)
 - speed improvements

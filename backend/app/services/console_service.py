@@ -1719,7 +1719,9 @@ class ConsoleService:
         params: MetricsQueryParams,
         page: int = 1,
         page_size: int = 20,
-        issue_filter: Optional[str] = None
+        issue_filter: Optional[str] = None,
+        tool_name: Optional[str] = None,
+        prompt_search: Optional[str] = None,
     ) -> AgentExecutionSummariesResponse:
         """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
@@ -1808,6 +1810,27 @@ class ConsoleService:
                 UserCompletion.instructions_effectiveness < 3
             )
 
+        # Filter by specific tool name invoked within the execution
+        if tool_name:
+            tool_ae_subquery = (
+                select(ToolExecution.agent_execution_id)
+                .where(ToolExecution.tool_name == tool_name)
+            )
+            base_query = base_query.where(AgentExecution.id.in_(tool_ae_subquery))
+
+        # Keyword search against user prompt text
+        if prompt_search:
+            from sqlalchemy import Text, cast as sa_cast
+            from sqlalchemy.orm import aliased
+            PromptSystemCompletion = aliased(Completion)
+            PromptUserCompletion = aliased(Completion)
+            base_query = (
+                base_query
+                .join(PromptSystemCompletion, PromptSystemCompletion.id == AgentExecution.completion_id, isouter=True)
+                .join(PromptUserCompletion, PromptUserCompletion.id == PromptSystemCompletion.parent_id, isouter=True)
+                .where(sa_cast(PromptUserCompletion.prompt, Text).ilike(f'%{prompt_search}%'))
+            )
+
         # Recalculate total with filters
         total_q = select(func.count()).select_from(base_query.subquery())
         total_res = await db.execute(total_q)
@@ -1857,8 +1880,9 @@ class ConsoleService:
                         except Exception:
                             prompts[str(sc.id)] = ''
 
-        # Tool execution counts per AE
+        # Tool execution counts per AE + distinct tool names (ordered by first invocation)
         te_counts = {str(ae_id): {'total': 0, 'success': 0, 'failed': 0} for ae_id in ae_ids}
+        ae_tool_names: dict[str, List[str]] = {str(ae_id): [] for ae_id in ae_ids}
         if ae_ids:
             te_q = (
                 select(
@@ -1875,6 +1899,20 @@ class ConsoleService:
                 successes = int(success_cnt or 0)
                 failures = max(total - successes, 0)
                 te_counts[str(ae_id)] = {'total': total, 'success': successes, 'failed': failures}
+
+            # Distinct tool names per AE (ordered by first call, excluding internal/meta tools)
+            _skip_tools = {'list_agent_executions', 'search_instructions', 'edit_instruction', 'create_instruction', 'run_eval', 'search_evals', 'create_eval'}
+            tn_q = (
+                select(ToolExecution.agent_execution_id, ToolExecution.tool_name)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids))
+                .order_by(ToolExecution.agent_execution_id.asc(), ToolExecution.created_at.asc())
+            )
+            tn_res = await db.execute(tn_q)
+            for ae_id, tname in tn_res.all():
+                if tname and tname not in _skip_tools:
+                    lst = ae_tool_names.get(str(ae_id))
+                    if lst is not None and tname not in lst:
+                        lst.append(tname)
 
         # Feedback per completion (most recent)
         feedback_map: dict[str, dict] = {}
@@ -1961,6 +1999,7 @@ class ConsoleService:
                 feedback_direction=fb['direction'],
                 feedback_message=fb.get('message'),
                 step_titles=ae_step_titles.get(str(r.ae_id), [])[:5],
+                tool_names=ae_tool_names.get(str(r.ae_id), [])[:5],
                 user_name=r.user_name,
                 user_email=r.user_email,
                 report_id=str(r.report_id) if r.report_id else '',

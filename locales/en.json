@@ -285,7 +285,15 @@
     "columnUser": "User",
     "emptyTitle": "Ask a question to get started.",
     "emptyTipLabel": "Tip:",
-    "emptyTipBody": "Not sure what to ask? You can ask the AI Analyst to suggest questions about a specific topic."
+    "emptyTipBody": "Not sure what to ask? You can ask the AI Analyst to suggest questions about a specific topic.",
+    "trainingEmptyTitle": "Training session started.",
+    "trainingEmptyTipLabel": "How it works:",
+    "trainingEmptyBody": "Ask questions and review the AI's responses. Approve or edit answers to teach the AI Analyst how to handle similar queries in the future.",
+    "trainingStarters": [
+      { "title": "Find Instructions Conflicts", "prompt": "Identify contradictions or gaps between existing training instructions that may cause inconsistent AI responses." },
+      { "title": "Show Low Confidence Responses", "prompt": "List recent AI responses where the model expressed uncertainty or produced low-quality answers that need review." },
+      { "title": "Show Negative Feedback Responses", "prompt": "Review responses that received negative feedback from users to identify patterns and areas for improvement." }
+    ]
   },
   "traceModal": {
     "title": "Agent Execution",
@@ -519,6 +527,19 @@
       "toastDeletedDesc": "Instruction deleted",
       "toastFailedDelete": "Failed to delete instruction",
       "toastSaved": "Instruction saved"
+    },
+    "listAgentExecutions": {
+      "title": "List agent executions",
+      "loading": "Loading agent executions…",
+      "found": "{count} execution(s) · {total} total",
+      "failed": "Failed to load agent executions",
+      "empty": "No executions found",
+      "noMatch": "No executions match this filter",
+      "tabAll": "All",
+      "tabNegative": "Negative feedback",
+      "tabFailed": "Failed",
+      "tabLowConfidence": "Low confidence",
+      "tabLowCoverage": "Low coverage"
     },
     "editInstruction": {
       "rejected": "Edit rejected",
@@ -1163,6 +1184,9 @@
       "apiKeyLabel": "API Key",
       "apiKeyPlaceholder": "Enter API key",
       "headerNameLabel": "Header Name",
+      "useExistingLabel": "Use existing connection",
+      "selectExistingPlaceholder": "Select existing…",
+      "orCreateNew": "— or create new —",
       "testConnection": "Test Connection",
       "cancel": "Cancel",
       "connect": "Connect",
