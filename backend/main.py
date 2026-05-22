@@ -91,6 +91,9 @@ from app.routes import (
     usage_limits,
     scheduled_prompt,
     excel,
+    agent_yaml,
+    eval_yaml,
+    data_source_tools,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -247,6 +250,9 @@ app.include_router(mcp.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
+app.include_router(data_source_tools.router, prefix="/api")
+app.include_router(agent_yaml.router, prefix="/api")
+app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
