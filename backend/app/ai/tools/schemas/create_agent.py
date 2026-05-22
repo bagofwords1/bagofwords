@@ -51,9 +51,27 @@ class CreateAgentInput(BaseModel):
     )
     tables_include: Optional[List[str]] = Field(
         default=None,
-        description="Glob patterns matched against '{connection}.{schema}.{table}'. None means include all.",
+        description=(
+            "Explicit list of tables (or glob patterns) to activate, matched against "
+            "'{connection}.{schema}.{table}'. STRONGLY PREFER listing specific tables — "
+            "use get_connection first to discover what's available, then pass a curated "
+            "list. None means 'include every table on every linked connection', which is "
+            "almost never what you want; if you really mean that, set "
+            "confirm_empty_tables=true so the call doesn't get rejected with "
+            "tables_unconfirmed."
+        ),
     )
     tables_exclude: List[str] = Field(default_factory=list)
+    confirm_empty_tables: bool = Field(
+        default=False,
+        description=(
+            "Set true when you intentionally want the agent to expose every table on "
+            "every linked connection (tables_include=None/[]). Without this flag, the "
+            "tool refuses an empty include-list when the connections actually have "
+            "tables — to force you to either curate the list or confirm the wide-open "
+            "default. Use 'clarify' to check with the user before flipping this on."
+        ),
+    )
 
     tool_policies: List[ToolPolicyInput] = Field(
         default_factory=list,

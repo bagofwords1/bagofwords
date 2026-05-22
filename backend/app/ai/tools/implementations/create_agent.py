@@ -43,7 +43,13 @@ class CreateAgentTool(Tool):
                 "Defaults to private (is_public=false). Returns the same structured envelope "
                 "the YAML apply endpoint uses, so connection-not-found / tool-not-found "
                 "errors come back with 'did-you-mean' suggestions you can act on directly. "
-                "Use dry_run=true to validate without writing."
+                "\n\nALWAYS list tables explicitly in tables_include. Call get_connection "
+                "first to discover what's on a connection, then curate the list. Calls "
+                "with no table filter are refused (code=tables_unconfirmed) unless "
+                "confirm_empty_tables=true — that prevents accidentally opening every "
+                "table on every connection. Use the 'clarify' tool to confirm with the "
+                "user before flipping confirm_empty_tables on. "
+                "\n\nUse dry_run=true to validate without writing."
             ),
             category="action",
             version="1.0.0",
@@ -61,9 +67,14 @@ class CreateAgentTool(Tool):
                         "name": "revenue-analyst",
                         "description": "Helps GTM analyze pipeline and ARR",
                         "connection_names": ["postgres-prod"],
+                        "tables_include": [
+                            "postgres-prod.public.opportunities",
+                            "postgres-prod.public.accounts",
+                            "postgres-prod.public.contacts",
+                        ],
                         "conversation_starters": ["Q3 pipeline coverage", "Top churned accounts"],
                     },
-                    "description": "Minimal private agent on one Postgres connection.",
+                    "description": "Private agent with an explicit table list. Use this shape by default.",
                 },
                 {
                     "input": {
@@ -82,6 +93,17 @@ class CreateAgentTool(Tool):
                         ],
                     },
                     "description": "Agent with table filter, MCP tool overlay, and group member.",
+                },
+                {
+                    "input": {
+                        "name": "open-explorer",
+                        "connection_names": ["postgres-prod"],
+                        "confirm_empty_tables": True,
+                    },
+                    "description": (
+                        "Open agent that exposes every table on the connection. Only use "
+                        "this shape after confirming with the user via 'clarify'."
+                    ),
                 },
                 {
                     "input": {"name": "revenue-analyst", "dry_run": True},
@@ -129,6 +151,83 @@ class CreateAgentTool(Tool):
                 payload={"error": "Missing runtime context.", "code": "MISSING_CONTEXT"},
             )
             return
+
+        # Empty tables_include is rejected unless the planner explicitly
+        # confirms — otherwise an LLM that forgot to call get_connection
+        # silently opens every table on every linked connection. Only
+        # block when the connections actually have indexed tables (skip
+        # if everything's still indexing or the agent has no connections
+        # yet — those cases are guarded elsewhere).
+        if (
+            (data.tables_include is None or len(data.tables_include) == 0)
+            and not data.confirm_empty_tables
+            and data.connection_names
+            and not data.dry_run
+        ):
+            try:
+                from sqlalchemy import select, func
+                from app.models.connection import Connection
+                from app.models.connection_table import ConnectionTable
+
+                indexed_table_count = 0
+                conn_rows = await db.execute(
+                    select(Connection.id).where(
+                        Connection.organization_id == str(organization.id),
+                        Connection.name.in_(data.connection_names),
+                        Connection.deleted_at.is_(None),
+                    )
+                )
+                resolved_ids = [str(r[0]) for r in conn_rows.all()]
+                if resolved_ids:
+                    count_row = await db.execute(
+                        select(func.count(ConnectionTable.id)).where(
+                            ConnectionTable.connection_id.in_(resolved_ids)
+                        )
+                    )
+                    indexed_table_count = int(count_row.scalar() or 0)
+
+                if indexed_table_count > 0:
+                    msg = (
+                        f"Refusing to create '{data.name}' with no table filter — the "
+                        f"linked connection(s) have {indexed_table_count} indexed "
+                        "table(s). Call get_connection to list them and pass "
+                        "tables_include explicitly, or use clarify to confirm with the "
+                        "user before re-calling with confirm_empty_tables=true."
+                    )
+                    output = CreateAgentOutput(
+                        success=False,
+                        status="error",
+                        name=data.name,
+                        errors=[
+                            {
+                                "loc": ["tables_include"],
+                                "code": "tables_unconfirmed",
+                                "message": msg,
+                                "value": None,
+                                "suggestion": (
+                                    "set tables_include explicitly OR pass "
+                                    "confirm_empty_tables=true after confirming with the user"
+                                ),
+                            }
+                        ],
+                        message=msg,
+                    )
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": output.model_dump(),
+                            "observation": {
+                                "summary": msg,
+                                "errors": output.errors,
+                            },
+                        },
+                    )
+                    return
+            except Exception:
+                # Defensive — if the count query fails, fall through and
+                # let AgentYamlService.apply handle the create. The
+                # confirmation prompt is a guardrail, not a hard guarantee.
+                logger.exception("create_agent: indexed-table count probe failed")
 
         try:
             from app.schemas.agent_manifest_schema import (

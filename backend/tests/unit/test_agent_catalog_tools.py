@@ -200,6 +200,87 @@ async def test_list_agents_name_search_substring():
 
 
 @pytest.mark.asyncio
+async def test_create_agent_blocks_empty_tables_when_connection_has_indexed_tables():
+    """If the planner forgets tables_include and the connections actually
+    have tables, return code=tables_unconfirmed instead of silently opening
+    every table."""
+    from unittest.mock import MagicMock
+
+    # Stub the DB so the indexed-table count query returns >0.
+    class _RowAll:
+        def all(self):
+            return self._data
+    class _Scalar:
+        def __init__(self, v):
+            self._v = v
+        def scalar(self):
+            return self._v
+    class _DB:
+        async def execute(self, stmt):
+            sql = str(stmt)
+            r = _RowAll()
+            if "FROM connections" in sql:
+                r._data = [("conn-uuid-1",)]
+                return r
+            # count() path
+            return _Scalar(7)
+
+    ctx = _stub_ctx(db=_DB())
+
+    captured: Dict[str, Any] = {}
+
+    async def fake_apply(self, db, organization, user, yaml_text, *, dry_run=False):
+        captured["called"] = True
+        return ApplyResult(status=ApplyStatus.CREATED, id="x", name="x")
+
+    with patch(
+        "app.services.agent_yaml_service.AgentYamlService.apply",
+        new=fake_apply,
+    ):
+        events = await _drive(
+            CreateAgentTool(),
+            {"name": "y", "connection_names": ["postgres-prod"]},
+            ctx,
+        )
+
+    assert "called" not in captured, "apply must not run when empty tables blocked"
+    end = next(e for e in events if e.type == "tool.end")
+    out = end.payload["output"]
+    assert out["success"] is False
+    assert out["status"] == "error"
+    assert out["errors"][0]["code"] == "tables_unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_create_agent_empty_tables_allowed_with_confirm_flag():
+    """When the planner sets confirm_empty_tables=True, the call goes
+    through even if the connections have tables."""
+    captured: Dict[str, Any] = {}
+
+    async def fake_apply(self, db, organization, user, yaml_text, *, dry_run=False):
+        captured["called"] = True
+        return ApplyResult(status=ApplyStatus.CREATED, id="x", name="open-explorer")
+
+    with patch(
+        "app.services.agent_yaml_service.AgentYamlService.apply",
+        new=fake_apply,
+    ):
+        events = await _drive(
+            CreateAgentTool(),
+            {
+                "name": "open-explorer",
+                "connection_names": ["postgres-prod"],
+                "confirm_empty_tables": True,
+            },
+            _stub_ctx(),
+        )
+
+    assert captured.get("called") is True
+    end = next(e for e in events if e.type == "tool.end")
+    assert end.payload["output"]["success"] is True
+
+
+@pytest.mark.asyncio
 async def test_create_agent_translates_to_manifest_and_calls_apply():
     """Structured input must be passed verbatim to AgentYamlService.apply
     via a YAML serialization round-trip."""
