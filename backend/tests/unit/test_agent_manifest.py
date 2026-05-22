@@ -15,13 +15,10 @@ from app.schemas.agent_manifest_schema import (
     ApplyStatus,
     ApplyWarning,
     ApplyWarningCode,
-    InstructionInline,
-    InstructionRef,
     MemberRef,
     TableRules,
     ToolsOverlay,
 )
-from app.schemas.instruction_schema import InstructionCategory, InstructionLoadMode
 
 
 def test_minimal_manifest():
@@ -38,17 +35,6 @@ def test_full_manifest_roundtrips():
         connections=["c1", "c2"],
         tables=TableRules(include=["c1.public.*"], exclude=["c1.public.staging_*"]),
         tools={"c1": ToolsOverlay(allow=["t1"], confirm=["t2"], deny=["t3"])},
-        instructions=[
-            InstructionRef(id="abc"),
-            InstructionRef(
-                inline=InstructionInline(
-                    title="t",
-                    text="hello",
-                    category=InstructionCategory.GENERAL,
-                    load_mode=InstructionLoadMode.ALWAYS,
-                )
-            ),
-        ],
         members=[
             MemberRef(user="a@b.com"),
             MemberRef(group="gtm", permissions=["manage"]),
@@ -72,28 +58,11 @@ def test_duplicate_connections_rejected():
         AgentManifest(name="a", connections=["c1", "c1"])
 
 
-def test_instruction_ref_requires_exactly_one_of():
-    with pytest.raises(ValidationError):
-        InstructionRef()  # neither
-    with pytest.raises(ValidationError):
-        InstructionRef(
-            id="x",
-            inline=InstructionInline(title="t", text="x"),
-        )  # both
-
-
 def test_member_ref_requires_exactly_one_of():
     with pytest.raises(ValidationError):
         MemberRef()
     with pytest.raises(ValidationError):
         MemberRef(user="a@b.com", group="g")
-
-
-def test_inline_instruction_requires_text_and_title():
-    with pytest.raises(ValidationError):
-        InstructionInline(title="", text="x")
-    with pytest.raises(ValidationError):
-        InstructionInline(title="t", text="")
 
 
 def test_apply_result_error_envelope():

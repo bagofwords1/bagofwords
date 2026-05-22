@@ -33,7 +33,7 @@ come back as a structured `ApplyResult` envelope, not HTTP 4xx.
   `status: unchanged`, no DB writes.
 - **Response statuses**: `created | updated | unchanged | dry_run | error`.
 - **Errors are collected, not short-circuited**: ref resolution returns
-  every missing connection / group / user / instruction / tool in one
+  every missing connection / group / user / tool in one
   response so callers (and MCP-driven LLMs) can fix the whole YAML in
   one round.
 
@@ -67,14 +67,6 @@ conversation_starters:
   - What's our Q3 pipeline coverage?
   - Top 10 churned accounts last 90 days
 
-instructions:
-  - id: inst_abc                 # attach an existing instruction
-  - inline:                      # create a yaml-owned instruction
-      title: ARR definition
-      text: "ARR = sum(mrr) * 12"
-      category: general          # InstructionCategory enum
-      load_mode: always          # InstructionLoadMode enum
-
 members:                         # polymorphic — user OR group, with optional perms
   - user: yochze@gmail.com
   - user: alice@example.com
@@ -102,13 +94,25 @@ members:                         # polymorphic — user OR group, with optional 
       "suggestion": "SQLite Chinook"
     },
     {
-      "loc": ["instructions", 0, "inline", "category"],
-      "code": "enum_invalid",
-      "message": "Input should be 'code_gen', 'data_modeling', 'general', 'dashboard' or 'visualization'"
+      "loc": ["members", 0],
+      "code": "schema_invalid",
+      "message": "MemberRef requires exactly one of 'user' or 'group'"
     }
   ]
 }
 ```
+
+### Instructions are not in the manifest
+
+The agent YAML deliberately does **not** carry instructions. Instructions
+live in the org-wide `instructions` table and have their own lifecycle
+(UI, git-sync from markdown, `create_instruction` MCP tool). They attach
+to agents via the M:N `instruction_data_source_association` table — one
+instruction can apply to many agents. Authors create instructions
+separately and pass the target agent's id in `data_source_ids` on the
+instruction payload. Round-trip via `get_agent` only re-emits manifest
+fields, not the attached instructions; querying attached instructions is
+the existing instructions API's job.
 
 ### Error codes
 
@@ -116,13 +120,12 @@ members:                         # polymorphic — user OR group, with optional 
 |---|---|
 | `yaml_parse_error` | Malformed YAML. `loc` carries `line X / col Y`. |
 | `schema_invalid` | Pydantic validation (missing field, wrong type, etc.). |
-| `enum_invalid` | Value outside allowed enum (e.g. instruction `category`). |
+| `enum_invalid` | Value outside allowed enum. |
 | `connection_not_found` | Connection name not in org. `suggestion` shows closest match. |
 | `connection_type_mismatch` | `tools:` on a non-MCP/custom_api connection. |
 | `tool_not_found` | Tool name not on the listed connection. |
 | `group_not_found` | Group name not in org. |
 | `user_not_found` | Email not in org's members. |
-| `instruction_not_found` | Instruction id not in org. |
 | `duplicate_entry` | Duplicate item in a list (e.g. same connection twice). |
 | `license_required` | Connection type gated behind enterprise license. |
 | `permission_denied` | Caller lacks `create_data_source` (create) or `manage` (update). |

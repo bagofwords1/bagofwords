@@ -11,7 +11,9 @@ The service is intentionally thin: connection / membership creation,
 license gates, indexing kickoff, audit + telemetry all reuse
 ``DataSourceService.create_data_source``. Apply only owns the
 *reconciliation* — connections add/remove, table filters, tool overlays,
-inline instructions, group members, conversation starters.
+group members, conversation starters. Instructions are intentionally
+left out of this manifest and managed through the existing instruction
+endpoints / MCP tool.
 """
 
 from __future__ import annotations
@@ -45,10 +47,6 @@ from app.models.data_source_membership import (
 )
 from app.models.datasource_table import DataSourceTable
 from app.models.group import Group
-from app.models.instruction import (
-    Instruction,
-    instruction_data_source_association,
-)
 from app.models.organization import Organization
 from app.models.resource_grant import ResourceGrant
 from app.models.user import User
@@ -60,15 +58,12 @@ from app.schemas.agent_manifest_schema import (
     ApplyStatus,
     ApplyWarning,
     ApplyWarningCode,
-    InstructionRef,
     MemberRef,
     TableRules,
     ToolsOverlay,
 )
 from app.schemas.data_source_schema import DataSourceCreate
-from app.schemas.instruction_schema import InstructionCreate
 from app.services.data_source_service import DataSourceService
-from app.services.instruction_service import InstructionService
 
 
 logger = logging.getLogger(__name__)
@@ -91,7 +86,6 @@ class _Resolved:
         self.connections: Dict[str, Connection] = {}  # name -> Connection
         self.groups: Dict[str, Group] = {}  # name -> Group
         self.users: Dict[str, User] = {}  # email -> User
-        self.instructions: Dict[str, Instruction] = {}  # id -> Instruction
         # (connection_name, tool_name) -> ConnectionTool
         self.tools: Dict[Tuple[str, str], ConnectionTool] = {}
 
@@ -106,7 +100,6 @@ class AgentYamlService:
 
     def __init__(self) -> None:
         self._ds_service = DataSourceService()
-        self._instruction_service = InstructionService()
 
     # ----- apply ----------------------------------------------------------
 
@@ -287,7 +280,6 @@ class AgentYamlService:
                 selectinload(DataSource.connections),
                 selectinload(DataSource.data_source_memberships),
                 selectinload(DataSource.tables),
-                selectinload(DataSource.instructions),
             )
             .where(
                 DataSource.organization_id == organization.id,
@@ -424,9 +416,6 @@ class AgentYamlService:
         await self._patch_conversation_starters(db, ds, manifest)
         await self._patch_group_memberships(db, organization, ds, manifest, resolved)
         await self._patch_member_permissions(db, organization, ds, manifest, resolved)
-        await self._patch_instructions(
-            db, organization, current_user, ds, manifest, resolved
-        )
 
         # Table & tool reconciliation operates on the linked connections
         # (which may still be indexing — warnings collected from there).
@@ -504,13 +493,6 @@ class AgentYamlService:
         )
         if member_diff:
             diff["members"] = member_diff
-
-        # Instructions
-        instr_diff = await self._reconcile_instructions(
-            db, organization, current_user, ds, manifest, resolved
-        )
-        if instr_diff:
-            diff["instructions"] = instr_diff
 
         # Tables
         tw = await self._apply_table_rules(db, ds, manifest.tables, resolved)
@@ -719,162 +701,6 @@ class AgentYamlService:
             out["removed"] = removed
         return out
 
-    # ----- instructions ---------------------------------------------------
-
-    async def _patch_instructions(
-        self,
-        db: AsyncSession,
-        organization: Organization,
-        current_user: User,
-        ds: DataSource,
-        manifest: AgentManifest,
-        resolved: _Resolved,
-    ) -> None:
-        """Create inline + attach by-id instructions on agent creation."""
-        for ref in manifest.instructions:
-            if ref.id is not None:
-                await self._attach_instruction(db, ds, resolved.instructions[ref.id])
-            else:
-                inline = ref.inline
-                assert inline is not None
-                payload = InstructionCreate(
-                    text=inline.text,
-                    title=inline.title,
-                    category=inline.category.value if hasattr(inline.category, "value") else str(inline.category),
-                    load_mode=inline.load_mode.value if hasattr(inline.load_mode, "value") else str(inline.load_mode),
-                    ai_source="yaml",
-                    source_type="user",
-                    data_source_ids=[str(ds.id)],
-                    status="published",
-                )
-                await self._instruction_service.create_instruction(
-                    db=db,
-                    instruction_data=payload,
-                    current_user=current_user,
-                    organization=organization,
-                    force_global=True,
-                    auto_finalize=True,
-                )
-
-    async def _attach_instruction(
-        self, db: AsyncSession, ds: DataSource, instruction: Instruction
-    ) -> None:
-        # Idempotent attach (skip if already present)
-        existing = await db.execute(
-            select(instruction_data_source_association).where(
-                instruction_data_source_association.c.instruction_id == instruction.id,
-                instruction_data_source_association.c.data_source_id == ds.id,
-            )
-        )
-        if existing.first() is not None:
-            return
-        await db.execute(
-            instruction_data_source_association.insert().values(
-                instruction_id=instruction.id, data_source_id=ds.id
-            )
-        )
-
-    async def _reconcile_instructions(
-        self,
-        db: AsyncSession,
-        organization: Organization,
-        current_user: User,
-        ds: DataSource,
-        manifest: AgentManifest,
-        resolved: _Resolved,
-    ) -> Dict[str, Any]:
-        """Attach by-id refs, create inline ones (matched by title), and
-        detach any instruction that was previously attached via YAML but is
-        no longer in the manifest. Manually-attached instructions (those
-        not created with ``ai_source='yaml'``) are left alone."""
-
-        # Current attached instructions
-        current_q = await db.execute(
-            select(Instruction)
-            .join(
-                instruction_data_source_association,
-                instruction_data_source_association.c.instruction_id == Instruction.id,
-            )
-            .where(
-                instruction_data_source_association.c.data_source_id == ds.id
-            )
-        )
-        current = list(current_q.scalars().all())
-        current_yaml = {i.title: i for i in current if i.ai_source == "yaml" and i.title}
-
-        desired_ids: set[str] = set()
-        desired_titles: set[str] = set()
-        added: List[str] = []
-        for ref in manifest.instructions:
-            if ref.id is not None:
-                desired_ids.add(ref.id)
-                instr = resolved.instructions[ref.id]
-                await self._attach_instruction(db, ds, instr)
-                added.append(instr.title or instr.id)
-                continue
-            inline = ref.inline
-            assert inline is not None
-            existing = current_yaml.get(inline.title)
-            if existing is not None:
-                # Update existing inline instruction if content changed
-                changed = False
-                if existing.text != inline.text:
-                    existing.text = inline.text
-                    changed = True
-                cat_val = inline.category.value if hasattr(inline.category, "value") else str(inline.category)
-                if existing.category != cat_val:
-                    existing.category = cat_val
-                    changed = True
-                lm_val = inline.load_mode.value if hasattr(inline.load_mode, "value") else str(inline.load_mode)
-                if existing.load_mode != lm_val:
-                    existing.load_mode = lm_val
-                    changed = True
-                if changed:
-                    db.add(existing)
-                    added.append(f"updated:{inline.title}")
-                desired_titles.add(inline.title)
-            else:
-                payload = InstructionCreate(
-                    text=inline.text,
-                    title=inline.title,
-                    category=inline.category.value if hasattr(inline.category, "value") else str(inline.category),
-                    load_mode=inline.load_mode.value if hasattr(inline.load_mode, "value") else str(inline.load_mode),
-                    ai_source="yaml",
-                    source_type="user",
-                    data_source_ids=[str(ds.id)],
-                    status="published",
-                )
-                await self._instruction_service.create_instruction(
-                    db=db,
-                    instruction_data=payload,
-                    current_user=current_user,
-                    organization=organization,
-                    force_global=True,
-                    auto_finalize=True,
-                )
-                desired_titles.add(inline.title)
-                added.append(f"created:{inline.title}")
-
-        # Detach yaml-owned instructions removed from manifest
-        removed: List[str] = []
-        for title, instr in current_yaml.items():
-            if title in desired_titles:
-                continue
-            await db.execute(
-                instruction_data_source_association.delete().where(
-                    instruction_data_source_association.c.instruction_id == instr.id,
-                    instruction_data_source_association.c.data_source_id == ds.id,
-                )
-            )
-            removed.append(title)
-
-        out: Dict[str, Any] = {}
-        if added:
-            out["added"] = added
-        if removed:
-            out["removed"] = removed
-        return out
-
     # ----- tables ---------------------------------------------------------
 
     async def _apply_table_rules(
@@ -1046,7 +872,6 @@ class AgentYamlService:
                 "action": "create",
                 "connections": list(manifest.connections),
                 "members": [m.model_dump(exclude_none=True) for m in manifest.members],
-                "instructions": len(manifest.instructions),
                 "conversation_starters": list(manifest.conversation_starters),
             }
         diff: Dict[str, Any] = {"action": "update"}
@@ -1128,50 +953,6 @@ class AgentYamlService:
         # Conversation starters
         starters = list(ds.conversation_starters or [])
 
-        # Instructions (only those previously created via YAML are
-        # round-trippable as 'inline'; manually attached ones come back as
-        # id refs).
-        instr_q = await db.execute(
-            select(Instruction)
-            .join(
-                instruction_data_source_association,
-                instruction_data_source_association.c.instruction_id == Instruction.id,
-            )
-            .where(
-                instruction_data_source_association.c.data_source_id == ds.id,
-                Instruction.deleted_at.is_(None),
-            )
-        )
-        instructions: List[InstructionRef] = []
-        for instr in instr_q.scalars().all():
-            from app.schemas.agent_manifest_schema import InstructionInline
-            from app.schemas.instruction_schema import (
-                InstructionCategory as _IC,
-                InstructionLoadMode as _ILM,
-            )
-
-            if instr.ai_source == "yaml" and instr.title:
-                try:
-                    cat = _IC(instr.category or "general")
-                except Exception:
-                    cat = _IC.GENERAL
-                try:
-                    lm = _ILM(instr.load_mode or "always")
-                except Exception:
-                    lm = _ILM.ALWAYS
-                instructions.append(
-                    InstructionRef(
-                        inline=InstructionInline(
-                            title=instr.title,
-                            text=instr.text,
-                            category=cat,
-                            load_mode=lm,
-                        )
-                    )
-                )
-            else:
-                instructions.append(InstructionRef(id=str(instr.id)))
-
         # Tables — reverse-engineer include/exclude from is_active flags.
         # We emit an exact list of active FQNs as ``include`` and leave
         # ``exclude`` empty. Re-applying yields the same state.
@@ -1224,7 +1005,6 @@ class AgentYamlService:
             connections=connections,
             tables=rules,
             tools=tools,
-            instructions=instructions,
             conversation_starters=starters,
             members=members,
         )
@@ -1236,7 +1016,7 @@ class AgentYamlService:
 
 
 class ManifestResolver:
-    """Batches lookups for connections, groups, users, instructions, tools.
+    """Batches lookups for connections, groups, users, tools.
 
     Returns ``(resolved, errors)``. Always processes every ref so the caller
     can show *all* fixable problems in one round-trip.
@@ -1255,7 +1035,6 @@ class ManifestResolver:
         await self._resolve_connections(manifest, resolved, errors)
         await self._resolve_groups(manifest, resolved, errors)
         await self._resolve_users(manifest, resolved, errors)
-        await self._resolve_instructions(manifest, resolved, errors)
         await self._resolve_tools(manifest, resolved, errors)
 
         return resolved, errors
@@ -1372,40 +1151,6 @@ class ManifestResolver:
                 )
                 continue
             resolved.users[email] = u
-
-    async def _resolve_instructions(
-        self, manifest: AgentManifest, resolved: _Resolved, errors: List[ApplyError]
-    ) -> None:
-        id_refs = [(i, r.id) for i, r in enumerate(manifest.instructions) if r.id]
-        if not id_refs:
-            return
-        ids = list({i for _, i in id_refs})
-        q = await self.db.execute(
-            select(Instruction).where(
-                Instruction.id.in_(ids),
-                Instruction.deleted_at.is_(None),
-            )
-        )
-        by_id: Dict[str, Instruction] = {}
-        for instr in q.scalars().all():
-            # Org scope check: an instruction's org is derived from its user.
-            # For simplicity we just check the user's primary org via the
-            # user model; if the model doesn't carry that, we skip the check
-            # and rely on the FK to data sources to keep cross-org refs out.
-            by_id[str(instr.id)] = instr
-        for idx, iid in id_refs:
-            instr = by_id.get(iid)
-            if instr is None:
-                errors.append(
-                    ApplyError(
-                        loc=["instructions", idx, "id"],
-                        code=ApplyErrorCode.INSTRUCTION_NOT_FOUND,
-                        message=f"Instruction '{iid}' not found.",
-                        value=iid,
-                    )
-                )
-                continue
-            resolved.instructions[iid] = instr
 
     async def _resolve_tools(
         self, manifest: AgentManifest, resolved: _Resolved, errors: List[ApplyError]

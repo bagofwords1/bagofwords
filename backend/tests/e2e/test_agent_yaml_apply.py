@@ -156,20 +156,17 @@ def test_yaml_parse_error_returns_structured_error(test_client, chinook_data_sou
 
 
 @pytest.mark.e2e
-def test_enum_invalid_caught_in_inline_instruction(test_client, chinook_data_source):
+def test_member_ref_requires_user_or_group(test_client, chinook_data_source):
     token, org_id, _ds, conn_name = chinook_data_source
-    bad = f"""name: bad-enum
+    bad = f"""name: bad-member
 connections:
   - "{conn_name}"
-instructions:
-  - inline:
-      title: t
-      text: x
-      category: not_a_real_category
+members:
+  - permissions: [view]
 """
     body = _yaml_post(test_client, "/api/agents/apply", bad, token, org_id).json()
     assert body["status"] == "error"
-    assert any(e["code"] in ("enum_invalid", "schema_invalid") for e in body["errors"])
+    assert any(e["code"] == "schema_invalid" for e in body["errors"])
 
 
 @pytest.mark.e2e

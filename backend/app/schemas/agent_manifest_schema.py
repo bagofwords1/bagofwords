@@ -5,9 +5,17 @@ Apply semantics:
   new resource — there is no separate slug.
 - Omitted optional fields revert to defaults. The YAML expresses *desired
   state*, not a patch. ``apply(get(x)) == unchanged`` for every field.
-- Refs (connections, groups, users, instructions, tools) are by name/email
-  or id. Resolution is collect-all-errors and returns ``did-you-mean``
-  suggestions where possible.
+- Refs (connections, groups, users, tools) are by name/email. Resolution
+  is collect-all-errors and returns ``did-you-mean`` suggestions where
+  possible.
+
+Instructions are intentionally NOT part of this manifest. They live in
+the org-wide ``instructions`` table with their own lifecycle (UI,
+git-sync from markdown, ``create_instruction`` MCP tool) and attach to
+agents via the M:N association table. Putting them inside the agent
+file made the ownership ambiguous (org-wide rows nested under one
+agent), so authors create instructions separately and reference them
+by ``data_source_ids`` in the InstructionCreate payload.
 
 Not in scope for v1:
 - Inline ``Connection`` definitions in YAML (creds + env-var refs).
@@ -21,8 +29,6 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-
-from app.schemas.instruction_schema import InstructionCategory, InstructionLoadMode
 
 
 # ---------------------------------------------------------------------------
@@ -55,34 +61,6 @@ class ToolsOverlay(BaseModel):
     deny: List[str] = Field(default_factory=list)
 
 
-class InstructionInline(BaseModel):
-    title: str
-    text: str
-    category: InstructionCategory = InstructionCategory.GENERAL
-    load_mode: InstructionLoadMode = InstructionLoadMode.ALWAYS
-
-    @field_validator("text", "title")
-    @classmethod
-    def _non_empty(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("must not be empty")
-        return v
-
-
-class InstructionRef(BaseModel):
-    """Either an ``id`` reference to an existing Instruction or an
-    inline definition of a new one. Exactly one of ``id`` / ``inline``."""
-
-    id: Optional[str] = None
-    inline: Optional[InstructionInline] = None
-
-    @model_validator(mode="after")
-    def _one_of(self) -> "InstructionRef":
-        if (self.id is None) == (self.inline is None):
-            raise ValueError("InstructionRef requires exactly one of 'id' or 'inline'")
-        return self
-
-
 class MemberRef(BaseModel):
     """Polymorphic member entry. Use ``user:`` for an email or ``group:`` for
     a group name. ``permissions`` defaults to ``["view", "view_schema"]``."""
@@ -111,7 +89,6 @@ class AgentManifest(BaseModel):
     connections: List[str] = Field(default_factory=list)
     tables: Optional[TableRules] = None
     tools: Dict[str, ToolsOverlay] = Field(default_factory=dict)
-    instructions: List[InstructionRef] = Field(default_factory=list)
     conversation_starters: List[str] = Field(default_factory=list)
     members: List[MemberRef] = Field(default_factory=list)
 
@@ -143,7 +120,6 @@ class ApplyErrorCode(str, Enum):
     TOOL_NOT_FOUND = "tool_not_found"
     GROUP_NOT_FOUND = "group_not_found"
     USER_NOT_FOUND = "user_not_found"
-    INSTRUCTION_NOT_FOUND = "instruction_not_found"
     DUPLICATE_ENTRY = "duplicate_entry"
     LICENSE_REQUIRED = "license_required"
     PERMISSION_DENIED = "permission_denied"

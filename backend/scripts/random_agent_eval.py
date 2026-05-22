@@ -56,15 +56,6 @@ CONVERSATION_STARTER_POOL = [
 ]
 
 
-INSTRUCTION_POOL = [
-    ("Currency rule", "Present all revenue values in USD with two decimal places.", "general", "always"),
-    ("Date format", "Always render dates as YYYY-MM-DD.", "general", "always"),
-    ("Default grain", "Default time grain is week unless asked otherwise.", "data_modeling", "always"),
-    ("Limit rule", "Cap result rows at 100 unless the user explicitly asks for more.", "code_gen", "always"),
-    ("Chart preference", "Prefer bar charts over pies for categorical breakdowns.", "visualization", "intelligent"),
-]
-
-
 def _load_state() -> Dict[str, Any]:
     if not SANDBOX_STATE.exists():
         sys.exit(f"sandbox_state.json missing — set up sandbox first ({SANDBOX_STATE})")
@@ -124,33 +115,15 @@ def _random_manifest(
         CONVERSATION_STARTER_POOL, k=rng.randint(2, min(4, len(CONVERSATION_STARTER_POOL)))
     )
 
-    # Random instructions (0..2)
-    inst_count = rng.randint(0, 2)
-    instructions: List[Dict[str, Any]] = []
-    for title, text, category, load_mode in rng.sample(INSTRUCTION_POOL, k=inst_count):
-        instructions.append({
-            "inline": {
-                "title": title,
-                "text": text,
-                "category": category,
-                "load_mode": load_mode,
-            },
-        })
-
     connections = [connection_name]
     if inject_errors:
         # Pick one corruption per call so each seed maps to a distinct
         # error class and the report shows code coverage at a glance.
         kind = rng.choice([
-            "bad_connection", "bad_category", "bad_member_email",
-            "bad_member_group", "unknown_tool",
+            "bad_connection", "bad_member_email", "bad_member_group", "unknown_tool",
         ])
         if kind == "bad_connection":
             connections = [connection_name + "-DOES-NOT-EXIST"]
-        elif kind == "bad_category":
-            instructions.append({
-                "inline": {"title": "x", "text": "x", "category": "garbage", "load_mode": "always"}
-            })
         elif kind == "bad_member_email":
             return {
                 "name": name,
@@ -181,11 +154,10 @@ def _random_manifest(
         "is_public": rng.choice([True, False]),
         "connections": connections,
         "tables": {"include": include_globs, "exclude": []},
-        "instructions": instructions,
         "conversation_starters": starters,
     }
     if inject_errors:
-        manifest["_corruption"] = "bad_connection" if connections[0].endswith("DOES-NOT-EXIST") else "bad_category"
+        manifest["_corruption"] = "bad_connection"
     return manifest
 
 
