@@ -713,6 +713,11 @@ import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vu
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
 import RunEvalTool from '~/components/tools/RunEvalTool.vue'
+import ListAgentsTool from '~/components/tools/ListAgentsTool.vue'
+import GetAgentTool from '~/components/tools/GetAgentTool.vue'
+import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
+import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
+import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -1378,6 +1383,16 @@ function getToolComponent(toolName: string) {
 			return CreateEvalTool
 		case 'run_eval':
 			return RunEvalTool
+		case 'list_agents':
+			return ListAgentsTool
+		case 'get_agent':
+			return GetAgentTool
+		case 'create_agent':
+			return CreateAgentTool
+		case 'list_connections':
+			return ListConnectionsTool
+		case 'get_connection':
+			return GetConnectionTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool

@@ -441,6 +441,11 @@ import InspectDataTool from '../tools/InspectDataTool.vue'
 import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
 import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import ListAgentExecutionsTool from '../tools/ListAgentExecutionsTool.vue'
+import ListAgentsTool from '../tools/ListAgentsTool.vue'
+import GetAgentTool from '../tools/GetAgentTool.vue'
+import CreateAgentTool from '../tools/CreateAgentTool.vue'
+import ListConnectionsTool from '../tools/ListConnectionsTool.vue'
+import GetConnectionTool from '../tools/GetConnectionTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
@@ -894,6 +899,16 @@ function getToolComponent(toolName: string) {
             return EditInstructionTool
         case 'list_agent_executions':
             return ListAgentExecutionsTool
+        case 'list_agents':
+            return ListAgentsTool
+        case 'get_agent':
+            return GetAgentTool
+        case 'create_agent':
+            return CreateAgentTool
+        case 'list_connections':
+            return ListConnectionsTool
+        case 'get_connection':
+            return GetConnectionTool
         default:
             return null
     }

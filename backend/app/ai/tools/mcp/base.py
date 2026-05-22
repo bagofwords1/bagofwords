@@ -51,6 +51,21 @@ class MCPTool(ABC):
         return None
 
     @property
+    def required_org_permission(self) -> Optional[str]:
+        """Org-level permission required to call this tool.
+
+        If set, the tool is hidden from ``tools/list`` for users who don't
+        hold this organization-wide permission (or ``full_admin_access``).
+        Use this for tools that act on the org as a whole — e.g. creating a
+        new data source — rather than on a specific resource.
+
+        Distinct from ``required_ds_permission`` (which checks for the
+        permission on at least one data source grant). The two can be set
+        independently; both gates must pass.
+        """
+        return None
+
+    @property
     def meta(self) -> Optional[Dict[str, Any]]:
         """Optional _meta field for the tool schema (e.g. UI resource hints).
 
@@ -109,6 +124,8 @@ class MCPTool(ABC):
         }
         if self.required_ds_permission:
             schema["required_ds_permission"] = self.required_ds_permission
+        if self.required_org_permission:
+            schema["required_org_permission"] = self.required_org_permission
         # Build _meta: start from subclass meta, then ensure ui.visibility is set
         meta = dict(self.meta) if self.meta else {}
         ui = dict(meta.get("ui", {})) if meta.get("ui") else {}

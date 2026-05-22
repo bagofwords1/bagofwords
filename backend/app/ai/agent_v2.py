@@ -1295,10 +1295,15 @@ class AgentV2:
             return
 
         restricted: dict[str, list[str]] = {}
+        # ``tool_catalog`` is List[ToolDescriptor] (Pydantic), so access by
+        # attribute, not subscript — the subscript form raised TypeError
+        # whenever any tool in the catalog declared required_permissions
+        # (which the catalog filter would then never apply, surfacing as
+        # "'ToolDescriptor' object is not subscriptable" in chat).
         for t in (self.planner.tool_catalog or []):
-            meta = self.registry.get_metadata(t['name'])
+            meta = self.registry.get_metadata(t.name)
             for perm in getattr(meta, 'required_permissions', []):
-                restricted.setdefault(perm, []).append(t['name'])
+                restricted.setdefault(perm, []).append(t.name)
 
         if not restricted:
             return
@@ -1315,7 +1320,7 @@ class AgentV2:
         if denied_tools:
             self.planner.tool_catalog = [
                 t for t in self.planner.tool_catalog
-                if t['name'] not in denied_tools
+                if t.name not in denied_tools
             ]
 
     def _schedule_bg_write(self, label: str, coro):
