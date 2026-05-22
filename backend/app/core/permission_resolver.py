@@ -255,6 +255,23 @@ async def get_accessible_data_source_ids(
     return False, list(ds_ids)
 
 
+async def get_ds_ids_with_permission(
+    db: AsyncSession, user_id: str, org_id: str, permission: str
+) -> tuple[bool, list[str]]:
+    """Returns (is_full_admin, ds_ids_where_user_holds_the_given_permission).
+
+    is_full_admin=True means the caller should skip all DS-level filtering.
+    """
+    resolved = await resolve_permissions(db, str(user_id), str(org_id))
+    if resolved.has_org_permission(permission):
+        return True, []
+    matching = [
+        rid for (rtype, rid), perms in resolved.resource_permissions.items()
+        if rtype == "data_source" and permission in perms
+    ]
+    return False, matching
+
+
 async def user_can_access_data_source(
     db: AsyncSession, user_id: str, org_id: str, ds, ds_id: str = None,
 ) -> bool:

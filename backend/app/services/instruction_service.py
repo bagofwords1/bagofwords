@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from sqlalchemy import and_, or_
 from typing import List, Optional, Any, Dict
 from fastapi import HTTPException
@@ -593,12 +593,21 @@ class InstructionService:
         current_user: User
     ) -> Optional[InstructionSchema]:
         """Get a single instruction by ID"""
-        
+
+        # Singular response uses InstructionSchema → DataSourceSchema, which
+        # includes memberships, git_repository, and connections. Suppress the
+        # rest of the DS lazy="selectin" cascade (reports/widgets/queries/...)
+        # which the response never exposes.
         query = (
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.git_repository),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
@@ -1813,12 +1822,16 @@ class InstructionService:
                 )
             )
         
-        # Build the main query
+        # Build the main query. lazyload("*") suppresses DataSource's
+        # lazy="selectin" cascade (reports → widgets/queries/completions/…)
+        # that would otherwise fire per loaded Instruction.data_sources.
+        # The list response uses DataSourceMinimalSchema (id/name/description
+        # only), so DS sub-relationships are pure waste.
         query = (
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.labels),
             )

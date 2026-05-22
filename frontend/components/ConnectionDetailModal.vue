@@ -26,10 +26,10 @@
           </div>
         </div>
 
-        <!-- Tables -->
+        <!-- Tables (SQL connections) or Tools (MCP/custom_api) -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">{{ $t('data.tablesLabel') }}</span>
-          <span class="text-xs text-gray-700">{{ tableCount }}</span>
+          <span class="text-xs text-gray-500">{{ isToolProvider ? $t('data.toolsLabel') : $t('data.tablesLabel') }}</span>
+          <span class="text-xs text-gray-700">{{ isToolProvider ? toolCount : tableCount }}</span>
         </div>
 
         <!-- Data Agents -->
@@ -191,6 +191,13 @@
     </UCard>
   </UModal>
 
+  <!-- MCP Edit Modal -->
+  <AddMCPModal
+    v-model="showMcpEditModal"
+    :editConnection="connection"
+    @created="handleEditSuccess"
+  />
+
   <!-- User Credentials Modal (for users without update permission but require auth) -->
   <UserDataSourceCredentialsModal
     v-model="showCredentialsModal"
@@ -204,6 +211,7 @@ import Spinner from '~/components/Spinner.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
+import AddMCPModal from '~/components/AddMCPModal.vue'
 import { useCan } from '~/composables/usePermissions'
 import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 
@@ -227,6 +235,7 @@ const isOpen = computed({
 const testing = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
 const showEditModal = ref(false)
+const showMcpEditModal = ref(false)
 const loadingDetails = ref(false)
 const connectionDetails = ref<any>(null)
 const showCredentialsModal = ref(false)
@@ -240,6 +249,10 @@ const POLL_INTERVAL_MS = 2000
 // Permission and auth checks
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
+
+const _TOOL_PROVIDER_TYPES = ['mcp', 'custom_api']
+const isToolProvider = computed(() => _TOOL_PROVIDER_TYPES.includes(props.connection?.type))
+const toolCount = computed(() => props.connection?.tool_count || 0)
 
 const isConnected = computed(() => {
   // Check multiple possible status fields
@@ -366,10 +379,15 @@ async function testConnection() {
 async function openEdit() {
   isOpen.value = false
   await nextTick()
-  
+
+  if (isToolProvider.value) {
+    showMcpEditModal.value = true
+    return
+  }
+
   loadingDetails.value = true
   showEditModal.value = true
-  
+
   try {
     const { data } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'GET' })
     if (data.value) {

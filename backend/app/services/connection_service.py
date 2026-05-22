@@ -166,6 +166,7 @@ class ConnectionService:
             select(Connection)
             .options(
                 selectinload(Connection.connection_tables),
+                selectinload(Connection.connection_tools),
                 selectinload(Connection.data_sources).selectinload(DataSource.connections),
             )
             .filter(

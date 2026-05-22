@@ -670,13 +670,19 @@ class DataSourceService:
 
     async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
         from datetime import datetime, timezone
-        
+
+        # lazyload("*") suppresses the model-level lazy="selectin" cascade
+        # (reports → widgets/queries/completions/…). The detail schema does
+        # surface git_repository and memberships, so keep those eager. We
+        # also suppress the onward cascade on Connection (data_sources →
+        # cycle back to DataSource).
         query = (
             select(DataSource)
             .options(
+                lazyload("*"),
                 selectinload(DataSource.git_repository),
                 selectinload(DataSource.data_source_memberships),
-                selectinload(DataSource.connections),
+                selectinload(DataSource.connections).options(lazyload("*")),
             )
             .filter(DataSource.id == data_source_id)
             .filter(DataSource.organization_id == organization.id)
@@ -843,15 +849,14 @@ class DataSourceService:
 
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape"""
-        # Build base query for active data sources
-        # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
-        # For data sources with 25K+ tables, this causes severe performance issues
-        # Table count is fetched separately via COUNT query in _build_connections_list
+        # See get_data_sources above for the lazyload("*") rationale — same
+        # cascade applies here. The list schema doesn't expose
+        # data_source_memberships, so we don't eager-load it.
         stmt = (
             select(DataSource)
             .options(
-                selectinload(DataSource.data_source_memberships),
-                selectinload(DataSource.connections),
+                lazyload("*"),
+                selectinload(DataSource.connections).options(lazyload("*")),
             )
             .where(
                 DataSource.organization_id == organization.id,
@@ -937,8 +942,8 @@ class DataSourceService:
         stmt = (
             select(DataSource)
             .options(
-                selectinload(DataSource.data_source_memberships),
-                selectinload(DataSource.connections),
+                lazyload("*"),
+                selectinload(DataSource.connections).options(lazyload("*")),
             )
             .where(
                 DataSource.organization_id == organization.id,

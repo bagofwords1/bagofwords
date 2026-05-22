@@ -574,7 +574,7 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','openInstructions','update:selectedDataSources'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','openInstructions','update:selectedDataSources','update:mode'])
 
 const isApprovingBuild = computed(() => props.isPublishingBuild)
 const isDiscardingBuild = ref(false)
@@ -1041,6 +1041,7 @@ async function persistMode() {
 
 function selectMode(m: 'chat' | 'deep' | 'training') {
     mode.value = m
+    emit('update:mode', m)
     persistMode()
 }
 

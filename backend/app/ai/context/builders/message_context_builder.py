@@ -639,6 +639,37 @@ class MessageContextBuilder:
                                         digest_parts.append("FAILED")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'list_agent_executions' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    obs = rj.get('observation') or rj
+                                    digest_parts = []
+                                    summary = obs.get('summary') or ''
+                                    if summary:
+                                        digest_parts.append(summary)
+                                    else:
+                                        arts = obs.get('artifacts') or []
+                                        if arts:
+                                            art = arts[0]
+                                            count = art.get('count')
+                                            total = art.get('total')
+                                            filt = art.get('filter') or 'all'
+                                            if count is not None:
+                                                digest_parts.append(f"Listed {count} (filter={filt}, total={total})")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'web_fetch' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    obs = rj.get('observation') or rj
+                                    out = rj.get('output') or rj
+                                    digest_parts = []
+                                    title = out.get('title')
+                                    if title:
+                                        digest_parts.append(f'"{str(title)[:80]}"')
+                                    summary = obs.get('summary') or ''
+                                    if summary:
+                                        digest_parts.append(summary)
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.created_widget_id:
                                     # Get widget details for other tools
                                     widget_result = await self.db.execute(
@@ -786,7 +817,14 @@ class MessageContextBuilder:
                 pass
         if ds_ids:
             try:
-                rows = await self.db.execute(select(DataSource).where(DataSource.id.in_(list(ds_ids))))
+                # Only ds.id and ds.name are read downstream — suppress the
+                # model-level lazy="selectin" cascade (reports → widgets/
+                # queries/completions/…) that would otherwise fire per row.
+                from sqlalchemy.orm import lazyload
+                rows = await self.db.execute(
+                    select(DataSource).where(DataSource.id.in_(list(ds_ids)))
+                    .options(lazyload("*"))
+                )
                 for ds in rows.scalars().all():
                     ds_map[str(getattr(ds, 'id', ''))] = ds
             except Exception:
@@ -806,7 +844,11 @@ class MessageContextBuilder:
                 # If we discovered new ds_ids from tables, try to fill missing ones
                 missing_ds = [x for x in ds_ids if x not in ds_map]
                 if missing_ds:
-                    rows2 = await self.db.execute(select(DataSource).where(DataSource.id.in_(missing_ds)))
+                    from sqlalchemy.orm import lazyload
+                    rows2 = await self.db.execute(
+                        select(DataSource).where(DataSource.id.in_(missing_ds))
+                        .options(lazyload("*"))
+                    )
                     for ds in rows2.scalars().all():
                         ds_map[str(getattr(ds, 'id', ''))] = ds
             except Exception:
@@ -1191,6 +1233,37 @@ class MessageContextBuilder:
                                     digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                 if obs.get('success') is False:
                                     digest_parts.append("FAILED")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'list_agent_executions' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                obs = rj.get('observation') or rj
+                                digest_parts = []
+                                summary = obs.get('summary') or ''
+                                if summary:
+                                    digest_parts.append(summary)
+                                else:
+                                    arts = obs.get('artifacts') or []
+                                    if arts:
+                                        art = arts[0]
+                                        count = art.get('count')
+                                        total = art.get('total')
+                                        filt = art.get('filter') or 'all'
+                                        if count is not None:
+                                            digest_parts.append(f"Listed {count} (filter={filt}, total={total})")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'web_fetch' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                obs = rj.get('observation') or rj
+                                out = rj.get('output') or rj
+                                digest_parts = []
+                                title = out.get('title')
+                                if title:
+                                    digest_parts.append(f'"{str(title)[:80]}"')
+                                summary = obs.get('summary') or ''
+                                if summary:
+                                    digest_parts.append(summary)
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'error' and tool_execution.error_message:

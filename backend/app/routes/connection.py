@@ -13,6 +13,7 @@ from app.core.auth import current_user
 from app.models.organization import Organization
 from app.models.datasource_table import DataSourceTable
 from app.models.connection_table import ConnectionTable
+from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
@@ -158,6 +159,16 @@ async def list_connections(
         indexing_row = await indexing_service.get_latest(db, str(conn.id))
         indexing_payload = _indexing_to_progress(indexing_row)
 
+        _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+        if conn.type in _TOOL_PROVIDER_TYPES:
+            tool_count_result = await db.execute(
+                select(func.count(ConnectionTool.id))
+                .where(ConnectionTool.connection_id == str(conn.id))
+            )
+            tool_count = tool_count_result.scalar() or 0
+        else:
+            tool_count = 0
+
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,
@@ -166,7 +177,8 @@ async def list_connections(
             auth_policy=conn.auth_policy,
             last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
             organization_id=str(conn.organization_id),
-            table_count=table_count,
+            table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
+            tool_count=tool_count,
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
@@ -197,6 +209,7 @@ async def create_connection(
     
     # Inline the latest indexing run so the modal can show progress
     # immediately without a second roundtrip.
+    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
     indexing_row = await indexing_service.get_latest(db, str(connection.id))
     indexing_payload = _indexing_to_progress(indexing_row)
     return ConnectionSchema(
@@ -207,7 +220,8 @@ async def create_connection(
         auth_policy=connection.auth_policy,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=len(connection.connection_tables) if connection.connection_tables else 0,
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
+        tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         indexing=indexing_payload.model_dump() if indexing_payload else None,
     )
@@ -247,6 +261,7 @@ async def get_connection(
         allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = bool(connection.credentials)
 
+    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -257,7 +272,8 @@ async def get_connection(
         config=config or {},
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=len(connection.connection_tables) if connection.connection_tables else 0,
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
+        tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=has_credentials,
@@ -283,6 +299,7 @@ async def update_connection(
         **updates,
     )
     
+    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
     return ConnectionSchema(
         id=str(connection.id),
         name=connection.name,
@@ -291,7 +308,8 @@ async def update_connection(
         auth_policy=connection.auth_policy,
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
-        table_count=len(connection.connection_tables) if connection.connection_tables else 0,
+        table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
+        tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
     )
 

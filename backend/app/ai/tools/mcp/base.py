@@ -41,6 +41,16 @@ class MCPTool(ABC):
     description: str
 
     @property
+    def required_ds_permission(self) -> Optional[str]:
+        """DS-level permission required to call this tool.
+
+        If set, the tool is hidden from ``tools/list`` for users who don't
+        hold this permission on at least one data source. Override in subclasses
+        that should be restricted to org managers / DS managers.
+        """
+        return None
+
+    @property
     def meta(self) -> Optional[Dict[str, Any]]:
         """Optional _meta field for the tool schema (e.g. UI resource hints).
 
@@ -97,6 +107,8 @@ class MCPTool(ABC):
             "description": self.description,
             "input_schema": self.input_schema,
         }
+        if self.required_ds_permission:
+            schema["required_ds_permission"] = self.required_ds_permission
         # Build _meta: start from subclass meta, then ensure ui.visibility is set
         meta = dict(self.meta) if self.meta else {}
         ui = dict(meta.get("ui", {})) if meta.get("ui") else {}

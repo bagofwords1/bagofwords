@@ -1,5 +1,6 @@
 <template>
-    <img :src="imgSrc" :class="computedClass" class="w-auto" alt="" @error="handleError" />
+    <UIcon v-if="props.type === 'custom_api'" name="heroicons-cog-6-tooth" :class="[computedClass, 'text-gray-500']" />
+    <img v-else :src="imgSrc" :class="computedClass" class="w-auto" alt="" @error="handleError" />
 </template>
 
 <script setup lang="ts">

@@ -997,7 +997,11 @@ class AgentV2:
                         try:
                             from app.models.instruction import Instruction
                             from sqlalchemy import select as _select
-                            res = await self.db.execute(_select(Instruction).where(Instruction.id == inst_id))
+                            from sqlalchemy.orm import lazyload as _lazyload
+                            # Only column reads (trigger_reason, ai_source) — suppress cascade
+                            res = await self.db.execute(
+                                _select(Instruction).where(Instruction.id == inst_id).options(_lazyload("*"))
+                            )
                             inst = res.scalar_one_or_none()
                         except Exception:
                             inst = None
@@ -1112,8 +1116,11 @@ class AgentV2:
                     if not title or not title.strip():
                         logger.warning("Title generation returned empty result")
                         return
-                    # Re-fetch report using select query (more reliable than session.get with UUID)
-                    stmt = select(Report).where(Report.id == self.report.id)
+                    # Re-fetch report using select query (more reliable than session.get with UUID).
+                    # lazyload("*") suppresses Report's lazy="selectin" cascade (14 rels +
+                    # downstream DS/widget/query graph) — update_report_title only touches title.
+                    from sqlalchemy.orm import lazyload as _lazyload
+                    stmt = select(Report).where(Report.id == self.report.id).options(_lazyload("*"))
                     result = await session.execute(stmt)
                     report = result.scalar_one_or_none()
                     if report:
@@ -1278,6 +1285,38 @@ class AgentV2:
             await self._update_context_token_metadata(view)
         except Exception:
             pass
+
+    async def _apply_tool_permission_filter(self) -> None:
+        """Remove tools from the planner catalog whose required_permissions the user doesn't hold on any DS."""
+        if not self.db or not self.organization:
+            return
+        user = getattr(self.head_completion, 'user', None)
+        if not user:
+            return
+
+        restricted: dict[str, list[str]] = {}
+        for t in (self.planner.tool_catalog or []):
+            meta = self.registry.get_metadata(t['name'])
+            for perm in getattr(meta, 'required_permissions', []):
+                restricted.setdefault(perm, []).append(t['name'])
+
+        if not restricted:
+            return
+
+        from app.core.permission_resolver import get_ds_ids_with_permission
+        denied_tools: set[str] = set()
+        for perm, tool_names in restricted.items():
+            is_full_admin, ds_ids = await get_ds_ids_with_permission(
+                self.db, str(user.id), str(self.organization.id), perm
+            )
+            if not is_full_admin and not ds_ids:
+                denied_tools.update(tool_names)
+
+        if denied_tools:
+            self.planner.tool_catalog = [
+                t for t in self.planner.tool_catalog
+                if t['name'] not in denied_tools
+            ]
 
     def _schedule_bg_write(self, label: str, coro):
         """Schedule a background DB write coroutine.
@@ -1712,6 +1751,7 @@ class AgentV2:
                     logger.warning(f"Failed to seed training draft build: {_tb_err}")
 
             # Early scoring will be launched as a background task using an isolated session
+            await self._apply_tool_permission_filter()
             _mlog("loop_starting")
 
             for loop_index in range(step_limit):

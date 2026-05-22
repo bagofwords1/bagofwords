@@ -249,7 +249,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper" dir="auto">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -315,7 +315,7 @@
 									</div>
 
 									<!-- Show status messages for stopped/error completions -->
-									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
+									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success' && !hasClarifyBlock(m)">
 										<div class="flex items-center gap-1">
 											<CompletionItemFeedback
 												:completion="{ id: (m.system_completion_id || m.id) }"
@@ -394,14 +394,44 @@
 					</li>
 			</ul>
 			<div v-else class="mt-32 fade-in">
-				<h1 class="text-4xl mb-4">🪴</h1>
-				<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
-
-				<hr class="my-4">
-				<p class="text-gray-500 text-sm"><span class="font-semibold">{{ $t('reports.emptyTipLabel') }}</span> <br />
-					{{ $t('reports.emptyTipBody') }}
-				</p>
-
+				<!-- Training mode empty state -->
+				<template v-if="currentPromptMode === 'training'">
+					<h1 class="text-4xl mb-4">🎓</h1>
+					<h1 class="text-lg font-semibold">{{ $t('reports.trainingEmptyTitle') }}</h1>
+					<hr class="my-4">
+					<p class="text-gray-500 text-sm"><span class="font-semibold">{{ $t('reports.trainingEmptyTipLabel') }}</span> <br />
+						{{ $t('reports.trainingEmptyBody') }}
+					</p>
+					<div class="mt-4 flex flex-wrap gap-2">
+						<button
+							v-for="s in ($tm('reports.trainingStarters') as any[])"
+							:key="s.title"
+							class="px-3 py-1.5 text-xs rounded-full border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+							@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
+						>
+							{{ s.title }}
+						</button>
+					</div>
+				</template>
+				<!-- Chat / deep mode empty state -->
+				<template v-else>
+					<h1 class="text-4xl mb-4">🪴</h1>
+					<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
+					<hr class="my-4">
+					<p class="text-gray-500 text-sm"><span class="font-semibold">{{ $t('reports.emptyTipLabel') }}</span> <br />
+						{{ $t('reports.emptyTipBody') }}
+					</p>
+					<div v-if="agentConversationStarters.length > 0" class="mt-4 flex flex-wrap gap-2">
+						<button
+							v-for="s in agentConversationStarters"
+							:key="s.title"
+							class="px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors"
+							@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
+						>
+							{{ s.title }}
+						</button>
+					</div>
+				</template>
 			</div>
 			</div>
 		</div>
@@ -482,6 +512,7 @@
 					@editTrainingInstruction="editTrainingInstruction"
 					@openInstructions="() => { if (isMobile) { mobileView = 'agent'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'agent'; } }"
 					@update:selectedDataSources="(val: any[]) => currentAgents = val"
+					@update:mode="(m: any) => currentPromptMode = m"
 					@deleteScheduledPrompt="deleteScheduledPrompt"
 					@toggleScheduledPrompt="toggleScheduledPromptActive"
 					@scheduledPromptSaved="loadScheduledPrompts"
@@ -675,7 +706,9 @@ import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
@@ -962,6 +995,19 @@ watch(() => report.value?.data_sources, (val) => {
     if (val && currentAgents.value.length === 0) currentAgents.value = [...val]
 }, { immediate: true })
 
+// Flat, deduplicated conversation starters from all selected agents (max 3)
+// Each stored starter is "Title\nDetailed prompt" — split into { title, prompt }
+const agentConversationStarters = computed(() =>
+    [...new Set<string>(currentAgents.value.flatMap((a: any) => a.conversation_starters || []))]
+        .slice(0, 3)
+        .map((s: string) => {
+            const nl = s.indexOf('\n')
+            return nl === -1
+                ? { title: s, prompt: s }
+                : { title: s.slice(0, nl).trim(), prompt: s.slice(nl + 1).trim() }
+        })
+)
+
 async function openInstructionById(instructionId: string, opts?: { initialVersionNumber?: number | null }) {
 	// Immediately switch to agent panel with loading state
 	const panelRef = isMobile.value ? mobileAgentPanelRef : agentPanelRef
@@ -1181,6 +1227,10 @@ const isResizing = ref(false)
 const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
 
+// Live prompt mode (mirrors PromptBoxV2 selection; initialised from report once loaded)
+const currentPromptMode = ref<'chat' | 'deep' | 'training'>('chat')
+watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m as any }, { immediate: true })
+
 // Right panel view mode
 const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary'>('artifact')
 
@@ -1268,6 +1318,10 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped' || block.plan_decision?.analysis_complete || block.plan_decision?.final_answer)
 }
 
+function hasClarifyBlock(m: ChatMessage): boolean {
+	return (m.completion_blocks || []).some(b => b.tool_execution?.tool_name === 'clarify')
+}
+
 function getToolComponent(toolName: string) {
 	switch (toolName) {
     // 'create_data_model' removed
@@ -1314,6 +1368,8 @@ function getToolComponent(toolName: string) {
 			return CreateInstructionTool
 		case 'edit_instruction':
 			return EditInstructionTool
+		case 'list_agent_executions':
+			return ListAgentExecutionsTool
 		case 'search_instructions':
 			return SearchInstructionsTool
 		case 'search_evals':
@@ -1327,6 +1383,8 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'web_fetch':
 			return WebFetchTool
+		case 'clarify':
+			return ClarifyTool
 		default:
 			return null
 	}
@@ -1814,6 +1872,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'instructions'))
 							;(lastBlock.tool_execution.result_json as any).search_query = q
 							lastBlock.tool_execution.result_summary = `Searching instructions for ${qStr}…`
+						}
+						if (payload.tool_name === 'clarify' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
 					} catch {}
 					lastBlock.status = 'in_progress'
@@ -2863,7 +2924,7 @@ function openTraceModal(completionId: string) {
 
 function handleExampleClick(starter: string) {
 	if (starter) {
-		onSubmitCompletion({ text: starter, mentions: [] });
+		onSubmitCompletion({ text: starter, mentions: [], mode: currentPromptMode.value });
 	}
 }
 

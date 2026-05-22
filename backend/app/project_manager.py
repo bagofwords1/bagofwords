@@ -722,8 +722,10 @@ class ProjectManager:
             return visualization
     
     async def update_report_title(self, db, report, title):
-        # Instead of merging, let's fetch a fresh instance
-        stmt = select(Report).where(Report.id == report.id)
+        # Instead of merging, let's fetch a fresh instance.
+        # lazyload("*") avoids Report's lazy="selectin" cascade — only .title is touched.
+        from sqlalchemy.orm import lazyload
+        stmt = select(Report).where(Report.id == report.id).options(lazyload("*"))
         report = (await db.execute(stmt)).scalar_one()
         
         # Update the title

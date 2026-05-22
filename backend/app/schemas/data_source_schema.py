@@ -105,6 +105,7 @@ class DataSourceReportSchema(BaseModel):
     context: Optional[str]
     description: Optional[str]
     summary: Optional[str]
+    conversation_starters: Optional[list] = None
     is_active: bool
     is_public: bool = False
     owner_user_id: Optional[str] = None
