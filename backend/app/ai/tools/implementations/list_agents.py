@@ -1,8 +1,6 @@
 """list_agents — training-mode catalog browse.
 
-Mirrors the HTTP ``GET /api/agents`` filter (public + grants) via the
-existing ``DataSourceService.get_data_sources`` helper. No tool-level
-permission gate; visibility is enforced inside.
+Thin wrapper over ``AgentCatalogService.list_agents``.
 """
 
 from __future__ import annotations
@@ -15,7 +13,6 @@ from pydantic import BaseModel
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.list_agents import (
-    AgentSummary,
     ListAgentsInput,
     ListAgentsOutput,
 )
@@ -53,18 +50,9 @@ class ListAgentsTool(Tool):
             tags=["agent", "catalog", "training"],
             allowed_modes=["training"],
             examples=[
-                {
-                    "input": {"page_size": 50},
-                    "description": "List all agents the caller can see.",
-                },
-                {
-                    "input": {"name_search": "revenue"},
-                    "description": "Find agents with 'revenue' in the name.",
-                },
-                {
-                    "input": {"type": "mcp"},
-                    "description": "Only agents whose primary connection is MCP.",
-                },
+                {"input": {"page_size": 50}, "description": "List all agents the caller can see."},
+                {"input": {"name_search": "revenue"}, "description": "Find agents with 'revenue' in the name."},
+                {"input": {"type": "mcp"}, "description": "Only agents whose primary connection is MCP."},
             ],
         )
 
@@ -104,62 +92,23 @@ class ListAgentsTool(Tool):
         if not all([db, organization, user]):
             yield ToolErrorEvent(
                 type="tool.error",
-                payload={
-                    "error": "Missing runtime context (db, organization, user).",
-                    "code": "MISSING_CONTEXT",
-                },
+                payload={"error": "Missing runtime context.", "code": "MISSING_CONTEXT"},
             )
             return
 
         try:
-            from app.services.data_source_service import DataSourceService
+            from app.services.agent_catalog_service import AgentCatalogService
 
-            service = DataSourceService()
-            items = await service.get_data_sources(db, user, organization)
-
-            # In-memory filters — get_data_sources already enforces visibility.
-            needle = (data.name_search or "").strip().lower()
-            type_filter = (data.type or "").strip().lower()
-
-            filtered: list = []
-            for item in items:
-                name = (item.name or "").lower()
-                if needle and needle not in name:
-                    continue
-                if type_filter and (item.type or "").lower() != type_filter:
-                    continue
-                filtered.append(item)
-
-            total = len(filtered)
-            start = (data.page - 1) * data.page_size
-            end = start + data.page_size
-            page = filtered[start:end]
-
-            agents = []
-            for it in page:
-                connections = getattr(it, "connections", None) or []
-                table_count = sum(
-                    int(getattr(c, "table_count", 0) or 0) for c in connections
-                )
-                agents.append(
-                    AgentSummary(
-                        id=str(it.id),
-                        name=it.name,
-                        description=getattr(it, "description", None),
-                        type=getattr(it, "type", None),
-                        is_public=bool(getattr(it, "is_public", False)),
-                        connection_count=len(connections),
-                        table_count=table_count,
-                        created_at=(
-                            it.created_at.isoformat()
-                            if getattr(it, "created_at", None) and hasattr(it.created_at, "isoformat")
-                            else (str(it.created_at) if getattr(it, "created_at", None) else None)
-                        ),
-                    )
-                )
-
-            output = ListAgentsOutput(success=True, total=total, agents=agents)
-            summary = f"Listed {len(agents)} agent(s) (total {total})."
+            output = await AgentCatalogService().list_agents(
+                db,
+                organization,
+                user,
+                name_search=data.name_search,
+                type_filter=data.type,
+                page=data.page,
+                page_size=data.page_size,
+            )
+            summary = f"Listed {len(output.agents)} agent(s) (total {output.total})."
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -167,11 +116,7 @@ class ListAgentsTool(Tool):
                     "observation": {
                         "summary": summary,
                         "artifacts": [
-                            {
-                                "type": "agent_list",
-                                "count": len(agents),
-                                "total": total,
-                            }
+                            {"type": "agent_list", "count": len(output.agents), "total": output.total}
                         ],
                     },
                 },

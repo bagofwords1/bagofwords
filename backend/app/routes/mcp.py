@@ -307,7 +307,7 @@ async def mcp_endpoint(
         # Include all tools (model + app-only) so MCP Apps can call app-only tools
         tools = list_mcp_tools(include_app_only=True)
 
-        # Filter tools whose required_ds_permission the user doesn't hold
+        # Filter tools whose required_ds_permission the user doesn't hold.
         required_perms = {t["required_ds_permission"] for t in tools if t.get("required_ds_permission")}
         if required_perms:
             from app.core.permission_resolver import get_ds_ids_with_permission
@@ -320,6 +320,23 @@ async def mcp_endpoint(
                     denied_perms.add(perm)
             if denied_perms:
                 tools = [t for t in tools if t.get("required_ds_permission") not in denied_perms]
+
+        # Filter tools whose required_org_permission the user doesn't hold.
+        # Org-level perms gate tools that act on the organization as a whole
+        # (e.g. create_agent → create_data_source). Distinct from
+        # required_ds_permission, which checks per-resource grants.
+        required_org_perms = {t["required_org_permission"] for t in tools if t.get("required_org_permission")}
+        if required_org_perms:
+            from app.core.permission_resolver import FULL_ADMIN, resolve_permissions
+            resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+            denied_org_perms: set[str] = set()
+            is_full_admin = FULL_ADMIN in resolved.org_permissions
+            if not is_full_admin:
+                for perm in required_org_perms:
+                    if not resolved.has_org_permission(perm):
+                        denied_org_perms.add(perm)
+            if denied_org_perms:
+                tools = [t for t in tools if t.get("required_org_permission") not in denied_org_perms]
 
         mcp_tools = []
         for tool in tools:

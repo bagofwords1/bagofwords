@@ -16,6 +16,15 @@ from .instructions import (
     DeleteInstructionMCPTool,
 )
 from .app_tools import GetVisualizationMCPTool, GetArtifactDataMCPTool
+from .agents import (
+    ListAgentsMCPTool,
+    GetAgentMCPTool,
+    CreateAgentMCPTool,
+)
+from .connections import (
+    ListConnectionsMCPTool,
+    GetConnectionMCPTool,
+)
 
 MCP_TOOLS = {
     "create_report": CreateReportTool,
@@ -28,6 +37,12 @@ MCP_TOOLS = {
     "list_instructions": ListInstructionsMCPTool,
     "create_instruction": CreateInstructionMCPTool,
     "delete_instruction": DeleteInstructionMCPTool,
+    # Agent + connection catalog (training-mode planner counterparts)
+    "list_agents": ListAgentsMCPTool,
+    "get_agent": GetAgentMCPTool,
+    "create_agent": CreateAgentMCPTool,
+    "list_connections": ListConnectionsMCPTool,
+    "get_connection": GetConnectionMCPTool,
     # App-only tools (hidden from LLM, used by MCP App UIs)
     "get_visualization": GetVisualizationMCPTool,
     "get_artifact_data": GetArtifactDataMCPTool,

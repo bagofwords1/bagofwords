@@ -165,26 +165,11 @@ class CreateAgentTool(Tool):
             and not data.dry_run
         ):
             try:
-                from sqlalchemy import select, func
-                from app.models.connection import Connection
-                from app.models.connection_table import ConnectionTable
+                from app.services.agent_catalog_service import AgentCatalogService
 
-                indexed_table_count = 0
-                conn_rows = await db.execute(
-                    select(Connection.id).where(
-                        Connection.organization_id == str(organization.id),
-                        Connection.name.in_(data.connection_names),
-                        Connection.deleted_at.is_(None),
-                    )
+                indexed_table_count = await AgentCatalogService().count_indexed_tables_for_connections(
+                    db, organization, connection_names=data.connection_names
                 )
-                resolved_ids = [str(r[0]) for r in conn_rows.all()]
-                if resolved_ids:
-                    count_row = await db.execute(
-                        select(func.count(ConnectionTable.id)).where(
-                            ConnectionTable.connection_id.in_(resolved_ids)
-                        )
-                    )
-                    indexed_table_count = int(count_row.scalar() or 0)
 
                 if indexed_table_count > 0:
                     msg = (
