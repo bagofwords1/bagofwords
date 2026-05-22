@@ -2,140 +2,19 @@
   <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-lg' }">
     <div class="p-6">
       <h2 class="text-lg font-semibold mb-4">{{ isEditMode ? $t('settings.mcpModal.editTitle') : $t('settings.mcpModal.connectTitle') }}</h2>
-
-      <!-- Use existing connection (create mode only) -->
-      <div v-if="!isEditMode && existingConnections.length > 0" class="mb-4">
-        <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.useExistingLabel') }}</label>
-        <select
-          v-model="selectedExistingId"
-          class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="">{{ $t('settings.mcpModal.selectExistingPlaceholder') }}</option>
-          <option v-for="conn in existingConnections" :key="conn.id" :value="conn.id">{{ conn.name }}</option>
-        </select>
-        <div v-if="!selectedExistingId" class="relative my-4">
-          <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200" /></div>
-          <div class="relative flex justify-center"><span class="bg-white px-2 text-xs text-gray-400">{{ $t('settings.mcpModal.orCreateNew') }}</span></div>
-        </div>
-      </div>
-
-      <form @submit.prevent="handleSubmit" class="space-y-4">
-        <!-- Form fields hidden when using an existing connection -->
-        <template v-if="!selectedExistingId">
-        <!-- Name -->
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.nameLabel') }}</label>
-          <input
-            v-model="form.name"
-            type="text"
-            :placeholder="$t('settings.mcpModal.namePlaceholder')"
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-
-        <!-- Server URL -->
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.urlLabel') }}</label>
-          <input
-            v-model="form.server_url"
-            type="text"
-            :placeholder="$t('settings.mcpModal.urlPlaceholder')"
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-
-        <!-- Transport -->
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.transportLabel') }}</label>
-          <select
-            v-model="form.transport"
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="sse">{{ $t('settings.mcpModal.transportSse') }}</option>
-            <option value="streamable_http">{{ $t('settings.mcpModal.transportHttp') }}</option>
-          </select>
-        </div>
-
-        <!-- Auth -->
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.authLabel') }}</label>
-          <select
-            v-model="form.auth_type"
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="none">{{ $t('settings.mcpModal.authNone') }}</option>
-            <option value="bearer">{{ $t('settings.mcpModal.authBearer') }}</option>
-            <option value="api_key">{{ $t('settings.mcpModal.authApiKey') }}</option>
-          </select>
-        </div>
-
-        <!-- Bearer Token -->
-        <div v-if="form.auth_type === 'bearer'">
-          <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.bearerLabel') }}</label>
-          <input
-            v-model="form.token"
-            type="password"
-            :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.bearerPlaceholder')"
-            class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-
-        <!-- API Key -->
-        <div v-if="form.auth_type === 'api_key'" class="space-y-3">
-          <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.apiKeyLabel') }}</label>
-            <input
-              v-model="form.api_key"
-              type="password"
-              :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.apiKeyPlaceholder')"
-              class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.headerNameLabel') }}</label>
-            <input
-              v-model="form.api_key_header"
-              type="text"
-              placeholder="X-API-Key"
-              class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        <!-- Test result -->
-        <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
-          {{ testResult.message }}
-        </div>
-        </template>
-
-        <!-- Actions -->
-        <div class="flex items-center justify-between pt-2">
-          <button
-            v-if="!selectedExistingId"
-            type="button"
-            @click="testConnection"
-            :disabled="testing || !form.server_url"
-            class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
-          >
-            <Spinner v-if="testing" class="w-3 h-3 inline me-1" />
-            {{ $t('settings.mcpModal.testConnection') }}
-          </button>
-          <span v-else />
-
-          <div class="flex items-center gap-2">
-            <UButton color="gray" variant="ghost" size="sm" @click="isOpen = false">{{ $t('settings.mcpModal.cancel') }}</UButton>
-            <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="selectedExistingId ? false : (!form.server_url || !form.name)">
-              {{ isEditMode ? $t('settings.mcpModal.save') : $t('settings.mcpModal.connect') }}
-            </UButton>
-          </div>
-        </div>
-      </form>
+      <MCPConnectionForm
+        v-if="isOpen"
+        :editConnection="editConnection"
+        :existingConnections="existingConnections"
+        @saved="handleSaved"
+        @cancel="isOpen = false"
+      />
     </div>
   </UModal>
 </template>
 
 <script setup lang="ts">
-import Spinner from '~/components/Spinner.vue'
+import MCPConnectionForm from '~/components/MCPConnectionForm.vue'
 
 const { t } = useI18n()
 const isOpen = defineModel<boolean>({ default: false })
@@ -145,132 +24,12 @@ const props = defineProps<{
 }>()
 const emit = defineEmits(['created'])
 
-const selectedExistingId = ref('')
 const toast = useToast()
-
 const isEditMode = computed(() => !!props.editConnection)
 
-const form = reactive({
-  name: '',
-  server_url: '',
-  transport: 'sse',
-  auth_type: 'none',
-  token: '',
-  api_key: '',
-  api_key_header: 'X-API-Key',
-})
-
-// Fetch full connection detail and populate form when editing
-watch(() => props.editConnection, async (conn) => {
-  if (conn) {
-    try {
-      const response = await useMyFetch(`/connections/${conn.id}`, { method: 'GET' })
-      const detail = response.data.value as any
-      if (detail) {
-        const config = detail.config || {}
-        form.name = detail.name || ''
-        form.server_url = config.server_url || ''
-        form.transport = config.transport || 'sse'
-        form.auth_type = config.auth_type || (detail.has_credentials ? 'bearer' : 'none')
-        form.token = ''
-        form.api_key = ''
-        form.api_key_header = config.api_key_header || 'X-API-Key'
-        return
-      }
-    } catch {}
-    // Fallback if detail fetch fails
-    form.name = conn.name || ''
-    form.auth_type = 'none'
-  }
-}, { immediate: true })
-
-// Reset form when modal closes
-watch(isOpen, (open) => {
-  if (!open && !props.editConnection) {
-    resetForm()
-  }
-})
-
-function resetForm() {
-  Object.assign(form, { name: '', server_url: '', transport: 'sse', auth_type: 'none', token: '', api_key: '', api_key_header: 'X-API-Key' })
-  selectedExistingId.value = ''
-  testResult.value = null
-}
-
-function buildCredentials(): Record<string, any> | undefined {
-  if (form.auth_type === 'bearer' && form.token) return { token: form.token }
-  if (form.auth_type === 'api_key' && form.api_key) return { api_key: form.api_key, api_key_header: form.api_key_header }
-  return undefined
-}
-
-const testing = ref(false)
-const submitting = ref(false)
-const testResult = ref<{ success: boolean; message: string } | null>(null)
-
-async function testConnection() {
-  testing.value = true
-  testResult.value = null
-  try {
-    const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type }
-    const credentials = buildCredentials() || {}
-    const response = await useMyFetch('/connections/test-params', {
-      method: 'POST',
-      body: { name: 'test', type: 'mcp', config, credentials },
-    })
-    testResult.value = response.data.value as any
-  } catch (e: any) {
-    testResult.value = { success: false, message: e?.data?.detail || t('settings.mcpModal.testFailed') }
-  } finally {
-    testing.value = false
-  }
-}
-
-async function handleSubmit() {
-  // Use existing connection path
-  if (selectedExistingId.value) {
-    const conn = (props.existingConnections || []).find((c: any) => c.id === selectedExistingId.value)
-    if (conn) {
-      toast.add({ title: t('settings.mcpModal.connected'), color: 'green' })
-      isOpen.value = false
-      emit('created', conn)
-      resetForm()
-    }
-    return
-  }
-
-  submitting.value = true
-  try {
-    const config = { server_url: form.server_url, transport: form.transport, auth_type: form.auth_type }
-    const credentials = buildCredentials()
-
-    if (isEditMode.value && props.editConnection) {
-      // Update existing connection
-      const response = await useMyFetch(`/connections/${props.editConnection.id}`, {
-        method: 'PUT',
-        body: { name: form.name, config, credentials },
-      })
-      if (response.data.value) {
-        toast.add({ title: t('settings.mcpModal.updated'), color: 'green' })
-        isOpen.value = false
-        emit('created', response.data.value)
-      }
-    } else {
-      // Create new connection
-      const response = await useMyFetch('/connections', {
-        method: 'POST',
-        body: { name: form.name, type: 'mcp', config, credentials, auth_policy: 'system_only' },
-      })
-      if (response.data.value) {
-        toast.add({ title: t('settings.mcpModal.connected'), color: 'green' })
-        isOpen.value = false
-        emit('created', response.data.value)
-        resetForm()
-      }
-    }
-  } catch (e: any) {
-    toast.add({ title: isEditMode.value ? t('settings.mcpModal.failedUpdate') : t('settings.mcpModal.failedConnect'), description: e?.data?.detail, color: 'red' })
-  } finally {
-    submitting.value = false
-  }
+function handleSaved(connection: any) {
+  toast.add({ title: isEditMode.value ? t('settings.mcpModal.updated') : t('settings.mcpModal.connected'), color: 'green' })
+  isOpen.value = false
+  emit('created', connection)
 }
 </script>

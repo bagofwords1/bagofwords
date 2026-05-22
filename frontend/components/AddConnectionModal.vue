@@ -98,7 +98,18 @@
           </button>
         </div>
 
+        <MCPConnectionForm
+          v-if="selectedDataSource?.type === 'mcp'"
+          @saved="handleToolProviderSaved"
+          @cancel="backToSelect"
+        />
+        <CustomAPIConnectionForm
+          v-else-if="selectedDataSource?.type === 'custom_api'"
+          @saved="handleToolProviderSaved"
+          @cancel="backToSelect"
+        />
         <ConnectForm
+          v-else
           @success="handleConnectionSuccess"
           :initialType="selectedDataSource?.type"
           :initialName="selectedDataSource?.title"
@@ -177,6 +188,8 @@
 import Spinner from '~/components/Spinner.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
+import MCPConnectionForm from '~/components/MCPConnectionForm.vue'
+import CustomAPIConnectionForm from '~/components/CustomAPIConnectionForm.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 
@@ -223,11 +236,12 @@ const uninstalledDemos = computed(() => (demos.value || []).filter((demo: any) =
 // Check if data source requires enterprise license
 const isLocked = (ds: any) => ds.requires_license === 'enterprise' && !isLicensed.value
 
-// Filter data sources by search query
+// Filter data sources by search query — tool providers are always prepended
 const filteredDataSources = computed(() => {
-  if (!searchQuery.value.trim()) return dataSources.value
+  const all = [...dataSources.value, ...TOOL_PROVIDER_TYPES]
+  if (!searchQuery.value.trim()) return all
   const query = searchQuery.value.toLowerCase()
-  return dataSources.value.filter((ds: any) =>
+  return all.filter((ds: any) =>
     ds.title?.toLowerCase().includes(query) ||
     ds.type?.toLowerCase().includes(query)
   )
@@ -274,9 +288,26 @@ async function handleInstallDemo(demoId: string) {
   }
 }
 
+const TOOL_PROVIDER_TYPES = [
+  { type: 'mcp', title: 'MCP Server', status: 'active', requires_license: null },
+  { type: 'custom_api', title: 'Custom API', status: 'active', requires_license: null },
+]
+
 function selectType(ds: any) {
   selectedDataSource.value = ds
   step.value = 'form'
+}
+
+function handleToolProviderSaved(connection: any) {
+  createdConnection.value = connection
+  toast.add({
+    title: t('data.connectionCreated'),
+    description: t('data.connectionCreatedDesc', { name: connection?.name || t('data.connectionFallback') }),
+    icon: 'i-heroicons-check-circle',
+    color: 'green',
+  })
+  emit('created', connection)
+  isOpen.value = false
 }
 
 function backToSelect() {

@@ -19,7 +19,12 @@
         <div v-else-if="indexing?.status === 'completed'" class="text-xs text-green-700 flex items-center gap-1">
             <UIcon name="heroicons-check-circle" class="w-4 h-4" />
             <span>
-                Discovered {{ indexing?.stats?.table_count ?? 0 }} table{{ (indexing?.stats?.table_count ?? 0) === 1 ? '' : 's' }}
+                <template v-if="indexing?.stats?.tool_count != null">
+                    Discovered {{ indexing.stats.tool_count }} tool{{ indexing.stats.tool_count === 1 ? '' : 's' }}
+                </template>
+                <template v-else>
+                    Discovered {{ indexing?.stats?.table_count ?? 0 }} table{{ (indexing?.stats?.table_count ?? 0) === 1 ? '' : 's' }}
+                </template>
                 <span v-if="indexing?.stats?.elapsed_s != null"> in {{ indexing.stats.elapsed_s }}s</span>
             </span>
         </div>

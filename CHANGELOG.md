@@ -5,6 +5,7 @@
 - Performance & reliability fixes
 - Clarify tool enhancement
 - Added new tool: list agent execution in training mode
+- Add MCP to multiple agents
 
 ## Version 0.0.382 (May 20, 2026)
 - speed improvements

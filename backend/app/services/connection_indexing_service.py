@@ -203,7 +203,8 @@ class ConnectionIndexingService:
         return row
 
     async def _run(self, indexing_id: str) -> None:
-        """Runner that opens a fresh session and executes `refresh_schema`.
+        """Runner that opens a fresh session and executes `refresh_schema` (SQL connections)
+        or `refresh_tools` (MCP/custom_api connections).
 
         Exceptions are captured onto the row — never re-raised. The task must
         not let its wrapping session outlive work, so we open/close a session
@@ -349,14 +350,23 @@ class ConnectionIndexingService:
                         pass
 
                 svc = ConnectionService()
+                _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+                is_tool_provider = connection.type in _TOOL_PROVIDER_TYPES
 
                 try:
-                    tables = await svc.refresh_schema(
-                        db=db,
-                        connection=connection,
-                        current_user=None,
-                        progress_callback=progress_cb,
-                    )
+                    if is_tool_provider:
+                        items = await svc.refresh_tools(
+                            db=db,
+                            connection=connection,
+                            current_user=None,
+                        )
+                    else:
+                        items = await svc.refresh_schema(
+                            db=db,
+                            connection=connection,
+                            current_user=None,
+                            progress_callback=progress_cb,
+                        )
                 except Exception as exc:  # pragma: no cover — surface via row
                     logger.exception("indexing.run.failed", extra={"indexing_id": indexing_id})
                     # Use a fresh session — the service may have rolled back.
@@ -373,21 +383,24 @@ class ConnectionIndexingService:
                 # Force one final flush so progress ends at the true total.
                 await _flush(force=True)
 
-                # Pre-warm any local caches (e.g. QVD → Parquet) so the first
-                # query after indexing hits a warm cache. Fire-and-forget so the
-                # indexing row completes immediately; warm failures are logged inside awarm_all.
-                try:
-                    client = await svc.construct_client(db, connection)
-                    asyncio.ensure_future(client.awarm_all())
-                except Exception:
-                    logger.debug("indexing.warm.skipped", exc_info=True)
+                if not is_tool_provider:
+                    # Pre-warm any local caches (e.g. QVD → Parquet) so the first
+                    # query after indexing hits a warm cache. Fire-and-forget so the
+                    # indexing row completes immediately; warm failures are logged inside awarm_all.
+                    try:
+                        client = await svc.construct_client(db, connection)
+                        asyncio.ensure_future(client.awarm_all())
+                    except Exception:
+                        logger.debug("indexing.warm.skipped", exc_info=True)
 
-                # Fan schema out to every DataSource linked to this connection so
-                # the domain-level view (DataSourceTable) reflects the new schema.
-                synced_domains = await self._sync_linked_data_sources(
-                    db, connection_id=row.connection_id,
-                    session_factory=session_factory,
-                )
+                synced_domains = 0
+                if not is_tool_provider:
+                    # Fan schema out to every DataSource linked to this connection so
+                    # the domain-level view (DataSourceTable) reflects the new schema.
+                    synced_domains = await self._sync_linked_data_sources(
+                        db, connection_id=row.connection_id,
+                        session_factory=session_factory,
+                    )
 
                 fresh = await db.get(ConnectionIndexing, indexing_id)
                 if fresh is None:
@@ -395,10 +408,11 @@ class ConnectionIndexingService:
                 fresh.status = ConnectionIndexingStatus.COMPLETED.value
                 fresh.finished_at = datetime.utcnow()
                 fresh.error = None
-                table_count = len(tables) if tables else 0
+                item_count = len(items) if items else 0
                 elapsed_s = round(time.perf_counter() - start, 3)
+                count_key = "tool_count" if is_tool_provider else "table_count"
                 fresh.stats_json = {
-                    "table_count": table_count,
+                    count_key: item_count,
                     "synced_domains": synced_domains,
                     "elapsed_s": elapsed_s,
                 }
@@ -407,10 +421,11 @@ class ConnectionIndexingService:
                     fresh.progress_done = fresh.progress_total
                 await db.commit()
 
+                item_label = "tool(s)" if is_tool_provider else "table(s)"
                 await _append_event(
                     "info", _state_snapshot()["phase"],
-                    f"Completed: {table_count} table(s) in {elapsed_s}s",
-                    done=table_count, total=table_count,
+                    f"Completed: {item_count} {item_label} in {elapsed_s}s",
+                    done=item_count, total=item_count,
                 )
 
         except Exception as exc:  # pragma: no cover — last-ditch guard

@@ -28,7 +28,7 @@
             <div class="p-6">
                 <h3 class="text-sm font-semibold text-gray-900 mb-2">Remove Connection</h3>
                 <p class="text-xs text-gray-500 mb-4">
-                    Remove <strong>{{ deletingConnection?.name }}</strong> and all its discovered tools from this data source?
+                    Remove <strong>{{ deletingConnection?.name }}</strong> from this agent? The connection will remain available for other agents.
                 </p>
                 <div class="flex justify-end gap-2">
                     <UButton color="gray" variant="ghost" size="xs" @click="showDeleteModal = false">Cancel</UButton>
@@ -127,11 +127,12 @@ async function deleteConnection() {
     if (!deletingConnection.value) return
     deleting.value = true
     try {
-        await useMyFetch(`/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
+        await useMyFetch(`/data_sources/${id.value}/connections/${deletingConnection.value.id}`, { method: 'DELETE' })
         toast.add({ title: 'Connection removed', color: 'green' })
         showDeleteModal.value = false
         deletingConnection.value = null
         await fetchIntegration()
+        await fetchOrgToolConnections()
     } catch (e: any) {
         toast.add({ title: 'Failed to remove connection', description: e?.data?.detail, color: 'red' })
     } finally {

@@ -1233,6 +1233,7 @@
     "connected": "Connected",
     "disconnected": "Disconnected",
     "tablesLabel": "Tables",
+    "toolsLabel": "Tools",
     "agentsLabel": "Data Agents",
     "lastChecked": "Last checked",
     "never": "Never",
