@@ -6,8 +6,6 @@ overlay table — ``data_source_connection_tool`` — and fall back to the
 ``ConnectionTool`` defaults when no override exists.
 """
 
-from __future__ import annotations
-
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
