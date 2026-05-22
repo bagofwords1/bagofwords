@@ -129,8 +129,27 @@
                 />
                 <code class="text-[13px] text-gray-800 font-medium whitespace-nowrap">{{ tool.name }}</code>
                 <span v-if="!tool.is_enabled" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-400">off</span>
+                <span v-if="!tool.has_overlay" class="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-500" title="Inherits connection default">default</span>
               </button>
               <span class="text-[11px] text-gray-400 truncate min-w-0">{{ tool.description }}</span>
+              <div v-if="canUpdate" class="flex items-center gap-1 ms-auto flex-shrink-0">
+                <select
+                  :value="tool.policy"
+                  @change="(e: Event) => setToolPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
+                  class="text-[10px] border border-gray-200 rounded px-1 py-0.5 bg-white text-gray-600 focus:outline-none focus:border-blue-400"
+                  title="Tool policy"
+                >
+                  <option value="allow">allow</option>
+                  <option value="confirm">confirm</option>
+                  <option value="deny">deny</option>
+                </select>
+                <button
+                  v-if="tool.has_overlay"
+                  @click="resetTool(conn.id, tool.id)"
+                  class="text-[10px] text-gray-400 hover:text-gray-600 px-1"
+                  title="Reset to connection default"
+                >reset</button>
+              </div>
             </div>
 
             <!-- Expanded -->
@@ -203,35 +222,35 @@ watch(() => props.connections, async (newConns) => {
 }, { deep: true })
 
 async function loadAllTools() {
+  // One round-trip for all tools across linked connections.
+  // Effective state = per-agent overlay merged with connection defaults.
   loading.value = true
   try {
-    await Promise.all(
-      props.connections.map(conn => loadToolsForConnection(conn.id))
-    )
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadToolsForConnection(connectionId: string) {
-  try {
-    const response = await useMyFetch(`/connections/${connectionId}/tools`, { method: 'GET' })
+    const response = await useMyFetch(`/data_sources/${props.dsId}/tools`, { method: 'GET' })
     if (response.data.value) {
-      toolsByConnection.value[connectionId] = response.data.value as any[]
+      const grouped: Record<string, any[]> = {}
+      for (const t of response.data.value as any[]) {
+        if (!grouped[t.connection_id]) grouped[t.connection_id] = []
+        grouped[t.connection_id].push(t)
+      }
+      toolsByConnection.value = grouped
     }
   } catch (e) {
-    console.error(`Failed to load tools for connection ${connectionId}:`, e)
+    console.error('Failed to load agent tools:', e)
+  } finally {
+    loading.value = false
   }
 }
 
 async function refreshTools(connectionId: string) {
   refreshingConn.value = connectionId
   try {
-    const response = await useMyFetch(`/connections/${connectionId}/refresh-tools`, { method: 'POST' })
-    if (response.data.value) {
-      toolsByConnection.value[connectionId] = response.data.value as any[]
-      toast.add({ title: 'Tools refreshed', color: 'green' })
-    }
+    // Refresh the underlying ConnectionTool discovery (org-level), then
+    // reload the agent-scoped view so the new tools show up with their
+    // current effective state.
+    await useMyFetch(`/connections/${connectionId}/refresh-tools`, { method: 'POST' })
+    await loadAllTools()
+    toast.add({ title: 'Tools refreshed', color: 'green' })
   } catch (e) {
     toast.add({ title: 'Failed to refresh tools', color: 'red' })
   } finally {
@@ -241,7 +260,7 @@ async function refreshTools(connectionId: string) {
 
 async function toggleTool(connectionId: string, toolId: string, enabled: boolean) {
   try {
-    const response = await useMyFetch(`/connections/${connectionId}/tools/${toolId}`, {
+    const response = await useMyFetch(`/data_sources/${props.dsId}/tools/${toolId}`, {
       method: 'PUT',
       body: { is_enabled: enabled },
     })
@@ -254,6 +273,42 @@ async function toggleTool(connectionId: string, toolId: string, enabled: boolean
     }
   } catch (e) {
     toast.add({ title: 'Failed to update tool', color: 'red' })
+  }
+}
+
+async function resetTool(connectionId: string, toolId: string) {
+  // Remove the per-agent overlay; tool reverts to connection-default state.
+  try {
+    const response = await useMyFetch(`/data_sources/${props.dsId}/tools/${toolId}`, {
+      method: 'DELETE',
+    })
+    if (response.data.value) {
+      const tools = toolsByConnection.value[connectionId] || []
+      const idx = tools.findIndex((t: any) => t.id === toolId)
+      if (idx !== -1) {
+        tools[idx] = response.data.value
+      }
+    }
+  } catch (e) {
+    toast.add({ title: 'Failed to reset tool', color: 'red' })
+  }
+}
+
+async function setToolPolicy(connectionId: string, toolId: string, policy: string) {
+  try {
+    const response = await useMyFetch(`/data_sources/${props.dsId}/tools/${toolId}`, {
+      method: 'PUT',
+      body: { policy },
+    })
+    if (response.data.value) {
+      const tools = toolsByConnection.value[connectionId] || []
+      const idx = tools.findIndex((t: any) => t.id === toolId)
+      if (idx !== -1) {
+        tools[idx] = response.data.value
+      }
+    }
+  } catch (e) {
+    toast.add({ title: 'Failed to update tool policy', color: 'red' })
   }
 }
 
