@@ -1296,9 +1296,9 @@ class AgentV2:
 
         restricted: dict[str, list[str]] = {}
         for t in (self.planner.tool_catalog or []):
-            meta = self.registry.get_metadata(t['name'])
+            meta = self.registry.get_metadata(t.name)
             for perm in getattr(meta, 'required_permissions', []):
-                restricted.setdefault(perm, []).append(t['name'])
+                restricted.setdefault(perm, []).append(t.name)
 
         if not restricted:
             return
@@ -1315,7 +1315,7 @@ class AgentV2:
         if denied_tools:
             self.planner.tool_catalog = [
                 t for t in self.planner.tool_catalog
-                if t['name'] not in denied_tools
+                if t.name not in denied_tools
             ]
 
     def _schedule_bg_write(self, label: str, coro):
