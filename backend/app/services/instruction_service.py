@@ -593,12 +593,21 @@ class InstructionService:
         current_user: User
     ) -> Optional[InstructionSchema]:
         """Get a single instruction by ID"""
-        
+
+        # Singular response uses InstructionSchema → DataSourceSchema, which
+        # includes memberships, git_repository, and connections. Suppress the
+        # rest of the DS lazy="selectin" cascade (reports/widgets/queries/...)
+        # which the response never exposes.
         query = (
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.git_repository),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),

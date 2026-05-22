@@ -3,7 +3,7 @@ import re
 import logging
 
 from sqlalchemy import select, and_, or_, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instruction import Instruction
@@ -135,7 +135,7 @@ class InstructionContextBuilder:
         stmt = (
             select(Instruction)
             .options(
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(Instruction.labels),
             )
             .where(
@@ -219,7 +219,7 @@ class InstructionContextBuilder:
         contents_result = await self.db.execute(
             select(BuildContent)
             .options(
-                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                 selectinload(BuildContent.instruction_version),
             )
@@ -294,7 +294,7 @@ class InstructionContextBuilder:
         stmt = (
             select(Instruction)
             .options(
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(Instruction.labels),
             )
             .where(
@@ -378,7 +378,7 @@ class InstructionContextBuilder:
         stmt = (
             select(Instruction)
             .options(
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).options(lazyload("*")),
             )
             .where(
                 and_(
@@ -540,7 +540,7 @@ class InstructionContextBuilder:
         contents_result = await self.db.execute(
             select(BuildContent)
             .options(
-                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                selectinload(BuildContent.instruction).selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                 selectinload(BuildContent.instruction_version),
             )
@@ -808,7 +808,7 @@ class InstructionContextBuilder:
             contents_result = await self.db.execute(
                 select(BuildContent)
                 .options(
-                    selectinload(BuildContent.instruction).selectinload(Instruction.data_sources),
+                    selectinload(BuildContent.instruction).selectinload(Instruction.data_sources).options(lazyload("*")),
                     selectinload(BuildContent.instruction).selectinload(Instruction.labels),
                     selectinload(BuildContent.instruction_version),
                 )
