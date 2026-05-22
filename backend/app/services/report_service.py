@@ -1,7 +1,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.schemas.data_source_schema import DataSourceReportSchema
@@ -277,11 +277,17 @@ class ReportService:
         
 
     async def get_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> ReportSchema:
+        # Same pattern as get_reports: suppress only the DataSource cascade
+        # (the actual cost), let Report's own lazy="selectin" fire so
+        # downstream serialization of user/widgets/etc. works unchanged.
         result = await db.execute(
             select(Report)
             .options(
-                selectinload(Report.user),  # Use selectinload for async loading
-                selectinload(Report.data_sources).selectinload(DataSource.connections)  # Load data sources and their connections
+                selectinload(Report.user),
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
             )
             .filter(Report.id == report_id)
         )
@@ -1041,11 +1047,18 @@ class ReportService:
             total_result = await db.execute(count_query)
             total = total_result.scalar()
 
-            # Get paginated results - load data_sources with connections to get type
+            # Suppress DataSource's lazy="selectin" cascade (reports →
+            # widgets/queries/completions/…) that would otherwise fire per
+            # loaded Report.data_sources. We don't lazyload at Report level
+            # because that propagates into Report.user and breaks
+            # UserSchema.external_user_mappings serialization.
             query = base_query.options(
                 selectinload(Report.user),
                 selectinload(Report.widgets),
-                selectinload(Report.data_sources).selectinload(DataSource.connections),
+                selectinload(Report.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                ),
                 selectinload(Report.artifacts)
             ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
 

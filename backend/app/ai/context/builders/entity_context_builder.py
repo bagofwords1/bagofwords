@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy import select, or_  # type: ignore
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, lazyload
 
 from app.models.entity import Entity, entity_data_source_association
 from app.models.organization import Organization
@@ -55,7 +55,7 @@ class EntityContextBuilder:
     ) -> List[Entity]:
         stmt = (
             select(Entity)
-            .options(selectinload(Entity.data_sources))
+            .options(selectinload(Entity.data_sources).options(lazyload("*")))
             .where(
                 Entity.organization_id == self.organization.id,
                 Entity.status == "published",
