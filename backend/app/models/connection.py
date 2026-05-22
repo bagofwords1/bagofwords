@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from importlib import import_module
@@ -13,6 +13,9 @@ class Connection(BaseSchema):
     A Connection can be associated with multiple DataSources (Domains) via M:N relationship.
     """
     __tablename__ = "connections"
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'name', name='uq_connections_org_name'),
+    )
 
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)  # e.g., 'snowflake', 'postgres', 'bigquery'

@@ -122,13 +122,13 @@ class ListInstructionsMCPTool(MCPTool):
 
 class CreateInstructionMCPTool(MCPTool):
     """Create an instruction with automatic build integration.
-    
+
     Creates a new instruction that guides AI behavior. The instruction is
     automatically added to a build:
     - For admins: Build is auto-approved and goes live immediately
     - For non-admins: Build is submitted for admin approval (pending_approval status)
     """
-    
+
     name = "create_instruction"
     description = (
         "Create a new instruction that guides AI behavior when generating code and analyzing data. "
@@ -136,7 +136,11 @@ class CreateInstructionMCPTool(MCPTool):
         "For admins: instruction goes live immediately. "
         "For non-admins: instruction is submitted for admin approval."
     )
-    
+
+    @property
+    def required_ds_permission(self):
+        return "manage_instructions"
+
     @property
     def input_schema(self) -> Dict[str, Any]:
         return MCPCreateInstructionInput.model_json_schema()
@@ -209,18 +213,22 @@ class CreateInstructionMCPTool(MCPTool):
 
 class DeleteInstructionMCPTool(MCPTool):
     """Delete an instruction with automatic build update.
-    
+
     Soft-deletes an instruction and removes it from the current build.
     - Admins can delete any instruction
     - Non-admins can only delete their own instructions
     """
-    
+
     name = "delete_instruction"
     description = (
         "Delete an instruction (soft delete). "
         "The instruction is removed from the current build. "
         "Admins can delete any instruction. Non-admins can only delete their own."
     )
+
+    @property
+    def required_ds_permission(self):
+        return "manage_instructions"
     
     @property
     def input_schema(self) -> Dict[str, Any]:

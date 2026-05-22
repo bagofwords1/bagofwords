@@ -1722,6 +1722,7 @@ class ConsoleService:
         issue_filter: Optional[str] = None,
         tool_name: Optional[str] = None,
         prompt_search: Optional[str] = None,
+        security_data_source_ids: Optional[list] = None,
     ) -> AgentExecutionSummariesResponse:
         """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
@@ -1759,6 +1760,19 @@ class ConsoleService:
                 .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
             )
             base_query = base_query.where(AgentExecution.report_id.in_(ds_subquery))
+
+        # Security boundary: scope to data sources the caller manages
+        if security_data_source_ids is not None:
+            effective_ids = (
+                list(set(parsed_data_source_ids) & set(security_data_source_ids))
+                if parsed_data_source_ids
+                else security_data_source_ids
+            )
+            sec_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(effective_ids))
+            )
+            base_query = base_query.where(AgentExecution.report_id.in_(sec_subquery))
 
         total_q = select(func.count()).select_from(base_query.subquery())
         total_res = await db.execute(total_q)

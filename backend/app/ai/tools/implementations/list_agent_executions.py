@@ -70,7 +70,7 @@ class ListAgentExecutionsTool(Tool):
             max_retries=1,
             timeout_seconds=30,
             idempotent=True,
-            required_permissions=[],
+            required_permissions=["manage"],
             tags=["agent_execution", "diagnosis", "monitoring", "training"],
             allowed_modes=["training"],
             examples=[
@@ -162,6 +162,22 @@ class ListAgentExecutionsTool(Tool):
             from datetime import datetime
             from app.schemas.console_schema import MetricsQueryParams
             from app.services.console_service import ConsoleService
+            from app.core.permission_resolver import get_ds_ids_with_permission
+
+            is_full_admin, permitted_ds_ids = await get_ds_ids_with_permission(
+                db, str(user.id), str(organization.id), "manage"
+            )
+            if not is_full_admin and not permitted_ds_ids:
+                yield ToolErrorEvent(
+                    type="tool.error",
+                    payload={
+                        "error": "Access denied: requires manage permission on at least one data source.",
+                        "code": "FORBIDDEN",
+                    },
+                )
+                return
+
+            security_ds_ids = None if is_full_admin else permitted_ds_ids
 
             params = MetricsQueryParams(
                 start_date=datetime.fromisoformat(data.start_date) if data.start_date else None,
@@ -179,6 +195,7 @@ class ListAgentExecutionsTool(Tool):
                 issue_filter=data.filter,
                 tool_name=data.tool_name,
                 prompt_search=data.prompt_search,
+                security_data_source_ids=security_ds_ids,
             )
 
             items = result.items if hasattr(result, "items") else []
