@@ -22,6 +22,36 @@ from .write_to_excel import WriteToExcelInput, WriteToExcelOutput
 from .write_officejs_code import WriteOfficeJsCodeInput, WriteOfficeJsCodeOutput
 from .read_excel_range import ReadExcelRangeInput, ReadExcelRangeOutput, ReadExcelRangeItem
 from .read_excel_as_csv import ReadExcelAsCsvInput, ReadExcelAsCsvOutput
+from .list_agents import ListAgentsInput, ListAgentsOutput, AgentSummary
+from .get_agent import (
+    GetAgentInput,
+    GetAgentOutput,
+    AgentDetail,
+    ConnectionRef as AgentConnectionRef,
+    TableEntry as AgentTableEntry,
+    ToolEntry as AgentToolEntry,
+    MemberEntry as AgentMemberEntry,
+)
+from .create_agent import (
+    CreateAgentInput,
+    CreateAgentOutput,
+    ToolPolicyInput,
+    MemberInput,
+)
+from .list_connections import (
+    ListConnectionsInput,
+    ListConnectionsOutput,
+    ConnectionSummary,
+)
+from .get_connection import (
+    GetConnectionInput,
+    GetConnectionOutput,
+    ConnectionDetail,
+    ConnectionTableEntry,
+    ConnectionToolEntry,
+    ConnectionAgentRef,
+    ColumnPreview,
+)
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -88,4 +118,29 @@ __all__ = [
     "ToolEndEvent",
     "ToolErrorEvent",
     "ToolConfirmationEvent",
+    # Agent + connection catalog tools
+    "ListAgentsInput",
+    "ListAgentsOutput",
+    "AgentSummary",
+    "GetAgentInput",
+    "GetAgentOutput",
+    "AgentDetail",
+    "AgentConnectionRef",
+    "AgentTableEntry",
+    "AgentToolEntry",
+    "AgentMemberEntry",
+    "CreateAgentInput",
+    "CreateAgentOutput",
+    "ToolPolicyInput",
+    "MemberInput",
+    "ListConnectionsInput",
+    "ListConnectionsOutput",
+    "ConnectionSummary",
+    "GetConnectionInput",
+    "GetConnectionOutput",
+    "ConnectionDetail",
+    "ConnectionTableEntry",
+    "ConnectionToolEntry",
+    "ConnectionAgentRef",
+    "ColumnPreview",
 ]
