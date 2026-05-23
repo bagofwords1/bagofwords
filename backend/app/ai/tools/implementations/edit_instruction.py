@@ -43,7 +43,12 @@ class EditInstructionTool(Tool):
             description=(
                 "ACTION: Edit an existing instruction. "
                 "Use when you need to correct mistakes, improve clarity, update confidence after "
-                "user confirmation, or refine table associations."
+                "user confirmation, or refine table associations.\n\n"
+                "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
+                "Pass an empty list [] to make the instruction global (remove all table scoping). "
+                "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
+                "table inspected is wrong — it scopes the instruction and may prevent it from "
+                "loading in unrelated queries."
             ),
             category="action",
             version="1.0.0",
@@ -62,7 +67,7 @@ class EditInstructionTool(Tool):
                         "confidence": 0.95,
                         "evidence": "User confirmed via clarify: status 1=active, 2=inactive, 3=banned"
                     },
-                    "description": "Update confidence after user confirmation"
+                    "description": "Update confidence only — omit table_names to keep existing scope."
                 },
                 {
                     "input": {
@@ -70,7 +75,14 @@ class EditInstructionTool(Tool):
                         "text": "When calculating revenue, always exclude orders with status='cancelled', status='refunded', or status='pending' to avoid double-counting.",
                         "table_names": ["orders", "order_items"]
                     },
-                    "description": "Correct instruction text and add table association"
+                    "description": "Re-scope to specific tables — table_names replaces the existing scope."
+                },
+                {
+                    "input": {
+                        "instruction_id": "inst_abc123",
+                        "table_names": []
+                    },
+                    "description": "Make it global — empty list removes all table scoping so the instruction applies everywhere."
                 },
                 {
                     "input": {
@@ -78,7 +90,7 @@ class EditInstructionTool(Tool):
                         "category": "code_gen",
                         "load_mode": "always"
                     },
-                    "description": "Change category and load mode for a critical rule"
+                    "description": "Change category and load mode for a critical rule."
                 }
             ]
         )
@@ -160,26 +172,24 @@ class EditInstructionTool(Tool):
         training_build_id = runtime_ctx.get("training_build_id")
         agent_execution_id = runtime_ctx.get("agent_execution_id")
         mode = runtime_ctx.get("mode")
+        report = runtime_ctx.get("report")
 
-        # Harness contract: in knowledge mode, agent_v2 seeds
-        # runtime_ctx["training_build_id"] before the harness sub-loop runs.
-        # Fail loudly rather than silently skipping add_to_build and leaving
-        # the edit unattached to any build. In training mode, the first
-        # create seeds the build, so edit-before-create is not expected.
-        if mode == "knowledge" and not training_build_id:
-            yield ToolErrorEvent(
-                type="tool.error",
-                payload={
-                    "error": (
-                        "Missing training_build_id in runtime context. "
-                        "Knowledge/training mode requires the harness to seed "
-                        "a draft build before edit_instruction runs."
-                    ),
-                    "code": "MISSING_TRAINING_BUILD",
+        # In knowledge-harness / post-analysis mode, restrict table resolution
+        # to data sources actually attached to the current report (parity with
+        # create_instruction). Training mode is broader — user is intentionally
+        # curating the org — so we keep it org-scoped there.
+        allowed_data_source_ids = None
+        if mode == "knowledge" and report is not None:
+            try:
+                allowed_data_source_ids = {
+                    str(ds.id) for ds in (report.data_sources or [])
                 }
-            )
-            return
+            except Exception:
+                allowed_data_source_ids = set()
 
+        # Lazy build creation: the harness no longer pre-seeds a draft.
+        # The first create/edit in a session lazily creates the build below
+        # (in the add_to_build path) and writes the id back into runtime_ctx.
         if not all([db, organization]):
             yield ToolErrorEvent(
                 type="tool.error",
@@ -267,13 +277,22 @@ class EditInstructionTool(Tool):
                             conditions.append(func.lower(DataSourceTable.name) == name_lower)
                             conditions.append(func.lower(DataSourceTable.name).like(f'%.{name_lower}'))
                     if conditions:
+                        where_clauses = [
+                            DataSource.organization_id == str(organization.id),
+                            or_(*conditions),
+                        ]
+                        if allowed_data_source_ids is not None:
+                            if not allowed_data_source_ids:
+                                # Report has no data sources — skip table resolution.
+                                where_clauses.append(DataSource.id.in_([]))
+                            else:
+                                where_clauses.append(
+                                    DataSource.id.in_(list(allowed_data_source_ids))
+                                )
                         table_stmt = (
                             select(DataSourceTable)
                             .join(DataSource, DataSourceTable.datasource_id == DataSource.id)
-                            .where(
-                                DataSource.organization_id == str(organization.id),
-                                or_(*conditions)
-                            )
+                            .where(*where_clauses)
                         )
                         table_result = await db.execute(table_stmt)
                         tables = table_result.scalars().all()
@@ -325,12 +344,25 @@ class EditInstructionTool(Tool):
                 )
                 version_number = version.version_number
 
+                build = None
                 if training_build_id:
                     build = await build_service.get_build(db, training_build_id)
-                    if build and build.can_be_edited:
-                        await build_service.add_to_build(
-                            db, build.id, str(instruction.id), version.id
-                        )
+                if not build or not build.can_be_edited:
+                    # No usable draft yet — create one now and write the id
+                    # back so subsequent harness tool calls share it.
+                    build = await build_service.get_or_create_draft_build(
+                        db=db,
+                        org_id=str(organization.id),
+                        source='ai',
+                        user_id=str(user.id) if user else None,
+                        agent_execution_id=agent_execution_id,
+                    )
+                    runtime_ctx["training_build_id"] = str(build.id)
+                    training_build_id = str(build.id)
+                if build and build.can_be_edited:
+                    await build_service.add_to_build(
+                        db, build.id, str(instruction.id), version.id
+                    )
 
                 await db.commit()
                 logger.info(

@@ -45,14 +45,17 @@
 							:queryList="queryList"
 							:queryExecutions="summaryQueries"
 							:trainingInstructions="summaryInstructions"
-						:pendingTrainingBuild="pendingTrainingBuild"
-						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
-						@approveTrainingBuild="onApproveTrainingBuild"
-						@discardTrainingBuild="onDiscardTrainingBuild"
+							:reportInstructions="reportInstructions"
+							:pendingBuildId="pendingTrainingBuild?.id || null"
+							:pendingTrainingBuild="pendingTrainingBuild"
+							:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
+							@approveTrainingBuild="onApproveTrainingBuild"
+							@discardTrainingBuild="onDiscardTrainingBuild"
+							@discardTrainingInstruction="onDiscardTrainingInstruction"
 							@editScheduledPrompt="editScheduledPrompt"
 							@openArtifact="handleOpenArtifact"
 							@scrollToMessage="scrollToMessage"
-							/>
+						/>
 					</div>
 					<!-- Agent View -->
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
@@ -510,6 +513,7 @@
 						:isPublishingBuild="isPublishingBuild"
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
+						@discardTrainingInstruction="onDiscardTrainingInstruction"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					@submitCompletion="onSubmitCompletion"
@@ -601,10 +605,13 @@
 						:queryList="queryList"
 						:queryExecutions="summaryQueries"
 						:trainingInstructions="summaryInstructions"
+						:reportInstructions="reportInstructions"
+						:pendingBuildId="pendingTrainingBuild?.id || null"
 						:pendingTrainingBuild="pendingTrainingBuild"
 						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
+						@discardTrainingInstruction="onDiscardTrainingInstruction"
 						:showClose="true"
 						@close="toggleSplitScreen"
 						@editScheduledPrompt="editScheduledPrompt"
@@ -692,7 +699,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, watch, computed, type ComponentPublicInstance } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, watch, computed, type ComponentPublicInstance } from 'vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -900,6 +907,10 @@ const textWidgetsIds = ref<string[]>([])
 // Report summary (queries + instructions independent of message pagination)
 const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
+// Historical list of instructions created during this report's agent runs.
+// Separate from summaryInstructions (which is pending-only) so the Summary
+// tab can keep showing accepted instructions after the build is approved.
+const reportInstructions = ref<any[]>([])
 const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
 const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
 const isPublishingBuild = ref(false)
@@ -950,6 +961,14 @@ async function onApproveTrainingBuild(payload: { buildId: string; instructionIds
         await loadReportSummary()
         agentPanelRef.value?.refreshInstructions?.()
         mobileAgentPanelRef.value?.refreshInstructions?.()
+        // Notify any open tracked-changes views / tool cards for these instructions.
+        if (typeof window !== 'undefined') {
+            for (const id of (instructionIds || [])) {
+                window.dispatchEvent(new CustomEvent('instruction:resolved', {
+                    detail: { instructionId: id, buildId, action: 'accept' },
+                }))
+            }
+        }
     } catch (e) {
         console.error('Failed to approve training build', e)
     } finally {
@@ -968,10 +987,56 @@ async function onDiscardTrainingBuild(buildId: string) {
         if (error.value) throw error.value
         pendingTrainingBuild.value = null
         await loadReportSummary()
+        // No specific instructionId — listeners that filter by id will ignore;
+        // generic listeners (report page itself) just refresh.
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('instruction:resolved', {
+                detail: { instructionId: null, buildId, action: 'reject' },
+            }))
+        }
     } catch (e) {
         console.error('Failed to discard training build', e)
     }
 }
+
+async function onDiscardTrainingInstruction(payload: { buildId: string; instructionId: string }) {
+    const { buildId, instructionId } = payload || ({} as any)
+    if (!buildId || !instructionId) return
+    try {
+        const { error } = await useMyFetch(
+            `/builds/${buildId}/contents/${instructionId}`,
+            { method: 'DELETE' },
+        )
+        if (error.value) throw error.value
+        await loadReportSummary()
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('instruction:resolved', {
+                detail: { instructionId, buildId, action: 'reject' },
+            }))
+        }
+    } catch (e) {
+        console.error('Failed to remove instruction from training build', e)
+    }
+}
+
+// Listen for resolutions originating elsewhere (modal tracked-changes panel,
+// tool cards) so the pill state stays in sync without prop drilling.
+function onInstructionResolved(_e: Event) {
+    // Re-fetch both: summary drives the pending pill; reportInstructions
+    // drives the historical "Instructions" section in ChatSummary.
+    loadReportSummary().catch(() => {})
+    loadReportInstructions().catch(() => {})
+}
+onMounted(() => {
+    if (typeof window !== 'undefined') {
+        window.addEventListener('instruction:resolved', onInstructionResolved)
+    }
+})
+onBeforeUnmount(() => {
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('instruction:resolved', onInstructionResolved)
+    }
+})
 
 // Scheduled prompts state
 const scheduledPrompts = ref<any[]>([])
@@ -1155,6 +1220,21 @@ async function loadReportSummary() {
         summaryInstructions.value = []
         pendingTrainingBuild.value = null
         pendingTrainingBuildDiff.value = null
+    }
+}
+
+async function loadReportInstructions() {
+    try {
+        const { data, error } = await useMyFetch(`/reports/${report_id}/instructions`)
+        if (error.value) {
+            console.warn('[reportInstructions] fetch error:', error.value)
+        }
+        const res = data.value as any
+        reportInstructions.value = Array.isArray(res) ? res : []
+        console.debug('[reportInstructions] loaded', reportInstructions.value.length, 'items')
+    } catch (e) {
+        console.warn('[reportInstructions] threw:', e)
+        reportInstructions.value = []
     }
 }
 
@@ -3312,7 +3392,8 @@ onMounted(async () => {
 		checkHasArtifacts(),
 		loadActiveLayoutHasBlocks(),
 		loadScheduledPrompts(),
-		loadReportSummary()
+		loadReportSummary(),
+		loadReportInstructions()
 	])
 	const slowLoads = loadCompletions()
 

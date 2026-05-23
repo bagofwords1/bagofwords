@@ -37,7 +37,7 @@
         <!-- Placeholder when empty -->
         <div
           v-if="editor?.isEmpty && isEditable"
-          class="absolute top-2 left-0 text-xs text-gray-400 pointer-events-none select-none"
+          class="absolute top-2 left-0 text-xs text-gray-400 pointer-events-none select-none whitespace-pre-line"
         >{{ placeholder || 'Write instructions using markdown... (type @ to mention a table or instruction)' }}</div>
       </div>
 

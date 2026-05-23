@@ -154,10 +154,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
+import { dispatchInstructionResolved, INSTRUCTION_RESOLVED_EVENT } from '~/composables/useTrackedChanges'
 
 const { t } = useI18n()
 
@@ -204,6 +205,11 @@ async function handleAccept() {
     if (!error.value) {
       resolution.value = 'accepted'
       localGlobalStatus.value = 'approved'
+      dispatchInstructionResolved({
+        instructionId: instructionId.value,
+        buildId: buildId.value,
+        action: 'accept',
+      })
       toast.add({ title: t('tools.createInstruction.acceptedToast', 'Change accepted'), color: 'green' })
       emit('instruction-updated')
     } else {
@@ -224,6 +230,11 @@ async function handleReject() {
     )
     if (!error.value) {
       resolution.value = 'rejected'
+      dispatchInstructionResolved({
+        instructionId: instructionId.value,
+        buildId: buildId.value,
+        action: 'reject',
+      })
       toast.add({ title: t('tools.createInstruction.rejectedToast', 'Change rejected'), color: 'gray' })
       emit('instruction-updated')
     } else {
@@ -233,6 +244,24 @@ async function handleReject() {
     isRejecting.value = false
   }
 }
+
+function onExternalResolution(e: Event) {
+  const detail = (e as CustomEvent).detail
+  if (!detail || !instructionId.value) return
+  if (detail.instructionId === instructionId.value && resolution.value === null) {
+    refreshResolutionState()
+  }
+}
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener(INSTRUCTION_RESOLVED_EVENT, onExternalResolution)
+  }
+})
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener(INSTRUCTION_RESOLVED_EVENT, onExternalResolution)
+  }
+})
 
 const canCreateInstructions = computed(() => {
   return useCan('manage_instructions')

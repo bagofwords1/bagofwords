@@ -44,7 +44,13 @@ class CreateInstructionTool(Tool):
                 "ACTION: Create a new instruction that guides AI behavior. "
                 "Only use when you have HIGH CONFIDENCE (>= 0.7) based on evidence from exploration. "
                 "If confidence is lower, use 'clarify' tool to ask the user first. "
-                "Instructions should capture non-obvious semantic rules that prevent mistakes."
+                "Instructions should capture non-obvious semantic rules that prevent mistakes.\n\n"
+                "SCOPING — table_names: Use ONLY to narrow the rule to specific tables. "
+                "OMIT table_names entirely for rules that apply broadly across the data source "
+                "or org (e.g. naming conventions, general business rules, semantic conventions). "
+                "Listing every table you inspected is wrong — it scopes the instruction to those "
+                "tables and prevents it from loading in unrelated queries. When unsure, prefer "
+                "OMITTING table_names; the user can scope later if needed."
             ),
             category="action",
             version="1.0.0",
@@ -66,7 +72,7 @@ class CreateInstructionTool(Tool):
                         "load_mode": "intelligent",
                         "table_names": ["orders"]
                     },
-                    "description": "Create instruction for revenue calculation rule scoped to orders table"
+                    "description": "Scoped: rule is specific to the orders table — list it in table_names so it loads when orders is queried."
                 },
                 {
                     "input": {
@@ -76,7 +82,17 @@ class CreateInstructionTool(Tool):
                         "evidence": "Confirmed via clarify tool: user provided status code meanings.",
                         "load_mode": "always",
                     },
-                    "description": "Create critical business rule instruction (always loaded)"
+                    "description": "Global / always-on: critical business rule — OMIT table_names so it applies everywhere."
+                },
+                {
+                    "input": {
+                        "text": "When summarizing the Music Store dataset at a high level, note that Chinook is the sample database behind it (artists, albums, tracks, customers, invoices, invoice lines).",
+                        "category": "general",
+                        "confidence": 0.9,
+                        "evidence": "Schema inspection identified the Music Store dataset as the Chinook sample.",
+                        "load_mode": "intelligent",
+                    },
+                    "description": "Global semantic note: applies across the data source — OMIT table_names rather than listing every table."
                 },
                 {
                     "input": {
@@ -87,7 +103,7 @@ class CreateInstructionTool(Tool):
                         "load_mode": "intelligent",
                         "table_names": ["transactions"]
                     },
-                    "description": "Create instruction for column-specific data transformation"
+                    "description": "Scoped: column-specific transformation — only relevant when transactions is queried."
                 }
             ]
         )
@@ -204,35 +220,16 @@ class CreateInstructionTool(Tool):
             instruction_service = InstructionService()
             build_service = BuildService()
 
-            # Harness contract: in knowledge mode, agent_v2 seeds
-            # runtime_ctx["training_build_id"] before the harness sub-loop runs.
-            # Every create/edit within a single harness invocation shares that
-            # build. Fail loudly if the contract is violated rather than silently
-            # spawning an orphan build that the Publish button can't find.
-            # (training mode intentionally allows lazy build creation on first
-            # use — agent_v2's main loop then captures the id back.)
-            if mode == "knowledge" and not training_build_id:
-                yield ToolErrorEvent(
-                    type="tool.error",
-                    payload={
-                        "error": (
-                            "Missing training_build_id in runtime context. "
-                            "Knowledge/training mode requires the harness to seed "
-                            "a draft build before create_instruction runs."
-                        ),
-                        "code": "MISSING_TRAINING_BUILD",
-                    }
-                )
-                return
-
-            # Fetch the pre-seeded build (or, outside harness mode, create one).
+            # Lazy build creation: the harness no longer pre-seeds a draft;
+            # the first create/edit in a session creates it and writes the
+            # id back into runtime_ctx so subsequent tool calls share it.
+            # agent_v2 captures the id back from runtime_ctx after each tool
+            # call so the harness can submit the build at the end.
             build = None
             if training_build_id:
                 build = await build_service.get_build(db, training_build_id)
 
             if not build:
-                # Only reachable outside knowledge/training mode — e.g. direct
-                # tool invocation from tests or a future caller.
                 build = await build_service.get_or_create_draft_build(
                     db=db,
                     org_id=str(organization.id),
@@ -241,7 +238,7 @@ class CreateInstructionTool(Tool):
                     agent_execution_id=agent_execution_id,
                 )
                 runtime_ctx["training_build_id"] = str(build.id)
-                logger.info(f"Created training build {build.id} for training session (agent_execution_id={agent_execution_id})")
+                logger.info(f"Lazy-created draft build {build.id} on first create_instruction (mode={mode}, agent_execution_id={agent_execution_id})")
 
             # Generate title if not provided
             title = data.title

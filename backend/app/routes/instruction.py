@@ -545,6 +545,37 @@ async def get_instruction_pending_builds(
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
 
+    # Exclude builds that contain this instruction at the same version the
+    # MAIN build already has — those are drafts that just inherited the main
+    # build's content without making a real change. Compared against main
+    # (not against `instruction.current_version_id`) so that a brand-new
+    # instruction created inside a draft (and not yet in main) still surfaces
+    # as a pending suggestion.
+    main_version_stmt = (
+        select(BuildContent.instruction_version_id)
+        .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+        .where(
+            and_(
+                BuildContent.instruction_id == instruction_id,
+                InstructionBuild.organization_id == str(organization.id),
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.deleted_at.is_(None),
+            )
+        )
+        .limit(1)
+    )
+    main_version_id = (await db.execute(main_version_stmt)).scalar_one_or_none()
+
+    where_clauses = [
+        BuildContent.instruction_id == instruction_id,
+        InstructionBuild.organization_id == str(organization.id),
+        InstructionBuild.deleted_at.is_(None),
+        InstructionBuild.status.in_(["draft", "pending_approval"]),
+        InstructionBuild.is_main.is_(False),
+    ]
+    if main_version_id is not None:
+        where_clauses.append(BuildContent.instruction_version_id != main_version_id)
+
     stmt = (
         select(BuildContent, InstructionBuild, InstructionVersion)
         .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
@@ -552,15 +583,7 @@ async def get_instruction_pending_builds(
             InstructionVersion,
             InstructionVersion.id == BuildContent.instruction_version_id,
         )
-        .where(
-            and_(
-                BuildContent.instruction_id == instruction_id,
-                InstructionBuild.organization_id == str(organization.id),
-                InstructionBuild.deleted_at.is_(None),
-                InstructionBuild.status.in_(["draft", "pending_approval"]),
-                InstructionBuild.is_main.is_(False),
-            )
-        )
+        .where(and_(*where_clauses))
         .options(selectinload(InstructionBuild.created_by_user))
         .order_by(InstructionBuild.created_at.desc())
     )

@@ -657,23 +657,14 @@ class AgentV2:
             logger.debug(f"Failed to emit harness started event: {e}")
 
         try:
-            # === Create draft AI build (matches _stream_suggestions_inline) ===
-            try:
-                from app.services.build_service import BuildService
-                build_service = BuildService()
-                ai_build = await build_service.get_or_create_draft_build(
-                    self.db,
-                    str(self.organization.id),
-                    source='ai',
-                    user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                    agent_execution_id=str(self.current_execution.id),
-                )
-                # Expose to tools via the existing training_build_id slot
-                self.training_build_id = str(ai_build.id)
-                logger.info(f"Knowledge harness using draft AI build {ai_build.id}")
-            except Exception as build_error:
-                logger.warning(f"Failed to create AI build for knowledge harness: {build_error}")
-                return
+            # === Lazy draft creation ===
+            # Don't pre-seed an AI build here. If the harness actually runs
+            # create_instruction / edit_instruction, those tools will lazily
+            # create the draft on the first add_to_build call and write the
+            # id back into runtime_ctx['training_build_id'], which we capture
+            # below. This avoids accumulating empty drafts when the harness
+            # runs but doesn't make any actual edits.
+            self.training_build_id = None
 
             # === Build a knowledge-mode tool catalog ===
             knowledge_catalog_dicts = self.registry.get_catalog_for_plan_type(
@@ -896,6 +887,12 @@ class AgentV2:
                     }
                     tool_result = None
 
+                # Capture lazily-created training_build_id back from the tool
+                # so subsequent harness tool calls share the same draft and the
+                # final submit step can act on it.
+                if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                    self.training_build_id = runtime_ctx["training_build_id"]
+
                 if tool_result is not None:
                     if isinstance(tool_result, dict) and "observation" in tool_result:
                         observation = tool_result.get("observation")
@@ -1053,7 +1050,8 @@ class AgentV2:
                     break
 
             # === Submit AI build for review (don't auto-publish) ===
-            if ai_build and len(drafts) > 0:
+            # Only fires if a tool actually lazy-created a draft this harness run.
+            if self.training_build_id and len(drafts) > 0:
                 try:
                     from app.services.build_service import BuildService
                     build_service = BuildService()
@@ -1063,13 +1061,13 @@ class AgentV2:
                         try:
                             description = "\n".join(harness_evidence)
                             await build_service.update_build_description(
-                                self.db, ai_build.id, description
+                                self.db, self.training_build_id, description
                             )
                         except Exception as desc_err:
                             logger.warning(f"Failed to set build description: {desc_err}")
-                    await build_service.submit_build(self.db, ai_build.id)
+                    await build_service.submit_build(self.db, self.training_build_id)
                     logger.info(
-                        f"Knowledge harness submitted AI build {ai_build.id} for approval "
+                        f"Knowledge harness submitted AI build {self.training_build_id} for approval "
                         f"with {len(drafts)} instructions ({step_count} steps)"
                     )
                 except Exception as submit_err:
@@ -1733,22 +1731,11 @@ class AgentV2:
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
             
-            # Seed a draft training build up-front so edit-only sessions also
-            # accumulate staged changes in a build (not just create-first sessions).
-            if self.mode == "training" and not self.training_build_id:
-                try:
-                    from app.services.build_service import BuildService
-                    _bs = BuildService()
-                    _tb = await _bs.get_or_create_draft_build(
-                        self.db,
-                        str(self.organization.id),
-                        source='ai',
-                        user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                        agent_execution_id=str(self.current_execution.id),
-                    )
-                    self.training_build_id = str(_tb.id)
-                except Exception as _tb_err:
-                    logger.warning(f"Failed to seed training draft build: {_tb_err}")
+            # Lazy draft build: don't pre-seed. The first create_instruction
+            # or edit_instruction tool call lazy-creates the draft and writes
+            # the id back into runtime_ctx; we capture it after each tool call
+            # below. This avoids accumulating empty drafts when a training
+            # session runs but doesn't actually edit anything.
 
             # Early scoring will be launched as a background task using an isolated session
             await self._apply_tool_permission_filter()

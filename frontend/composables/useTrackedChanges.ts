@@ -1,5 +1,18 @@
-import { ref, computed, watch, type Ref } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
 import DiffMatchPatch from 'diff-match-patch'
+
+// Global cross-component sync: any accept/reject anywhere dispatches this
+// event so other open views (pill, modal, tool cards) refetch their state.
+// Detail shape: { instructionId, buildId, action: 'accept' | 'reject' }
+export const INSTRUCTION_RESOLVED_EVENT = 'instruction:resolved'
+export function dispatchInstructionResolved(detail: {
+  instructionId: string
+  buildId: string
+  action: 'accept' | 'reject'
+}) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(INSTRUCTION_RESOLVED_EVENT, { detail }))
+}
 
 export interface PendingBuild {
   build_id: string
@@ -81,6 +94,7 @@ export function useTrackedChanges(
         body: { instruction_ids: [id] },
       })
       if (error.value) return false
+      dispatchInstructionResolved({ instructionId: id, buildId: build.build_id, action: 'accept' })
       await refresh()
       return true
     } finally {
@@ -99,6 +113,7 @@ export function useTrackedChanges(
         { method: 'DELETE' },
       )
       if (error.value) return false
+      dispatchInstructionResolved({ instructionId: id, buildId: build.build_id, action: 'reject' })
       await refresh()
       return true
     } finally {
@@ -121,6 +136,24 @@ export function useTrackedChanges(
     },
     { immediate: true },
   )
+
+  // Refresh when anyone else (tool card, pill, another modal) resolves
+  // a change for this same instruction.
+  function onExternalResolution(e: Event) {
+    const detail = (e as CustomEvent).detail
+    if (!detail || !instructionId.value) return
+    if (detail.instructionId === instructionId.value) refresh()
+  }
+  onMounted(() => {
+    if (typeof window !== 'undefined') {
+      window.addEventListener(INSTRUCTION_RESOLVED_EVENT, onExternalResolution)
+    }
+  })
+  onBeforeUnmount(() => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(INSTRUCTION_RESOLVED_EVENT, onExternalResolution)
+    }
+  })
 
   return {
     pendingBuilds,
