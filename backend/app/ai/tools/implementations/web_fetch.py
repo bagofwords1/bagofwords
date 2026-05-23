@@ -600,7 +600,16 @@ Do not use when:
                             "observation": {
                                 "summary": summary,
                                 "success": True,
-                                "preview": (output.content or "")[:2000],
+                                "url": data.url,
+                                "final_url": final_url,
+                                "status_code": status,
+                                "title": output.title,
+                                "description": output.description,
+                                "content": output.content,
+                                "metadata": output.metadata,
+                                "json_ld": output.json_ld,
+                                "headings": output.headings,
+                                "truncated": output.truncated,
                             },
                         },
                     )

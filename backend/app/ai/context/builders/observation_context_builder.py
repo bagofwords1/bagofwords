@@ -71,6 +71,20 @@ class ObservationContextBuilder:
                     code_len = len(prev_observation["code"])
                     del prev_observation["code"]
                     prev_observation["code_compacted"] = f"{code_len} chars"
+            elif prev_obs["tool_name"] == "web_fetch":
+                if "content" in prev_observation:
+                    content_len = len(prev_observation["content"] or "")
+                    del prev_observation["content"]
+                    prev_observation["content_compacted"] = f"{content_len} chars"
+                if "json_ld" in prev_observation:
+                    del prev_observation["json_ld"]
+                    prev_observation["json_ld_compacted"] = True
+                if "metadata" in prev_observation:
+                    del prev_observation["metadata"]
+                    prev_observation["metadata_compacted"] = True
+                if "headings" in prev_observation:
+                    del prev_observation["headings"]
+                    prev_observation["headings_compacted"] = True
 
         tool_observation = {
             "execution_number": self.execution_count,
