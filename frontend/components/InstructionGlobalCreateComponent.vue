@@ -118,12 +118,12 @@
                 <div v-else class="border border-gray-200 rounded-xl overflow-hidden bg-white">
                     <!-- Markdown rendered content (for .md files or non-git-linked) -->
                     <div v-if="shouldRenderAsMarkdown" class="p-4 markdown-wrapper">
-                        <MDC :value="instructionForm.text || ''" class="markdown-content" />
+                        <InstructionText :text="instructionForm.text || ''" :references="selectedReferences" />
                     </div>
 
-                    <!-- Code block for other file types -->
-                    <div v-else class="p-4 bg-gray-50">
-                        <pre class="text-xs leading-relaxed font-mono text-gray-800 whitespace-pre-wrap overflow-x-auto"><code>{{ instructionForm.text }}</code></pre>
+                    <!-- Code block for git-sourced non-markdown files -->
+                    <div v-else class="p-4 bg-gray-50 overflow-x-auto">
+                        <InstructionText :text="instructionForm.text || ''" :references="selectedReferences" />
                     </div>
                 </div>
 
@@ -226,7 +226,18 @@
                                 :key="ref.id"
                                 class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700"
                             >
-                                <Icon :name="getRefIconHeroicons(ref.type)" class="w-3 h-3 shrink-0" :class="ref.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'" />
+                                <!-- DS icon for tables/tools (shows which agent) -->
+                                <template v-if="ref.data_source_type && (ref.type === 'datasource_table' || ref.type === 'connection_tool')">
+                                    <DataSourceIcon :type="ref.data_source_type" class="h-3 shrink-0" />
+                                    <!-- Wrench pip only when we have DS icon, to distinguish tools from tables -->
+                                    <Icon v-if="ref.type === 'connection_tool'" name="heroicons:wrench-screwdriver" class="w-2.5 h-2.5 shrink-0 text-gray-400" />
+                                </template>
+                                <Icon
+                                    v-else
+                                    :name="getRefIconHeroicons(ref.type)"
+                                    class="w-3 h-3 shrink-0"
+                                    :class="ref.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'"
+                                />
                                 {{ ref.name || ref.text_preview?.slice(0, 30) + '...' }}
                             </div>
                         </div>
@@ -389,18 +400,24 @@
                             >
                                 <!-- Icon based on type -->
                                 <Icon
-                                    :name="item.type === 'instruction' ? 'heroicons:cube' : 'heroicons:table-cells'"
+                                    :name="item.type === 'instruction' ? 'heroicons:cube' : item.type === 'connection_tool' ? 'heroicons:wrench-screwdriver' : 'heroicons:table-cells'"
                                     class="w-3.5 h-3.5 mt-0.5 shrink-0"
-                                    :class="item.type === 'instruction' ? 'text-indigo-500' : 'text-blue-500'"
+                                    :class="item.type === 'instruction' ? 'text-indigo-500' : item.type === 'connection_tool' ? 'text-gray-500' : 'text-blue-500'"
                                 />
                                 <div class="flex-1 min-w-0">
-                                    <!-- Instruction (mention dropdown item) -->
+                                    <!-- Instruction -->
                                     <template v-if="item.type === 'instruction'">
                                         <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
                                         <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
                                         <span v-if="item.name && item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
                                     </template>
-                                    <!-- Table -->
+                                    <!-- Connection tool -->
+                                    <template v-else-if="item.type === 'connection_tool'">
+                                        <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
+                                        <span v-if="item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
+                                        <span v-if="item.dataSourceName" class="text-[10px] text-gray-400 truncate block">{{ item.dataSourceName }}</span>
+                                    </template>
+                                    <!-- Table / metadata resource -->
                                     <template v-else>
                                         <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
                                         <div class="flex items-center gap-1 mt-0.5">
@@ -812,6 +829,7 @@
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
@@ -847,7 +865,7 @@ interface InstructionLabel {
 
 interface MentionableItem {
     id: string
-    type: 'metadata_resource' | 'datasource_table' | 'instruction'
+    type: 'metadata_resource' | 'datasource_table' | 'instruction' | 'connection_tool'
     name: string
     data_source_id?: string
     data_source_name?: string
@@ -866,6 +884,7 @@ const props = defineProps<{
     defaultStatus?: 'draft' | 'published' | 'archived'  // Initial status for new instructions (default: 'draft')
     initialVersionId?: string  // If set, preselect this version in the version picker on open
     initialVersionNumber?: number  // If set (and initialVersionId not), preselect by version_number after the version list loads
+    agentId?: string  // When opened from an agent panel, seed the data source scope
 }>()
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git', 'view-mode-changed'])
@@ -1076,7 +1095,7 @@ const mentionDropdownRef = ref<HTMLDivElement | null>(null)
 
 interface MentionItem {
     id: string
-    type: 'instruction' | 'metadata_resource' | 'datasource_table'
+    type: 'instruction' | 'metadata_resource' | 'datasource_table' | 'connection_tool'
     name: string | null  // title for instructions, table name for tables
     textPreview: string | null
     dataSourceId: string | null
@@ -1095,7 +1114,7 @@ const isFetchingMentions = ref(false)
 const fetchAllMentionItems = async () => {
     try {
         const params = new URLSearchParams()
-        params.set('types', 'instruction,datasource_table,metadata_resource')
+        params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
         if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
             params.set('data_source_filter', selectedDataSources.value.join(','))
         }
@@ -1135,7 +1154,7 @@ const fetchMentionItems = async (query?: string) => {
     try {
         const params = new URLSearchParams()
         if (query) params.set('q', query)
-        params.set('types', 'instruction,datasource_table,metadata_resource')
+        params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
         if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
             params.set('data_source_filter', selectedDataSources.value.join(','))
         }
@@ -1193,7 +1212,8 @@ const filteredMentionItems = computed(() => {
     // Group by type and take top 3 from each (from search results for dropdown)
     const instructions = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'instruction').slice(0, 3)
     const tables = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'datasource_table' || i.type === 'metadata_resource').slice(0, 3)
-    return [...instructions, ...tables]
+    const tools = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'connection_tool').slice(0, 3)
+    return [...instructions, ...tables, ...tools]
 })
 
 const mentionDropdownStyle = computed(() => ({
@@ -1775,6 +1795,7 @@ const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
     if (type === 'instruction') return 'i-heroicons-cube'
+    if (type === 'connection_tool') return 'i-heroicons-wrench-screwdriver'
     return 'i-heroicons-circle'
 }
 
@@ -1782,6 +1803,7 @@ const getRefIconHeroicons = (type: string) => {
     if (type === 'metadata_resource') return 'heroicons:rectangle-stack'
     if (type === 'datasource_table') return 'heroicons:table-cells'
     if (type === 'instruction') return 'heroicons:cube'
+    if (type === 'connection_tool') return 'heroicons:wrench-screwdriver'
     return 'heroicons:circle-stack'
 }
 
@@ -1896,6 +1918,8 @@ const resetForm = () => {
     // Use agent selection as initial scope for new instructions
     if (!isAgentAllSelected.value && agentSelectedIds.value.length > 0) {
         selectedDataSources.value = [...agentSelectedIds.value]
+    } else if (props.agentId) {
+        selectedDataSources.value = [props.agentId]
     } else {
         selectedDataSources.value = []
     }
@@ -2097,9 +2121,13 @@ const doDelete = async () => {
 
 const fetchAvailableReferences = async () => {
     try {
-        // Include instructions, tables, and metadata resources
         const params = new URLSearchParams()
-        params.set('types', 'instruction,datasource_table,metadata_resource')
+        params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
+        // Pass agent scope so connection_tools are included in the result
+        const dsIds = !isAllDataSourcesSelected.value && selectedDataSources.value.length > 0
+            ? selectedDataSources.value
+            : props.agentId ? [props.agentId] : []
+        if (dsIds.length > 0) params.set('data_source_filter', dsIds.join(','))
 
         const { data, error } = await useMyFetch<MentionableItem[]>(`/instructions/available-references?${params.toString()}`, { method: 'GET' })
         if (!error.value && data.value) {

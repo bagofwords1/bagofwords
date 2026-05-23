@@ -2153,7 +2153,7 @@ class InstructionService:
                 )
 
             queries_to_union.append(inst_query)
-        
+
         # Execute single UNION query if we have queries to run
         if queries_to_union:
             if len(queries_to_union) == 1:
@@ -2174,7 +2174,70 @@ class InstructionService:
                 }
 
                 items.append(item)
-        
+
+        # Connection tools — only when scoped to specific data sources.
+        # Runs outside the UNION to apply per-agent overlay logic cleanly.
+        if "connection_tool" in wanted and target_data_source_ids:
+            from app.models.connection_tool import ConnectionTool
+            from app.models.data_source_connection_tool import DataSourceConnectionTool
+
+            ct_q = (
+                select(
+                    ConnectionTool.id.label('id'),
+                    ConnectionTool.name.label('name'),
+                    ConnectionTool.description.label('description'),
+                    Connection.id.label('connection_id'),
+                    Connection.name.label('connection_name'),
+                    Connection.type.label('connection_type'),
+                    DataSourceConnectionTool.is_enabled.label('overlay_is_enabled'),
+                    ConnectionTool.is_enabled.label('default_is_enabled'),
+                )
+                .select_from(ConnectionTool)
+                .join(Connection, ConnectionTool.connection_id == Connection.id)
+                .join(domain_connection, domain_connection.c.connection_id == Connection.id)
+                .outerjoin(
+                    DataSourceConnectionTool,
+                    and_(
+                        DataSourceConnectionTool.connection_tool_id == ConnectionTool.id,
+                        DataSourceConnectionTool.data_source_id == domain_connection.c.data_source_id,
+                        DataSourceConnectionTool.deleted_at.is_(None),
+                    ),
+                )
+                .where(
+                    domain_connection.c.data_source_id.in_(target_data_source_ids),
+                    Connection.organization_id == organization.id,
+                    ConnectionTool.deleted_at.is_(None),
+                )
+            )
+
+            if q:
+                ct_q = ct_q.where(
+                    or_(
+                        ConnectionTool.name.ilike(f"%{q}%"),
+                        ConnectionTool.description.ilike(f"%{q}%"),
+                    )
+                )
+
+            seen_tool_ids: set = set()
+            for row in (await db.execute(ct_q)).fetchall():
+                effective_enabled = (
+                    row.overlay_is_enabled
+                    if row.overlay_is_enabled is not None
+                    else row.default_is_enabled
+                )
+                if not effective_enabled or row.id in seen_tool_ids:
+                    continue
+                seen_tool_ids.add(row.id)
+                items.append({
+                    "id": str(row.id),
+                    "type": "connection_tool",
+                    "name": row.name,
+                    "data_source_id": None,
+                    "data_source_name": row.connection_name,
+                    "data_source_type": row.connection_type,
+                    "text_preview": row.description,
+                })
+
         return items
 
     async def _get_accessible_data_source_ids(

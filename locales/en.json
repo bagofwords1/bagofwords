@@ -714,15 +714,18 @@
     "noResults": "No results found",
     "tables": "Tables",
     "noTables": "No tables.",
+    "tools": "Tools",
+    "noTools": "No tools.",
     "columns": "Columns",
     "noColumns": "No columns.",
     "noData": "No data available.",
     "openPage": "Open page",
     "categories": {
-      "dataSources": "Data Sources",
+      "dataSources": "Agents",
       "queries": "Queries",
       "files": "Files",
-      "tables": "Tables"
+      "tables": "Tables",
+      "tools": "Tools"
     },
     "time": {
       "justNow": "just now",

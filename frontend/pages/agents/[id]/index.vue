@@ -31,23 +31,14 @@
             <div v-if="loading" class="text-xs text-gray-500 text-center">{{ $t('common.loading') }}</div>
             <div v-else class="md:w-2/3">
                 <div class="flex items-center gap-2">
-                    <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.description') }}</div>
-                    <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
+                    <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.conversationStarters') }}</div>
+                    <button v-if="useCan('update_data_source')" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
                 </div>
-                <div class="mt-3 markdown-wrapper text-sm leading-relaxed text-start text-gray-600" v-if="computedDescription">
-                    <MDC :value="computedDescription" class="markdown-content" />
-                </div>
-                <div class="mt-8">
-                    <div class="flex items-center gap-2">
-                        <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.conversationStarters') }}</div>
-                        <button v-if="useCan('update_data_source')" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
-                    </div>
-                    <div class="mt-3 flex flex-wrap gap-2">
-                        <div v-for="starter in displayDataSource?.conversation_starters" :key="starter"
-                        class="bg-gray-100 rounded-lg px-3 py-2 text-xs"
-                        >
-                            <span>{{ starter.split('\n')[0] }}</span>
-                        </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <div v-for="starter in displayDataSource?.conversation_starters" :key="starter"
+                    class="bg-gray-100 rounded-lg px-3 py-2 text-xs"
+                    >
+                        <span>{{ starter.split('\n')[0] }}</span>
                     </div>
                 </div>
             </div>
@@ -89,22 +80,6 @@
             </div>
         </UModal>
 
-        <UModal v-model="showDescModal" :ui="{ width: 'sm:max-w-xl' }">
-            <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">{{ $t('dataSource.editDescTitle') }}</div>
-                <div class="text-xs text-gray-600 mt-1">{{ $t('dataSource.editDescHint') }}</div>
-
-                <div class="mt-3">
-                    <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.description') }}</label>
-                    <textarea v-model="descForm" rows="6" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.descPlaceholder')"></textarea>
-                </div>
-
-                <div class="flex justify-end gap-2 mt-4">
-                    <button @click="onCancelDesc" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">{{ $t('dataSource.cancel') }}</button>
-                    <button @click="onSaveDesc" :disabled="savingDesc" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingDesc ? $t('dataSource.saving') : $t('dataSource.save') }}</button>
-                </div>
-            </div>
-        </UModal>
     </div>
 </template>
 
@@ -136,13 +111,6 @@ const availableMeta = ref<any | null>(null)
 const showEditModal = ref(false)
 const editStarters = ref<{ title: string; prompt: string }[]>([])
 const savingStarters = ref(false)
-const showDescModal = ref(false)
-const descForm = ref('')
-const savingDesc = ref(false)
-
-const computedDescription = computed(() => {
-    return dataSource.value?.description || availableMeta.value?.description || ''
-})
 
 const indexingConnections = computed(() =>
     (dataSource.value?.connections || []).filter((c: any) => isIndexingActive(c?.indexing))
@@ -227,31 +195,6 @@ function onCancelEdit() {
     showEditModal.value = false
 }
 
-function openEditDescription() {
-    descForm.value = dataSource.value?.description || ''
-    showDescModal.value = true
-}
-
-async function onSaveDesc() {
-    if (savingDesc.value) return
-    savingDesc.value = true
-    const id = route.params.id as string
-    const payload = { description: (descForm.value || '').trim() }
-    const { error } = await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: payload })
-    savingDesc.value = false
-    if (!error?.value) {
-        // Refresh from layout
-        await injectedFetchIntegration()
-        showDescModal.value = false
-        toast?.add?.({ title: t('dataSource.savedTitle'), description: t('dataSource.descUpdated') })
-    } else {
-        toast?.add?.({ title: t('dataSource.errorTitle'), description: String(error.value), color: 'red' })
-    }
-}
-
-function onCancelDesc() {
-    showDescModal.value = false
-}
 </script>
 
 <style scoped>

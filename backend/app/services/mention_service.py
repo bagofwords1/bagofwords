@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, and_, or_
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 from app.models.mention import Mention
@@ -106,7 +106,7 @@ class MentionService:
         categories: Optional[List[str]] = None
     ) -> Dict[str, List[Dict[str, Any]]]:
         result: Dict[str, List[Dict[str, Any]]] = {}
-        all_categories = ['data_sources', 'tables', 'files', 'entities']
+        all_categories = ['data_sources', 'tables', 'files', 'entities', 'connection_tools']
         requested_categories = set(categories or all_categories)
 
         if 'data_sources' in requested_categories:
@@ -134,6 +134,13 @@ class MentionService:
             )
         else:
             result['entities'] = []
+
+        if 'connection_tools' in requested_categories:
+            result['connection_tools'] = await self._get_connection_tools(
+                db, organization, data_source_ids
+            )
+        else:
+            result['connection_tools'] = []
 
         return result
 
@@ -347,5 +354,82 @@ class MentionService:
                 }
                 for entity in entities
             ]
+        except Exception:
+            return []
+
+    async def _get_connection_tools(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        data_source_ids: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Return enabled tools scoped to the given agents (data_source_ids).
+
+        Uses DataSourceConnectionTool as the source of truth so per-agent
+        enable/disable overrides are respected. Falls back to
+        ConnectionTool.is_enabled when no per-agent overlay exists.
+        Returns nothing when no data_source_ids are provided.
+        """
+        if not data_source_ids:
+            return []
+        try:
+            from app.models.connection_tool import ConnectionTool
+            from app.models.data_source_connection_tool import DataSourceConnectionTool
+            from app.models.connection import Connection
+            from app.models.domain_connection import domain_connection
+
+            q = (
+                select(
+                    ConnectionTool.id.label('id'),
+                    ConnectionTool.name.label('name'),
+                    ConnectionTool.description.label('description'),
+                    Connection.id.label('connection_id'),
+                    Connection.name.label('connection_name'),
+                    Connection.type.label('connection_type'),
+                    domain_connection.c.data_source_id.label('data_source_id'),
+                    DataSourceConnectionTool.is_enabled.label('overlay_is_enabled'),
+                    ConnectionTool.is_enabled.label('default_is_enabled'),
+                )
+                .select_from(ConnectionTool)
+                .join(Connection, ConnectionTool.connection_id == Connection.id)
+                .join(domain_connection, domain_connection.c.connection_id == Connection.id)
+                .outerjoin(
+                    DataSourceConnectionTool,
+                    and_(
+                        DataSourceConnectionTool.connection_tool_id == ConnectionTool.id,
+                        DataSourceConnectionTool.data_source_id == domain_connection.c.data_source_id,
+                        DataSourceConnectionTool.deleted_at.is_(None),
+                    ),
+                )
+                .where(
+                    domain_connection.c.data_source_id.in_(data_source_ids),
+                    Connection.organization_id == organization.id,
+                    ConnectionTool.deleted_at.is_(None),
+                )
+            )
+
+            rows = (await db.execute(q)).fetchall()
+            items: List[Dict[str, Any]] = []
+            seen: set = set()
+            for row in rows:
+                effective_enabled = (
+                    row.overlay_is_enabled
+                    if row.overlay_is_enabled is not None
+                    else row.default_is_enabled
+                )
+                if not effective_enabled or row.id in seen:
+                    continue
+                seen.add(row.id)
+                items.append({
+                    'id': str(row.id),
+                    'type': 'connection_tool',
+                    'name': row.name,
+                    'description': row.description,
+                    'connection_id': str(row.connection_id),
+                    'connection_name': row.connection_name,
+                    'connection_type': row.connection_type,
+                    'data_source_id': str(row.data_source_id),
+                })
+            return items
         except Exception:
             return []

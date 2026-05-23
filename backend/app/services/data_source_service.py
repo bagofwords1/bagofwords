@@ -601,7 +601,11 @@ class DataSourceService:
 
         # Generate and save a single overview instruction draft for the onboarding UI
         try:
-            schema = await self._get_prompt_schema(db=db, data_source=data_source, organization=organization, current_user=current_user or User())
+            from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+            schema_ctx = await SchemaContextBuilder(
+                db=db, data_sources=[data_source], organization=organization, report=None
+            ).build(with_stats=False)
+            schema = schema_ctx.render() if schema_ctx else await self._get_prompt_schema(db=db, data_source=data_source, organization=organization, current_user=current_user or User())
             from app.ai.agents.data_source.data_source import DataSourceAgent
             agent = DataSourceAgent(data_source=data_source, schema=schema, model=model)
             # Offload — sync `generate_datasource_instruction` calls

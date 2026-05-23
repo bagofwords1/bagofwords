@@ -43,14 +43,15 @@
             @click="selectItem(item, category.name)"
           >
             <div class="flex items-center space-x-2 flex-1 min-w-0">
-              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
+              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables' || category.name === 'connection_tools'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
               <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
-              
+              <Icon v-else-if="category.name === 'connection_tools'" name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0 text-gray-400" />
+
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="text-[12px] text-gray-900 truncate">{{ item.name }}</span>
-                <span v-if="category.name === 'tables' && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
+                <span v-if="(category.name === 'tables' || category.name === 'connection_tools') && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
               </div>
             </div>
             
@@ -84,7 +85,7 @@
           <button @click="selectItem(expandedItem, expandedCategory)" class="text-sm text-blue-600 hover:text-blue-700 font-medium px-1">+</button>
         </div>
 
-        <!-- Data source details: description + tables list (client-side filtered) -->
+        <!-- Agent details: description + tables + tools -->
         <div v-if="expandedCategory === 'data_sources'" class="space-y-2">
           <div v-if="expandedItem?.description" class="text-[12px] text-gray-600 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
           <div>
@@ -99,6 +100,26 @@
                 <span class="truncate">{{ t.name }}</span>
               </div>
               <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noTables') }}</div>
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] text-gray-500 mb-1">{{ $t('mentionInput.tools') }}</div>
+            <div v-if="isLoadingTools" class="px-2 py-2 text-[12px] text-gray-400 flex items-center gap-1">
+              <Spinner class="w-3 h-3" />
+            </div>
+            <div v-else class="max-h-32 overflow-auto border rounded">
+              <div
+                v-for="tool in toolsForExpandedDataSource"
+                :key="tool.id"
+                class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50"
+              >
+                <Icon name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0 text-gray-400" />
+                <div class="min-w-0">
+                  <span class="truncate block text-gray-900">{{ tool.name }}</span>
+                  <span v-if="tool.description" class="truncate block text-[11px] text-gray-400">{{ tool.description }}</span>
+                </div>
+              </div>
+              <div v-if="toolsForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noTools') }}</div>
             </div>
           </div>
         </div>
@@ -164,7 +185,7 @@ const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 
 interface MentionItem {
   id: string
-  type: 'data_source' | 'datasource_table' | 'file' | 'entity'
+  type: 'data_source' | 'datasource_table' | 'file' | 'entity' | 'connection_tool'
   name: string
   subtitle?: string
   icon_type?: string
@@ -202,7 +223,7 @@ const props = defineProps({
   },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'tables', 'files', 'entities']
+    default: () => ['data_sources', 'tables', 'files', 'entities', 'connection_tools']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -228,6 +249,8 @@ const currentMentionStartIndex = ref(-1)
 const expandedItem = ref<MentionItem | null>(null)
 const expandedCategory = ref<string>('')
 const detailsCache = ref<Record<string, any>>({})
+const toolsCache = ref<Record<string, any[]>>({})
+const isLoadingTools = ref(false)
 const entityLoading = ref(false)
 const mentions = ref<MentionItem[]>([])
 const dropdownPosition = ref({ top: '0px', left: '0px' })
@@ -274,10 +297,15 @@ const filteredCategories = computed(() => {
       }
 
       // CLIENT-SIDE filtering by selected data sources
-      if (hasSelectedDataSources) {
+      // connection_tools: only show when an agent is selected (they are agent-scoped)
+      if (category.name === 'connection_tools' && !hasSelectedDataSources) {
+        items = []
+      } else if (hasSelectedDataSources) {
         if (category.name === 'data_sources') {
           items = items.filter(item => props.selectedDataSourceIds.includes(item.id))
         } else if (category.name === 'tables') {
+          items = items.filter(item => item.data_source_id && props.selectedDataSourceIds.includes(item.data_source_id))
+        } else if (category.name === 'connection_tools') {
           items = items.filter(item => item.data_source_id && props.selectedDataSourceIds.includes(item.data_source_id))
         } else if (category.name === 'entities') {
           items = items.filter(item => Array.isArray((item as any).data_source_ids) && (item as any).data_source_ids.some((dsId: string) => props.selectedDataSourceIds.includes(dsId)))
@@ -722,6 +750,8 @@ function expandItem(item: MentionItem, category: string) {
   expandedCategory.value = category
   if (category === 'entities' && item?.id) {
     loadEntityInline(String(item.id))
+  } else if (category === 'data_sources' && item?.id) {
+    loadToolsForDataSource(String(item.id))
   }
 }
 
@@ -830,6 +860,27 @@ const tablesForExpandedDataSource = computed(() => {
   return items.slice(0, 50)
 })
 
+const toolsForExpandedDataSource = computed(() => {
+  if (!expandedItem.value || expandedCategory.value !== 'data_sources') return [] as any[]
+  return (toolsCache.value[String(expandedItem.value.id)] || []).filter((t: any) => t.is_enabled)
+})
+
+async function loadToolsForDataSource(dsId: string) {
+  if (toolsCache.value[dsId] !== undefined) return
+  isLoadingTools.value = true
+  try {
+    const { data, error } = await useMyFetch(`/api/data_sources/${dsId}/tools`, { method: 'GET' })
+    if (!error.value && data.value) {
+      toolsCache.value[dsId] = (data.value as any) || []
+    } else {
+      toolsCache.value[dsId] = []
+    }
+  } catch {
+    toolsCache.value[dsId] = []
+  }
+  isLoadingTools.value = false
+}
+
 const entityDetails = computed(() => {
   const id = expandedItem.value?.id
   if (!id) return null
@@ -897,6 +948,7 @@ function buildMentionGroups(selected: MentionItem[]) {
   const dataSources: any[] = []
   const tables: any[] = []
   const entities: any[] = []
+  const connectionTools: any[] = []
 
   for (const m of selected) {
     if (m.type === 'file') {
@@ -907,6 +959,8 @@ function buildMentionGroups(selected: MentionItem[]) {
       tables.push({ id: m.id, name: m.name, datasource_id: m.data_source_id, data_source_name: m.data_source_name })
     } else if (m.type === 'entity') {
       entities.push({ id: m.id, title: m.name, entity_type: m.entity_type })
+    } else if (m.type === 'connection_tool') {
+      connectionTools.push({ id: m.id, name: m.name, data_source_id: m.data_source_id })
     }
   }
 
@@ -914,6 +968,7 @@ function buildMentionGroups(selected: MentionItem[]) {
   if (dataSources.length) groups.push({ name: 'DATA SOURCES', items: dataSources })
   if (tables.length) groups.push({ name: 'TABLES', items: tables })
   if (entities.length) groups.push({ name: 'ENTITIES', items: entities })
+  if (connectionTools.length) groups.push({ name: 'CONNECTION TOOLS', items: connectionTools })
 
   return groups
 }
@@ -945,16 +1000,19 @@ function formatTimeAgo(dateStr: string | null): string {
   }
 }
 
-// Fetch available mentions from API (no server-side filtering; filter client-side)
+// Fetch available mentions from API
 async function fetchAvailableMentions() {
   if (isLoadingMentions.value) return
-  
+
   isLoadingMentions.value = true
-  
+
   try {
-    // Always fetch full mention lists; filter client-side by selectedDataSourceIds
-    const url = `/mentions/available`
-    
+    const params = new URLSearchParams()
+    if (props.selectedDataSourceIds.length > 0) {
+      params.set('data_source_ids', props.selectedDataSourceIds.join(','))
+    }
+    const url = `/mentions/available${params.toString() ? '?' + params.toString() : ''}`
+
     const { data, error } = await useMyFetch(url, { method: 'GET' })
     
     if (error.value) {
@@ -1004,6 +1062,16 @@ async function fetchAvailableMentions() {
             subtitle: table.connection_name || table.data_source_name,
             icon_type: table.connection_type || table.data_source_type,
           }))
+        },
+        {
+          name: 'connection_tools',
+          label: t('mentionInput.categories.tools'),
+          items: (apiData.connection_tools || []).map((tool: any) => ({
+            ...tool,
+            subtitle: tool.description || tool.connection_name,
+            data_source_id: tool.data_source_id,
+            icon_type: tool.connection_type,
+          }))
         }
       ]
     }
@@ -1025,7 +1093,9 @@ onMounted(() => {
   fetchAvailableMentions()
 })
 
-// Client-side filtering only; no refetch when selected data sources change
+watch(() => props.selectedDataSourceIds, () => {
+  fetchAvailableMentions()
+}, { deep: true })
 
 watch(() => props.modelValue, (newVal) => {
   if (inputRef.value && newVal !== inputRef.value.innerText) {

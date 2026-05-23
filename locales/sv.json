@@ -672,12 +672,14 @@
     "noResults": "Inga resultat hittades",
     "tables": "Tabeller",
     "noTables": "Inga tabeller.",
+    "tools": "Verktyg",
+    "noTools": "Inga verktyg.",
     "columns": "Kolumner",
     "noColumns": "Inga kolumner.",
     "noData": "Ingen data tillgänglig.",
     "openPage": "Öppna sida",
     "categories": {
-      "dataSources": "Datakällor",
+      "dataSources": "Agenter",
       "queries": "Frågor",
       "files": "Filer",
       "tables": "Tabeller"

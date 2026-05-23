@@ -131,8 +131,12 @@
 								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
 									<div class="flex-1 flex justify-end">
 										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto">
-											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
-												<MDC :value="m.prompt.content" class="markdown-content" />
+											<div v-if="m.prompt?.content" class="pt-1">
+												<InstructionText
+													:text="m.prompt.content"
+													:references="promptMentionsToRefs(m.prompt.mentions)"
+													:prose="true"
+												/>
 											</div>
 										</div>
 									</div>
@@ -163,8 +167,11 @@
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
 											<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-start" dir="auto">
-												<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
-													<MDC :value="m.prompt.content" class="markdown-content" />
+												<div v-if="m.prompt?.content" class="pt-1">
+													<InstructionText
+														:text="m.prompt.content"
+														:references="promptMentionsToRefs(m.prompt.mentions)"
+													/>
 												</div>
 												<!-- Attached images thumbnail -->
 												<div v-if="getAttachedImages(m).length > 0" class="mt-2 flex flex-wrap gap-1.5">
@@ -730,6 +737,7 @@ import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 import { useCan } from '~/composables/usePermissions'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
@@ -780,7 +788,7 @@ interface ChatMessage {
 	id: string
 	role: ChatRole
 	status?: ChatStatus
-	prompt?: { content: string }
+	prompt?: { content: string; mentions?: Array<{ name: string; items: any[] }> }
 	completion_blocks?: CompletionBlock[]
 	tool_calls?: ToolCall[]
 	created_at?: string
@@ -1587,6 +1595,31 @@ function isToolDetailsExpanded(toolId: string) {
 function getAttachedImages(message: ChatMessage) {
 	const files = message.files || []
 	return files.filter((f: any) => (f.content_type || '').startsWith('image/'))
+}
+
+const GROUP_TYPE_MAP: Record<string, string> = {
+	'DATA SOURCES': 'data_source',
+	'TABLES': 'datasource_table',
+	'FILES': 'file',
+	'ENTITIES': 'entity',
+	'CONNECTION TOOLS': 'connection_tool',
+}
+
+function promptMentionsToRefs(mentions?: Array<{ name: string; items: any[] }>) {
+	if (!mentions?.length) return []
+	const refs: Array<{ id: string; type: string; name: string; data_source_type?: string }> = []
+	for (const group of mentions) {
+		const type = GROUP_TYPE_MAP[(group.name || '').toUpperCase()] || 'entity'
+		for (const item of group.items || []) {
+			refs.push({
+				id: item.id,
+				type,
+				name: item.name || item.title || item.filename || '',
+				data_source_type: item.connection_type || item.data_source_type || undefined,
+			})
+		}
+	}
+	return refs
 }
 
 // Image preview modal

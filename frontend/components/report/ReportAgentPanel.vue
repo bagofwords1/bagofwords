@@ -121,6 +121,7 @@
               :instruction="selectedInstruction || undefined"
               :default-status="canCreateInstructions ? 'published' : 'draft'"
               :initial-version-number="initialVersionNumberForInstruction ?? undefined"
+              :agent-id="selectedAgentId || undefined"
               @instruction-saved="onInstructionSaved"
               @cancel="closeInstructionForm"
             />
@@ -239,7 +240,9 @@
                       <span class="truncate text-gray-800 font-medium text-xs">{{ inst.title || inst.text?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
                     </div>
                     <!-- Text preview if title exists -->
-                    <p v-if="inst.title && inst.text" class="text-[11px] text-gray-500 truncate mt-0.5 leading-snug">{{ inst.text.slice(0, 80) }}</p>
+                    <p v-if="inst.title && inst.text" class="text-[11px] text-gray-500 truncate mt-0.5 leading-snug">
+                      <InstructionText :text="inst.text.slice(0, 80)" :references="inst.references?.map((r: any) => ({ id: r.object_id, type: r.object_type, name: r.display_text || r.object?.name, data_source_type: r.object?.data_source_type || r.object?.connection_type }))" />
+                    </p>
                     <!-- Badges row -->
                     <div class="flex items-center gap-1.5 mt-1 flex-wrap">
                       <!-- Data source indicator -->
@@ -280,7 +283,18 @@
                         :key="ref.id"
                         class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-slate-50 border border-slate-100 text-[9px] text-slate-600 font-medium"
                       >
-                        <Icon :name="ref.object_type === 'datasource_table' ? 'heroicons:table-cells' : ref.object_type === 'instruction' ? 'heroicons:document-text' : 'heroicons:cube'" class="w-2.5 h-2.5 flex-shrink-0" :class="ref.object_type === 'instruction' ? 'text-indigo-400' : 'text-slate-400'" />
+                        <DataSourceIcon
+                          v-if="(ref.object_type === 'datasource_table' || ref.object_type === 'connection_tool') && ref.object?.data_source_type"
+                          :type="ref.object?.data_source_type || ref.object?.connection_type"
+                          class="h-2.5 flex-shrink-0"
+                        />
+                        <Icon
+                          v-else
+                          :name="ref.object_type === 'datasource_table' ? 'heroicons:table-cells' : ref.object_type === 'instruction' ? 'heroicons:document-text' : ref.object_type === 'connection_tool' ? 'heroicons:wrench-screwdriver' : 'heroicons:cube'"
+                          class="w-2.5 h-2.5 flex-shrink-0"
+                          :class="ref.object_type === 'instruction' ? 'text-indigo-400' : 'text-slate-400'"
+                        />
+                        <Icon v-if="ref.object_type === 'connection_tool'" name="heroicons:wrench-screwdriver" class="w-2 h-2 flex-shrink-0 text-slate-300" />
                         <span class="truncate max-w-[100px]">{{ ref.display_text || ref.object?.name || ref.object?.title || ref.object_id }}</span>
                       </span>
                     </div>
@@ -385,6 +399,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 import { useInstructionHelpers } from '~/composables/useInstructionHelpers'
 
 const { t } = useI18n()

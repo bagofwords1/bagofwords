@@ -672,12 +672,14 @@
     "noResults": "لا توجد نتائج",
     "tables": "الجداول",
     "noTables": "لا توجد جداول.",
+    "tools": "الأدوات",
+    "noTools": "لا توجد أدوات.",
     "columns": "الأعمدة",
     "noColumns": "لا توجد أعمدة.",
     "noData": "لا توجد بيانات متاحة.",
     "openPage": "فتح الصفحة",
     "categories": {
-      "dataSources": "مصادر البيانات",
+      "dataSources": "الوكلاء",
       "queries": "الاستعلامات",
       "files": "الملفات",
       "tables": "الجداول"

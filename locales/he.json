@@ -682,12 +682,14 @@
     "noResults": "לא נמצאו תוצאות",
     "tables": "טבלאות",
     "noTables": "אין טבלאות.",
+    "tools": "כלים",
+    "noTools": "אין כלים.",
     "columns": "עמודות",
     "noColumns": "אין עמודות.",
     "noData": "אין נתונים זמינים.",
     "openPage": "פתח עמוד",
     "categories": {
-      "dataSources": "מקורות נתונים",
+      "dataSources": "סוכנים",
       "queries": "שאילתות",
       "files": "קבצים",
       "tables": "טבלאות"

@@ -85,6 +85,23 @@ class EntityMention(BaseModel):
 
 
 # ============================================
+# Connection Tool Mention (per-agent effective tool)
+# ============================================
+class ConnectionToolMention(BaseModel):
+    id: str  # ConnectionTool.id
+    type: Literal['connection_tool'] = 'connection_tool'
+    name: str
+    description: Optional[str] = None
+    connection_id: str
+    connection_name: str
+    connection_type: str  # mcp, custom_api, etc.
+    data_source_id: str  # the agent this tool is scoped to
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================
 # Response wrapper
 # ============================================
 class AvailableMentionsResponse(BaseModel):
@@ -92,6 +109,7 @@ class AvailableMentionsResponse(BaseModel):
     tables: List[TableMention]
     files: List[FileMention]
     entities: List[EntityMention]
+    connection_tools: List[ConnectionToolMention] = []
 
 
 # =====================================================
