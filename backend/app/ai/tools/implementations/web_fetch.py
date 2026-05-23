@@ -25,7 +25,7 @@ from app.ee.audit.tool_audit import log_tool_audit
 
 logger = logging.getLogger(__name__)
 
-MAX_RESPONSE_BYTES = 1_000_000
+MAX_RESPONSE_BYTES = 5_000_000
 MAX_TEXT_CHARS = 200_000
 MAX_TITLE_CHARS = 500
 MAX_DESCRIPTION_CHARS = 1_000
