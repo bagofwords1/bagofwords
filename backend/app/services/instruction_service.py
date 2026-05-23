@@ -190,7 +190,10 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.primary_instruction),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
@@ -607,6 +610,7 @@ class InstructionService:
                     selectinload(DataSource.data_source_memberships),
                     selectinload(DataSource.git_repository),
                     selectinload(DataSource.connections).options(lazyload("*")),
+                    selectinload(DataSource.primary_instruction),
                 ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
@@ -753,7 +757,10 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.primary_instruction),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
@@ -1344,7 +1351,10 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.primary_instruction),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),

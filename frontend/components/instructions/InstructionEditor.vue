@@ -1,10 +1,10 @@
 <template>
   <div class="instruction-wysiwyg" ref="containerRef">
-    <!-- WYSIWYG mode -->
-    <template v-if="mode === 'wysiwyg'">
-      <!-- Floating bubble toolbar (appears on text selection) -->
+    <!-- WYSIWYG mode (v-show keeps EditorContent in DOM so ProseMirror stays attached) -->
+    <div v-show="mode === 'wysiwyg'">
+      <!-- Floating bubble toolbar (appears on text selection, edit mode only) -->
       <BubbleMenu
-        v-if="editor"
+        v-if="editor && isEditable"
         :editor="editor"
         :tippy-options="{ duration: 100, placement: 'top', maxWidth: '400px' }"
       >
@@ -36,14 +36,14 @@
         <EditorContent :editor="editor" class="wysiwyg-content" />
         <!-- Placeholder when empty -->
         <div
-          v-if="editor?.isEmpty"
-          class="absolute top-4 left-4 text-xs text-gray-400 pointer-events-none select-none"
+          v-if="editor?.isEmpty && isEditable"
+          class="absolute top-2 left-0 text-xs text-gray-400 pointer-events-none select-none"
         >{{ placeholder || 'Write instructions using markdown... (type @ to mention a table or instruction)' }}</div>
       </div>
 
       <!-- @mention dropdown -->
       <div
-        v-if="mentionState.active"
+        v-if="mentionState.active && isEditable"
         ref="dropdownRef"
         class="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
         :style="{ top: mentionState.position.top + 'px', left: mentionState.position.left + 'px' }"
@@ -86,17 +86,16 @@
           </div>
         </button>
       </div>
-    </template>
+    </div>
 
-    <!-- Raw markdown mode -->
-    <template v-else-if="mode === 'raw'">
-      <textarea
-        v-model="rawText"
-        class="raw-textarea"
-        :placeholder="placeholder || 'Write instructions using markdown...'"
-        @input="onRawInput"
-      />
-    </template>
+    <!-- Raw markdown mode (v-show keeps textarea in DOM) -->
+    <textarea
+      v-show="mode === 'raw'"
+      v-model="rawText"
+      class="raw-textarea"
+      :placeholder="placeholder || 'Write instructions using markdown...'"
+      @input="onRawInput"
+    />
   </div>
 </template>
 
@@ -123,7 +122,10 @@ const props = defineProps<{
   placeholder?: string
   dataSourceIds?: string[]
   isAllDataSources?: boolean
+  editable?: boolean
 }>()
+
+const isEditable = computed(() => props.editable !== false)
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -381,13 +383,21 @@ const editor = useEditor({
     attributes: { class: 'tiptap-prose' },
   },
   onUpdate: ({ editor: e }) => {
-    const md = docToMarkdown(e.getJSON())
+    if (!isEditable.value) return
+    const mdText = docToMarkdown(e.getJSON())
     skipPropWatch = true
-    emit('update:modelValue', md)
+    emit('update:modelValue', mdText)
   },
 })
 
-onBeforeUnmount(() => editor.value?.destroy())
+// Apply editable state after mount — always explicit, to avoid stale state from HMR / component reuse
+onMounted(() => {
+  editor.value?.setEditable(isEditable.value)
+})
+
+watch(isEditable, (val) => {
+  editor.value?.setEditable(val)
+}, { immediate: true })
 
 // Sync editor when modelValue changes from outside (e.g. Enhance button)
 watch(
@@ -397,7 +407,11 @@ watch(
       skipPropWatch = false
       return
     }
-    if (!editor.value || rawMode.value) return
+    if (props.mode === 'raw') {
+      rawText.value = newVal
+      return
+    }
+    if (!editor.value) return
     const currentMd = docToMarkdown(editor.value.getJSON())
     if (newVal !== currentMd) {
       editor.value.commands.setContent(markdownToHtml(newVal), false)
@@ -435,7 +449,7 @@ function onRawInput() {
 /* Tiptap editor content area */
 .wysiwyg-content :deep(.tiptap-prose) {
   min-height: 210px;
-  padding: 16px;
+  padding: 8px 0;
   font-size: 12px;
   line-height: 1.625;
   color: #111827;
@@ -551,7 +565,7 @@ function onRawInput() {
 .raw-textarea {
   width: 100%;
   min-height: 210px;
-  padding: 16px;
+  padding: 8px 0;
   font-family: ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.625;

@@ -3,12 +3,12 @@
         <!-- VIEW MODE: Read-only display for existing instructions -->
         <div v-if="isEditing && isViewMode" class="flex-1 flex flex-col min-h-0">
             <!-- Scrollable content area -->
-            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <div class="flex-1 overflow-y-auto px-6 py-3 space-y-2">
 
                 <!-- Title & Git Info -->
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                        <div v-if="instructionForm.title" class="text-sm font-mono font-semibold text-gray-900 uppercase tracking-wide">
+                        <div v-if="instructionForm.title" class="text-sm font-sans font-bold text-gray-900 uppercase tracking-wide">
                             {{ instructionForm.title }}
                         </div>
                         <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1 mt-0.5">
@@ -115,16 +115,13 @@
                 </div>
 
                 <!-- Content Display (current version) -->
-                <div v-else class="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <!-- Markdown rendered content (for .md files or non-git-linked) -->
-                    <div v-if="shouldRenderAsMarkdown" class="p-4 markdown-wrapper">
-                        <InstructionText :text="instructionForm.text || ''" :references="selectedReferences" />
-                    </div>
-
-                    <!-- Code block for git-sourced non-markdown files -->
-                    <div v-else class="p-4 bg-gray-50 overflow-x-auto">
-                        <InstructionText :text="instructionForm.text || ''" :references="selectedReferences" />
-                    </div>
+                <div v-else>
+                    <InstructionEditor
+                        key="view-mode"
+                        :model-value="instructionForm.text || ''"
+                        mode="wysiwyg"
+                        :editable="false"
+                    />
                 </div>
 
                 <!-- Created/Approved By -->
@@ -282,98 +279,59 @@
         <!-- EDIT MODE: Form for creating/editing instructions -->
         <form v-else @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
             <!-- Scrollable content area -->
-            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <div class="flex-1 overflow-y-auto px-6 py-3 space-y-2">
 
-                <!-- Title Input -->
-                <div>
+                <!-- Title row: inline input + mode toggle + git sync -->
+                <div class="flex items-center justify-between gap-3">
                     <input
                         v-model="instructionForm.title"
                         type="text"
                         :placeholder="$t('instructionGlobalCreate.titlePlaceholder')"
-                        class="w-full px-3 py-2 text-sm font-mono uppercase tracking-wide
-                               border border-gray-200 rounded-lg
-                               focus:ring-2 focus:ring-blue-100 focus:border-blue-400 focus:outline-none
-                               placeholder:text-gray-400 placeholder:normal-case placeholder:tracking-normal"
+                        class="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-sans font-bold text-gray-900
+                               placeholder:text-gray-300 uppercase tracking-wide"
                         @input="instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase()"
                     />
-                    <p class="mt-1 text-[10px] text-gray-400">{{ $t('instructionGlobalCreate.titleHint') }}</p>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <!-- Git sync status -->
+                        <template v-if="props.isGitSourced">
+                            <UTooltip v-if="props.isGitSynced" :text="$t('instructionGlobalCreate.tooltips.stopSyncing')" :popper="{ placement: 'top' }">
+                                <button type="button" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors" @click="$emit('unlink-from-git')">
+                                    <GitBranchIcon class="w-3 h-3" />
+                                    {{ $t('instructionGlobalCreate.status.synced') }}
+                                    <Icon name="heroicons:x-mark" class="w-3 h-3" />
+                                </button>
+                            </UTooltip>
+                            <template v-else>
+                                <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                                <UTooltip :text="$t('instructionGlobalCreate.tooltips.resumeSyncing')" :popper="{ placement: 'top' }">
+                                    <button type="button" class="text-[10px] text-blue-500 hover:text-blue-600 transition-colors" @click="$emit('relink-to-git')">{{ $t('instructionGlobalCreate.actions.relink') }}</button>
+                                </UTooltip>
+                            </template>
+                        </template>
+                        <!-- Editor mode toggle -->
+                        <div class="flex items-center rounded-md border border-gray-200 overflow-hidden text-[10px] font-medium">
+                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">Rich</button>
+                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'raw' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">MD</button>
+                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'code' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">&lt;/&gt;</button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Hero Textarea / Code Editor -->
-                <div class="border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
-                    <!-- Header with file path, git sync status, and code view toggle -->
-                    <div class="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-100">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                            <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
-                            <span v-else class="text-xs font-medium text-gray-500">{{ $t('instructionGlobalCreate.instruction') }}</span>
-                        </div>
-                        <div class="flex items-center gap-2 shrink-0">
-                            <!-- Git sync status and actions -->
-                            <template v-if="props.isGitSourced">
-                                <UTooltip
-                                    v-if="props.isGitSynced"
-                                    :text="$t('instructionGlobalCreate.tooltips.stopSyncing')"
-                                    :popper="{ placement: 'top' }"
-                                >
-                                    <button
-                                        type="button"
-                                        class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors"
-                                        @click="$emit('unlink-from-git')"
-                                    >
-                                        <GitBranchIcon class="w-3 h-3" />
-                                        {{ $t('instructionGlobalCreate.status.synced') }}
-                                        <Icon name="heroicons:x-mark" class="w-3 h-3" />
-                                    </button>
-                                </UTooltip>
-                                <template v-else>
-                                    <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
-                                    <UTooltip
-                                        :text="$t('instructionGlobalCreate.tooltips.resumeSyncing')"
-                                        :popper="{ placement: 'top' }"
-                                    >
-                                        <button
-                                            type="button"
-                                            class="text-[10px] text-blue-500 hover:text-blue-600 transition-colors"
-                                            @click="$emit('relink-to-git')"
-                                        >
-                                            {{ $t('instructionGlobalCreate.actions.relink') }}
-                                        </button>
-                                    </UTooltip>
-                                </template>
-                            </template>
-                            <!-- Editor mode toggle: WYSIWYG | MD | Code -->
-                            <div class="flex items-center rounded-md border border-gray-200 overflow-hidden text-[10px] font-medium">
-                                <button
-                                    type="button"
-                                    @click="editorMode = 'wysiwyg'"
-                                    class="px-2 py-1 transition-colors"
-                                    :class="editorMode === 'wysiwyg' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'"
-                                    title="Rich text editor"
-                                >Rich</button>
-                                <button
-                                    type="button"
-                                    @click="editorMode = 'raw'"
-                                    class="px-2 py-1 border-l border-gray-200 transition-colors"
-                                    :class="editorMode === 'raw' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'"
-                                    title="Raw markdown"
-                                >MD</button>
-                                <button
-                                    type="button"
-                                    @click="editorMode = 'code'"
-                                    class="px-2 py-1 border-l border-gray-200 transition-colors"
-                                    :class="editorMode === 'code' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'"
-                                    title="Code editor"
-                                >&lt;/&gt;</button>
-                            </div>
-                        </div>
+                <div>
+                    <!-- Git file path (only when git-sourced) -->
+                    <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1.5 pb-1">
+                        <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                        <span class="text-xs font-mono text-gray-500 truncate">{{ filePath }}</span>
                     </div>
                     
                     <!-- WYSIWYG / raw markdown editor -->
                     <InstructionEditor
                         v-if="editorMode !== 'code'"
+                        key="edit-mode"
                         v-model="instructionForm.text"
                         :mode="editorMode"
+                        :editable="true"
                         :placeholder="$t('instructionGlobalCreate.textareaPlaceholder')"
                         :data-source-ids="isAllDataSourcesSelected ? [] : selectedDataSources"
                         :is-all-data-sources="isAllDataSourcesSelected"
@@ -398,31 +356,27 @@
                         />
                     </ClientOnly>
                     
-                    <!-- Action buttons row -->
-                    <div class="px-3 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
-                        <button 
+                    <!-- Action buttons (ghost, below editor) -->
+                    <div class="flex items-center gap-3 pt-1.5">
+                        <button
                             type="button"
                             @click="enhanceInstruction"
                             :disabled="isEnhancing || !instructionForm.text?.trim()"
-                            class="inline-flex items-center gap-1 px-2.5 py-1 
-                                   bg-white border border-gray-200 rounded-full
-                                   text-xs text-gray-600
-                                   hover:bg-gray-50 hover:border-gray-300
-                                   disabled:opacity-50 disabled:cursor-not-allowed
-                                   transition-all"
+                            class="inline-flex items-center gap-1 text-xs text-gray-400
+                                   hover:text-purple-500
+                                   disabled:opacity-40 disabled:cursor-not-allowed
+                                   transition-colors"
                         >
                             <Spinner v-if="isEnhancing" class="w-3.5 h-3.5" />
-                            <Icon v-else name="heroicons:sparkles" class="w-3.5 h-3.5 text-purple-500" />
+                            <Icon v-else name="heroicons:sparkles" class="w-3.5 h-3.5" />
                             {{ isEnhancing ? $t('instructionGlobalCreate.actions.enhancing') : $t('instructionGlobalCreate.actions.enhance') }}
                         </button>
                         <button
                             type="button"
                             @click="$emit('toggle-analyze')"
-                            class="inline-flex items-center gap-1 px-2.5 py-1
-                                   bg-white border border-gray-200 rounded-full
-                                   text-xs text-gray-500
-                                   hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700
-                                   transition-all"
+                            class="inline-flex items-center gap-1 text-xs text-gray-400
+                                   hover:text-gray-600
+                                   transition-colors"
                         >
                             <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
                             {{ $t('instructionGlobalCreate.actions.analyze') }}
@@ -431,7 +385,7 @@
                 </div>
 
                 <!-- Horizontal Config Row -->
-                <div class="flex flex-wrap items-center gap-2 p-2.5 bg-gray-50 rounded-lg">
+                <div class="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg">
                     <!-- Status -->
                     <USelectMenu 
                         v-model="instructionForm.status" 
