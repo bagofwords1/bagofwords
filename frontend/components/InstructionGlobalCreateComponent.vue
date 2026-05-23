@@ -342,95 +342,45 @@
                                     </UTooltip>
                                 </template>
                             </template>
-                            <!-- Code view toggle -->
-                            <button
-                                type="button"
-                                @click="codeView = !codeView"
-                                class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
-                                :title="codeView ? $t('instructionGlobalCreate.tooltips.switchToTextEditor') : $t('instructionGlobalCreate.tooltips.switchToCodeEditor')"
-                            >
-                                <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- Normal textarea with @ mention support -->
-                    <div v-if="!codeView" class="mention-container">
-                        <!-- Highlight backdrop -->
-                        <div
-                            ref="backdropRef"
-                            dir="auto"
-                            class="mention-backdrop"
-                            aria-hidden="true"
-                            v-html="highlightedText"
-                        ></div>
-
-                        <!-- Actual textarea -->
-                        <textarea
-                            ref="textareaRef"
-                            v-model="instructionForm.text"
-                            dir="auto"
-                            :placeholder="$t('instructionGlobalCreate.textareaPlaceholder')"
-                            class="mention-textarea"
-                            required
-                            @input="handleTextareaInput"
-                            @keydown="handleTextareaKeydown"
-                            @blur="handleTextareaBlur"
-                            @scroll="syncScroll"
-                        />
-
-                        <!-- @ Mention dropdown - hide if no results after 5+ chars -->
-                        <div
-                            v-if="mentionState.active && (filteredMentionItems.length > 0 || mentionState.query.length < 5)"
-                            ref="mentionDropdownRef"
-                            class="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
-                            :style="mentionDropdownStyle"
-                        >
-                            <div v-if="filteredMentionItems.length === 0" class="px-3 py-2 text-xs text-gray-500">
-                                {{ $t('instructionGlobalCreate.typeToSearch') }}
+                            <!-- Editor mode toggle: WYSIWYG | MD | Code -->
+                            <div class="flex items-center rounded-md border border-gray-200 overflow-hidden text-[10px] font-medium">
+                                <button
+                                    type="button"
+                                    @click="editorMode = 'wysiwyg'"
+                                    class="px-2 py-1 transition-colors"
+                                    :class="editorMode === 'wysiwyg' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'"
+                                    title="Rich text editor"
+                                >Rich</button>
+                                <button
+                                    type="button"
+                                    @click="editorMode = 'raw'"
+                                    class="px-2 py-1 border-l border-gray-200 transition-colors"
+                                    :class="editorMode === 'raw' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'"
+                                    title="Raw markdown"
+                                >MD</button>
+                                <button
+                                    type="button"
+                                    @click="editorMode = 'code'"
+                                    class="px-2 py-1 border-l border-gray-200 transition-colors"
+                                    :class="editorMode === 'code' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'"
+                                    title="Code editor"
+                                >&lt;/&gt;</button>
                             </div>
-                            <button
-                                v-for="(item, index) in filteredMentionItems"
-                                :key="item.id"
-                                type="button"
-                                :data-mention-idx="index"
-                                class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
-                                :class="{ 'bg-blue-50': index === mentionState.selectedIndex }"
-                                @mousedown.prevent="selectMention(item)"
-                            >
-                                <!-- Icon based on type -->
-                                <Icon
-                                    :name="item.type === 'instruction' ? 'heroicons:cube' : item.type === 'connection_tool' ? 'heroicons:wrench-screwdriver' : 'heroicons:table-cells'"
-                                    class="w-3.5 h-3.5 mt-0.5 shrink-0"
-                                    :class="item.type === 'instruction' ? 'text-indigo-500' : item.type === 'connection_tool' ? 'text-gray-500' : 'text-blue-500'"
-                                />
-                                <div class="flex-1 min-w-0">
-                                    <!-- Instruction -->
-                                    <template v-if="item.type === 'instruction'">
-                                        <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                                        <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
-                                        <span v-if="item.name && item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
-                                    </template>
-                                    <!-- Connection tool -->
-                                    <template v-else-if="item.type === 'connection_tool'">
-                                        <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                                        <span v-if="item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
-                                        <span v-if="item.dataSourceName" class="text-[10px] text-gray-400 truncate block">{{ item.dataSourceName }}</span>
-                                    </template>
-                                    <!-- Table / metadata resource -->
-                                    <template v-else>
-                                        <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                                        <div class="flex items-center gap-1 mt-0.5">
-                                            <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-2.5" />
-                                            <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </button>
                         </div>
                     </div>
                     
-                    <!-- Code editor (Monaco with white background) -->
+                    <!-- WYSIWYG / raw markdown editor -->
+                    <InstructionEditor
+                        v-if="editorMode !== 'code'"
+                        v-model="instructionForm.text"
+                        :mode="editorMode"
+                        :placeholder="$t('instructionGlobalCreate.textareaPlaceholder')"
+                        :data-source-ids="isAllDataSourcesSelected ? [] : selectedDataSources"
+                        :is-all-data-sources="isAllDataSourcesSelected"
+                        @mention-selected="handleEditorMentionSelected"
+                    />
+
+                    <!-- Code editor (Monaco) -->
                     <ClientOnly v-else>
                         <MonacoEditor
                             v-model="instructionForm.text"
@@ -830,6 +780,7 @@
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
@@ -908,7 +859,7 @@ const showUnlinkConfirm = ref(false)
 const showDeleteConfirm = ref(false)
 const showDeleteGitConfirm = ref(false)
 const originalText = ref('')
-const codeView = ref(false)
+const editorMode = ref<'wysiwyg' | 'raw' | 'code'>('wysiwyg')
 const isViewMode = ref(true)  // Start in view mode for existing instructions
 
 // === Version picker / diff / revert ===
@@ -1089,347 +1040,24 @@ function onVersionDropdownOutsideClick(e: MouseEvent) {
 onMounted(() => document.addEventListener('click', onVersionDropdownOutsideClick))
 onUnmounted(() => document.removeEventListener('click', onVersionDropdownOutsideClick))
 
-// @ Mention feature
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
-const mentionDropdownRef = ref<HTMLDivElement | null>(null)
-
+// @ Mention - handled by InstructionEditor component
 interface MentionItem {
     id: string
     type: 'instruction' | 'metadata_resource' | 'datasource_table' | 'connection_tool'
-    name: string | null  // title for instructions, table name for tables
+    name: string | null
     textPreview: string | null
     dataSourceId: string | null
     dataSourceName: string | null
     dataSourceType: string | null
 }
 
-// Items for @ mention autocomplete (instructions + tables from API)
-// allMentionItems: full list for highlighting validation (not filtered by search)
-// mentionSearchResults: filtered by search query for dropdown
-const allMentionItems = ref<MentionItem[]>([])
-const mentionSearchResults = ref<MentionItem[]>([])
-const isFetchingMentions = ref(false)
-
-// Fetch all mention items (no search filter) - used for highlighting
-const fetchAllMentionItems = async () => {
-    try {
-        const params = new URLSearchParams()
-        params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
-        if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
-            params.set('data_source_filter', selectedDataSources.value.join(','))
-        }
-
-        const { data, error } = await useMyFetch<Array<{
-            id: string
-            type: string
-            name: string | null
-            text_preview: string | null
-            data_source_id: string | null
-            data_source_name: string | null
-            data_source_type: string | null
-        }>>(
-            `/instructions/available-references?${params.toString()}`,
-            { method: 'GET' }
-        )
-
-        if (!error.value && data.value) {
-            allMentionItems.value = data.value.map(item => ({
-                id: item.id,
-                type: item.type as MentionItem['type'],
-                name: item.name,
-                textPreview: item.text_preview || null,
-                dataSourceId: item.data_source_id,
-                dataSourceName: item.data_source_name,
-                dataSourceType: item.data_source_type
-            }))
-        }
-    } catch (err) {
-        console.error('Error fetching all mention items:', err)
-    }
-}
-
-// Fetch mention items with search query - used for dropdown
-const fetchMentionItems = async (query?: string) => {
-    isFetchingMentions.value = true
-    try {
-        const params = new URLSearchParams()
-        if (query) params.set('q', query)
-        params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
-        if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
-            params.set('data_source_filter', selectedDataSources.value.join(','))
-        }
-
-        const { data, error } = await useMyFetch<Array<{
-            id: string
-            type: string
-            name: string | null
-            text_preview: string | null
-            data_source_id: string | null
-            data_source_name: string | null
-            data_source_type: string | null
-        }>>(
-            `/instructions/available-references?${params.toString()}`,
-            { method: 'GET' }
-        )
-
-        if (!error.value && data.value) {
-            mentionSearchResults.value = data.value.map(item => ({
-                id: item.id,
-                type: item.type as MentionItem['type'],
-                name: item.name,
-                textPreview: item.text_preview || null,
-                dataSourceId: item.data_source_id,
-                dataSourceName: item.data_source_name,
-                dataSourceType: item.data_source_type
-            }))
-        }
-    } catch (err) {
-        console.error('Error fetching mention items:', err)
-    } finally {
-        isFetchingMentions.value = false
-    }
-}
-
-const mentionState = ref({
-    active: false,
-    query: '',
-    startPos: 0,
-    selectedIndex: 0,
-    top: 0,
-    left: 0,
-})
-
-// Debounced fetch when query changes
-let mentionFetchTimeout: ReturnType<typeof setTimeout> | null = null
-watch(() => mentionState.value.query, (newQuery) => {
-    if (mentionFetchTimeout) clearTimeout(mentionFetchTimeout)
-    mentionFetchTimeout = setTimeout(() => {
-        fetchMentionItems(newQuery)
-    }, 150)
-})
-
-const filteredMentionItems = computed(() => {
-    // Group by type and take top 3 from each (from search results for dropdown)
-    const instructions = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'instruction').slice(0, 3)
-    const tables = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'datasource_table' || i.type === 'metadata_resource').slice(0, 3)
-    const tools = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'connection_tool').slice(0, 3)
-    return [...instructions, ...tables, ...tools]
-})
-
-const mentionDropdownStyle = computed(() => ({
-    top: `${mentionState.value.top}px`,
-    left: `${mentionState.value.left}px`,
-}))
-
-// Check if a mention text matches any known item (uses full list, not search results)
-const isKnownMention = (mentionText: string): boolean => {
-    const lowerText = mentionText.toLowerCase()
-
-    for (const item of allMentionItems.value) {
-        // Check against name (for tables and instructions with titles)
-        if (item.name && item.name.toLowerCase() === lowerText) {
-            return true
-        }
-
-        // Check against text preview patterns (for instructions)
-        if (item.type === 'instruction' && item.textPreview) {
-            // Format used in selectMention for instructions without name
-            const truncatedPreview = item.textPreview.slice(0, 30) + '...'
-            if (truncatedPreview.toLowerCase() === lowerText) {
-                return true
-            }
-            // Also check if the textPreview itself starts with the mention
-            if (item.textPreview.toLowerCase().startsWith(lowerText.replace(/\.\.\.+$/, ''))) {
-                return true
-            }
-        }
-    }
-    return false
-}
-
-// Render text with highlighted mentions
-const highlightedText = computed(() => {
-    const text = instructionForm.value.text
-    if (!text) return ''
-
-    // Escape HTML first
-    let html = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-
-    // Find and highlight @mentions
-    // Match @word (any alphanumeric/underscore) or @"quoted text"
-    const mentionRegex = /@([A-Za-z_][A-Za-z0-9_]*|"[^"]+")/g
-
-    html = html.replace(mentionRegex, (match, captured) => {
-        // Extract the name (remove quotes if present)
-        let name = captured
-        if (name.startsWith('"') && name.endsWith('"')) {
-            name = name.slice(1, -1)
-        }
-
-        // Only highlight if this is a known mention
-        if (isKnownMention(name)) {
-            return `<mark style="background-color: rgba(99, 102, 241, 0.12); color: transparent; border-radius: 3px; padding: 0; text-decoration: none;">${match}</mark>`
-        }
-        // Not a valid mention, return unhighlighted
-        return match
-    })
-
-    // Add invisible character at end to match textarea sizing
-    return html + '\n'
-})
-
-// Ref for the backdrop div to sync scroll
-const backdropRef = ref<HTMLDivElement | null>(null)
-
-const syncScroll = (e: Event) => {
-    const textarea = e.target as HTMLTextAreaElement
-    if (backdropRef.value) {
-        backdropRef.value.scrollTop = textarea.scrollTop
-    }
-}
-
-const handleTextareaInput = (e: Event) => {
-    const textarea = e.target as HTMLTextAreaElement
-    const text = textarea.value
-    const cursorPos = textarea.selectionStart
-
-    // Find if we're in a mention context (typing after @)
-    const textBeforeCursor = text.slice(0, cursorPos)
-    const atIndex = textBeforeCursor.lastIndexOf('@')
-
-    if (atIndex !== -1) {
-        const textAfterAt = textBeforeCursor.slice(atIndex + 1)
-        // Allow spaces in mention query, but end on newline or double space
-        // Also limit query length to prevent runaway matches
-        const hasNewline = textAfterAt.includes('\n')
-        const hasDoubleSpace = textAfterAt.includes('  ')
-        const tooLong = textAfterAt.length > 50
-
-        if (!hasNewline && !hasDoubleSpace && !tooLong) {
-            // Calculate position for dropdown
-            const lines = textBeforeCursor.split('\n')
-            const currentLineIndex = lines.length - 1
-            const lineHeight = 18 // approximate line height in pixels
-            const charWidth = 7 // approximate char width for monospace
-
-            mentionState.value = {
-                active: true,
-                query: textAfterAt,
-                startPos: atIndex,
-                selectedIndex: 0,
-                top: (currentLineIndex + 1) * lineHeight + 16, // +16 for padding
-                left: Math.min((lines[currentLineIndex].length - textAfterAt.length) * charWidth + 16, 200),
-            }
-            return
-        }
-    }
-
-    // Not in mention mode
-    if (mentionState.value.active) {
-        mentionState.value.active = false
-    }
-}
-
-const scrollMentionIntoView = () => {
-    if (!mentionDropdownRef.value) return
-    const container = mentionDropdownRef.value
-    const selectedEl = container.querySelector(`[data-mention-idx="${mentionState.value.selectedIndex}"]`) as HTMLElement | null
-    if (!selectedEl) return
-
-    const containerTop = container.scrollTop
-    const containerBottom = containerTop + container.clientHeight
-    const elTop = selectedEl.offsetTop
-    const elBottom = elTop + selectedEl.offsetHeight
-
-    if (elTop < containerTop) {
-        container.scrollTop = elTop
-    } else if (elBottom > containerBottom) {
-        container.scrollTop = elBottom - container.clientHeight
-    }
-}
-
-const handleTextareaKeydown = (e: KeyboardEvent) => {
-    if (!mentionState.value.active) return
-
-    const filtered = filteredMentionItems.value
-
-    if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        mentionState.value.selectedIndex = Math.min(
-            mentionState.value.selectedIndex + 1,
-            filtered.length - 1
-        )
-        nextTick(scrollMentionIntoView)
-    } else if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        mentionState.value.selectedIndex = Math.max(
-            mentionState.value.selectedIndex - 1,
-            0
-        )
-        nextTick(scrollMentionIntoView)
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-        if (filtered.length > 0) {
-            e.preventDefault()
-            selectMention(filtered[mentionState.value.selectedIndex])
-        }
-    } else if (e.key === 'Escape') {
-        e.preventDefault()
-        mentionState.value.active = false
-    }
-}
-
-const handleTextareaBlur = () => {
-    // Delay to allow click on dropdown item
-    setTimeout(() => {
-        mentionState.value.active = false
-    }, 150)
-}
-
-const selectMention = (item: MentionItem) => {
-    const textarea = textareaRef.value
-    if (!textarea) return
-
-    const text = instructionForm.value.text
-    const { startPos, query } = mentionState.value
-
-    // Build the mention text based on type
-    // Wrap in quotes if name contains spaces or special characters
-    const needsQuotes = (name: string | null) => name && /[\s\-.]/.test(name)
-
-    let mentionText: string
-    if (item.type === 'instruction') {
-        if (!item.name) {
-            mentionText = `@"${item.textPreview?.slice(0, 30)}..."`
-        } else if (needsQuotes(item.name)) {
-            mentionText = `@"${item.name}"`
-        } else {
-            mentionText = `@${item.name}`
-        }
-    } else {
-        // Table - wrap in quotes if has spaces
-        if (needsQuotes(item.name)) {
-            mentionText = `@"${item.name}"`
-        } else {
-            mentionText = `@${item.name}`
-        }
-    }
-
-    // Replace @query with the mention
-    const before = text.slice(0, startPos)
-    const after = text.slice(startPos + 1 + query.length) // +1 for the @
-
-    instructionForm.value.text = before + mentionText + ' ' + after
-
-    // Add to selectedReferences (tables and instructions)
+const handleEditorMentionSelected = (item: MentionItem) => {
     const alreadySelected = selectedReferences.value.some(ref => ref.id === item.id)
     if (!alreadySelected) {
         selectedReferences.value.push({
             id: item.id,
             type: item.type,
-            name: item.name || (item.type === 'instruction' ? item.textPreview?.slice(0, 30) + '...' : ''),
+            name: item.name || (item.type === 'instruction' ? (item.textPreview?.slice(0, 30) + '...') : ''),
             data_source_id: item.dataSourceId || undefined,
             data_source_name: item.dataSourceName || undefined,
             data_source_type: item.dataSourceType || undefined,
@@ -1437,16 +1065,6 @@ const selectMention = (item: MentionItem) => {
             column_name: null
         })
     }
-
-    // Close dropdown
-    mentionState.value.active = false
-
-    // Focus and set cursor position
-    nextTick(() => {
-        textarea.focus()
-        const newPos = startPos + mentionText.length + 1
-        textarea.setSelectionRange(newPos, newPos)
-    })
 }
 
 // Form data (simplified - approval workflow handled by builds)
@@ -2187,8 +1805,6 @@ const initReferencesFromInstruction = () => {
 onMounted(async () => {
     fetchDataSources()
     fetchLabels()
-    fetchAllMentionItems() // Pre-load all items for highlighting
-    fetchMentionItems() // Pre-load items for @ mentions dropdown
     // Fetch full instruction first (to get references), then available references, then init
     await fetchFullInstruction()
     await fetchAvailableReferences()
@@ -2318,9 +1934,6 @@ watch(() => props.initialVersionNumber, async (newNum) => {
 // Validate references when data sources change
 watch(() => selectedDataSources.value, () => {
     validateSelectedReferences()
-    // Refetch mention items when data sources change
-    fetchAllMentionItems() // Refetch full list for highlighting
-    fetchMentionItems(mentionState.value.query || undefined)
 }, { deep: true })
 
 watch(showLabelModal, (isOpen) => {
@@ -2414,56 +2027,4 @@ watch(isViewMode, (newVal) => {
     }
 }
 
-/* @ Mention editor - textarea with highlight overlay */
-.mention-container {
-    position: relative;
-}
-
-.mention-backdrop,
-.mention-textarea {
-    /* Identical text styling for perfect alignment */
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 12px;
-    line-height: 1.625;
-    padding: 16px;
-    margin: 0;
-    border: 0;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    letter-spacing: normal;
-    word-spacing: normal;
-}
-
-.mention-backdrop {
-    position: absolute;
-    inset: 0;
-    color: transparent;
-    pointer-events: none;
-    overflow: hidden;
-    background: transparent;
-}
-
-.mention-textarea {
-    position: relative;
-    z-index: 1;
-    width: 100%;
-    min-height: 210px;
-    resize: vertical;
-    background: transparent;
-    caret-color: #111827;
-    outline: none;
-}
-
-.mention-textarea::placeholder {
-    color: #9ca3af;
-}
-
-/* Highlight marks inside backdrop - :deep for v-html */
-.mention-backdrop :deep(mark) {
-    color: transparent;
-    border-radius: 3px;
-    padding: 2px 0;
-    box-decoration-break: clone;
-}
 </style>
