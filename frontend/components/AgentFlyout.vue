@@ -20,43 +20,38 @@
         <div class="w-[400px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
           <!-- Header with connection info -->
           <div class="px-4 py-3 border-b border-gray-100">
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0 flex-1">
+            <!-- Title row -->
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <!-- Status dot — far left -->
+                <span
+                  v-if="hasActiveConnection"
+                  class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"
+                  :title="$t('agentFlyout.connected')"
+                ></span>
+                <span
+                  v-else-if="agentDetails?.connections?.length"
+                  class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"
+                  :title="$t('agentFlyout.notConnected')"
+                ></span>
+                <span v-else class="w-2 h-2 rounded-full bg-gray-200 flex-shrink-0"></span>
+
+                <!-- Connection icons -->
+                <div v-if="agentDetails?.connections?.length" class="flex -space-x-1 flex-shrink-0">
+                  <DataSourceIcon
+                    v-for="conn in (agentDetails.connections || []).slice(0, 3)"
+                    :key="conn.id"
+                    :type="conn.type"
+                    class="h-4 flex-shrink-0 ring-1 ring-white rounded"
+                  />
+                </div>
+
+                <!-- Title -->
                 <div class="text-sm font-semibold text-gray-900 truncate">
                   {{ agentDetails?.name || $t('agentFlyout.loading') }}
                 </div>
-                <!-- Connection info: icons for all connections -->
-                <div class="flex items-center gap-2 mt-1">
-                  <div v-if="agentDetails?.connections?.length" class="flex items-center gap-1">
-                    <!-- Show icons for up to 3 connections -->
-                    <div class="flex -space-x-1">
-                      <DataSourceIcon
-                        v-for="conn in (agentDetails.connections || []).slice(0, 3)"
-                        :key="conn.id"
-                        :type="conn.type"
-                        class="h-4 flex-shrink-0 ring-1 ring-white rounded"
-                      />
-                    </div>
-                    <span class="text-xs text-gray-500 truncate">
-                      {{ $t(agentDetails.connections.length === 1 ? 'agentFlyout.connectionsOne' : 'agentFlyout.connectionsMany', { count: agentDetails.connections.length }) }}
-                    </span>
-                  </div>
-                  <span v-else class="text-xs text-gray-500 truncate">
-                    {{ $t('agentFlyout.noConnections') }}
-                  </span>
-                  <!-- Green circle if any connection active -->
-                  <span
-                    v-if="hasActiveConnection"
-                    class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"
-                    :title="$t('agentFlyout.connected')"
-                  ></span>
-                  <span
-                    v-else-if="agentDetails?.connections?.length"
-                    class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"
-                    :title="$t('agentFlyout.notConnected')"
-                  ></span>
-                </div>
               </div>
+
               <!-- Open agent link - top right -->
               <a
                 v-if="agentId"
@@ -65,6 +60,11 @@
               >
                 {{ $t('agentFlyout.openAgent') }}
               </a>
+            </div>
+
+            <!-- Description — full width below -->
+            <div v-if="agentDetails?.description" class="text-xs text-gray-500 mt-1.5 leading-snug line-clamp-2">
+              {{ agentDetails.description }}
             </div>
           </div>
 
@@ -129,10 +129,19 @@
             <template v-else>
               <!-- Overview tab -->
               <div v-if="flyoutTab === 'overview'" class="space-y-4">
+                <!-- Primary Instruction -->
+                <div v-if="agentDetails?.primary_instruction">
+                  <InstructionText
+                    :text="agentDetails.primary_instruction.text"
+                    :references="agentDetails.primary_instruction.references || []"
+                    :prose="true"
+                  />
+                </div>
+
                 <!-- Description rendered as Markdown -->
                 <div
                   v-if="agentDetails?.description"
-                  class="agent-flyout-markdown text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pe-1"
+                  class="agent-flyout-markdown hidden text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pe-1"
                 >
                   <MDC :value="agentDetails.description" class="markdown-content" />
                 </div>
@@ -167,7 +176,7 @@
                 </div>
 
                 <div
-                  v-if="!agentDetails?.description && !agentDetails?.conversation_starters?.length"
+                  v-if="!agentDetails?.primary_instruction && !agentDetails?.description && !agentDetails?.conversation_starters?.length"
                   class="text-xs text-gray-400 italic py-6 text-center"
                 >
                   {{ $t('agentFlyout.noDetails') }}
@@ -332,6 +341,7 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 
 const router = useRouter()
 const { t } = useI18n()

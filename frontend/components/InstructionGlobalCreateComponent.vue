@@ -128,7 +128,7 @@
                 </div>
 
                 <!-- Created/Approved By -->
-                <div class="flex flex-wrap items-center gap-4 text-xs">
+                <div v-if="props.instruction" class="flex flex-wrap items-center gap-4 text-xs">
                     <!-- Created By -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">{{ $t('instructionGlobalCreate.createdBy') }}</span>

@@ -56,7 +56,7 @@
 					</div>
 					<!-- Agent View -->
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
-						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" />
+						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" @starter-click="handleExampleClick" />
 					</div>
 					<!-- Dashboard View -->
 					<ArtifactFrame
@@ -171,6 +171,7 @@
 													<InstructionText
 														:text="m.prompt.content"
 														:references="promptMentionsToRefs(m.prompt.mentions)"
+														:prose="true"
 													/>
 												</div>
 												<!-- Attached images thumbnail -->
@@ -616,7 +617,7 @@
 			<!-- Agent View -->
 			<div v-else-if="rightPanelView === 'agent'" class="h-full flex flex-col">
 				<div class="flex-1 overflow-y-auto">
-					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" />
+					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" @starter-click="handleExampleClick" />
 				</div>
 			</div>
 

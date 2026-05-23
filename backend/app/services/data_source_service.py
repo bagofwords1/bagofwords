@@ -680,6 +680,7 @@ class DataSourceService:
         # surface git_repository and memberships, so keep those eager. We
         # also suppress the onward cascade on Connection (data_sources →
         # cycle back to DataSource).
+        from app.models.instruction import Instruction as InstructionModel
         query = (
             select(DataSource)
             .options(
@@ -687,6 +688,7 @@ class DataSourceService:
                 selectinload(DataSource.git_repository),
                 selectinload(DataSource.data_source_memberships),
                 selectinload(DataSource.connections).options(lazyload("*")),
+                selectinload(DataSource.primary_instruction).selectinload(InstructionModel.references),
             )
             .filter(DataSource.id == data_source_id)
             .filter(DataSource.organization_id == organization.id)
@@ -730,9 +732,11 @@ class DataSourceService:
                     stmt = (
                         select(DataSource)
                         .options(
+                            lazyload("*"),
                             selectinload(DataSource.git_repository),
                             selectinload(DataSource.data_source_memberships),
-                            selectinload(DataSource.connections),
+                            selectinload(DataSource.connections).options(lazyload("*")),
+                            selectinload(DataSource.primary_instruction).selectinload(InstructionModel.references),
                         )
                         .where(DataSource.id == data_source.id)
                     )
@@ -761,6 +765,35 @@ class DataSourceService:
         if conn and conn.config:
             conn_config = json.loads(conn.config) if isinstance(conn.config, str) else conn.config
 
+        # Serialize primary_instruction if present
+        primary_instruction_data = None
+        if data_source.primary_instruction_id and data_source.primary_instruction:
+            try:
+                pi = data_source.primary_instruction
+                refs = []
+                for r in (pi.references or []):
+                    refs.append({
+                        "id": str(r.id),
+                        "object_type": r.object_type,
+                        "object_id": str(r.object_id),
+                        "column_name": r.column_name,
+                        "relation_type": r.relation_type,
+                        "display_text": r.display_text,
+                    })
+                primary_instruction_data = {
+                    "id": str(pi.id),
+                    "text": pi.text or "",
+                    "status": pi.status,
+                    "category": pi.category,
+                    "source_type": pi.source_type or "user",
+                    "load_mode": pi.load_mode or "always",
+                    "title": pi.title,
+                    "organization_id": str(pi.organization_id),
+                    "references": refs,
+                }
+            except Exception as e:
+                logger.warning("Failed to serialize primary_instruction: %s", e)
+
         schema = DataSourceSchema(
             id=str(data_source.id),
             organization_id=str(data_source.organization_id),
@@ -784,6 +817,8 @@ class DataSourceService:
             auth_policy=conn.auth_policy if conn else None,
             allowed_user_auth_modes=conn.allowed_user_auth_modes if conn else None,
             user_status=connections_list[0].user_status if connections_list else None,
+            primary_instruction_id=data_source.primary_instruction_id,
+            primary_instruction=primary_instruction_data,
         )
 
         return schema
@@ -1578,6 +1613,10 @@ class DataSourceService:
                 if member_user_ids:
                     await self._create_memberships(db, data_source_db, member_user_ids)
         
+        # Handle primary_instruction_id explicitly (allow None to clear it)
+        if 'primary_instruction_id' in update_data:
+            data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
+
         # Update remaining domain-specific fields on DataSource
         for field, value in update_data.items():
             if value is not None:

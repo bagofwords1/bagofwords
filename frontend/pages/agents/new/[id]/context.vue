@@ -356,21 +356,20 @@ async function handleSave() {
   saving.value = true
   try {
     const text = instructionText.value.trim()
+    let primaryInstructionId: string | null = null
 
     if (draftInstructionId.value) {
       if (text) {
-        // Promote existing draft to published with (possibly edited) text
         await useMyFetch(`/instructions/${draftInstructionId.value}`, {
           method: 'PUT',
           body: { text, status: 'published' },
         })
+        primaryInstructionId = draftInstructionId.value
       } else {
-        // User cleared the text — discard the draft
         await useMyFetch(`/instructions/${draftInstructionId.value}`, { method: 'DELETE' })
       }
     } else if (text) {
-      // No draft exists (llm_sync hadn't run yet) — create fresh
-      await useMyFetch('/instructions/global', {
+      const { data } = await useMyFetch('/instructions/global', {
         method: 'POST',
         body: {
           text,
@@ -381,6 +380,14 @@ async function handleSave() {
           load_mode: 'always',
           data_source_ids: [dsId.value],
         },
+      })
+      primaryInstructionId = (data as any)?.value?.id || null
+    }
+
+    if (primaryInstructionId) {
+      await useMyFetch(`/data_sources/${dsId.value}`, {
+        method: 'PUT',
+        body: { primary_instruction_id: primaryInstructionId },
       })
     }
 

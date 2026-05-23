@@ -2319,7 +2319,25 @@ class InstructionService:
                 instruction_dict["current_build_status"] = latest[1]
         except Exception as e:
             logger.warning(f"Failed to resolve current build for instruction {instruction.id}: {e}")
-        
+
+        # Populate primary_for: data sources that have this instruction as their primary
+        try:
+            from app.models.data_source import DataSource as DataSourceModel
+            from app.schemas.data_source_schema import DataSourceMinimalSchema
+            primary_result = await db.execute(
+                select(DataSourceModel).where(
+                    DataSourceModel.primary_instruction_id == str(instruction.id),
+                    DataSourceModel.deleted_at.is_(None),
+                )
+            )
+            primary_ds = primary_result.scalars().all()
+            instruction_dict["primary_for"] = [
+                DataSourceMinimalSchema(id=str(ds.id), name=ds.name).model_dump()
+                for ds in primary_ds
+            ]
+        except Exception as e:
+            logger.warning(f"Failed to resolve primary_for for instruction {instruction.id}: {e}")
+
         # Populate the referenced objects for each reference
         if instruction.references:
             logger.debug(f"Populating {len(instruction.references)} references for instruction {instruction.id}")

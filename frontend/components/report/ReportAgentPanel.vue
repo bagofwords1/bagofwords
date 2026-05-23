@@ -75,8 +75,60 @@
 
     <!-- Tab content -->
     <div v-if="selectedAgent" class="flex-1 min-h-0 overflow-y-auto p-4 bg-white">
+      <!-- Overview tab -->
+      <div v-if="activeTab === 'overview'" class="space-y-5">
+        <div v-if="!selectedAgentDetails" class="flex items-center justify-center py-10">
+          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+        </div>
+        <template v-else>
+          <!-- Primary Instruction -->
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{{ $t('reportAgent.primaryInstruction') }}</div>
+              <button
+                v-if="canCreateInstructions && selectedAgentDetails.primary_instruction"
+                @click="openInstruction(selectedAgentDetails.primary_instruction)"
+                class="text-[10px] text-blue-600 hover:underline"
+              >{{ $t('dataSource.edit') }}</button>
+              <button
+                v-else-if="canCreateInstructions"
+                @click="activeTab = 'instructions'; creatingInstruction = true; creatingPrimaryInstruction = true"
+                class="text-[10px] text-blue-600 hover:underline"
+              >{{ $t('reportAgent.create') }}</button>
+            </div>
+            <div v-if="selectedAgentDetails.primary_instruction">
+              <InstructionText
+                :text="selectedAgentDetails.primary_instruction.text"
+                :references="selectedAgentDetails.primary_instruction.references || []"
+                :prose="true"
+              />
+            </div>
+            <div v-else class="text-xs text-gray-400 italic">{{ $t('reportAgent.noInstruction') }}</div>
+          </div>
+
+          <!-- Conversation Starters -->
+          <div v-if="selectedAgentDetails.conversation_starters?.length || canUpdateDataSource">
+            <div class="flex items-center gap-2 mb-2">
+              <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{{ $t('dataSource.conversationStarters') }}</div>
+              <button v-if="canUpdateDataSource" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
+            </div>
+            <div v-if="selectedAgentDetails.conversation_starters?.length" class="space-y-1.5">
+              <button
+                v-for="(starter, idx) in selectedAgentDetails.conversation_starters"
+                :key="idx"
+                @click="$emit('starter-click', starter)"
+                class="w-full text-start text-xs px-3 py-2 rounded-lg bg-gray-50 border border-gray-100 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 transition-colors"
+              >
+                {{ starter.split('\n')[0] }}
+              </button>
+            </div>
+            <div v-else class="text-xs text-gray-400 italic">{{ $t('reportAgent.noStarters') }}</div>
+          </div>
+        </template>
+      </div>
+
       <!-- Instructions tab -->
-      <div v-if="activeTab === 'instructions'">
+      <div v-else-if="activeTab === 'instructions'">
         <div v-if="loading" class="flex items-center justify-center py-10">
           <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
         </div>
@@ -385,6 +437,37 @@
       </div>
     </div>
 
+    <!-- Edit Conversation Starters Modal -->
+    <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
+      <div class="p-5">
+        <div class="text-sm font-medium text-gray-900">{{ $t('dataSource.editStartersTitle') }}</div>
+        <div class="text-xs text-gray-600 mt-1">{{ $t('dataSource.editStartersHint') }}</div>
+        <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
+          <div v-for="(item, idx) in editStartersForm" :key="idx" class="rounded-md border border-gray-100 p-2">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('dataSource.starterN', { n: idx + 1 }) }}</span>
+              <button @click="removeStarter(idx)" class="text-[11px] text-gray-500 hover:text-red-600">{{ $t('dataSource.remove') }}</button>
+            </div>
+            <div class="space-y-1">
+              <div>
+                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
+                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
+                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
+              </div>
+            </div>
+          </div>
+          <button @click="addStarter" class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-1 hover:bg-gray-50">{{ $t('dataSource.addStarter') }}</button>
+        </div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button @click="showEditStarters = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">{{ $t('dataSource.cancel') }}</button>
+          <button @click="saveStarters" :disabled="savingStarters" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingStarters ? $t('dataSource.saving') : $t('dataSource.save') }}</button>
+        </div>
+      </div>
+    </UModal>
+
     <BuildExplorerModal
       v-if="canViewBuilds"
       v-model="showBuildExplorer"
@@ -409,7 +492,7 @@ const props = defineProps<{
   showClose?: boolean
 }>()
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'starter-click'])
 
 // Permissions
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
@@ -430,9 +513,10 @@ const dropdownRef = ref<HTMLElement | null>(null)
 const selectedAgentId = ref<string | null>(null)
 
 // Tab state
-const activeTab = ref<'instructions' | 'tables' | 'queries' | 'evals'>('instructions')
+const activeTab = ref<'overview' | 'instructions' | 'tables' | 'queries' | 'evals'>('overview')
 
 // Data caches (keyed by agent id)
+const agentDetailsCache = ref<Record<string, any>>({})
 const instructionsCache = ref<Record<string, any[]>>({})
 const queriesCache = ref<Record<string, any[]>>({})
 const evalsCache = ref<Record<string, any[]>>({})
@@ -440,10 +524,55 @@ const evalsCache = ref<Record<string, any[]>>({})
 // Instruction detail state
 const selectedInstruction = ref<any | null>(null)
 const creatingInstruction = ref(false)
+const creatingPrimaryInstruction = ref(false)
 const instructionLoading = ref(false)
 // Optional preselected version for the form (used by EditInstructionTool to
 // open the pane already showing a diff against the current version).
 const initialVersionNumberForInstruction = ref<number | null>(null)
+
+// Edit conversation starters
+const showEditStarters = ref(false)
+const editStartersForm = ref<{ title: string; prompt: string }[]>([])
+const savingStarters = ref(false)
+
+function openEditStarters() {
+  const starters = selectedAgentDetails.value?.conversation_starters || []
+  editStartersForm.value = starters.map((s: string) => {
+    const parts = String(s).split('\n')
+    return { title: (parts[0] || '').trim(), prompt: parts.slice(1).join('\n').trim() }
+  })
+  if (editStartersForm.value.length === 0) editStartersForm.value = [{ title: '', prompt: '' }]
+  showEditStarters.value = true
+}
+
+function addStarter() {
+  editStartersForm.value.push({ title: '', prompt: '' })
+}
+
+function removeStarter(index: number) {
+  editStartersForm.value.splice(index, 1)
+}
+
+async function saveStarters() {
+  if (savingStarters.value || !selectedAgentId.value) return
+  savingStarters.value = true
+  const conversation_starters = editStartersForm.value
+    .map(s => `${(s.title || '').trim()}${s.prompt?.trim() ? `\n${s.prompt.trim()}` : ''}`)
+    .filter(s => s.trim().length > 0)
+  try {
+    const { error } = await useMyFetch(`/data_sources/${selectedAgentId.value}`, {
+      method: 'PUT',
+      body: { conversation_starters },
+    })
+    if (!error?.value) {
+      delete agentDetailsCache.value[selectedAgentId.value]
+      await fetchTabData(selectedAgentId.value, 'overview')
+      showEditStarters.value = false
+    }
+  } finally {
+    savingStarters.value = false
+  }
+}
 
 const canCreateInstructions = computed(() => {
   if (useCan('manage_instructions')) return true
@@ -454,6 +583,7 @@ const canCreateInstructions = computed(() => {
 function closeInstructionForm() {
   selectedInstruction.value = null
   creatingInstruction.value = false
+  creatingPrimaryInstruction.value = false
 }
 
 // Instruction helpers & filters
@@ -547,7 +677,8 @@ const selectedAgent = computed(() => {
 
 // Tab definitions with counts (tables count managed by TablesSelector internally)
 const tabs = computed(() => {
-  const out: Array<{ key: 'instructions' | 'tables' | 'queries' | 'evals'; label: string; count: number }> = [
+  const out: Array<{ key: 'overview' | 'instructions' | 'tables' | 'queries' | 'evals'; label: string; count: number }> = [
+    { key: 'overview', label: 'Overview', count: 0 },
     { key: 'instructions', label: t('reportAgent.tabInstructions'), count: instructions.value.length },
     { key: 'tables', label: t('reportAgent.tabTables'), count: 0 },
     { key: 'queries', label: t('reportAgent.tabQueries'), count: queries.value.length },
@@ -558,6 +689,7 @@ const tabs = computed(() => {
   return out
 })
 
+const selectedAgentDetails = computed(() => selectedAgentId.value ? (agentDetailsCache.value[selectedAgentId.value] || null) : null)
 const instructions = computed(() => selectedAgentId.value ? (instructionsCache.value[selectedAgentId.value] || []) : [])
 const queries = computed(() => selectedAgentId.value ? (queriesCache.value[selectedAgentId.value] || []) : [])
 const evals = computed(() => selectedAgentId.value ? (evalsCache.value[selectedAgentId.value] || []) : [])
@@ -577,11 +709,22 @@ function selectAgent(agentId: string) {
   dropdownOpen.value = false
 }
 
-function onInstructionSaved() {
+async function onInstructionSaved(savedInstruction?: any) {
+  const wasPrimary = creatingPrimaryInstruction.value
   selectedInstruction.value = null
   creatingInstruction.value = false
-  // Invalidate cache so list refreshes
+  creatingPrimaryInstruction.value = false
+
   if (selectedAgentId.value) {
+    // If created from the overview "Create" link, pin it as primary instruction
+    if (wasPrimary && savedInstruction?.id && !savedInstruction?.deleted) {
+      await useMyFetch(`/data_sources/${selectedAgentId.value}`, {
+        method: 'PUT',
+        body: { primary_instruction_id: savedInstruction.id },
+      })
+      delete agentDetailsCache.value[selectedAgentId.value]
+      fetchTabData(selectedAgentId.value, 'overview')
+    }
     delete instructionsCache.value[selectedAgentId.value]
     fetchTabData(selectedAgentId.value, 'instructions')
   }
@@ -622,6 +765,15 @@ onUnmounted(() => {
 // Fetch data for active tab when agent or tab changes
 async function fetchTabData(agentId: string, tab: string) {
   // Tables tab is handled by TablesSelector component — no manual fetch needed
+
+  if (tab === 'overview' && !agentDetailsCache.value[agentId]) {
+    try {
+      const { data, error } = await useMyFetch(`/data_sources/${agentId}`, { method: 'GET' })
+      if (!error?.value) {
+        agentDetailsCache.value[agentId] = (data as any)?.value || null
+      }
+    } catch {}
+  }
 
   if (tab === 'instructions' && !instructionsCache.value[agentId]) {
     loading.value = true
@@ -684,9 +836,10 @@ watch([selectedAgentId, activeTab], ([agentId, tab]) => {
 
 // Reset when agent changes
 watch(selectedAgentId, () => {
-  activeTab.value = 'instructions'
+  activeTab.value = 'overview'
   selectedInstruction.value = null
   creatingInstruction.value = false
+  creatingPrimaryInstruction.value = false
   initialVersionNumberForInstruction.value = null
   instructionsError.value = null
   queriesError.value = null

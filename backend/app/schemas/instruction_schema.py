@@ -165,6 +165,9 @@ class InstructionSchema(InstructionBase):
     current_build_id: Optional[str] = None
     current_build_status: Optional[str] = None
 
+    # Data sources for which this instruction is the primary — populated by service layer
+    primary_for: List[DataSourceMinimalSchema] = []
+
     class Config:
         from_attributes = True
 
@@ -220,6 +223,9 @@ class InstructionListSchema(BaseModel):
     labels: List[InstructionLabelSchema] = []
     created_at: UTCDatetime
     updated_at: UTCDatetime
+
+    # Data sources for which this instruction is the primary — populated by service layer
+    primary_for: List[DataSourceMinimalSchema] = []
 
     class Config:
         from_attributes = True
