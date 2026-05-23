@@ -13,7 +13,6 @@ from selectolax.parser import HTMLParser
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
-from app.ai.tools.implementations.web_fetch_stealth import fetch_via_stealth
 from app.ai.tools.schemas.web_fetch import WebFetchInput, WebFetchOutput
 from app.ai.tools.schemas import (
     ToolEvent,
@@ -47,24 +46,6 @@ TEXT_CONTENT_PREFIXES = (
 STRIP_TAGS = ("script", "style", "noscript", "nav", "footer", "aside", "svg", "template")
 _WHITESPACE_RE = re.compile(r"[ \t\f\v]+")
 _NEWLINE_RE = re.compile(r"\n{3,}")
-
-# Tier-2 (stealth Chromium) escalation thresholds.
-# Status 247 is Reblaze's "challenge issued" code; the others are the usual
-# bot-shield rejections. Body-text floor catches sites that 200 with a
-# JS-only challenge page (Akamai _abck, Cloudflare cf_chl_, etc.).
-BLOCK_STATUS_CODES = frozenset({247, 403, 429, 503})
-BLOCK_BODY_MARKERS = (
-    "rbzns",                  # Reblaze sensor cookie / payload key
-    "kramericaindustries",    # Reblaze script host
-    "_abck",                  # Akamai Bot Manager cookie
-    "cf_chl_",                # Cloudflare challenge token
-    "cf-mitigated",
-    "cdn-cgi/challenge-platform",
-    "bm_sz",                  # Akamai sensor cookie
-    "px-captcha",             # PerimeterX
-    "datadome",               # DataDome
-)
-MIN_VISIBLE_TEXT_CHARS = 200  # Below this on an HTML 200 we assume a JS challenge.
 
 
 def _is_safe_host(hostname: str) -> bool:
@@ -202,23 +183,6 @@ def _parse_html(html: str) -> Dict[str, Any]:
             parsed["text"] = _NEWLINE_RE.sub("\n\n", collapsed)
 
     return parsed
-
-
-def _looks_blocked(
-    status: int, html: str, visible_text: str
-) -> Tuple[bool, Optional[str]]:
-    """Heuristic: does this response look like an anti-bot block page?
-
-    Returns (blocked, reason). Reason is short and goes into the audit log
-    and the progress event so we can attribute failures.
-    """
-    if status in BLOCK_STATUS_CODES:
-        return True, f"status={status}"
-    lower_html = html.lower() if html else ""
-    for marker in BLOCK_BODY_MARKERS:
-        if marker in lower_html and len((visible_text or "").strip()) < MIN_VISIBLE_TEXT_CHARS:
-            return True, f"marker={marker}"
-    return False, None
 
 
 class WebFetchTool(Tool):
@@ -481,94 +445,6 @@ Do not use when:
                             output.truncated = True
                         output.content = body_text
 
-                    blocked, block_reason = (False, None)
-                    if is_html:
-                        blocked, block_reason = _looks_blocked(status, body_text, output.content or "")
-
-                    if blocked:
-                        logger.info(
-                            f"web_fetch: tier-1 blocked for {final_url} ({block_reason}); escalating to stealth"
-                        )
-                        yield ToolProgressEvent(
-                            type="tool.progress",
-                            payload={"stage": "stealth_fallback", "reason": block_reason},
-                        )
-                        stealth_result = await fetch_via_stealth(final_url)
-                        stealth_status = stealth_result.status
-                        stealth_html = stealth_result.html or ""
-                        stealth_text_body = ""
-                        stealth_blocked = True
-                        stealth_block_reason: Optional[str] = stealth_result.error or "no html"
-                        if stealth_html:
-                            try:
-                                parsed_s = _parse_html(stealth_html)
-                            except Exception as exc:
-                                logger.warning(f"web_fetch: stealth HTML parse failed for {final_url}: {exc}")
-                                parsed_s = None
-                            if parsed_s is not None:
-                                stealth_text_body = parsed_s["text"] or ""
-                                stealth_blocked, stealth_block_reason = _looks_blocked(
-                                    stealth_status or 0, stealth_html, stealth_text_body
-                                )
-                                if not stealth_blocked:
-                                    output.title = parsed_s["title"]
-                                    output.description = parsed_s["description"]
-                                    output.metadata = parsed_s["metadata"] or None
-                                    output.json_ld = parsed_s["json_ld"] or None
-                                    output.headings = parsed_s["headings"] or None
-                                    text_body = stealth_text_body
-                                    output.truncated = False
-                                    if len(text_body) > MAX_TEXT_CHARS:
-                                        text_body = text_body[:MAX_TEXT_CHARS]
-                                        output.truncated = True
-                                    output.content = text_body
-                                    output.status_code = stealth_status
-                                    output.final_url = stealth_result.final_url or final_url
-                                    final_url = output.final_url
-                                    status = stealth_status or status
-                                    summary_extras.append(f"stealth: {block_reason}")
-
-                        await log_tool_audit(
-                            runtime_ctx,
-                            action="tool.web_fetch_stealth_escalated",
-                            resource_type="report",
-                            resource_id=report_id,
-                            details={
-                                "tool": "web_fetch",
-                                "url": data.url,
-                                "final_url": final_url,
-                                "tier1_status": status if not stealth_html else None,
-                                "tier1_reason": block_reason,
-                                "tier2_status": stealth_status,
-                                "tier2_blocked": stealth_blocked,
-                                "tier2_reason": stealth_block_reason if stealth_blocked else None,
-                            },
-                        )
-
-                        if stealth_blocked:
-                            yield ToolEndEvent(
-                                type="tool.end",
-                                payload={
-                                    "output": WebFetchOutput(
-                                        success=False,
-                                        url=data.url,
-                                        final_url=stealth_result.final_url or final_url,
-                                        status_code=stealth_status or status,
-                                        content_type=content_type or None,
-                                        error_message=(
-                                            f"Site blocked the request (tier-1: {block_reason}; "
-                                            f"tier-2 stealth: {stealth_block_reason}). "
-                                            "Content not retrievable."
-                                        ),
-                                    ).model_dump(),
-                                    "observation": {
-                                        "summary": f"Blocked after stealth retry ({stealth_block_reason})",
-                                        "success": False,
-                                    },
-                                },
-                            )
-                            return
-
                     await log_tool_audit(
                         runtime_ctx,
                         action="tool.web_fetch_executed",
@@ -583,7 +459,6 @@ Do not use when:
                             "bytes": len(body_bytes),
                             "truncated": output.truncated,
                             "is_html": is_html,
-                            "stealth": blocked,
                         },
                     )
 
