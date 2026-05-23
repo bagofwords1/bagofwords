@@ -97,23 +97,42 @@
             <span class="font-medium">{{ $t('tools.createInstruction.evidence') }}</span> {{ evidence }}
           </div>
 
-          <!-- Status display — staged in draft build; approved via session pill -->
-          <div v-if="isSuccess && instructionId" class="flex items-center gap-1 pt-2 border-t border-gray-200">
-            <Icon
-              v-if="currentGlobalStatus === 'approved'"
-              name="heroicons:check-circle"
-              class="w-3 h-3 text-gray-500"
-            />
-            <Icon
-              v-else
-              name="heroicons:clock"
-              class="w-3 h-3 text-gray-400"
-            />
-            <span class="text-[10px] font-medium text-gray-500">
-              {{ currentGlobalStatus === 'approved'
-                ? $t('tools.createInstruction.published')
-                : $t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
-            </span>
+          <!-- Status + Accept/Reject actions -->
+          <div v-if="isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-200">
+            <template v-if="resolution === 'accepted'">
+              <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
+              <span class="text-[10px] font-medium text-gray-600">{{ $t('tools.createInstruction.accepted', 'Accepted') }}</span>
+            </template>
+            <template v-else-if="resolution === 'rejected'">
+              <Icon name="heroicons:x-circle" class="w-3 h-3 text-gray-400" />
+              <span class="text-[10px] text-gray-400">{{ $t('tools.createInstruction.rejectedLabel', 'Rejected') }}</span>
+            </template>
+            <template v-else-if="canResolve">
+              <button
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+                :disabled="isAccepting || isRejecting"
+                @click.stop="handleAccept"
+              >
+                <Spinner v-if="isAccepting" class="w-2.5 h-2.5 text-green-600" />
+                <Icon v-else name="heroicons:check" class="w-2.5 h-2.5" />
+                {{ $t('tools.createInstruction.accept', 'Accept') }}
+              </button>
+              <button
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+                :disabled="isAccepting || isRejecting"
+                @click.stop="handleReject"
+              >
+                <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-gray-400" />
+                <Icon v-else name="heroicons:x-mark" class="w-2.5 h-2.5" />
+                {{ $t('tools.createInstruction.reject', 'Reject') }}
+              </button>
+            </template>
+            <template v-else>
+              <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
+              <span class="text-[10px] font-medium text-gray-500">
+                {{ $t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
+              </span>
+            </template>
           </div>
 
           <!-- Error message -->
@@ -135,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -169,6 +188,51 @@ const editingInstruction = ref<any>(null)
 const isPublishing = ref(false)
 const isDeleting = ref(false)
 const localGlobalStatus = ref<string | null>(null)
+const isAccepting = ref(false)
+const isRejecting = ref(false)
+const resolution = ref<'accepted' | 'rejected' | null>(null)
+const isCheckingResolution = ref(false)
+
+async function handleAccept() {
+  if (!buildId.value || !instructionId.value || isAccepting.value) return
+  isAccepting.value = true
+  try {
+    const { error } = await useMyFetch(`/builds/${buildId.value}/publish`, {
+      method: 'POST',
+      body: { instruction_ids: [instructionId.value] },
+    })
+    if (!error.value) {
+      resolution.value = 'accepted'
+      localGlobalStatus.value = 'approved'
+      toast.add({ title: t('tools.createInstruction.acceptedToast', 'Change accepted'), color: 'green' })
+      emit('instruction-updated')
+    } else {
+      toast.add({ title: t('tools.createInstruction.acceptFailed', 'Failed to accept'), color: 'red' })
+    }
+  } finally {
+    isAccepting.value = false
+  }
+}
+
+async function handleReject() {
+  if (!buildId.value || !instructionId.value || isRejecting.value) return
+  isRejecting.value = true
+  try {
+    const { error } = await useMyFetch(
+      `/builds/${buildId.value}/contents/${instructionId.value}`,
+      { method: 'DELETE' },
+    )
+    if (!error.value) {
+      resolution.value = 'rejected'
+      toast.add({ title: t('tools.createInstruction.rejectedToast', 'Change rejected'), color: 'gray' })
+      emit('instruction-updated')
+    } else {
+      toast.add({ title: t('tools.createInstruction.rejectFailed', 'Failed to reject'), color: 'red' })
+    }
+  } finally {
+    isRejecting.value = false
+  }
+}
 
 const canCreateInstructions = computed(() => {
   return useCan('manage_instructions')
@@ -240,6 +304,38 @@ const instructionId = computed(() => {
   const rj = props.toolExecution?.result_json || {}
   return rj.instruction_id || null
 })
+
+const buildId = computed<string | null>(() => {
+  const rj = props.toolExecution?.result_json || {}
+  return rj.build_id || null
+})
+
+const canResolve = computed(() => !!buildId.value && resolution.value === null && !isCheckingResolution.value)
+
+// Derive resolution from server on mount so refresh doesn't show stale Accept/Reject.
+// If our build_id isn't in pending-builds for this instruction, it's resolved.
+// Distinguish by whether the instruction still exists (reject = deleted).
+async function refreshResolutionState() {
+  if (!instructionId.value || !buildId.value) return
+  isCheckingResolution.value = true
+  try {
+    const { data: instData, error: instErr } = await useMyFetch(`/instructions/${instructionId.value}`)
+    if (instErr.value || !instData.value) {
+      resolution.value = 'rejected'
+      return
+    }
+    const { data: pendingData } = await useMyFetch(`/instructions/${instructionId.value}/pending-builds`)
+    const builds = Array.isArray(pendingData.value) ? pendingData.value : []
+    const stillPending = builds.some((b: any) => b.build_id === buildId.value)
+    if (!stillPending) resolution.value = 'accepted'
+  } finally {
+    isCheckingResolution.value = false
+  }
+}
+
+watch(instructionId, (id) => {
+  if (id && resolution.value === null) refreshResolutionState()
+}, { immediate: true })
 
 const currentGlobalStatus = computed(() => {
   // Use local state if set, otherwise use result_json

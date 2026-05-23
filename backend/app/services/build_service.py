@@ -924,8 +924,12 @@ class BuildService:
                 values["load_mode"] = v_load_mode
             if category is not None:
                 values["category"] = category
-            # Flip drafts to published on promotion; leave other statuses alone.
-            if v_status == "published":
+            # Promotion makes the instruction live — flip 'draft' to 'published'
+            # so the UI shows it as Active. Preserve 'archived' (explicit user
+            # action) and any non-standard statuses. The version's own status is
+            # irrelevant here: AI-created versions inherit 'draft' from their
+            # parent instruction and would otherwise never flip.
+            if v_status != "archived":
                 values["status"] = "published"
             await db.execute(
                 sql_update(Instruction)

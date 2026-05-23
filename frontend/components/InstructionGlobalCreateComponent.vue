@@ -116,7 +116,69 @@
 
                 <!-- Content Display (current version) -->
                 <div v-else>
+                    <!-- Pending suggestions toolbar + diff view -->
+                    <div
+                        v-if="tracked.hasPending.value && tracked.currentBuild.value"
+                        class="border border-amber-200 bg-amber-50/40 rounded-xl overflow-hidden mb-2"
+                    >
+                        <div class="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-amber-200/70 bg-amber-50/60">
+                            <div class="flex items-center gap-1.5 text-[11px] text-amber-900 min-w-0">
+                                <Icon name="heroicons:sparkles" class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span class="font-medium">
+                                    {{ $t('trackedChanges.suggestion', 'Suggestion') }}
+                                    <span v-if="tracked.pendingCount.value > 1">
+                                        {{ tracked.currentIndex.value + 1 }} / {{ tracked.pendingCount.value }}
+                                    </span>
+                                </span>
+                                <span class="text-amber-700/70 truncate">
+                                    · {{ tracked.currentBuild.value.created_by?.name || tracked.currentBuild.value.source }}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button
+                                    v-if="tracked.pendingCount.value > 1"
+                                    type="button"
+                                    class="p-1 text-amber-700 hover:bg-amber-100 rounded disabled:opacity-40"
+                                    :disabled="tracked.currentIndex.value === 0"
+                                    @click="tracked.prev()"
+                                >
+                                    <Icon name="heroicons:chevron-left" class="w-3.5 h-3.5 rtl-flip" />
+                                </button>
+                                <button
+                                    v-if="tracked.pendingCount.value > 1"
+                                    type="button"
+                                    class="p-1 text-amber-700 hover:bg-amber-100 rounded disabled:opacity-40"
+                                    :disabled="tracked.currentIndex.value >= tracked.pendingCount.value - 1"
+                                    @click="tracked.next()"
+                                >
+                                    <Icon name="heroicons:chevron-right" class="w-3.5 h-3.5 rtl-flip" />
+                                </button>
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+                                    :disabled="tracked.isResolving.value"
+                                    @click="onAcceptTracked"
+                                >
+                                    <Icon name="heroicons:check" class="w-2.5 h-2.5" />
+                                    {{ $t('trackedChanges.accept', 'Accept') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                    :disabled="tracked.isResolving.value"
+                                    @click="onRejectTracked"
+                                >
+                                    <Icon name="heroicons:x-mark" class="w-2.5 h-2.5" />
+                                    {{ $t('trackedChanges.reject', 'Reject') }}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="px-3 py-2 bg-white">
+                            <TrackedChangesView :diff-ops="tracked.diffOps.value" />
+                        </div>
+                    </div>
                     <InstructionEditor
+                        v-if="!tracked.hasPending.value"
                         key="view-mode"
                         :model-value="instructionForm.text || ''"
                         mode="wysiwyg"
@@ -738,7 +800,9 @@ import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
+import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import { useAgent } from '~/composables/useAgent'
+import { useTrackedChanges } from '~/composables/useTrackedChanges'
 
 const { t } = useI18n()
 
@@ -841,6 +905,28 @@ const versionFieldChanges = ref<VersionFieldChange[]>([])
 
 const currentInstructionId = computed(() => (props.instruction as any)?.id || null)
 const currentVersionId = computed(() => (props.instruction as any)?.current_version_id || null)
+
+// Tracked changes (pending suggestions for this instruction)
+const liveTextRef = computed(() => instructionForm.value.text || '')
+const tracked = useTrackedChanges(currentInstructionId, liveTextRef)
+
+async function onAcceptTracked() {
+    const ok = await tracked.accept()
+    if (ok) {
+        toast.add({ title: 'Suggestion accepted', color: 'green' })
+        emit('instructionSaved')
+    } else {
+        toast.add({ title: 'Failed to accept', color: 'red' })
+    }
+}
+async function onRejectTracked() {
+    const ok = await tracked.reject()
+    if (ok) {
+        toast.add({ title: 'Suggestion rejected', color: 'gray' })
+    } else {
+        toast.add({ title: 'Failed to reject', color: 'red' })
+    }
+}
 const selectedVersion = computed(() =>
     versionList.value.find(v => v.id === selectedVersionId.value) || null
 )

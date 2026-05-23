@@ -46,8 +46,9 @@ def _digest_knowledge_tool(tool_execution) -> str:
         if rj.get('title'):
             parts.append(f"title: {rj.get('title')}")
         if rj.get('instruction_id'):
-            parts.append(f"id: {rj.get('instruction_id')}")
-        parts.append("status=draft")
+            parts.append(f"instruction_id: {rj.get('instruction_id')}")
+        if rj.get('build_id'):
+            parts.append(f"build_id: {rj.get('build_id')}")
         if rj.get('rejected_reason'):
             parts.append(f"rejected: {rj.get('rejected_reason')}")
         return "; ".join(parts)
@@ -56,8 +57,11 @@ def _digest_knowledge_tool(tool_execution) -> str:
         if rj.get('title'):
             parts.append(f"title: {rj.get('title')}")
         if rj.get('instruction_id'):
-            parts.append(f"id: {rj.get('instruction_id')}")
-        parts.append("status=draft")
+            parts.append(f"instruction_id: {rj.get('instruction_id')}")
+        if rj.get('version_number'):
+            parts.append(f"v{rj.get('version_number')}")
+        if rj.get('build_id'):
+            parts.append(f"build_id: {rj.get('build_id')}")
         return "; ".join(parts)
     return ""
 

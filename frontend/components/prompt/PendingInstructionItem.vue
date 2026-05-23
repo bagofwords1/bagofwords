@@ -31,12 +31,46 @@
         </div>
         <div v-if="inst.category" class="text-[10px] text-gray-400 mt-0.5 ms-[18px]">{{ inst.category }}</div>
       </div>
-      <button
-        class="text-[10px] text-gray-500 hover:text-gray-800 px-1.5 py-0.5 rounded hover:bg-gray-200 shrink-0 mt-0.5"
-        @click.stop="$emit('open')"
-      >
-        {{ $t('prompt.openInstruction', 'Open') }}
-      </button>
+      <div class="flex items-center gap-1 shrink-0 mt-0.5">
+        <template v-if="resolution === 'accepted'">
+          <span class="inline-flex items-center gap-0.5 text-[10px] text-green-600 px-1">
+            <Icon name="heroicons:check-circle" class="w-3 h-3" />
+            {{ $t('prompt.accepted', 'Accepted') }}
+          </span>
+        </template>
+        <template v-else-if="resolution === 'rejected'">
+          <span class="inline-flex items-center gap-0.5 text-[10px] text-gray-400 px-1">
+            <Icon name="heroicons:x-circle" class="w-3 h-3" />
+            {{ $t('prompt.rejected', 'Rejected') }}
+          </span>
+        </template>
+        <template v-else>
+          <button
+            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+            :disabled="isAccepting || isRejecting"
+            @click.stop="handleAccept"
+          >
+            <Spinner v-if="isAccepting" class="w-2.5 h-2.5 text-green-600" />
+            <Icon v-else name="heroicons:check" class="w-2.5 h-2.5" />
+            {{ $t('prompt.acceptShort', 'Accept') }}
+          </button>
+          <button
+            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+            :disabled="isAccepting || isRejecting"
+            @click.stop="handleReject"
+          >
+            <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-gray-400" />
+            <Icon v-else name="heroicons:x-mark" class="w-2.5 h-2.5" />
+            {{ $t('prompt.rejectShort', 'Reject') }}
+          </button>
+          <button
+            class="text-[10px] text-gray-500 hover:text-gray-800 px-1.5 py-0.5 rounded hover:bg-gray-200"
+            @click.stop="$emit('open')"
+          >
+            {{ $t('prompt.openInstruction', 'Open') }}
+          </button>
+        </template>
+      </div>
     </div>
 
     <!-- Expanded content -->
@@ -89,9 +123,11 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-defineEmits<{
+const emit = defineEmits<{
   (e: 'update:selected', v: boolean): void
   (e: 'open'): void
+  (e: 'accept'): void
+  (e: 'reject'): void
 }>()
 
 const isExpanded = ref(false)
@@ -99,6 +135,26 @@ const isLoading = ref(false)
 const currentText = ref<string>('')
 const previousText = ref<string | null>(null)
 const hasFetched = ref(false)
+const isAccepting = ref(false)
+const isRejecting = ref(false)
+const resolution = ref<'accepted' | 'rejected' | null>(null)
+
+function handleAccept() {
+  if (isAccepting.value) return
+  isAccepting.value = true
+  resolution.value = 'accepted'
+  emit('accept')
+  // Parent owns the actual API call; UI optimistically reflects resolved.
+  setTimeout(() => { isAccepting.value = false }, 600)
+}
+
+function handleReject() {
+  if (isRejecting.value) return
+  isRejecting.value = true
+  resolution.value = 'rejected'
+  emit('reject')
+  setTimeout(() => { isRejecting.value = false }, 600)
+}
 
 function toggleExpanded() {
   isExpanded.value = !isExpanded.value

@@ -56,14 +56,9 @@
             <span class="text-[10px] text-gray-600 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
             <span v-if="versionNumber" class="text-[10px] text-gray-500">v{{ versionNumber - 1 }} → v{{ versionNumber }}</span>
           </div>
-          <ClientOnly>
-            <MonacoDiffEditor
-              :original="previousText"
-              :modified="currentText"
-              height="180px"
-              language="plaintext"
-            />
-          </ClientOnly>
+          <div class="px-3 py-2 bg-white">
+            <TrackedChangesView :diff-ops="diffOps" />
+          </div>
         </div>
 
         <!-- Instruction card for non-text changes or when no diff -->
@@ -120,23 +115,42 @@
           </div>
         </div>
 
-        <!-- Status display — staged in draft build; approved via session pill -->
-        <div v-if="isSuccess && instructionId" class="flex items-center gap-1 pt-2 border-t border-gray-100 px-1">
-          <Icon
-            v-if="currentGlobalStatus === 'approved'"
-            name="heroicons:check-circle"
-            class="w-3 h-3 text-gray-500"
-          />
-          <Icon
-            v-else
-            name="heroicons:clock"
-            class="w-3 h-3 text-gray-400"
-          />
-          <span class="text-[10px] font-medium text-gray-500">
-            {{ currentGlobalStatus === 'approved'
-              ? $t('tools.editInstruction.published')
-              : $t('tools.editInstruction.stagedInBuild', 'Staged in draft build') }}
-          </span>
+        <!-- Status + Accept/Reject actions -->
+        <div v-if="isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 px-1">
+          <template v-if="resolution === 'accepted'">
+            <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
+            <span class="text-[10px] font-medium text-gray-600">{{ $t('tools.editInstruction.accepted', 'Accepted') }}</span>
+          </template>
+          <template v-else-if="resolution === 'rejected'">
+            <Icon name="heroicons:x-circle" class="w-3 h-3 text-gray-400" />
+            <span class="text-[10px] text-gray-400">{{ $t('tools.editInstruction.rejectedLabel', 'Rejected') }}</span>
+          </template>
+          <template v-else-if="canResolve">
+            <button
+              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+              :disabled="isAccepting || isRejecting"
+              @click.stop="handleAccept"
+            >
+              <Spinner v-if="isAccepting" class="w-2.5 h-2.5 text-green-600" />
+              <Icon v-else name="heroicons:check" class="w-2.5 h-2.5" />
+              {{ $t('tools.editInstruction.accept', 'Accept') }}
+            </button>
+            <button
+              class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+              :disabled="isAccepting || isRejecting"
+              @click.stop="handleReject"
+            >
+              <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-gray-400" />
+              <Icon v-else name="heroicons:x-mark" class="w-2.5 h-2.5" />
+              {{ $t('tools.editInstruction.reject', 'Reject') }}
+            </button>
+          </template>
+          <template v-else>
+            <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
+            <span class="text-[10px] font-medium text-gray-500">
+              {{ $t('tools.editInstruction.stagedInBuild', 'Staged in draft build') }}
+            </span>
+          </template>
         </div>
 
         <!-- Error message -->
@@ -151,8 +165,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import DiffMatchPatch from 'diff-match-patch'
 import Spinner from '~/components/Spinner.vue'
-import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
+import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
+import type { DiffOp, DiffOpType } from '~/composables/useTrackedChanges'
 
 const { t } = useI18n()
 
@@ -182,6 +198,52 @@ const localGlobalStatus = ref<string | null>(null)
 const isLoadingVersions = ref(false)
 const fetchedInstruction = ref<any>(null)
 const previousText = ref<string | null>(null)
+const isAccepting = ref(false)
+const isRejecting = ref(false)
+const resolution = ref<'accepted' | 'rejected' | null>(null)
+const isCheckingResolution = ref(false)
+const toast = useToast()
+
+async function handleAccept() {
+  if (!buildId.value || !instructionId.value || isAccepting.value) return
+  isAccepting.value = true
+  try {
+    const { error } = await useMyFetch(`/builds/${buildId.value}/publish`, {
+      method: 'POST',
+      body: { instruction_ids: [instructionId.value] },
+    })
+    if (!error.value) {
+      resolution.value = 'accepted'
+      localGlobalStatus.value = 'approved'
+      toast.add({ title: t('tools.editInstruction.acceptedToast', 'Change accepted'), color: 'green' })
+      emit('instruction-updated')
+    } else {
+      toast.add({ title: t('tools.editInstruction.acceptFailed', 'Failed to accept'), color: 'red' })
+    }
+  } finally {
+    isAccepting.value = false
+  }
+}
+
+async function handleReject() {
+  if (!buildId.value || !instructionId.value || isRejecting.value) return
+  isRejecting.value = true
+  try {
+    const { error } = await useMyFetch(
+      `/builds/${buildId.value}/contents/${instructionId.value}`,
+      { method: 'DELETE' },
+    )
+    if (!error.value) {
+      resolution.value = 'rejected'
+      toast.add({ title: t('tools.editInstruction.rejectedToast', 'Change rejected'), color: 'gray' })
+      emit('instruction-updated')
+    } else {
+      toast.add({ title: t('tools.editInstruction.rejectFailed', 'Failed to reject'), color: 'red' })
+    }
+  } finally {
+    isRejecting.value = false
+  }
+}
 
 const canCreateInstructions = computed(() => {
   return useCan('manage_instructions')
@@ -236,6 +298,43 @@ const instructionId = computed(() => {
   return rj.instruction_id || null
 })
 
+const buildId = computed<string | null>(() => {
+  const rj = props.toolExecution?.result_json || {}
+  return rj.build_id || null
+})
+
+const canResolve = computed(() =>
+  !!buildId.value && !!instructionId.value && resolution.value === null && !isCheckingResolution.value
+)
+
+// Derive resolution from server on mount / id change so refreshes don't show stale buttons.
+// Pending = our build_id is still in /pending-builds for this instruction.
+// Else: compare current instruction.text to the tool's updated text — match = accepted, mismatch = rejected.
+async function refreshResolutionState() {
+  if (!instructionId.value || !buildId.value) return
+  isCheckingResolution.value = true
+  try {
+    const { data: pendingData } = await useMyFetch(`/instructions/${instructionId.value}/pending-builds`)
+    const builds = Array.isArray(pendingData.value) ? pendingData.value : []
+    const stillPending = builds.some((b: any) => b.build_id === buildId.value)
+    if (stillPending) return
+    const { data: instData, error: instErr } = await useMyFetch(`/instructions/${instructionId.value}`)
+    if (instErr.value || !instData.value) {
+      resolution.value = 'rejected'
+      return
+    }
+    const liveText = ((instData.value as any).text || '').trim()
+    const proposedText = (updatedText.value || '').trim()
+    resolution.value = proposedText && liveText === proposedText ? 'accepted' : 'rejected'
+  } finally {
+    isCheckingResolution.value = false
+  }
+}
+
+watch(instructionId, (id) => {
+  if (id && resolution.value === null) refreshResolutionState()
+}, { immediate: true })
+
 const versionNumber = computed(() => {
   const rj = props.toolExecution?.result_json || {}
   return rj.version_number || null
@@ -274,6 +373,17 @@ const hasTextDiff = computed(() => {
 // Current text (after edit)
 const currentText = computed(() => {
   return updatedText.value || fetchedInstruction.value?.text || ''
+})
+
+// Inline diff ops (previousText → currentText) for TrackedChangesView.
+const diffOps = computed<DiffOp[]>(() => {
+  const base = previousText.value || ''
+  const next = currentText.value || ''
+  if (base === next) return [{ type: 0 as DiffOpType, text: base }]
+  const dmp = new DiffMatchPatch()
+  const ops = dmp.diff_main(base, next)
+  dmp.diff_cleanupSemantic(ops)
+  return ops.map(([type, text]) => ({ type: type as DiffOpType, text }))
 })
 
 // Display values - prefer fetched instruction, fall back to args

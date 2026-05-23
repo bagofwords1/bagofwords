@@ -116,6 +116,8 @@
                                     :selected="selectedInstructionIds.has(inst.instructionId)"
                                     @update:selected="toggleInstructionSelection(inst.instructionId, $event)"
                                     @open="emit('editTrainingInstruction', inst); showTrainingDropdown = false"
+                                    @accept="handleAcceptInstruction(inst)"
+                                    @reject="handleRejectInstruction(inst)"
                                 />
                             </div>
                             <div
@@ -574,7 +576,26 @@ const props = defineProps({
     initialModel: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','openInstructions','update:selectedDataSources','update:mode'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:mode'])
+
+function handleAcceptInstruction(inst: any) {
+    if (!props.pendingTrainingBuild) return
+    // Reuse the existing batch-approval emit with a single instruction id.
+    emit('approveTrainingBuild', {
+        buildId: props.pendingTrainingBuild.id,
+        instructionIds: [inst.instructionId],
+    })
+}
+
+function handleRejectInstruction(inst: any) {
+    if (!props.pendingTrainingBuild) return
+    // Tell parent to remove this instruction from the pending build (DELETE
+    // /builds/{id}/contents/{instruction_id}). Parent owns the API call.
+    emit('discardTrainingInstruction', {
+        buildId: props.pendingTrainingBuild.id,
+        instructionId: inst.instructionId,
+    })
+}
 
 const isApprovingBuild = computed(() => props.isPublishingBuild)
 const isDiscardingBuild = ref(false)
