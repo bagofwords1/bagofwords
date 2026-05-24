@@ -71,6 +71,7 @@ class InstructionService:
         build = None,  # Optional: use existing build instead of creating new one
         auto_finalize: bool = True,  # If False, skip auto-finalization (for batching)
         agent_execution_id: str = None,  # Optional: link instruction to agent execution (for training mode)
+        version_status_override: Optional[str] = None,  # AI flows pass 'published' to flip the live row on build promotion
     ) -> InstructionSchema:
         """Create a new instruction. Approval workflow is handled by builds, not instruction status."""
         
@@ -133,7 +134,8 @@ class InstructionService:
             
             # Create the first version
             version = await self.version_service.create_version(
-                db, instruction, user_id=current_user.id
+                db, instruction, user_id=current_user.id,
+                status_override=version_status_override,
             )
             
             # Update instruction's current version

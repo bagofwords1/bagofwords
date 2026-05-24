@@ -924,12 +924,13 @@ class BuildService:
                 values["load_mode"] = v_load_mode
             if category is not None:
                 values["category"] = category
-            # Promotion makes the instruction live — flip 'draft' to 'published'
-            # so the UI shows it as Active. Preserve 'archived' (explicit user
-            # action) and any non-standard statuses. The version's own status is
-            # irrelevant here: AI-created versions inherit 'draft' from their
-            # parent instruction and would otherwise never flip.
-            if v_status != "archived":
+            # Promotion respects the version's own status: AI tools that want
+            # the live row flipped to 'published' on approval set the version
+            # status to 'published' explicitly when staging the edit. User and
+            # git flows snapshot instruction.status (draft stays draft), so
+            # this branch only fires for AI-suggested versions intended to go
+            # live.
+            if v_status == "published":
                 values["status"] = "published"
             await db.execute(
                 sql_update(Instruction)

@@ -312,9 +312,11 @@ class CreateInstructionTool(Tool):
                         ))
                         matched_table_names.append(table.name)
 
-            # Create the instruction as a draft — promotion of the training
-            # build will flip status to "published" and surface it to planner
-            # loaders (the legacy status-based fallback path reads inst.status).
+            # Create the instruction as a draft (pending admin approval) but
+            # stage the version with status="published" so promote_build flips
+            # the live row when the training build is approved. Planner loaders
+            # (legacy status-based fallback) read inst.status, so it must end
+            # up "published" once approved.
             instruction_data = InstructionCreate(
                 text=data.text,
                 title=title,
@@ -335,6 +337,7 @@ class CreateInstructionTool(Tool):
                 build=build,  # Pass build object
                 auto_finalize=False,  # Don't finalize yet - wait for session end
                 agent_execution_id=agent_execution_id,  # Link to training session for tracking
+                version_status_override="published",
             )
 
             ref_count = len(references)

@@ -334,7 +334,11 @@ class EditInstructionTool(Tool):
                     title=new_title,
                     structured_data=instruction.structured_data,
                     formatted_content=instruction.formatted_content,
-                    status=instruction.status or "published",
+                    # AI-suggested edit: stage as 'published' so promote_build
+                    # flips the live row on approval. The live row's current
+                    # status ('draft' for pending suggestions) is preserved
+                    # until promotion.
+                    status="published",
                     load_mode=new_load_mode,
                     references_json=new_references_json,
                     data_source_ids=new_data_source_ids,
