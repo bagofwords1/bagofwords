@@ -22,7 +22,7 @@ class PlatformAdapter(ABC):
         pass
     
     @abstractmethod
-    async def get_user_info(self, external_user_id: str) -> Dict[str, Any]:
+    async def get_user_info(self, external_user_id: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
         """Get user information from platform"""
         pass
     

@@ -166,7 +166,7 @@ class SlackAdapter(PlatformAdapter):
             print(f"Error sending Slack message: {e}")
             return False
     
-    async def get_user_info(self, external_user_id: str) -> Dict[str, Any]:
+    async def get_user_info(self, external_user_id: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
         """Get Slack user information"""
         
         try:

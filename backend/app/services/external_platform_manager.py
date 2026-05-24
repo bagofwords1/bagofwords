@@ -91,23 +91,64 @@ class ExternalPlatformManager:
         
         if mapping:
             return mapping
-        
-        # Create unverified mapping (no app_user_id yet)
+
+        # Get organization for the mapping service
+        organization = await self.organization_service.get_organization(db, platform.organization_id, None)
+
+        # Optional: auto-link via verified platform email (per-integration opt-in).
+        # Only safe for platforms whose email originates from a trusted IdP/SSO
+        # (Slack workspace email, Teams AAD). Disabled by default.
+        auto_link_enabled = bool((platform.platform_config or {}).get("auto_link_by_email"))
+        auto_linked_user = None
+        auto_linked_email = None
+        auto_linked_name = None
+        if auto_link_enabled and platform.platform_type in ("slack", "teams"):
+            try:
+                user_info = await adapter.get_user_info(
+                    external_user_id,
+                    conversation_id=processed_data.get("channel_id"),
+                )
+                email = (user_info or {}).get("email")
+                if email:
+                    matched = await self.mapping_service.find_user_by_email(
+                        db, platform.organization_id, email
+                    )
+                    if matched:
+                        auto_linked_user = matched
+                        auto_linked_email = email
+                        auto_linked_name = (user_info or {}).get("real_name") or (user_info or {}).get("name")
+            except Exception as e:
+                print(f"Auto-link by email failed, falling back to verification: {e}")
+
         mapping_data = ExternalUserMappingCreate(
             platform_type=platform.platform_type,
             external_user_id=external_user_id,
-            external_email=None,  # Will be filled after verification
-            external_name=None,   # Will be filled after verification
-            app_user_id=None,     # Will be filled after verification
-            is_verified=False
+            external_email=auto_linked_email,
+            external_name=auto_linked_name,
+            app_user_id=auto_linked_user.id if auto_linked_user else None,
+            is_verified=bool(auto_linked_user),
         )
-        
-        # Get organization for the mapping service
-        organization = await self.organization_service.get_organization(db, platform.organization_id, None)
-        
+
         try:
             # Pass the platform ID to the create_mapping method
             mapping = await self.mapping_service.create_mapping(db, organization, mapping_data, platform.id)
+            if auto_linked_user:
+                # Refetch ORM row to stamp last_verified_at
+                orm_mapping = await self.mapping_service.get_mapping_by_external_id(
+                    db, platform.organization_id, platform.platform_type, external_user_id
+                )
+                if orm_mapping:
+                    import datetime as _dt
+                    orm_mapping.last_verified_at = _dt.datetime.utcnow()
+                    await db.commit()
+                try:
+                    await adapter.send_dm(
+                        external_user_id,
+                        f"You've been auto-linked to BagOfWords account {auto_linked_email}. "
+                        f"If this isn't you, contact your admin.",
+                    )
+                except Exception as e:
+                    print(f"Failed to send auto-link notice DM: {e}")
             return mapping
         except Exception as e:
             print(f"Error creating mapping: {e}")

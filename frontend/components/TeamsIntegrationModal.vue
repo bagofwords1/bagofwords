@@ -43,6 +43,27 @@
           </div>
         </div>
 
+        <!-- Account Linking -->
+        <div class="bg-gray-50 rounded-lg p-4 mb-4">
+          <h3 class="text-sm font-medium text-gray-700 mb-3">Account Linking</h3>
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              v-model="autoLinkByEmail"
+              :disabled="savingAutoLink"
+              @change="saveAutoLinkByEmail"
+              class="mt-0.5"
+            />
+            <span class="text-sm">
+              <span class="font-medium">Auto-link users by tenant email</span>
+              <span class="block text-xs text-gray-500 mt-0.5">
+                When enabled, Teams users are automatically linked to BagOfWords accounts whose email matches their Azure AD profile (no verification link required).
+                Since the email comes from your tenant directory, this is generally safe — but only enable for tenants you fully trust.
+              </span>
+            </span>
+          </label>
+        </div>
+
         <UButton
           color="red"
           variant="soft"
@@ -73,7 +94,7 @@
   </template>
 
   <script setup lang="ts">
-  import { ref } from 'vue'
+  import { ref, watch } from 'vue'
   const props = defineProps<{
     integrated: boolean
     integrationData?: any
@@ -84,6 +105,40 @@
   const appId = ref('')
   const clientSecret = ref('')
   const tenantId = ref('')
+  const autoLinkByEmail = ref<boolean>(!!props.integrationData?.platform_config?.auto_link_by_email)
+  const savingAutoLink = ref(false)
+
+  watch(() => props.integrationData?.platform_config?.auto_link_by_email, (v) => {
+    autoLinkByEmail.value = !!v
+  })
+
+  async function saveAutoLinkByEmail() {
+    if (!props.integrationData?.id) return
+    savingAutoLink.value = true
+    const nextConfig = {
+      ...(props.integrationData?.platform_config || {}),
+      auto_link_by_email: autoLinkByEmail.value,
+    }
+    const res = await useMyFetch(`/api/settings/integrations/${props.integrationData.id}`, {
+      method: 'PUT',
+      body: { platform_config: nextConfig },
+    })
+    savingAutoLink.value = false
+    if (res.status.value === 'success') {
+      toast.add({
+        title: autoLinkByEmail.value ? 'Auto-link enabled' : 'Auto-link disabled',
+        color: 'green',
+      })
+      emit('updated')
+    } else {
+      autoLinkByEmail.value = !autoLinkByEmail.value
+      toast.add({
+        title: 'Failed to update setting',
+        description: (res.error.value as any)?.data?.detail || (res.error.value as any)?.message,
+        color: 'red',
+      })
+    }
+  }
 
   function formatDate(dateString: string | undefined) {
     if (!dateString) return 'N/A'
