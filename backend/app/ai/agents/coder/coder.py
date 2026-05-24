@@ -465,9 +465,19 @@ class Coder:
                 - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
                 - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do not add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
 
-            1. **Function Signature**: Implement exactly:
-               `def generate_df(ds_clients, excel_files):`
+            1. **Function Signature**: Implement either:
+               `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
+               `def generate_df(ds_clients, excel_files, http):` — when fetching URLs (see HTTP section below).
                - The function should return the main dataframe that answers the user prompt.
+
+            1a. **HTTP client (when the task involves URLs)**:
+               - When fetching web pages, accept a third parameter `http` in your signature. It is a pre-built sync client; do NOT `import httpx`, `requests`, `urllib`, `asyncio`, `socket`, or `threading` (all forbidden by the sandbox).
+               - `http.get(url, timeout=15) -> FetchedPage` for a single URL.
+               - `http.batch_get(urls, concurrency=20, timeout=15) -> list[FetchedPage]` for many URLs in parallel. Prefer this over a Python loop of `http.get` whenever you have more than ~5 URLs.
+               - `FetchedPage` fields: `.url`, `.final_url`, `.status`, `.success`, `.text`, `.title`, `.description`, `.meta` (dict of meta-tag content, includes `og:*`, `twitter:*`, `product:price:amount`, etc.), `.json_ld` (list of parsed JSON-LD blocks — common for Product/Offer/Article schemas on retail sites), `.headings`, `.truncated`, `.error` (str when the fetch failed; `.success` is False in that case).
+               - Failures never raise — they appear as pages with `.error` set. Filter them: `good = [p for p in pages if p.success and not p.error]`.
+               - Extraction order of preference: (1) `json_ld` (most reliable on ecommerce/news sites — look for `Product.offers.price`, `Offer.price`, etc.), (2) `meta` (look for `product:price:amount`, `og:price:amount`, `twitter:data1`), (3) regex on `.text`. Always fall back gracefully — write the price as `None` for rows you can't parse rather than crashing.
+               - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
 
             2. **Data Source Usage**:
                - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
@@ -609,6 +619,17 @@ class Coder:
         **Excel File Access**: Use `pd.read_excel(excel_files[INDEX].path, sheet_name=0)` to read Excel files.
         - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)
         - Example: `df = pd.read_excel(excel_files[0].path, sheet_name=0)`
+
+        **HTTP inspection (when validating URL structure)**:
+        - If the user's task involves fetching prices/data from a list of URLs, use this inspection step to learn page structure on **1–3 sample URLs** before the full create_data run.
+        - Signature: `def generate_df(ds_clients, excel_files, http):` — accept `http` as the third parameter.
+        - Use `http.get(url, timeout=15)` per sample URL. Do NOT `import httpx`/`requests`/`asyncio`/`socket`/`threading` — all forbidden.
+        - Print enough to reveal which extraction path will work for create_data:
+          * `print("json_ld:", page.json_ld[:2])`  — most retailers expose `Product.offers.price` here
+          * `print("price meta:", {k: v for k, v in page.meta.items() if 'price' in k.lower() or 'amount' in k.lower()})`
+          * `print("title:", page.title)`, `print("status:", page.status, "error:", page.error)`
+        - Limit to 1–3 URLs total across all samples. This is a peek, not the real fetch.
+        - If `http` is `None`, web fetch is disabled — print a clear message and return `None`.
 
         **Constraints**:
         1. **Keep it to 2-3 queries** — this is a quick validation, not a full analysis.

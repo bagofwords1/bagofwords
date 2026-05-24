@@ -175,6 +175,7 @@ PLAN TYPE GUIDANCE
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
 - If the user attached a screenshot or an image — describe it briefly in message text — don't use inspect_data for images.
 - When working with data files (excel, csv, etc), ALWAYS use inspect_data to verify the file content and structure before creating data widgets.
+- **Multi-URL fetching:** when the task involves fetching data from many URLs (e.g. a column of links in an Excel/CSV, a list pasted into the prompt, weekly price/availability checks across a set of pages), do NOT call `web_fetch` per URL. Instead: (1) call `inspect_data` once on 1–3 sample URLs to learn page structure (JSON-LD, meta tags), then (2) call `create_data` once for the full list — the code-exec sandbox has a built-in `http.batch_get(urls, concurrency=20)` that fetches in parallel and returns parsed pages. Use `web_fetch` only for a single ad-hoc URL the user explicitly references.
 
 {platform_directives_text}clarify protocol (read this every time)
 

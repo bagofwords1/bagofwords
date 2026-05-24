@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import io
 import os
 import sys
@@ -14,6 +15,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
+
+from app.ai.http.safe_client import SafeHttpClient
 
 # `redirect_stdout` mutates the *global* sys.stdout. When the code-exec
 # thread pool runs N executions concurrently, the enter/exit ordering
@@ -618,12 +621,20 @@ class StreamingCodeExecutor:
             organization_settings=self.organization_settings,
         )
 
+        # Inject a sync HTTP client when the org has web fetch enabled. The
+        # client owns concurrency internally so model code never imports
+        # asyncio/threading/socket (all of which are AST-forbidden).
+        http_client = self._build_http_client()
+
         local_namespace = {
             'pd': pd,
             'np': np,
             'db_clients': wrapped_clients,
             'excel_files': excel_files,
         }
+        if http_client is not None:
+            local_namespace['http'] = http_client
+
         if self.logger:
             self.logger.debug(f"Executing code:\n{code}")
         with _STDOUT_REDIRECT_LOCK:
@@ -633,9 +644,48 @@ class StreamingCodeExecutor:
                     generate_df = local_namespace.get('generate_df')
                     if not generate_df:
                         raise Exception("No generate_df function found in code")
-                    df = generate_df(wrapped_clients, excel_files)
+                    df = self._invoke_generate_df(
+                        generate_df, wrapped_clients, excel_files, http_client
+                    )
                 output_log = stdout_capture.getvalue()
         return df, output_log, executed_queries
+
+    def _build_http_client(self) -> Optional[SafeHttpClient]:
+        """Return a SafeHttpClient when `enable_web_fetch` is on, else None."""
+        settings = self.organization_settings
+        if settings is None:
+            return None
+        try:
+            cfg = settings.get_config("enable_web_fetch")
+        except Exception:
+            return None
+        if cfg is None or not getattr(cfg, "value", False):
+            return None
+        return SafeHttpClient()
+
+    @staticmethod
+    def _invoke_generate_df(
+        fn: Callable, wrapped_clients: Dict, excel_files: List, http_client: Optional[SafeHttpClient]
+    ):
+        """Call generate_df, passing `http` only when its signature accepts it.
+
+        Keeps two-arg `generate_df(ds_clients, excel_files)` working for code
+        generated before the http-injection prompt update.
+        """
+        try:
+            sig = inspect.signature(fn)
+            params = list(sig.parameters.values())
+            # The prompt asks for `generate_df(ds_clients, excel_files, http)`
+            # — any function declaring a third positional parameter gets `http`.
+            accepts_http = sum(
+                1 for p in params
+                if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            ) >= 3
+        except (TypeError, ValueError):
+            accepts_http = False
+        if accepts_http:
+            return fn(wrapped_clients, excel_files, http_client)
+        return fn(wrapped_clients, excel_files)
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
                                  captured_timings: Optional[List[dict]] = None,
