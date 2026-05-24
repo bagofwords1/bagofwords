@@ -475,6 +475,7 @@ class Coder:
                - **Do NOT import `bs4`, `lxml`, `html.parser`, or any HTML parser.** The pages returned by `http.get`/`http.batch_get` are ALREADY parsed for you — see the field list below.
                - `http.get(url, timeout=15) -> FetchedPage` for a single URL.
                - `http.batch_get(urls, concurrency=20, timeout=15) -> list[FetchedPage]` for many URLs in parallel. Prefer this over a Python loop of `http.get` whenever you have more than ~5 URLs.
+               - **Access `FetchedPage` fields with dot notation directly — do NOT use `getattr` or `hasattr` (both are forbidden by the sandbox). The fields always exist; check truthiness (`if page.text:`) rather than presence.**
                - `FetchedPage` is a dataclass with these pre-extracted fields — read them directly, don't re-parse:
                  * `.url`, `.final_url`, `.status`, `.success`
                  * `.title` — already extracted from `<title>` (or `og:title` via `.meta`)
@@ -631,15 +632,11 @@ class Coder:
         - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)
         - Example: `df = pd.read_excel(excel_files[0].path, sheet_name=0)`
 
-        **HTTP inspection (when validating URL structure)**:
-        - If the user's task involves fetching prices/data from a list of URLs, use this inspection step to learn page structure on **1–3 sample URLs** before the full create_data run.
-        - Signature: `def generate_df(ds_clients, excel_files, http):` — accept `http` as the third parameter.
-        - Use `http.get(url, timeout=15)` per sample URL. Do NOT `import httpx`/`requests`/`asyncio`/`socket`/`threading` — all forbidden.
-        - Print enough to reveal which extraction path will work for create_data:
-          * `print("json_ld:", page.json_ld[:2])`  — most retailers expose `Product.offers.price` here
-          * `print("price meta:", {k: v for k, v in page.meta.items() if 'price' in k.lower() or 'amount' in k.lower()})`
-          * `print("title:", page.title)`, `print("status:", page.status, "error:", page.error)`
-        - Limit to 1–3 URLs total across all samples. This is a peek, not the real fetch.
+        **HTTP inspection (when the task involves URLs)**:
+        - Signature becomes `def generate_df(ds_clients, excel_files, http):` — accept `http` as the third parameter.
+        - Use `http.get(url, timeout=15)` on 1–3 sample URLs to learn what the page returns. Do NOT import `httpx`/`requests`/`urllib`/`asyncio`/`socket`/`threading`/`bs4`/`lxml` — all forbidden.
+        - `FetchedPage` has exactly these fields (a dataclass, guaranteed to exist on every result): `.status`, `.success`, `.error`, `.content_type`, `.url`, `.final_url`, `.text` (raw body for non-HTML; cleaned visible text for HTML), `.title`, `.description`, `.meta` (dict), `.json_ld` (list), `.headings` (list), `.truncated`. **Access them with dot notation directly — do NOT use `getattr` or `hasattr` (both are forbidden by the sandbox). The fields always exist; check truthiness (`if page.text:`) rather than presence.**
+        - Print whatever helps the next step decide how to parse — sample fields, content_type, errors, a slice of `.text`. Keep it short.
         - If `http` is `None`, web fetch is disabled — print a clear message and return `None`.
 
         **Constraints**:

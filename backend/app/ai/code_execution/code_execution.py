@@ -1103,8 +1103,12 @@ class StreamingCodeExecutor:
                 }
                 # Treat None/empty-columns DataFrame as a soft failure so the
                 # LLM gets a chance to fix defensive stub code that never
-                # actually calls execute_query.
-                if exec_df is None or not hasattr(exec_df, 'columns') or len(exec_df.columns) == 0:
+                # actually calls execute_query — but only when there's an SQL
+                # client or file to query against. URL-fetch-only runs (no
+                # ds_clients, no excel_files) legitimately may have nothing
+                # to return; the printed output is the deliverable.
+                _has_queryable_source = bool(ds_clients) or bool(excel_files)
+                if _has_queryable_source and (exec_df is None or not hasattr(exec_df, 'columns') or len(exec_df.columns) == 0):
                     msg = (
                         "Code executed but returned None or an empty DataFrame (0 columns). "
                         "You MUST call ds_clients[\"<client_key>\"].execute_query(...) using the "
@@ -1118,6 +1122,8 @@ class StreamingCodeExecutor:
                     if retries < max_retries:
                         yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                     continue
+                if exec_df is None:
+                    exec_df = pd.DataFrame()
                 executed_successfully = True
                 break
             except CodeSecurityError as e:
