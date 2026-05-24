@@ -143,8 +143,7 @@ class TestOneDriveConstruction:
 class TestGoogleDriveConstruction:
     def test_basic_init(self):
         c = GoogleDriveClient(
-            oauth_client_id="cid", oauth_client_secret="cs",
-            access_token="tok", refresh_token="rt",
+            access_token="tok",
             folder_id="abc123", allowed_extensions="csv,gsheet",
         )
         assert c.folder_id == "abc123"
@@ -152,52 +151,35 @@ class TestGoogleDriveConstruction:
         assert c.is_document_based is True
 
     def test_drive_params_no_shared_drive(self):
-        c = GoogleDriveClient(
-            oauth_client_id="c", oauth_client_secret="s", access_token="t",
-        )
+        c = GoogleDriveClient(access_token="t")
         p = c._drive_params()
         assert p["supportsAllDrives"] == "true"
         assert "driveId" not in p
 
     def test_drive_params_with_shared_drive(self):
-        c = GoogleDriveClient(
-            oauth_client_id="c", oauth_client_secret="s", access_token="t",
-            shared_drive_id="SDID",
-        )
+        c = GoogleDriveClient(access_token="t", shared_drive_id="SDID")
         p = c._drive_params()
         assert p["driveId"] == "SDID"
         assert p["corpora"] == "drive"
 
     def test_root_folder_resolution(self):
-        # 1) explicit folder_id wins
-        c = GoogleDriveClient(
-            oauth_client_id="c", oauth_client_secret="s", access_token="t",
-            folder_id="F", shared_drive_id="S",
-        )
+        c = GoogleDriveClient(access_token="t", folder_id="F", shared_drive_id="S")
         assert c._root_folder_id() == "F"
-        # 2) shared drive falls back when no folder_id
-        c2 = GoogleDriveClient(
-            oauth_client_id="c", oauth_client_secret="s", access_token="t",
-            shared_drive_id="S",
-        )
+        c2 = GoogleDriveClient(access_token="t", shared_drive_id="S")
         assert c2._root_folder_id() == "S"
-        # 3) defaults to 'root' (My Drive)
-        c3 = GoogleDriveClient(
-            oauth_client_id="c", oauth_client_secret="s", access_token="t",
-        )
+        c3 = GoogleDriveClient(access_token="t")
         assert c3._root_folder_id() == "root"
 
     def test_extension_filter_for_google_native(self):
-        c = GoogleDriveClient(
-            oauth_client_id="c", oauth_client_secret="s", access_token="t",
-            allowed_extensions="gsheet,csv",
-        )
-        # Google Sheet (no filename extension)
+        c = GoogleDriveClient(access_token="t", allowed_extensions="gsheet,csv")
         assert c._allowed("Pipeline", "application/vnd.google-apps.spreadsheet") is True
-        # PDF should fail
         assert c._allowed("Report.pdf", "application/pdf") is False
-        # CSV passes
         assert c._allowed("data.csv", "text/csv") is True
+
+    def test_missing_token_raises_on_use(self):
+        c = GoogleDriveClient()
+        with pytest.raises(ValueError, match="no access token"):
+            c._headers()
 
 
 # -------------------------------------------- list_files end-to-end (mocked)
@@ -286,10 +268,7 @@ class TestGraphGetSchemas:
 
 class TestGoogleListFiles:
     def _client(self, **kwargs):
-        return GoogleDriveClient(
-            oauth_client_id="c", oauth_client_secret="s",
-            access_token="tok", refresh_token="r", **kwargs,
-        )
+        return GoogleDriveClient(access_token="tok", **kwargs)
 
     def test_filters_folders_and_extensions(self):
         c = self._client(allowed_extensions="csv,gsheet")

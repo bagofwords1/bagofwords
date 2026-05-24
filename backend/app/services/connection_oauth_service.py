@@ -221,7 +221,7 @@ async def refresh_access_token(
 # ---------------------------------------------------------------------------
 
 # Connection types that support OBO auto-provisioning from Entra ID login
-ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric"}
+ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "onedrive"}
 
 # Resource scopes used when requesting OBO tokens per connection type.
 # These must match the API permissions granted to the Entra app registration.
@@ -233,6 +233,9 @@ _OBO_SCOPES = {
     # Requires the app registration to have "Azure SQL Database / user_impersonation" delegated
     # permission with admin consent — the Fabric API scope returns tokens the SQL endpoint rejects.
     "ms_fabric": "https://database.windows.net/user_impersonation offline_access",
+    # Microsoft Graph delegated scopes for file access.
+    "sharepoint": "https://graph.microsoft.com/.default offline_access",
+    "onedrive": "https://graph.microsoft.com/.default offline_access",
 }
 
 

@@ -49,12 +49,9 @@ class GoogleDriveClient(DataSourceClient):
 
     def __init__(
         self,
-        # OAuth client (admin-configured) — used only if we need to refresh
-        oauth_client_id: Optional[str] = None,
-        oauth_client_secret: Optional[str] = None,
-        # Per-user token (from OAuth flow)
+        # Per-user token (from OAuth flow — refreshed by the server before the
+        # client is constructed, see `maybe_refresh_oauth_credentials`).
         access_token: Optional[str] = None,
-        refresh_token: Optional[str] = None,
         # Config
         folder_id: Optional[str] = None,
         shared_drive_id: Optional[str] = None,
@@ -64,10 +61,7 @@ class GoogleDriveClient(DataSourceClient):
         **_ignored,
     ):
         super().__init__()
-        self.oauth_client_id = oauth_client_id
-        self.oauth_client_secret = oauth_client_secret
         self.access_token = access_token
-        self.refresh_token = refresh_token
         self.folder_id = (folder_id or "").strip() or None
         self.shared_drive_id = (shared_drive_id or "").strip() or None
         self.allowed_extensions = self._parse_exts(allowed_extensions)
@@ -94,50 +88,26 @@ class GoogleDriveClient(DataSourceClient):
             ext = ext or "gdoc"
         return ext in self.allowed_extensions
 
-    def _refresh(self) -> None:
-        if not (self.refresh_token and self.oauth_client_id and self.oauth_client_secret):
-            raise ValueError("Access token expired and no refresh credentials available")
-        resp = httpx.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": self.refresh_token,
-                "client_id": self.oauth_client_id,
-                "client_secret": self.oauth_client_secret,
-            },
-            timeout=30,
-        )
-        if resp.status_code >= 400:
-            raise ValueError(f"Google token refresh failed: {resp.status_code} {resp.text[:300]}")
-        self.access_token = resp.json()["access_token"]
-
     def _headers(self) -> Dict[str, str]:
         if not self.access_token:
-            self._refresh()
+            raise ValueError(
+                "Google Drive client has no access token. Users must connect via OAuth "
+                "before the connection can be used."
+            )
         return {"Authorization": f"Bearer {self.access_token}", "Accept": "application/json"}
 
     def _get(self, url: str, params: Optional[dict] = None, **kwargs) -> dict:
-        for attempt in (0, 1):
-            resp = httpx.get(url, headers=self._headers(), params=params, timeout=30, **kwargs)
-            if resp.status_code == 401 and attempt == 0:
-                self._refresh()
-                continue
-            if resp.status_code >= 400:
-                raise ValueError(f"Google {url} → {resp.status_code} {resp.text[:300]}")
-            return resp.json()
-        return {}
+        resp = httpx.get(url, headers=self._headers(), params=params, timeout=30, **kwargs)
+        if resp.status_code >= 400:
+            raise ValueError(f"Google {url} → {resp.status_code} {resp.text[:300]}")
+        return resp.json()
 
     def _get_bytes(self, url: str, params: Optional[dict] = None) -> bytes:
-        for attempt in (0, 1):
-            with httpx.Client(follow_redirects=True, timeout=60) as c:
-                resp = c.get(url, headers=self._headers(), params=params)
-            if resp.status_code == 401 and attempt == 0:
-                self._refresh()
-                continue
-            if resp.status_code >= 400:
-                raise ValueError(f"Google {url} → {resp.status_code} {resp.text[:300]}")
-            return resp.content
-        return b""
+        with httpx.Client(follow_redirects=True, timeout=60) as c:
+            resp = c.get(url, headers=self._headers(), params=params)
+        if resp.status_code >= 400:
+            raise ValueError(f"Google {url} → {resp.status_code} {resp.text[:300]}")
+        return resp.content
 
     # ---------------------------------------------------------- enumeration
 
