@@ -42,24 +42,41 @@
                         <InstructionGlobalCreateComponent
                             default-status="published"
                             :agent-id="(route.params.id as string)"
+                            :initial-title="primaryInstructionDefaultTitle"
+                            :uppercase-title="false"
                             @instruction-saved="onPrimaryInstructionCreated"
                             @cancel="creatingInstruction = false"
                         />
                     </div>
 
-                    <!-- Existing instruction: rendered via InstructionGlobalCreateComponent (view + edit) -->
+                    <!-- Inline edit form -->
                     <div
-                        v-else-if="dataSource?.primary_instruction"
+                        v-else-if="editingInstruction && dataSource?.primary_instruction"
                         class="flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
                         style="height: min(600px, 70vh)"
                     >
                         <InstructionGlobalCreateComponent
                             :key="dataSource.primary_instruction.id"
                             :instruction="dataSource.primary_instruction"
+                            :uppercase-title="false"
+                            :start-in-edit-mode="true"
                             @instruction-saved="onPrimaryInstructionSaved"
-                            @cancel="() => {}"
+                            @cancel="editingInstruction = false"
                         />
                     </div>
+
+                    <!-- Existing instruction: simple read-only view -->
+                    <template v-else-if="dataSource?.primary_instruction">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-sm font-medium text-gray-800">{{ dataSource.primary_instruction.title || 'Primary instruction' }}</span>
+                            <button v-if="useCan('update_data_source')" @click="editingInstruction = true" class="text-[10px] text-blue-600 hover:underline">Edit</button>
+                        </div>
+                        <InstructionText
+                            :text="dataSource.primary_instruction.text"
+                            :references="dataSource.primary_instruction.references || []"
+                            :prose="true"
+                        />
+                    </template>
 
                     <!-- Empty state -->
                     <div v-else class="border border-dashed border-gray-200 rounded-xl px-6 py-10 text-center bg-gray-50/40">
@@ -143,6 +160,7 @@ import { ref, computed, inject, watch } from 'vue'
 import { useCan } from '~/composables/usePermissions'
 import { isIndexingActive, indexingSummary } from '~/composables/useConnectionStatus'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 import type { Ref } from 'vue'
 
 definePageMeta({ auth: true, layout: 'data' })
@@ -166,9 +184,13 @@ const showEditModal = ref(false)
 const editStarters = ref<{ title: string; prompt: string }[]>([])
 const savingStarters = ref(false)
 
-// Primary instruction: inline create via InstructionGlobalCreateComponent.
-// Edit/delete happens inside the same component when an instruction already exists.
+// Primary instruction: read-only display by default; create + edit use InstructionGlobalCreateComponent inline.
 const creatingInstruction = ref(false)
+const editingInstruction = ref(false)
+const primaryInstructionDefaultTitle = computed(() => {
+    const name = (dataSource.value?.name || '').trim()
+    return name ? `${name} - Main` : 'Main'
+})
 
 async function onPrimaryInstructionCreated(saved: any) {
     const id = route.params.id as string
@@ -190,6 +212,7 @@ async function onPrimaryInstructionCreated(saved: any) {
 }
 
 async function onPrimaryInstructionSaved(_saved: any) {
+    editingInstruction.value = false
     await injectedFetchIntegration()
 }
 

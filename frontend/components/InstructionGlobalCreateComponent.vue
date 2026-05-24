@@ -8,7 +8,7 @@
                 <!-- Title & Git Info -->
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                        <div v-if="instructionForm.title" class="text-sm font-sans font-bold text-gray-900 uppercase tracking-wide">
+                        <div v-if="instructionForm.title" class="text-sm font-sans font-bold text-gray-900 tracking-wide" :class="{ 'uppercase': props.uppercaseTitle }">
                             {{ instructionForm.title }}
                         </div>
                         <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1 mt-0.5">
@@ -349,9 +349,9 @@
                         v-model="instructionForm.title"
                         type="text"
                         :placeholder="$t('instructionGlobalCreate.titlePlaceholder')"
-                        class="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-sans font-bold text-gray-900
-                               placeholder:text-gray-300 uppercase tracking-wide"
-                        @input="instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase()"
+                        class="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-sans font-bold text-gray-900 placeholder:text-gray-300 tracking-wide"
+                        :class="{ 'uppercase': props.uppercaseTitle }"
+                        @input="props.uppercaseTitle && (instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase())"
                     />
                     <div class="flex items-center gap-2 shrink-0">
                         <!-- Git sync status -->
@@ -844,7 +844,7 @@ interface MentionableItem {
 }
 
 // Props and Emits
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     instruction?: any
     analyzing?: boolean
     isGitSourced?: boolean
@@ -854,7 +854,12 @@ const props = defineProps<{
     initialVersionId?: string  // If set, preselect this version in the version picker on open
     initialVersionNumber?: number  // If set (and initialVersionId not), preselect by version_number after the version list loads
     agentId?: string  // When opened from an agent panel, seed the data source scope
-}>()
+    initialTitle?: string  // Seed the title field when creating a new instruction
+    uppercaseTitle?: boolean  // When false, do not force the title to uppercase (input & display)
+    startInEditMode?: boolean  // When true (and an instruction is provided), open directly in edit mode instead of view mode
+}>(), {
+    uppercaseTitle: true,
+})
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git', 'view-mode-changed'])
 
@@ -1564,9 +1569,10 @@ const buildInstructionPayload = () => {
 
 // Event handlers
 const resetForm = () => {
+    const seedTitle = props.initialTitle || ''
     instructionForm.value = {
         text: '',
-        title: '',
+        title: props.uppercaseTitle ? seedTitle.toUpperCase() : seedTitle,
         status: props.defaultStatus || 'draft',
         category: 'general',
         is_seen: true,
@@ -1924,8 +1930,8 @@ watch(() => props.instruction, async (newInstruction) => {
         selectedLabelIds.value = newInstruction.labels?.map((label: InstructionLabel) => label.id) || []
         emit('update-form', { label_ids: selectedLabelIds.value })
 
-        // Start in view mode for existing instructions
-        isViewMode.value = true
+        // Start in view mode for existing instructions, unless the caller asked otherwise
+        isViewMode.value = !props.startInEditMode
 
         // Reset version picker, then load history
         selectedVersionId.value = null
