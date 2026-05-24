@@ -486,7 +486,8 @@ class Coder:
                  * `.truncated` — bool; True if content was capped
                  * `.error` — str when the fetch failed; `.success` is False in that case
                - Failures never raise — they appear as pages with `.error` set. Filter them: `good = [p for p in pages if p.success and not p.error]`.
-               - Extraction order of preference for structured data (prices, ratings, stock, etc.): (1) `json_ld` (most reliable on ecommerce/news sites — look for `Product.offers.price`, `Offer.price`, etc.), (2) `meta` (look for `product:price:amount`, `og:price:amount`, `twitter:data1`), (3) regex on `.text`. Always fall back gracefully — write the value as `None` for rows you can't parse rather than crashing.
+               - For HTML pages, prefer structured fields in this order when extracting prices/ratings/stock/etc.: (1) `json_ld`, (2) `meta`, (3) regex on `.text`. Always fall back gracefully — write the value as `None` for rows you can't parse rather than crashing.
+               - For non-HTML responses (JSON, XML, plain text — check `.content_type`), `.text` contains the raw body; parse it directly (e.g. `json.loads(page.text)`).
                - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
 
             2. **Data Source Usage**:

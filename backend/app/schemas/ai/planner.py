@@ -111,6 +111,7 @@ class PlannerInput(BaseModel):
 
     # Feature flags
     mcp_tools_enabled: bool = False
+    web_fetch_enabled: bool = False
 
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None
