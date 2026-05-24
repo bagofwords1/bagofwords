@@ -548,18 +548,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "Files are enumerated as a live catalog and read on demand."
         ),
         config_schema=SharePointConfig,
+        # Default captures the admin's Entra app credentials (tenant, client_id,
+        # client_secret) — these are required by the OAuth flow even when each
+        # user signs in individually. The "oauth" variant is the per-user flow
+        # that consumes the admin app credentials at runtime.
         credentials_auth=AuthOptions(
-            default="oauth",
+            default="service_principal",
             by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=SharePointCredentials,
+                    scopes=["system", "user"],
+                ),
                 "oauth": AuthVariant(
                     title="Sign in with Microsoft",
                     schema=OAuthDelegatedCredentials,
                     scopes=["user"],
-                ),
-                "service_principal": AuthVariant(
-                    title="Service Principal (Azure AD)",
-                    schema=SharePointCredentials,
-                    scopes=["system"],
                 ),
             },
         ),
@@ -576,17 +580,17 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         config_schema=OneDriveConfig,
         credentials_auth=AuthOptions(
-            default="oauth",
+            default="service_principal",
             by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=OneDriveCredentials,
+                    scopes=["system", "user"],
+                ),
                 "oauth": AuthVariant(
                     title="Sign in with Microsoft",
                     schema=OAuthDelegatedCredentials,
                     scopes=["user"],
-                ),
-                "service_principal": AuthVariant(
-                    title="Service Principal (Azure AD)",
-                    schema=OneDriveCredentials,
-                    scopes=["system"],
                 ),
             },
         ),
@@ -602,9 +606,17 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "Files are enumerated as a live catalog and read on demand."
         ),
         config_schema=GoogleDriveConfig,
+        # Default captures the admin's Google OAuth client (client_id +
+        # client_secret + optional workspace domain). Per-user OAuth tokens are
+        # collected via the "oauth" variant and stored separately.
         credentials_auth=AuthOptions(
-            default="oauth",
+            default="oauth_app",
             by_auth={
+                "oauth_app": AuthVariant(
+                    title="Google OAuth Client",
+                    schema=GoogleDriveCredentials,
+                    scopes=["system", "user"],
+                ),
                 "oauth": AuthVariant(
                     title="Sign in with Google",
                     schema=OAuthDelegatedCredentials,
