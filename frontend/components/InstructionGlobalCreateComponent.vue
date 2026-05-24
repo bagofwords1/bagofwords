@@ -1159,7 +1159,7 @@ const isSuggestMode = computed(() => !canEditInstructions.value && canSuggestIns
 const canRevertInstructions = computed(() => useCan('manage_instructions'))
 
 const createdAtDisplay = computed(() => {
-    const raw = props.instruction?.created_at
+    const raw = (fullInstruction.value || props.instruction)?.created_at
     if (!raw) return null
     const d = new Date(raw.endsWith('Z') ? raw : raw + 'Z')
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -1427,22 +1427,23 @@ const getCategoryIcon = (category: string) => {
 }
 
 const getSourceTypeIcon = () => {
-    const sourceType = props.instruction?.source_type || 'user'
+    const sourceType = (fullInstruction.value || props.instruction)?.source_type || 'user'
     if (sourceType === 'ai') return 'heroicons:sparkles'
     if (sourceType === 'git') return 'heroicons:code-bracket'
     return 'heroicons:user'
 }
 
 const getSourceTypeIconClass = () => {
-    const sourceType = props.instruction?.source_type || 'user'
+    const sourceType = (fullInstruction.value || props.instruction)?.source_type || 'user'
     if (sourceType === 'ai') return 'text-amber-500'
     if (sourceType === 'git') return 'text-gray-500'
     return 'text-blue-500'
 }
 
 const getCreatorDisplayName = () => {
-    const sourceType = props.instruction?.source_type || 'user'
-    const user = props.instruction?.user
+    const inst = fullInstruction.value || props.instruction
+    const sourceType = inst?.source_type || 'user'
+    const user = inst?.user
     const userName = user?.name || user?.email
 
     if (sourceType === 'ai') {
