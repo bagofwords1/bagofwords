@@ -86,6 +86,17 @@
             <label class="block text-sm font-medium mb-1">Signing Secret</label>
             <input v-model="signingSecret" type="text" class="w-full border rounded px-2 py-1" required />
           </div>
+          <div class="mb-4">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" v-model="autoLinkByEmail" class="mt-0.5" />
+              <span class="text-sm">
+                <span class="font-medium">Auto-link users by workspace email</span>
+                <span class="block text-xs text-gray-500 mt-0.5">
+                  Users messaging the bot are linked to BagOfWords accounts whose email matches their Slack profile — no verification link required. Requires the <code>users:read.email</code> scope. Recommended for SSO-managed workspaces.
+                </span>
+              </span>
+            </label>
+          </div>
           <button type="submit" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md">Connect</button>
         </form>
       </div>
@@ -104,11 +115,14 @@
 
   const botToken = ref('')
   const signingSecret = ref('')
-  const autoLinkByEmail = ref<boolean>(!!props.integrationData?.platform_config?.auto_link_by_email)
+  // Default ON for new connections; reflects stored config for existing ones.
+  const autoLinkByEmail = ref<boolean>(
+    props.integrationData?.platform_config?.auto_link_by_email ?? true
+  )
   const savingAutoLink = ref(false)
 
   watch(() => props.integrationData?.platform_config?.auto_link_by_email, (v) => {
-    autoLinkByEmail.value = !!v
+    if (v !== undefined) autoLinkByEmail.value = !!v
   })
 
   async function saveAutoLinkByEmail() {
@@ -153,7 +167,11 @@
   async function connect() {
       const res = await useMyFetch('/api/settings/integrations/slack', {
         method: 'POST',
-        body: { bot_token: botToken.value, signing_secret: signingSecret.value }
+        body: {
+          bot_token: botToken.value,
+          signing_secret: signingSecret.value,
+          auto_link_by_email: autoLinkByEmail.value,
+        }
       })
       if (res.status.value === 'success') {
         toast.add({
