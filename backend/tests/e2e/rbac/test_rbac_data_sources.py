@@ -139,7 +139,11 @@ def test_data_source_list_basic_filter_and_invariant(test_client, ds_world):
     """List filtering + forward list/detail invariant.
 
     Specifically:
-      - admin bypasses filtering (full_admin_access) and sees both DSes
+      - admin sees both DSes because they CREATED them (creator-as-member
+        rule). The list endpoint does NOT bypass for full_admin_access —
+        admins only see DSes they explicitly belong to. See
+        ``test_admin_does_not_auto_see_other_admins_data_source`` for the
+        non-creator admin case.
       - member_no_grants sees nothing
       - every DS that a principal does see in the list must open via GET /{id}
 
@@ -160,7 +164,7 @@ def test_data_source_list_basic_filter_and_invariant(test_client, ds_world):
         got_ids = {d["id"] for d in list_resp.json()}
 
         if name == "admin":
-            # Admin auto-gets DataSourceMembership rows on create, so should see both.
+            # Admin created both DSes → creator-as-member auto-write → visible.
             for ds_id in (ds_a_id, ds_b_id):
                 if ds_id not in got_ids:
                     failures.append(f"admin list missing: {ds_id}")
@@ -222,6 +226,42 @@ def test_data_source_grant_appears_in_list(test_client, ds_world):
             failures.append(f"{name}: list leaked {leaked}")
 
     assert not failures, "\n".join(failures)
+
+
+@pytest.mark.e2e
+def test_admin_does_not_auto_see_other_admins_data_source(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """A second admin who didn't create the DS and wasn't added to it
+    should NOT see it in the default list — only the creator does. This
+    is the noise-reduction guarantee: full_admin_access grants capability
+    (direct GET still works), not list membership.
+    """
+    creator = bootstrap_admin("creator")
+    org_id = creator["org_id"]
+
+    ds = sqlite_data_source(name="creator_ds", user_token=creator["token"], org_id=org_id)
+    ds_id = ds["id"]
+
+    second_admin = invite_user_to_org(
+        org_id=org_id, admin_token=creator["token"], role="admin"
+    )
+
+    # The default list MUST NOT include a DS the admin neither created
+    # nor was added to.
+    list_resp = test_client.get(
+        "/api/data_sources", headers=_hdr(second_admin["token"], org_id)
+    )
+    assert list_resp.status_code == 200, list_resp.json()
+    assert ds_id not in {d["id"] for d in list_resp.json()}, (
+        f"second admin should not auto-see {ds_id}; got {list_resp.json()}"
+    )
+
+    # Capability bypass is preserved: direct GET still succeeds for admins.
+    detail = test_client.get(
+        f"/api/data_sources/{ds_id}", headers=_hdr(second_admin["token"], org_id)
+    )
+    assert detail.status_code == 200, detail.json()
 
 
 # ────────────────────────────────────────────────────────────────────
