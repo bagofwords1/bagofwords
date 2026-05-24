@@ -99,6 +99,28 @@
 
         </div>
 
+        <!-- Automatic schema refresh (edit mode only — controlled per connection) -->
+        <div v-if="isConnectionEdit" class="p-3 rounded border">
+          <div class="flex items-center justify-between mb-1">
+            <div class="text-sm font-medium text-gray-700">Automatic schema refresh</div>
+            <UToggle color="blue" v-model="auto_reindex_enabled" size="xs" />
+          </div>
+          <p class="text-xs text-gray-500 mb-2">
+            Re-discover tables and columns on a schedule so the agent sees schema changes without a manual reindex.
+          </p>
+          <div v-if="auto_reindex_enabled" class="flex items-center gap-2">
+            <label for="auto_reindex_interval_hours" class="text-xs text-gray-700">Every</label>
+            <input
+              id="auto_reindex_interval_hours"
+              type="number"
+              min="1"
+              v-model.number="auto_reindex_interval_hours"
+              class="w-20 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm"
+            />
+            <span class="text-xs text-gray-700">hours</span>
+          </div>
+        </div>
+
         <div class="pt-1">
           <div v-if="showLLMToggle !== false" class="flex items-center gap-2 mb-2">
             <UToggle color="blue" v-model="use_llm_onboarding" />
@@ -175,6 +197,8 @@ const selectedAuth = ref<string | undefined>(undefined)
 const is_public = ref(true)
 const require_user_auth = ref(Boolean(props.initialRequireUserAuth))
 const use_llm_onboarding = ref(true)
+const auto_reindex_enabled = ref(true)
+const auto_reindex_interval_hours = ref<number>(24)
 const submitting = ref(false)
 const isTestingConnection = ref(false)
 const connectionTestPassed = ref(false)
@@ -309,6 +333,12 @@ async function fetchFields() {
         if (iv.has_credentials) {
           credentialsLocked.value = true
         }
+        if (typeof iv.auto_reindex_enabled === 'boolean') {
+          auto_reindex_enabled.value = iv.auto_reindex_enabled
+        }
+        if (typeof iv.auto_reindex_interval_hours === 'number') {
+          auto_reindex_interval_hours.value = iv.auto_reindex_interval_hours
+        }
       } catch {}
     }
   } catch (e) {
@@ -399,7 +429,9 @@ async function onSubmit() {
       const connectionPayload: any = {
         name: name.value || selectedType.value,
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
-        auth_policy: auth_policy.value
+        auth_policy: auth_policy.value,
+        auto_reindex_enabled: auto_reindex_enabled.value,
+        auto_reindex_interval_hours: auto_reindex_interval_hours.value,
       }
       // Only include credentials if user explicitly unlocked and edited them
       if (!credentialsLocked.value) {

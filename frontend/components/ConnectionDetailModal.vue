@@ -349,6 +349,8 @@ const editFormValues = computed(() => {
     config: connectionDetails.value.config || {},
     auth_policy: connectionDetails.value.auth_policy,
     has_credentials: connectionDetails.value.has_credentials,
+    auto_reindex_enabled: connectionDetails.value.auto_reindex_enabled,
+    auto_reindex_interval_hours: connectionDetails.value.auto_reindex_interval_hours,
     credentials: {}
   }
 })
