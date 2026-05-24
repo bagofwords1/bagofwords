@@ -8,6 +8,7 @@ from app.models.instruction import Instruction
 from app.models.metadata_resource import MetadataResource
 from app.models.datasource_table import DataSourceTable
 from app.models.organization import Organization
+from app.models.connection_tool import ConnectionTool
 
 from app.schemas.instruction_reference_schema import (
     InstructionReferenceCreate,
@@ -138,6 +139,24 @@ class InstructionReferenceService:
             if not obj:
                 raise ValueError("instruction not found")
             return obj
+        elif ref.object_type == "connection_tool":
+            from app.models.connection import Connection
+            q = (
+                select(ConnectionTool)
+                .join(Connection, ConnectionTool.connection_id == Connection.id)
+                .where(
+                    and_(
+                        ConnectionTool.id == ref.object_id,
+                        Connection.organization_id == organization.id,
+                        ConnectionTool.deleted_at.is_(None),
+                    )
+                )
+            )
+            res = await db.execute(q)
+            obj = res.scalar_one_or_none()
+            if not obj:
+                raise ValueError("connection_tool not found")
+            return obj
         else:
             raise ValueError("unsupported object_type")
     
@@ -154,6 +173,10 @@ class InstructionReferenceService:
                 return res.scalar_one_or_none()
             elif object_type == "instruction":
                 q = select(Instruction).where(Instruction.id == object_id)
+                res = await db.execute(q)
+                return res.scalar_one_or_none()
+            elif object_type == "connection_tool":
+                q = select(ConnectionTool).where(ConnectionTool.id == object_id)
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
         except Exception:

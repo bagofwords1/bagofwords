@@ -59,11 +59,19 @@
                 :class="{ 'bg-blue-50': index === mentionState.selectedIndex }"
                 @mousedown.prevent="selectMention(item)"
               >
-                <Icon
-                  :name="item.type === 'instruction' ? 'heroicons:cube' : 'heroicons:table-cells'"
-                  class="w-3.5 h-3.5 mt-0.5 shrink-0"
-                  :class="item.type === 'instruction' ? 'text-indigo-500' : 'text-blue-500'"
-                />
+                <template v-if="item.type === 'instruction'">
+                  <Icon name="heroicons:cube" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-500" />
+                </template>
+                <template v-else-if="item.type === 'connection_tool'">
+                  <span class="relative inline-flex shrink-0 mt-0.5">
+                    <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-3.5" />
+                    <Icon v-else name="heroicons:table-cells" class="w-3.5 h-3.5 text-blue-500" />
+                    <Icon name="heroicons:wrench-screwdriver" class="absolute -bottom-0.5 -right-1 w-2 h-2 text-indigo-400" />
+                  </span>
+                </template>
+                <template v-else>
+                  <Icon name="heroicons:table-cells" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-500" />
+                </template>
                 <div class="flex-1 min-w-0">
                   <template v-if="item.type === 'instruction'">
                     <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
@@ -72,7 +80,7 @@
                   <template v-else>
                     <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
                     <div class="flex items-center gap-1 mt-0.5">
-                      <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-2.5" />
+                      <DataSourceIcon v-if="item.dataSourceType && item.type !== 'connection_tool'" :type="item.dataSourceType" class="h-2.5" />
                       <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
                     </div>
                   </template>
@@ -156,7 +164,7 @@ const instructionText = ref('')
 // ── @ Mention ─────────────────────────────────────────────────────────────────
 interface MentionItem {
   id: string
-  type: 'instruction' | 'metadata_resource' | 'datasource_table'
+  type: 'instruction' | 'metadata_resource' | 'datasource_table' | 'connection_tool'
   name: string | null
   textPreview: string | null
   dataSourceId: string | null
@@ -183,8 +191,9 @@ const mentionState = ref({
 
 const filteredMentionItems = computed(() => {
   const instructions = mentionSearchResults.value.filter(i => i.type === 'instruction').slice(0, 3)
-  const tables = mentionSearchResults.value.filter(i => i.type !== 'instruction').slice(0, 3)
-  return [...instructions, ...tables]
+  const tables = mentionSearchResults.value.filter(i => i.type === 'datasource_table' || i.type === 'metadata_resource').slice(0, 3)
+  const tools = mentionSearchResults.value.filter(i => i.type === 'connection_tool').slice(0, 3)
+  return [...instructions, ...tables, ...tools]
 })
 
 const mentionDropdownStyle = computed(() => ({
@@ -195,7 +204,7 @@ const mentionDropdownStyle = computed(() => ({
 const fetchAllMentionItems = async () => {
   try {
     const params = new URLSearchParams()
-    params.set('types', 'instruction,datasource_table,metadata_resource')
+    params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
     params.set('data_source_filter', dsId.value)
     const { data, error } = await useMyFetch<any[]>(`/instructions/available-references?${params}`, { method: 'GET' })
     if (!error.value && data.value) {
@@ -212,7 +221,7 @@ const fetchMentionItems = async (query?: string) => {
   try {
     const params = new URLSearchParams()
     if (query) params.set('q', query)
-    params.set('types', 'instruction,datasource_table,metadata_resource')
+    params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
     params.set('data_source_filter', dsId.value)
     const { data, error } = await useMyFetch<any[]>(`/instructions/available-references?${params}`, { method: 'GET' })
     if (!error.value && data.value) {
@@ -347,21 +356,20 @@ async function handleSave() {
   saving.value = true
   try {
     const text = instructionText.value.trim()
+    let primaryInstructionId: string | null = null
 
     if (draftInstructionId.value) {
       if (text) {
-        // Promote existing draft to published with (possibly edited) text
         await useMyFetch(`/instructions/${draftInstructionId.value}`, {
           method: 'PUT',
           body: { text, status: 'published' },
         })
+        primaryInstructionId = draftInstructionId.value
       } else {
-        // User cleared the text — discard the draft
         await useMyFetch(`/instructions/${draftInstructionId.value}`, { method: 'DELETE' })
       }
     } else if (text) {
-      // No draft exists (llm_sync hadn't run yet) — create fresh
-      await useMyFetch('/instructions/global', {
+      const { data } = await useMyFetch('/instructions/global', {
         method: 'POST',
         body: {
           text,
@@ -372,6 +380,14 @@ async function handleSave() {
           load_mode: 'always',
           data_source_ids: [dsId.value],
         },
+      })
+      primaryInstructionId = (data as any)?.value?.id || null
+    }
+
+    if (primaryInstructionId) {
+      await useMyFetch(`/data_sources/${dsId.value}`, {
+        method: 'PUT',
+        body: { primary_instruction_id: primaryInstructionId },
       })
     }
 

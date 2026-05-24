@@ -18,7 +18,7 @@ class InstructionReference(BaseSchema):
     
     # Dynamic relationships to referenced objects
     @property
-    def referenced_object(self) -> Optional[Union["MetadataResource", "DataSourceTable", "Memory"]]:
+    def referenced_object(self) -> Optional[Union["MetadataResource", "DataSourceTable", "Memory", "ConnectionTool"]]:
         """Get the actual referenced object based on object_type and object_id."""
         if self.object_type == "metadata_resource":
             return self.metadata_resource
@@ -26,5 +26,7 @@ class InstructionReference(BaseSchema):
             return self.datasource_table
         elif self.object_type == "memory":
             return self.memory
+        elif self.object_type == "connection_tool":
+            return self.connection_tool
         return None
 

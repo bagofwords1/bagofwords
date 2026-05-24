@@ -32,6 +32,15 @@ class DataSource(BaseSchema):
     conversation_starters = Column(JSON, nullable=True)
     use_llm_sync = Column(Boolean, nullable=False, default=False)
 
+    # Primary instruction: the canonical overview instruction for this agent
+    primary_instruction_id = Column(String(36), ForeignKey('instructions.id', ondelete='SET NULL'), nullable=True)
+    primary_instruction = relationship(
+        "Instruction",
+        foreign_keys=[primary_instruction_id],
+        lazy="noload",
+        post_update=True,
+    )
+
     # The organization that owns this data source
     organization_id = Column(String(36), ForeignKey(
         'organizations.id'), nullable=False)

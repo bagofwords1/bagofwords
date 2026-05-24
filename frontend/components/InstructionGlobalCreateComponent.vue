@@ -3,12 +3,12 @@
         <!-- VIEW MODE: Read-only display for existing instructions -->
         <div v-if="isEditing && isViewMode" class="flex-1 flex flex-col min-h-0">
             <!-- Scrollable content area -->
-            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <div class="flex-1 overflow-y-auto px-6 py-3 space-y-2">
 
                 <!-- Title & Git Info -->
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                        <div v-if="instructionForm.title" class="text-sm font-mono font-semibold text-gray-900 uppercase tracking-wide">
+                        <div v-if="instructionForm.title" class="text-sm font-sans font-bold text-gray-900 uppercase tracking-wide">
                             {{ instructionForm.title }}
                         </div>
                         <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1 mt-0.5">
@@ -115,20 +115,79 @@
                 </div>
 
                 <!-- Content Display (current version) -->
-                <div v-else class="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <!-- Markdown rendered content (for .md files or non-git-linked) -->
-                    <div v-if="shouldRenderAsMarkdown" class="p-4 markdown-wrapper">
-                        <MDC :value="instructionForm.text || ''" class="markdown-content" />
+                <div v-else>
+                    <!-- Pending suggestions toolbar + diff view -->
+                    <div
+                        v-if="tracked.hasPending.value && tracked.currentBuild.value"
+                        class="border border-amber-200 bg-amber-50/40 rounded-xl overflow-hidden mb-2"
+                    >
+                        <div class="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-amber-200/70 bg-amber-50/60">
+                            <div class="flex items-center gap-1.5 text-[11px] text-amber-900 min-w-0">
+                                <Icon name="heroicons:sparkles" class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span class="font-medium">
+                                    {{ $t('trackedChanges.suggestion', 'Suggestion') }}
+                                    <span v-if="tracked.pendingCount.value > 1">
+                                        {{ tracked.currentIndex.value + 1 }} / {{ tracked.pendingCount.value }}
+                                    </span>
+                                </span>
+                                <span class="text-amber-700/70 truncate">
+                                    · {{ tracked.currentBuild.value.created_by?.name || tracked.currentBuild.value.source }}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <button
+                                    v-if="tracked.pendingCount.value > 1"
+                                    type="button"
+                                    class="p-1 text-amber-700 hover:bg-amber-100 rounded disabled:opacity-40"
+                                    :disabled="tracked.currentIndex.value === 0"
+                                    @click="tracked.prev()"
+                                >
+                                    <Icon name="heroicons:chevron-left" class="w-3.5 h-3.5 rtl-flip" />
+                                </button>
+                                <button
+                                    v-if="tracked.pendingCount.value > 1"
+                                    type="button"
+                                    class="p-1 text-amber-700 hover:bg-amber-100 rounded disabled:opacity-40"
+                                    :disabled="tracked.currentIndex.value >= tracked.pendingCount.value - 1"
+                                    @click="tracked.next()"
+                                >
+                                    <Icon name="heroicons:chevron-right" class="w-3.5 h-3.5 rtl-flip" />
+                                </button>
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+                                    :disabled="tracked.isResolving.value"
+                                    @click="onAcceptTracked"
+                                >
+                                    <Icon name="heroicons:check" class="w-2.5 h-2.5" />
+                                    {{ $t('trackedChanges.accept', 'Accept') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                    :disabled="tracked.isResolving.value"
+                                    @click="onRejectTracked"
+                                >
+                                    <Icon name="heroicons:x-mark" class="w-2.5 h-2.5" />
+                                    {{ $t('trackedChanges.reject', 'Reject') }}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="px-3 py-2 bg-white">
+                            <TrackedChangesView :diff-ops="tracked.diffOps.value" />
+                        </div>
                     </div>
-
-                    <!-- Code block for other file types -->
-                    <div v-else class="p-4 bg-gray-50">
-                        <pre class="text-xs leading-relaxed font-mono text-gray-800 whitespace-pre-wrap overflow-x-auto"><code>{{ instructionForm.text }}</code></pre>
-                    </div>
+                    <InstructionEditor
+                        v-if="!tracked.hasPending.value"
+                        key="view-mode"
+                        :model-value="instructionForm.text || ''"
+                        mode="wysiwyg"
+                        :editable="false"
+                    />
                 </div>
 
                 <!-- Created/Approved By -->
-                <div class="flex flex-wrap items-center gap-4 text-xs">
+                <div v-if="props.instruction" class="flex flex-wrap items-center gap-4 text-xs">
                     <!-- Created By -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">{{ $t('instructionGlobalCreate.createdBy') }}</span>
@@ -226,7 +285,18 @@
                                 :key="ref.id"
                                 class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700"
                             >
-                                <Icon :name="getRefIconHeroicons(ref.type)" class="w-3 h-3 shrink-0" :class="ref.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'" />
+                                <!-- DS icon for tables/tools (shows which agent) -->
+                                <template v-if="ref.data_source_type && (ref.type === 'datasource_table' || ref.type === 'connection_tool')">
+                                    <DataSourceIcon :type="ref.data_source_type" class="h-3 shrink-0" />
+                                    <!-- Wrench pip only when we have DS icon, to distinguish tools from tables -->
+                                    <Icon v-if="ref.type === 'connection_tool'" name="heroicons:wrench-screwdriver" class="w-2.5 h-2.5 shrink-0 text-gray-400" />
+                                </template>
+                                <Icon
+                                    v-else
+                                    :name="getRefIconHeroicons(ref.type)"
+                                    class="w-3 h-3 shrink-0"
+                                    :class="ref.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'"
+                                />
                                 {{ ref.name || ref.text_preview?.slice(0, 30) + '...' }}
                             </div>
                         </div>
@@ -271,149 +341,66 @@
         <!-- EDIT MODE: Form for creating/editing instructions -->
         <form v-else @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
             <!-- Scrollable content area -->
-            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <div class="flex-1 overflow-y-auto px-6 py-3 space-y-2">
 
-                <!-- Title Input -->
-                <div>
+                <!-- Title row: inline input + mode toggle + git sync -->
+                <div class="flex items-center justify-between gap-3">
                     <input
                         v-model="instructionForm.title"
                         type="text"
                         :placeholder="$t('instructionGlobalCreate.titlePlaceholder')"
-                        class="w-full px-3 py-2 text-sm font-mono uppercase tracking-wide
-                               border border-gray-200 rounded-lg
-                               focus:ring-2 focus:ring-blue-100 focus:border-blue-400 focus:outline-none
-                               placeholder:text-gray-400 placeholder:normal-case placeholder:tracking-normal"
+                        class="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-sans font-bold text-gray-900
+                               placeholder:text-gray-300 uppercase tracking-wide"
                         @input="instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase()"
                     />
-                    <p class="mt-1 text-[10px] text-gray-400">{{ $t('instructionGlobalCreate.titleHint') }}</p>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <!-- Git sync status -->
+                        <template v-if="props.isGitSourced">
+                            <UTooltip v-if="props.isGitSynced" :text="$t('instructionGlobalCreate.tooltips.stopSyncing')" :popper="{ placement: 'top' }">
+                                <button type="button" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors" @click="$emit('unlink-from-git')">
+                                    <GitBranchIcon class="w-3 h-3" />
+                                    {{ $t('instructionGlobalCreate.status.synced') }}
+                                    <Icon name="heroicons:x-mark" class="w-3 h-3" />
+                                </button>
+                            </UTooltip>
+                            <template v-else>
+                                <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                                <UTooltip :text="$t('instructionGlobalCreate.tooltips.resumeSyncing')" :popper="{ placement: 'top' }">
+                                    <button type="button" class="text-[10px] text-blue-500 hover:text-blue-600 transition-colors" @click="$emit('relink-to-git')">{{ $t('instructionGlobalCreate.actions.relink') }}</button>
+                                </UTooltip>
+                            </template>
+                        </template>
+                        <!-- Editor mode toggle -->
+                        <div class="flex items-center rounded-md border border-gray-200 overflow-hidden text-[10px] font-medium">
+                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">Rich</button>
+                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'raw' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">MD</button>
+                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'code' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">&lt;/&gt;</button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Hero Textarea / Code Editor -->
-                <div class="border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
-                    <!-- Header with file path, git sync status, and code view toggle -->
-                    <div class="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-100">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                            <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
-                            <span v-else class="text-xs font-medium text-gray-500">{{ $t('instructionGlobalCreate.instruction') }}</span>
-                        </div>
-                        <div class="flex items-center gap-2 shrink-0">
-                            <!-- Git sync status and actions -->
-                            <template v-if="props.isGitSourced">
-                                <UTooltip
-                                    v-if="props.isGitSynced"
-                                    :text="$t('instructionGlobalCreate.tooltips.stopSyncing')"
-                                    :popper="{ placement: 'top' }"
-                                >
-                                    <button
-                                        type="button"
-                                        class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors"
-                                        @click="$emit('unlink-from-git')"
-                                    >
-                                        <GitBranchIcon class="w-3 h-3" />
-                                        {{ $t('instructionGlobalCreate.status.synced') }}
-                                        <Icon name="heroicons:x-mark" class="w-3 h-3" />
-                                    </button>
-                                </UTooltip>
-                                <template v-else>
-                                    <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
-                                    <UTooltip
-                                        :text="$t('instructionGlobalCreate.tooltips.resumeSyncing')"
-                                        :popper="{ placement: 'top' }"
-                                    >
-                                        <button
-                                            type="button"
-                                            class="text-[10px] text-blue-500 hover:text-blue-600 transition-colors"
-                                            @click="$emit('relink-to-git')"
-                                        >
-                                            {{ $t('instructionGlobalCreate.actions.relink') }}
-                                        </button>
-                                    </UTooltip>
-                                </template>
-                            </template>
-                            <!-- Code view toggle -->
-                            <button
-                                type="button"
-                                @click="codeView = !codeView"
-                                class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
-                                :title="codeView ? $t('instructionGlobalCreate.tooltips.switchToTextEditor') : $t('instructionGlobalCreate.tooltips.switchToCodeEditor')"
-                            >
-                                <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
-                            </button>
-                        </div>
+                <div>
+                    <!-- Git file path (only when git-sourced) -->
+                    <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1.5 pb-1">
+                        <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                        <span class="text-xs font-mono text-gray-500 truncate">{{ filePath }}</span>
                     </div>
                     
-                    <!-- Normal textarea with @ mention support -->
-                    <div v-if="!codeView" class="mention-container">
-                        <!-- Highlight backdrop -->
-                        <div
-                            ref="backdropRef"
-                            dir="auto"
-                            class="mention-backdrop"
-                            aria-hidden="true"
-                            v-html="highlightedText"
-                        ></div>
+                    <!-- WYSIWYG / raw markdown editor -->
+                    <InstructionEditor
+                        v-if="editorMode !== 'code'"
+                        key="edit-mode"
+                        v-model="instructionForm.text"
+                        :mode="editorMode"
+                        :editable="true"
+                        :placeholder="$t('instructionGlobalCreate.textareaPlaceholder')"
+                        :data-source-ids="isAllDataSourcesSelected ? [] : selectedDataSources"
+                        :is-all-data-sources="isAllDataSourcesSelected"
+                        @mention-selected="handleEditorMentionSelected"
+                    />
 
-                        <!-- Actual textarea -->
-                        <textarea
-                            ref="textareaRef"
-                            v-model="instructionForm.text"
-                            dir="auto"
-                            :placeholder="$t('instructionGlobalCreate.textareaPlaceholder')"
-                            class="mention-textarea"
-                            required
-                            @input="handleTextareaInput"
-                            @keydown="handleTextareaKeydown"
-                            @blur="handleTextareaBlur"
-                            @scroll="syncScroll"
-                        />
-
-                        <!-- @ Mention dropdown - hide if no results after 5+ chars -->
-                        <div
-                            v-if="mentionState.active && (filteredMentionItems.length > 0 || mentionState.query.length < 5)"
-                            ref="mentionDropdownRef"
-                            class="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
-                            :style="mentionDropdownStyle"
-                        >
-                            <div v-if="filteredMentionItems.length === 0" class="px-3 py-2 text-xs text-gray-500">
-                                {{ $t('instructionGlobalCreate.typeToSearch') }}
-                            </div>
-                            <button
-                                v-for="(item, index) in filteredMentionItems"
-                                :key="item.id"
-                                type="button"
-                                :data-mention-idx="index"
-                                class="w-full text-start px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
-                                :class="{ 'bg-blue-50': index === mentionState.selectedIndex }"
-                                @mousedown.prevent="selectMention(item)"
-                            >
-                                <!-- Icon based on type -->
-                                <Icon
-                                    :name="item.type === 'instruction' ? 'heroicons:cube' : 'heroicons:table-cells'"
-                                    class="w-3.5 h-3.5 mt-0.5 shrink-0"
-                                    :class="item.type === 'instruction' ? 'text-indigo-500' : 'text-blue-500'"
-                                />
-                                <div class="flex-1 min-w-0">
-                                    <!-- Instruction (mention dropdown item) -->
-                                    <template v-if="item.type === 'instruction'">
-                                        <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                                        <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
-                                        <span v-if="item.name && item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
-                                    </template>
-                                    <!-- Table -->
-                                    <template v-else>
-                                        <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
-                                        <div class="flex items-center gap-1 mt-0.5">
-                                            <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-2.5" />
-                                            <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- Code editor (Monaco with white background) -->
+                    <!-- Code editor (Monaco) -->
                     <ClientOnly v-else>
                         <MonacoEditor
                             v-model="instructionForm.text"
@@ -431,31 +418,27 @@
                         />
                     </ClientOnly>
                     
-                    <!-- Action buttons row -->
-                    <div class="px-3 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
-                        <button 
+                    <!-- Action buttons (ghost, below editor) -->
+                    <div class="flex items-center gap-3 pt-1.5">
+                        <button
                             type="button"
                             @click="enhanceInstruction"
                             :disabled="isEnhancing || !instructionForm.text?.trim()"
-                            class="inline-flex items-center gap-1 px-2.5 py-1 
-                                   bg-white border border-gray-200 rounded-full
-                                   text-xs text-gray-600
-                                   hover:bg-gray-50 hover:border-gray-300
-                                   disabled:opacity-50 disabled:cursor-not-allowed
-                                   transition-all"
+                            class="inline-flex items-center gap-1 text-xs text-gray-400
+                                   hover:text-purple-500
+                                   disabled:opacity-40 disabled:cursor-not-allowed
+                                   transition-colors"
                         >
                             <Spinner v-if="isEnhancing" class="w-3.5 h-3.5" />
-                            <Icon v-else name="heroicons:sparkles" class="w-3.5 h-3.5 text-purple-500" />
+                            <Icon v-else name="heroicons:sparkles" class="w-3.5 h-3.5" />
                             {{ isEnhancing ? $t('instructionGlobalCreate.actions.enhancing') : $t('instructionGlobalCreate.actions.enhance') }}
                         </button>
                         <button
                             type="button"
                             @click="$emit('toggle-analyze')"
-                            class="inline-flex items-center gap-1 px-2.5 py-1
-                                   bg-white border border-gray-200 rounded-full
-                                   text-xs text-gray-500
-                                   hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700
-                                   transition-all"
+                            class="inline-flex items-center gap-1 text-xs text-gray-400
+                                   hover:text-gray-600
+                                   transition-colors"
                         >
                             <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
                             {{ $t('instructionGlobalCreate.actions.analyze') }}
@@ -464,7 +447,7 @@
                 </div>
 
                 <!-- Horizontal Config Row -->
-                <div class="flex flex-wrap items-center gap-2 p-2.5 bg-gray-50 rounded-lg">
+                <div class="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg">
                     <!-- Status -->
                     <USelectMenu 
                         v-model="instructionForm.status" 
@@ -812,10 +795,14 @@
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import InstructionText from '~/components/instructions/InstructionText.vue'
+import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
+import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import { useAgent } from '~/composables/useAgent'
+import { useTrackedChanges } from '~/composables/useTrackedChanges'
 
 const { t } = useI18n()
 
@@ -847,7 +834,7 @@ interface InstructionLabel {
 
 interface MentionableItem {
     id: string
-    type: 'metadata_resource' | 'datasource_table' | 'instruction'
+    type: 'metadata_resource' | 'datasource_table' | 'instruction' | 'connection_tool'
     name: string
     data_source_id?: string
     data_source_name?: string
@@ -866,6 +853,7 @@ const props = defineProps<{
     defaultStatus?: 'draft' | 'published' | 'archived'  // Initial status for new instructions (default: 'draft')
     initialVersionId?: string  // If set, preselect this version in the version picker on open
     initialVersionNumber?: number  // If set (and initialVersionId not), preselect by version_number after the version list loads
+    agentId?: string  // When opened from an agent panel, seed the data source scope
 }>()
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git', 'view-mode-changed'])
@@ -889,7 +877,7 @@ const showUnlinkConfirm = ref(false)
 const showDeleteConfirm = ref(false)
 const showDeleteGitConfirm = ref(false)
 const originalText = ref('')
-const codeView = ref(false)
+const editorMode = ref<'wysiwyg' | 'raw' | 'code'>('wysiwyg')
 const isViewMode = ref(true)  // Start in view mode for existing instructions
 
 // === Version picker / diff / revert ===
@@ -917,6 +905,28 @@ const versionFieldChanges = ref<VersionFieldChange[]>([])
 
 const currentInstructionId = computed(() => (props.instruction as any)?.id || null)
 const currentVersionId = computed(() => (props.instruction as any)?.current_version_id || null)
+
+// Tracked changes (pending suggestions for this instruction)
+const liveTextRef = computed(() => instructionForm.value.text || '')
+const tracked = useTrackedChanges(currentInstructionId, liveTextRef)
+
+async function onAcceptTracked() {
+    const ok = await tracked.accept()
+    if (ok) {
+        toast.add({ title: 'Suggestion accepted', color: 'green' })
+        emit('instructionSaved')
+    } else {
+        toast.add({ title: 'Failed to accept', color: 'red' })
+    }
+}
+async function onRejectTracked() {
+    const ok = await tracked.reject()
+    if (ok) {
+        toast.add({ title: 'Suggestion rejected', color: 'gray' })
+    } else {
+        toast.add({ title: 'Failed to reject', color: 'red' })
+    }
+}
 const selectedVersion = computed(() =>
     versionList.value.find(v => v.id === selectedVersionId.value) || null
 )
@@ -1070,346 +1080,24 @@ function onVersionDropdownOutsideClick(e: MouseEvent) {
 onMounted(() => document.addEventListener('click', onVersionDropdownOutsideClick))
 onUnmounted(() => document.removeEventListener('click', onVersionDropdownOutsideClick))
 
-// @ Mention feature
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
-const mentionDropdownRef = ref<HTMLDivElement | null>(null)
-
+// @ Mention - handled by InstructionEditor component
 interface MentionItem {
     id: string
-    type: 'instruction' | 'metadata_resource' | 'datasource_table'
-    name: string | null  // title for instructions, table name for tables
+    type: 'instruction' | 'metadata_resource' | 'datasource_table' | 'connection_tool'
+    name: string | null
     textPreview: string | null
     dataSourceId: string | null
     dataSourceName: string | null
     dataSourceType: string | null
 }
 
-// Items for @ mention autocomplete (instructions + tables from API)
-// allMentionItems: full list for highlighting validation (not filtered by search)
-// mentionSearchResults: filtered by search query for dropdown
-const allMentionItems = ref<MentionItem[]>([])
-const mentionSearchResults = ref<MentionItem[]>([])
-const isFetchingMentions = ref(false)
-
-// Fetch all mention items (no search filter) - used for highlighting
-const fetchAllMentionItems = async () => {
-    try {
-        const params = new URLSearchParams()
-        params.set('types', 'instruction,datasource_table,metadata_resource')
-        if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
-            params.set('data_source_filter', selectedDataSources.value.join(','))
-        }
-
-        const { data, error } = await useMyFetch<Array<{
-            id: string
-            type: string
-            name: string | null
-            text_preview: string | null
-            data_source_id: string | null
-            data_source_name: string | null
-            data_source_type: string | null
-        }>>(
-            `/instructions/available-references?${params.toString()}`,
-            { method: 'GET' }
-        )
-
-        if (!error.value && data.value) {
-            allMentionItems.value = data.value.map(item => ({
-                id: item.id,
-                type: item.type as MentionItem['type'],
-                name: item.name,
-                textPreview: item.text_preview || null,
-                dataSourceId: item.data_source_id,
-                dataSourceName: item.data_source_name,
-                dataSourceType: item.data_source_type
-            }))
-        }
-    } catch (err) {
-        console.error('Error fetching all mention items:', err)
-    }
-}
-
-// Fetch mention items with search query - used for dropdown
-const fetchMentionItems = async (query?: string) => {
-    isFetchingMentions.value = true
-    try {
-        const params = new URLSearchParams()
-        if (query) params.set('q', query)
-        params.set('types', 'instruction,datasource_table,metadata_resource')
-        if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
-            params.set('data_source_filter', selectedDataSources.value.join(','))
-        }
-
-        const { data, error } = await useMyFetch<Array<{
-            id: string
-            type: string
-            name: string | null
-            text_preview: string | null
-            data_source_id: string | null
-            data_source_name: string | null
-            data_source_type: string | null
-        }>>(
-            `/instructions/available-references?${params.toString()}`,
-            { method: 'GET' }
-        )
-
-        if (!error.value && data.value) {
-            mentionSearchResults.value = data.value.map(item => ({
-                id: item.id,
-                type: item.type as MentionItem['type'],
-                name: item.name,
-                textPreview: item.text_preview || null,
-                dataSourceId: item.data_source_id,
-                dataSourceName: item.data_source_name,
-                dataSourceType: item.data_source_type
-            }))
-        }
-    } catch (err) {
-        console.error('Error fetching mention items:', err)
-    } finally {
-        isFetchingMentions.value = false
-    }
-}
-
-const mentionState = ref({
-    active: false,
-    query: '',
-    startPos: 0,
-    selectedIndex: 0,
-    top: 0,
-    left: 0,
-})
-
-// Debounced fetch when query changes
-let mentionFetchTimeout: ReturnType<typeof setTimeout> | null = null
-watch(() => mentionState.value.query, (newQuery) => {
-    if (mentionFetchTimeout) clearTimeout(mentionFetchTimeout)
-    mentionFetchTimeout = setTimeout(() => {
-        fetchMentionItems(newQuery)
-    }, 150)
-})
-
-const filteredMentionItems = computed(() => {
-    // Group by type and take top 3 from each (from search results for dropdown)
-    const instructions = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'instruction').slice(0, 3)
-    const tables = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'datasource_table' || i.type === 'metadata_resource').slice(0, 3)
-    return [...instructions, ...tables]
-})
-
-const mentionDropdownStyle = computed(() => ({
-    top: `${mentionState.value.top}px`,
-    left: `${mentionState.value.left}px`,
-}))
-
-// Check if a mention text matches any known item (uses full list, not search results)
-const isKnownMention = (mentionText: string): boolean => {
-    const lowerText = mentionText.toLowerCase()
-
-    for (const item of allMentionItems.value) {
-        // Check against name (for tables and instructions with titles)
-        if (item.name && item.name.toLowerCase() === lowerText) {
-            return true
-        }
-
-        // Check against text preview patterns (for instructions)
-        if (item.type === 'instruction' && item.textPreview) {
-            // Format used in selectMention for instructions without name
-            const truncatedPreview = item.textPreview.slice(0, 30) + '...'
-            if (truncatedPreview.toLowerCase() === lowerText) {
-                return true
-            }
-            // Also check if the textPreview itself starts with the mention
-            if (item.textPreview.toLowerCase().startsWith(lowerText.replace(/\.\.\.+$/, ''))) {
-                return true
-            }
-        }
-    }
-    return false
-}
-
-// Render text with highlighted mentions
-const highlightedText = computed(() => {
-    const text = instructionForm.value.text
-    if (!text) return ''
-
-    // Escape HTML first
-    let html = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-
-    // Find and highlight @mentions
-    // Match @word (any alphanumeric/underscore) or @"quoted text"
-    const mentionRegex = /@([A-Za-z_][A-Za-z0-9_]*|"[^"]+")/g
-
-    html = html.replace(mentionRegex, (match, captured) => {
-        // Extract the name (remove quotes if present)
-        let name = captured
-        if (name.startsWith('"') && name.endsWith('"')) {
-            name = name.slice(1, -1)
-        }
-
-        // Only highlight if this is a known mention
-        if (isKnownMention(name)) {
-            return `<mark style="background-color: rgba(99, 102, 241, 0.12); color: transparent; border-radius: 3px; padding: 0; text-decoration: none;">${match}</mark>`
-        }
-        // Not a valid mention, return unhighlighted
-        return match
-    })
-
-    // Add invisible character at end to match textarea sizing
-    return html + '\n'
-})
-
-// Ref for the backdrop div to sync scroll
-const backdropRef = ref<HTMLDivElement | null>(null)
-
-const syncScroll = (e: Event) => {
-    const textarea = e.target as HTMLTextAreaElement
-    if (backdropRef.value) {
-        backdropRef.value.scrollTop = textarea.scrollTop
-    }
-}
-
-const handleTextareaInput = (e: Event) => {
-    const textarea = e.target as HTMLTextAreaElement
-    const text = textarea.value
-    const cursorPos = textarea.selectionStart
-
-    // Find if we're in a mention context (typing after @)
-    const textBeforeCursor = text.slice(0, cursorPos)
-    const atIndex = textBeforeCursor.lastIndexOf('@')
-
-    if (atIndex !== -1) {
-        const textAfterAt = textBeforeCursor.slice(atIndex + 1)
-        // Allow spaces in mention query, but end on newline or double space
-        // Also limit query length to prevent runaway matches
-        const hasNewline = textAfterAt.includes('\n')
-        const hasDoubleSpace = textAfterAt.includes('  ')
-        const tooLong = textAfterAt.length > 50
-
-        if (!hasNewline && !hasDoubleSpace && !tooLong) {
-            // Calculate position for dropdown
-            const lines = textBeforeCursor.split('\n')
-            const currentLineIndex = lines.length - 1
-            const lineHeight = 18 // approximate line height in pixels
-            const charWidth = 7 // approximate char width for monospace
-
-            mentionState.value = {
-                active: true,
-                query: textAfterAt,
-                startPos: atIndex,
-                selectedIndex: 0,
-                top: (currentLineIndex + 1) * lineHeight + 16, // +16 for padding
-                left: Math.min((lines[currentLineIndex].length - textAfterAt.length) * charWidth + 16, 200),
-            }
-            return
-        }
-    }
-
-    // Not in mention mode
-    if (mentionState.value.active) {
-        mentionState.value.active = false
-    }
-}
-
-const scrollMentionIntoView = () => {
-    if (!mentionDropdownRef.value) return
-    const container = mentionDropdownRef.value
-    const selectedEl = container.querySelector(`[data-mention-idx="${mentionState.value.selectedIndex}"]`) as HTMLElement | null
-    if (!selectedEl) return
-
-    const containerTop = container.scrollTop
-    const containerBottom = containerTop + container.clientHeight
-    const elTop = selectedEl.offsetTop
-    const elBottom = elTop + selectedEl.offsetHeight
-
-    if (elTop < containerTop) {
-        container.scrollTop = elTop
-    } else if (elBottom > containerBottom) {
-        container.scrollTop = elBottom - container.clientHeight
-    }
-}
-
-const handleTextareaKeydown = (e: KeyboardEvent) => {
-    if (!mentionState.value.active) return
-
-    const filtered = filteredMentionItems.value
-
-    if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        mentionState.value.selectedIndex = Math.min(
-            mentionState.value.selectedIndex + 1,
-            filtered.length - 1
-        )
-        nextTick(scrollMentionIntoView)
-    } else if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        mentionState.value.selectedIndex = Math.max(
-            mentionState.value.selectedIndex - 1,
-            0
-        )
-        nextTick(scrollMentionIntoView)
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-        if (filtered.length > 0) {
-            e.preventDefault()
-            selectMention(filtered[mentionState.value.selectedIndex])
-        }
-    } else if (e.key === 'Escape') {
-        e.preventDefault()
-        mentionState.value.active = false
-    }
-}
-
-const handleTextareaBlur = () => {
-    // Delay to allow click on dropdown item
-    setTimeout(() => {
-        mentionState.value.active = false
-    }, 150)
-}
-
-const selectMention = (item: MentionItem) => {
-    const textarea = textareaRef.value
-    if (!textarea) return
-
-    const text = instructionForm.value.text
-    const { startPos, query } = mentionState.value
-
-    // Build the mention text based on type
-    // Wrap in quotes if name contains spaces or special characters
-    const needsQuotes = (name: string | null) => name && /[\s\-.]/.test(name)
-
-    let mentionText: string
-    if (item.type === 'instruction') {
-        if (!item.name) {
-            mentionText = `@"${item.textPreview?.slice(0, 30)}..."`
-        } else if (needsQuotes(item.name)) {
-            mentionText = `@"${item.name}"`
-        } else {
-            mentionText = `@${item.name}`
-        }
-    } else {
-        // Table - wrap in quotes if has spaces
-        if (needsQuotes(item.name)) {
-            mentionText = `@"${item.name}"`
-        } else {
-            mentionText = `@${item.name}`
-        }
-    }
-
-    // Replace @query with the mention
-    const before = text.slice(0, startPos)
-    const after = text.slice(startPos + 1 + query.length) // +1 for the @
-
-    instructionForm.value.text = before + mentionText + ' ' + after
-
-    // Add to selectedReferences (tables and instructions)
+const handleEditorMentionSelected = (item: MentionItem) => {
     const alreadySelected = selectedReferences.value.some(ref => ref.id === item.id)
     if (!alreadySelected) {
         selectedReferences.value.push({
             id: item.id,
             type: item.type,
-            name: item.name || (item.type === 'instruction' ? item.textPreview?.slice(0, 30) + '...' : ''),
+            name: item.name || (item.type === 'instruction' ? (item.textPreview?.slice(0, 30) + '...') : ''),
             data_source_id: item.dataSourceId || undefined,
             data_source_name: item.dataSourceName || undefined,
             data_source_type: item.dataSourceType || undefined,
@@ -1417,16 +1105,6 @@ const selectMention = (item: MentionItem) => {
             column_name: null
         })
     }
-
-    // Close dropdown
-    mentionState.value.active = false
-
-    // Focus and set cursor position
-    nextTick(() => {
-        textarea.focus()
-        const newPos = startPos + mentionText.length + 1
-        textarea.setSelectionRange(newPos, newPos)
-    })
 }
 
 // Form data (simplified - approval workflow handled by builds)
@@ -1775,6 +1453,7 @@ const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
     if (type === 'instruction') return 'i-heroicons-cube'
+    if (type === 'connection_tool') return 'i-heroicons-wrench-screwdriver'
     return 'i-heroicons-circle'
 }
 
@@ -1782,6 +1461,7 @@ const getRefIconHeroicons = (type: string) => {
     if (type === 'metadata_resource') return 'heroicons:rectangle-stack'
     if (type === 'datasource_table') return 'heroicons:table-cells'
     if (type === 'instruction') return 'heroicons:cube'
+    if (type === 'connection_tool') return 'heroicons:wrench-screwdriver'
     return 'heroicons:circle-stack'
 }
 
@@ -1896,6 +1576,8 @@ const resetForm = () => {
     // Use agent selection as initial scope for new instructions
     if (!isAgentAllSelected.value && agentSelectedIds.value.length > 0) {
         selectedDataSources.value = [...agentSelectedIds.value]
+    } else if (props.agentId) {
+        selectedDataSources.value = [props.agentId]
     } else {
         selectedDataSources.value = []
     }
@@ -2097,9 +1779,13 @@ const doDelete = async () => {
 
 const fetchAvailableReferences = async () => {
     try {
-        // Include instructions, tables, and metadata resources
         const params = new URLSearchParams()
-        params.set('types', 'instruction,datasource_table,metadata_resource')
+        params.set('types', 'instruction,datasource_table,metadata_resource,connection_tool')
+        // Pass agent scope so connection_tools are included in the result
+        const dsIds = !isAllDataSourcesSelected.value && selectedDataSources.value.length > 0
+            ? selectedDataSources.value
+            : props.agentId ? [props.agentId] : []
+        if (dsIds.length > 0) params.set('data_source_filter', dsIds.join(','))
 
         const { data, error } = await useMyFetch<MentionableItem[]>(`/instructions/available-references?${params.toString()}`, { method: 'GET' })
         if (!error.value && data.value) {
@@ -2159,8 +1845,6 @@ const initReferencesFromInstruction = () => {
 onMounted(async () => {
     fetchDataSources()
     fetchLabels()
-    fetchAllMentionItems() // Pre-load all items for highlighting
-    fetchMentionItems() // Pre-load items for @ mentions dropdown
     // Fetch full instruction first (to get references), then available references, then init
     await fetchFullInstruction()
     await fetchAvailableReferences()
@@ -2290,9 +1974,6 @@ watch(() => props.initialVersionNumber, async (newNum) => {
 // Validate references when data sources change
 watch(() => selectedDataSources.value, () => {
     validateSelectedReferences()
-    // Refetch mention items when data sources change
-    fetchAllMentionItems() // Refetch full list for highlighting
-    fetchMentionItems(mentionState.value.query || undefined)
 }, { deep: true })
 
 watch(showLabelModal, (isOpen) => {
@@ -2386,56 +2067,4 @@ watch(isViewMode, (newVal) => {
     }
 }
 
-/* @ Mention editor - textarea with highlight overlay */
-.mention-container {
-    position: relative;
-}
-
-.mention-backdrop,
-.mention-textarea {
-    /* Identical text styling for perfect alignment */
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 12px;
-    line-height: 1.625;
-    padding: 16px;
-    margin: 0;
-    border: 0;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    letter-spacing: normal;
-    word-spacing: normal;
-}
-
-.mention-backdrop {
-    position: absolute;
-    inset: 0;
-    color: transparent;
-    pointer-events: none;
-    overflow: hidden;
-    background: transparent;
-}
-
-.mention-textarea {
-    position: relative;
-    z-index: 1;
-    width: 100%;
-    min-height: 210px;
-    resize: vertical;
-    background: transparent;
-    caret-color: #111827;
-    outline: none;
-}
-
-.mention-textarea::placeholder {
-    color: #9ca3af;
-}
-
-/* Highlight marks inside backdrop - :deep for v-html */
-.mention-backdrop :deep(mark) {
-    color: transparent;
-    border-radius: 3px;
-    padding: 2px 0;
-    box-decoration-break: clone;
-}
 </style>

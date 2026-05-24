@@ -31,6 +31,9 @@ class InstructionItem(BaseModel):
     content_hash: Optional[str] = None    # InstructionVersion.content_hash
     build_number: Optional[int] = None    # InstructionBuild.build_number
 
+    # Data source IDs for which this instruction is the primary
+    primary_for: List[str] = []
+
 
 class InstructionsSection(ContextSection):
     tag_name: ClassVar[str] = "instructions"

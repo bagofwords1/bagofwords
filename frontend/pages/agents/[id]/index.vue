@@ -29,15 +29,43 @@
 
         <div>
             <div v-if="loading" class="text-xs text-gray-500 text-center">{{ $t('common.loading') }}</div>
-            <div v-else class="md:w-2/3">
-                <div class="flex items-center gap-2">
-                    <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.description') }}</div>
-                    <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
+            <div v-else class="md:w-2/3 space-y-6">
+
+                <!-- Primary Instruction -->
+                <div>
+                    <div v-if="editingInstruction">
+                        <textarea
+                            ref="instrInputRef"
+                            v-model="instrForm"
+                            rows="5"
+                            class="w-full text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white resize-none"
+                            placeholder="Write the primary instruction for this agent..."
+                        ></textarea>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button @click="saveInstruction" :disabled="savingInstruction" class="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                                {{ savingInstruction ? 'Saving…' : 'Save' }}
+                            </button>
+                            <button @click="cancelEditInstruction" class="px-3 py-1 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50">Cancel</button>
+                        </div>
+                    </div>
+                    <template v-else>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{{  dataSource?.primary_instruction.title }}</span>
+                            <button v-if="useCan('update_data_source') && dataSource?.primary_instruction" @click="startEditInstruction" class="text-[10px] text-blue-600 hover:underline">Edit</button>
+                            <button v-else-if="useCan('update_data_source')" @click="startCreateInstruction" class="text-[10px] text-blue-600 hover:underline">Create</button>
+                        </div>
+                        <InstructionText
+                            v-if="dataSource?.primary_instruction"
+                            :text="dataSource.primary_instruction.text"
+                            :references="dataSource.primary_instruction.references || []"
+                            :prose="true"
+                        />
+                        <span v-else class="text-sm text-gray-400 italic">No primary agent instruction</span>
+                    </template>
                 </div>
-                <div class="mt-3 markdown-wrapper text-sm leading-relaxed text-start text-gray-600" v-if="computedDescription">
-                    <MDC :value="computedDescription" class="markdown-content" />
-                </div>
-                <div class="mt-8">
+
+                <!-- Conversation Starters -->
+                <div>
                     <div class="flex items-center gap-2">
                         <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.conversationStarters') }}</div>
                         <button v-if="useCan('update_data_source')" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
@@ -50,6 +78,7 @@
                         </div>
                     </div>
                 </div>
+
             </div>
         </div>
 
@@ -89,30 +118,14 @@
             </div>
         </UModal>
 
-        <UModal v-model="showDescModal" :ui="{ width: 'sm:max-w-xl' }">
-            <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">{{ $t('dataSource.editDescTitle') }}</div>
-                <div class="text-xs text-gray-600 mt-1">{{ $t('dataSource.editDescHint') }}</div>
-
-                <div class="mt-3">
-                    <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.description') }}</label>
-                    <textarea v-model="descForm" rows="6" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.descPlaceholder')"></textarea>
-                </div>
-
-                <div class="flex justify-end gap-2 mt-4">
-                    <button @click="onCancelDesc" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">{{ $t('dataSource.cancel') }}</button>
-                    <button @click="onSaveDesc" :disabled="savingDesc" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingDesc ? $t('dataSource.saving') : $t('dataSource.save') }}</button>
-                </div>
-            </div>
-        </UModal>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, inject, watch } from 'vue'
+import { ref, computed, inject, watch, nextTick } from 'vue'
 import { useCan } from '~/composables/usePermissions'
-import DataSourceQuestionsHome from '~/components/DataSourceQuestionsHome.vue'
 import { isIndexingActive, indexingSummary } from '~/composables/useConnectionStatus'
+import InstructionText from '~/components/instructions/InstructionText.vue'
 import type { Ref } from 'vue'
 
 definePageMeta({ auth: true, layout: 'data' })
@@ -127,7 +140,6 @@ const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration',
 const injectedLoading = inject<Ref<boolean>>('isLoading', ref(true))
 const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
 
-// Use injected data as main data source
 const dataSource = injectedIntegration
 const loading = injectedLoading
 const fetchError = injectedFetchError
@@ -136,13 +148,68 @@ const availableMeta = ref<any | null>(null)
 const showEditModal = ref(false)
 const editStarters = ref<{ title: string; prompt: string }[]>([])
 const savingStarters = ref(false)
-const showDescModal = ref(false)
-const descForm = ref('')
-const savingDesc = ref(false)
 
-const computedDescription = computed(() => {
-    return dataSource.value?.description || availableMeta.value?.description || ''
-})
+// Primary instruction inline editing
+const editingInstruction = ref(false)
+const instrForm = ref('')
+const instrInputRef = ref<HTMLTextAreaElement | null>(null)
+const savingInstruction = ref(false)
+
+function startEditInstruction() {
+    instrForm.value = dataSource.value?.primary_instruction?.text || ''
+    editingInstruction.value = true
+    nextTick(() => instrInputRef.value?.focus())
+}
+
+function startCreateInstruction() {
+    instrForm.value = ''
+    editingInstruction.value = true
+    nextTick(() => instrInputRef.value?.focus())
+}
+
+function cancelEditInstruction() {
+    editingInstruction.value = false
+    instrForm.value = ''
+}
+
+async function saveInstruction() {
+    if (savingInstruction.value) return
+    const text = instrForm.value.trim()
+    if (!text) return
+    savingInstruction.value = true
+    const id = route.params.id as string
+    try {
+        const existingId = dataSource.value?.primary_instruction_id
+        if (existingId) {
+            const { error } = await useMyFetch(`/instructions/${existingId}`, {
+                method: 'PUT',
+                body: { text },
+            })
+            if (error?.value) throw new Error(String(error.value))
+        } else {
+            const { data, error } = await useMyFetch('/instructions/global', {
+                method: 'POST',
+                body: { text, status: 'published', data_source_ids: [id] },
+            })
+            if (error?.value) throw new Error(String(error.value))
+            const newId = (data.value as any)?.id
+            if (newId) {
+                const { error: dsErr } = await useMyFetch(`/data_sources/${id}`, {
+                    method: 'PUT',
+                    body: { primary_instruction_id: newId },
+                })
+                if (dsErr?.value) throw new Error(String(dsErr.value))
+            }
+        }
+        editingInstruction.value = false
+        await injectedFetchIntegration()
+        toast?.add?.({ title: 'Saved', description: 'Primary instruction updated.' })
+    } catch (e: any) {
+        toast?.add?.({ title: 'Error', description: String(e?.message || e), color: 'red' })
+    } finally {
+        savingInstruction.value = false
+    }
+}
 
 const indexingConnections = computed(() =>
     (dataSource.value?.connections || []).filter((c: any) => isIndexingActive(c?.indexing))
@@ -164,7 +231,6 @@ const displayDataSource = computed(() => {
 })
 
 async function loadAvailableMeta() {
-    // Fallback to catalog description by type, if needed
     try {
         const { data: avail, error: availErr } = await useMyFetch('/available_data_sources', { method: 'GET' })
         if (!availErr?.value && Array.isArray(avail.value)) {
@@ -174,7 +240,6 @@ async function loadAvailableMeta() {
     } catch {}
 }
 
-// Load available meta when dataSource is ready
 watch(() => dataSource.value?.type, (type) => {
     if (type) loadAvailableMeta()
 }, { immediate: true })
@@ -214,7 +279,6 @@ async function onSaveStarters() {
     })
     savingStarters.value = false
     if (!error?.value) {
-        // Refresh from layout
         await injectedFetchIntegration()
         showEditModal.value = false
         toast?.add?.({ title: t('dataSource.savedTitle'), description: t('dataSource.startersUpdated') })
@@ -225,32 +289,6 @@ async function onSaveStarters() {
 
 function onCancelEdit() {
     showEditModal.value = false
-}
-
-function openEditDescription() {
-    descForm.value = dataSource.value?.description || ''
-    showDescModal.value = true
-}
-
-async function onSaveDesc() {
-    if (savingDesc.value) return
-    savingDesc.value = true
-    const id = route.params.id as string
-    const payload = { description: (descForm.value || '').trim() }
-    const { error } = await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: payload })
-    savingDesc.value = false
-    if (!error?.value) {
-        // Refresh from layout
-        await injectedFetchIntegration()
-        showDescModal.value = false
-        toast?.add?.({ title: t('dataSource.savedTitle'), description: t('dataSource.descUpdated') })
-    } else {
-        toast?.add?.({ title: t('dataSource.errorTitle'), description: String(error.value), color: 'red' })
-    }
-}
-
-function onCancelDesc() {
-    showDescModal.value = false
 }
 </script>
 
@@ -282,5 +320,3 @@ function onCancelDesc() {
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
 }
 </style>
-
-

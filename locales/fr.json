@@ -672,12 +672,14 @@
     "noResults": "Aucun résultat trouvé",
     "tables": "Tables",
     "noTables": "Aucune table.",
+    "tools": "Outils",
+    "noTools": "Aucun outil.",
     "columns": "Colonnes",
     "noColumns": "Aucune colonne.",
     "noData": "Aucune donnée disponible.",
     "openPage": "Ouvrir la page",
     "categories": {
-      "dataSources": "Sources de données",
+      "dataSources": "Agents",
       "queries": "Requêtes",
       "files": "Fichiers",
       "tables": "Tables"

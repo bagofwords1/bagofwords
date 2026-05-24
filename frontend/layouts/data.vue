@@ -29,10 +29,32 @@
                                 {{ integration?.name || 'Agent' }}
                             </h1>
 
-                            <!-- Description preview -->
-                            <p v-if="integration?.description" class="mt-2 text-sm text-gray-500 max-w-2xl truncate">
-                                {{ integration.description }}
-                            </p>
+                            <!-- Description (inline-editable) -->
+                            <div v-if="integration?.description || useCan('update_data_source')" class="mt-2 flex items-center gap-2 group max-w-2xl">
+                                <template v-if="editingDesc">
+                                    <input
+                                        ref="descInputRef"
+                                        v-model="descForm"
+                                        type="text"
+                                        class="flex-1 text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5"
+                                        @keydown.enter="saveDesc"
+                                        @keydown.escape="cancelDesc"
+                                        @blur="saveDesc"
+                                    />
+                                </template>
+                                <template v-else>
+                                    <p
+                                        class="text-sm text-gray-500 truncate rounded px-1 -mx-1 transition-colors"
+                                        :class="useCan('update_data_source') ? 'cursor-pointer hover:bg-gray-100' : ''"
+                                        @click="useCan('update_data_source') && startEditDesc()"
+                                    >{{ integration?.description || '' }}</p>
+                                    <button
+                                        v-if="useCan('update_data_source')"
+                                        class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                        @click="startEditDesc"
+                                    >Edit</button>
+                                </template>
+                            </div>
 
                             <!-- Connections + stats row -->
                             <div class="flex items-center gap-3 mt-4 flex-wrap">
@@ -136,6 +158,7 @@
 
             </div>
         </div>
+
     </NuxtLayout>
 </template>
 
@@ -151,6 +174,7 @@ import { useCan } from '~/composables/usePermissions'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast?.()
 
 const id = computed(() => String(route.params.id || ''))
 const { isMcpToolsEnabled } = useOrgSettings()
@@ -200,6 +224,39 @@ const integration = ref<any>(null)
 const isLoading = ref(true)
 const fetchError = ref<number | null>(null)
 const startingChat = ref(false)
+
+const editingDesc = ref(false)
+const descForm = ref('')
+const descInputRef = ref<HTMLInputElement | null>(null)
+
+function startEditDesc() {
+    descForm.value = integration.value?.description || ''
+    editingDesc.value = true
+    nextTick(() => descInputRef.value?.focus())
+}
+
+function cancelDesc() {
+    editingDesc.value = false
+}
+
+async function saveDesc() {
+    if (!editingDesc.value) return
+    editingDesc.value = false
+    const newVal = (descForm.value || '').trim()
+    if (newVal === (integration.value?.description || '')) return
+    if (integration.value) integration.value.description = newVal
+    const { error } = await useMyFetch(`/data_sources/${id.value}`, {
+        method: 'PUT',
+        body: { description: newVal },
+    })
+    if (error?.value) {
+        if (integration.value) integration.value.description = descForm.value
+        toast?.add?.({ title: 'Failed to save description', color: 'red' })
+    } else {
+        toast?.add?.({ title: 'Description updated' })
+        await fetchIntegration()
+    }
+}
 
 async function startChat() {
     if (startingChat.value || !integration.value?.id) return

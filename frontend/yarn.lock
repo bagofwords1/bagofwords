@@ -2097,6 +2097,11 @@
   resolved "https://registry.npmjs.org/@tiptap/extension-list-item/-/extension-list-item-2.27.2.tgz"
   integrity sha512-eJNee7IEGXMnmygM5SdMGDC8m/lMWmwNGf9fPCK6xk0NxuQRgmZHL6uApKcdH6gyNcRPHCqvTTkhEP7pbny/fg==
 
+"@tiptap/extension-mention@^2.27.2":
+  version "2.27.2"
+  resolved "https://registry.yarnpkg.com/@tiptap/extension-mention/-/extension-mention-2.27.2.tgz#13d66c56fa57dc7c28f561459d2ffb3936ad2fe3"
+  integrity sha512-uHxVf8RISscb4xgCEJmDSNcFQmzlBTKJh7fp2QAXWIF4Xtrg3zD08PIXUvvHapoluGD9OdBugW4YCu1PJ3xWNw==
+
 "@tiptap/extension-ordered-list@^2.27.2":
   version "2.27.2"
   resolved "https://registry.npmjs.org/@tiptap/extension-ordered-list/-/extension-ordered-list-2.27.2.tgz"
@@ -2172,6 +2177,11 @@
     "@tiptap/extension-text" "^2.27.2"
     "@tiptap/extension-text-style" "^2.27.2"
     "@tiptap/pm" "^2.27.2"
+
+"@tiptap/suggestion@^2.27.2":
+  version "2.27.2"
+  resolved "https://registry.yarnpkg.com/@tiptap/suggestion/-/suggestion-2.27.2.tgz#901c1bbb5f12002cfe78a1ad40577727c23c374e"
+  integrity sha512-dQyvCIg0hcAVeh4fCIVCxogvbp+bF+GpbUb8sNlgnGrmHXnapGxzkvrlHnvneXZxLk/j7CxmBPKJNnm4Pbx4zw==
 
 "@tiptap/vue-3@^2.23.0":
   version "2.27.2"
@@ -2269,6 +2279,11 @@
   integrity sha512-vIChWdVG3LG1SMxEvI/AK+FWJthlrqlTu7fbrlywTkkaONwk/UAGaULXRlf8vkzFBLVm0zkMdCquhL5aOjhXPQ==
   dependencies:
     "@types/ms" "*"
+
+"@types/diff-match-patch@^1.0.36":
+  version "1.0.36"
+  resolved "https://registry.yarnpkg.com/@types/diff-match-patch/-/diff-match-patch-1.0.36.tgz#dcef10a69d357fe9d43ac4ff2eca6b85dbf466af"
+  integrity sha512-xFdR6tkm0MWvBfO8xXCSsinYxHcqkQUlcHeSpMC2ukzOb6lwQAfDmW+Qt0AvlGd8HpsS28qKsB+oPeJn9I39jg==
 
 "@types/estree@*", "@types/estree@1.0.8", "@types/estree@^1.0.0":
   version "1.0.8"
@@ -3862,6 +3877,11 @@ didyoumean@^1.2.2:
   version "1.2.2"
   resolved "https://registry.npmjs.org/didyoumean/-/didyoumean-1.2.2.tgz"
   integrity sha512-gxtyfqMg7GKyhQmb056K7M3xszy/myH8w+B4RT+QXBQsvAOdc3XymqDDPHx1BgPgsdAA5SIifona89YtRATDzw==
+
+diff-match-patch@^1.0.5:
+  version "1.0.5"
+  resolved "https://registry.yarnpkg.com/diff-match-patch/-/diff-match-patch-1.0.5.tgz#abb584d5f10cd1196dfc55aa03701592ae3f7b37"
+  integrity sha512-IayShXAgj/QMXgB0IWmKx+rOPuGMhqm5w6jvFxmVenXKIzRqTAAsbBPT3kWQeGANj3jGgvcvv4yK6SxqYmikgw==
 
 diff@^4.0.1:
   version "4.0.4"

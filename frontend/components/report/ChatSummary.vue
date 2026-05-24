@@ -87,26 +87,37 @@
         </div>
       </section>
 
-      <!-- Instructions -->
-      <section v-if="trainingInstructions.length > 0">
+      <!-- Instructions (historical: created in this report, regardless of accept state) -->
+      <section v-if="instructionsList.length > 0">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Instructions</h3>
         <ul class="space-y-1.5">
           <li
-            v-for="inst in trainingInstructions"
-            :key="inst.instructionId"
-            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow cursor-pointer transition-all"
-            @click="inst.messageId && emit('scrollToMessage', inst.messageId)"
+            v-for="inst in instructionsList"
+            :key="inst.id"
+            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow transition-all"
           >
             <Icon
-              :name="inst.isEdit ? 'heroicons-pencil' : 'heroicons-plus-circle'"
-              class="w-4 h-4 flex-shrink-0"
-              :class="inst.isEdit ? 'text-blue-400' : 'text-green-400'"
+              name="heroicons-cube"
+              class="w-4 h-4 flex-shrink-0 text-blue-400"
             />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 truncate">{{ inst.title }}</div>
+              <div class="text-sm text-gray-700 truncate">{{ inst.title || 'Untitled instruction' }}</div>
               <div class="flex items-center gap-2 mt-0.5">
                 <span v-if="inst.category" class="text-[11px] text-gray-400">{{ inst.category }}</span>
-                <span v-if="inst.lineCount > 0" class="text-[11px] text-green-600">+{{ inst.lineCount }} lines</span>
+                <span
+                  v-if="inst.state === 'pending'"
+                  class="inline-flex items-center gap-1 text-[11px] text-amber-600"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Pending
+                </span>
+                <span
+                  v-else
+                  class="inline-flex items-center gap-1 text-[11px] text-green-600"
+                >
+                  <Icon name="heroicons:check-circle" class="w-3 h-3" />
+                  Accepted
+                </span>
               </div>
             </div>
           </li>
@@ -126,7 +137,14 @@ const props = defineProps<{
   artifactList: any[]
   queryList: any[]
   queryExecutions: any[]
+  // Pending-only: drives session-pill state. Kept for backwards compat with
+  // existing callers but no longer rendered directly in the Instructions
+  // section — we use reportInstructions for that.
   trainingInstructions: any[]
+  // Historical list of instructions created in this report (all states).
+  reportInstructions?: any[]
+  // The current pending build id, used to mark items as Pending vs Accepted.
+  pendingBuildId?: string | null
   showClose?: boolean
 }>()
 
@@ -142,11 +160,41 @@ const emit = defineEmits([
   'close',
 ])
 
+// Render-ready instruction list: prefer the historical list (so accepted
+// instructions don't disappear after approval). Pending state is derived
+// from membership in the current pending training build, looked up via the
+// `trainingInstructions` (pending-only) list passed alongside.
+const pendingIdSet = computed(() => {
+  const set = new Set<string>()
+  for (const t of (props.trainingInstructions || [])) {
+    if (t?.instructionId) set.add(String(t.instructionId))
+  }
+  return set
+})
+const instructionsList = computed(() => {
+  const raw = Array.isArray(props.reportInstructions) ? props.reportInstructions : []
+  const seen = new Set<string>()
+  const out: { id: string; title: string; category: string; state: string }[] = []
+  for (const i of raw) {
+    if (!i || !i.id) continue
+    const id = String(i.id)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({
+      id,
+      title: i.title || '',
+      category: i.category || '',
+      state: pendingIdSet.value.has(id) ? 'pending' : 'accepted',
+    })
+  }
+  return out
+})
+
 const hasAnything = computed(() =>
   props.scheduledPrompts.length > 0 ||
   props.artifactList.length > 0 ||
   props.queryExecutions.length > 0 ||
-  props.trainingInstructions.length > 0
+  instructionsList.value.length > 0
 )
 
 function getCronLabel(cron?: string): string {

@@ -1162,16 +1162,23 @@ def test_bulk_update_combined_status_and_load_mode(
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
-    
+
+    # The dbt-mock test repo contains both dbt resources (load_mode
+    # defaults to 'intelligent' from DEFAULT_LOAD_MODES) and markdown
+    # docs whose frontmatter has `alwaysApply: true` (which correctly
+    # overrides the repo-level default_load_mode). Select only the
+    # 'intelligent' instructions so we can verify the bulk update flips
+    # them to 'always'.
+    intelligent = [i for i in instructions if i.get("load_mode") == "intelligent"]
+    assert len(intelligent) >= 2, "Need at least 2 intelligent-load instructions for bulk test"
+
     # Verify initial state
-    for inst in instructions[:2]:
+    for inst in intelligent[:2]:
         assert inst["status"] == "draft"
         assert inst["load_mode"] == "intelligent"
 
     # Bulk update both status and load_mode
-    instruction_ids = [inst["id"] for inst in instructions[:2]]
+    instruction_ids = [inst["id"] for inst in intelligent[:2]]
     result = bulk_update_instructions(
         ids=instruction_ids,
         status="published",

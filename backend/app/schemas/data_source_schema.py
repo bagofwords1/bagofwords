@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 
 class DataSourceSummarySchema(BaseModel):
@@ -22,7 +22,7 @@ class DataSourceMinimalSchema(BaseModel):
     class Config:
         from_attributes = True
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
 from typing import Optional, Dict, Any, List, Literal
 from app.schemas.data_source_registry import default_credentials_schema_for, credentials_schema_for
 import uuid
@@ -118,6 +118,8 @@ class DataSourceReportSchema(BaseModel):
     type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     # Note: NO memberships field here
+    # Note: NO primary_instruction here — report context doesn't eager-load it,
+    # and Pydantic from_orm would trigger a greenlet error accessing the lazy relationship.
 
     class Config:
         from_attributes = True
@@ -155,6 +157,18 @@ class DataSourceSchema(DataSourceBase):
     auth_policy: Optional[str] = None
     allowed_user_auth_modes: Optional[List[str]] = None
     user_status: Optional[DataSourceUserStatus] = None
+
+    # Primary instruction (populated by service layer — avoids circular import)
+    primary_instruction: Optional[Any] = None
+    primary_instruction_id: Optional[str] = None
+
+    @field_validator('primary_instruction', mode='before')
+    @classmethod
+    def _guard_primary_instruction(cls, v: Any) -> Any:
+        # Only accept dicts or None — reject ORM model objects which aren't serializable
+        if v is None or isinstance(v, dict):
+            return v
+        return None
 
     class Config:
         from_attributes = True
@@ -257,7 +271,8 @@ class DataSourceUpdate(DataSourceBase):
     is_public: Optional[bool] = None
     use_llm_sync: Optional[bool] = None
     member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
-    
+    primary_instruction_id: Optional[Union[str, None]] = None  # None = clear, str = set
+
     # Connection-related fields (will be delegated to Connection update)
     config: Optional[dict] = None
     credentials: Optional[dict] = None

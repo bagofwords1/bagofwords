@@ -23,12 +23,12 @@ Data source name: {self.data_source.name}
 Schema:
 {self.schema}
 
-Write exactly 2 sentences describing this data source. First sentence: what it is. Second sentence: what key data it contains.
+Write exactly 1 sentence   describing this data source. First: what it is. Second: what key data it contains.
 
 Rules:
 - No fluff, no "this data source contains", no markdown, no bullet points.
 - Plain text only.
-- Max 60 words total.
+- Max 30 words total.
 """
         response = self.llm.inference(prompt)
         return response
@@ -113,6 +113,8 @@ Rules:
 - Write as direct instructions to the AI analyst ("Use X to...", "Always join on...", "Note that...")
 - Plain prose with short bullet points where helpful
 - 150–300 words
+- When referencing a table from the schema, write its name as @TableName (e.g. @orders, @customers)
+- When referencing an MCP tool from the schema, write its name as @tool_name (e.g. @search_products)
 
 Return JSON only:
 {{"title": "{title}", "text": "...", "category": "general", "load_mode": "always", "confidence": 0.95}}"""

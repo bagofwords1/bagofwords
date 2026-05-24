@@ -183,6 +183,9 @@ class SearchInstructionsTool(Tool):
 
             # Also include instructions from the current draft build so the
             # harness can see instructions it created earlier in this session.
+            # No status filter here: AI-created instructions are status='draft'
+            # until the build is promoted, but the agent still needs to see and
+            # edit them within the same session.
             training_build_id = runtime_ctx.get("training_build_id")
             if training_build_id:
                 draft_result = await service.get_instructions(
@@ -191,7 +194,7 @@ class SearchInstructionsTool(Tool):
                     current_user=user,
                     skip=0,
                     limit=window,
-                    status="published",
+                    status=None,
                     categories=categories,
                     data_source_ids=data.data_source_ids,
                     search=None,
@@ -207,12 +210,16 @@ class SearchInstructionsTool(Tool):
                     candidate_total += len(draft_items)
 
             # --- Apply patterns (union) ---
+            # Haystack includes the instruction id so UUID/fragment queries
+            # work — agents often pass partial ids (e.g. "be8090") expecting
+            # an id-aware lookup, and without this they silently match nothing.
             if compiled_patterns:
                 matched: list = []
                 for it in candidates:
                     haystack = (
                         (getattr(it, "text", "") or "") + "\n" +
-                        (getattr(it, "title", "") or "")
+                        (getattr(it, "title", "") or "") + "\n" +
+                        str(getattr(it, "id", "") or "")
                     )
                     if any(p.search(haystack) for p in compiled_patterns):
                         matched.append(it)

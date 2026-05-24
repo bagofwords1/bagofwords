@@ -14,13 +14,10 @@
                     }"
                 >
                     <!-- Header -->
-                    <div class="flex items-center justify-between px-5 py-4 border-b shrink-0">
-                        <div>
-                            <h1 class="text-lg font-semibold text-gray-900">{{ modalTitle }}</h1>
-                            <p class="text-sm text-gray-500">{{ $t('instructionModal.subtitle') }}</p>
-                        </div>
-                        <button @click="closeModal" class="text-gray-400 hover:text-gray-600 transition-colors">
-                            <Icon name="heroicons:x-mark" class="w-5 h-5" />
+                    <div class="flex items-center justify-between px-5 py-2.5 border-b shrink-0">
+                        <span class="text-xs font-medium text-gray-400 uppercase tracking-wide">{{ modalTitle }}</span>
+                        <button @click="closeModal" class="text-gray-300 hover:text-gray-500 transition-colors">
+                            <Icon name="heroicons:x-mark" class="w-4 h-4" />
                         </button>
                     </div>
 

@@ -672,12 +672,14 @@
     "noResults": "Результаты не найдены",
     "tables": "Таблицы",
     "noTables": "Таблиц нет.",
+    "tools": "Инструменты",
+    "noTools": "Инструментов нет.",
     "columns": "Колонки",
     "noColumns": "Колонок нет.",
     "noData": "Данные недоступны.",
     "openPage": "Открыть страницу",
     "categories": {
-      "dataSources": "Источники данных",
+      "dataSources": "Агенты",
       "queries": "Запросы",
       "files": "Файлы",
       "tables": "Таблицы"

@@ -672,12 +672,14 @@
     "noResults": "Nenhum resultado encontrado",
     "tables": "Tabelas",
     "noTables": "Sem tabelas.",
+    "tools": "Ferramentas",
+    "noTools": "Sem ferramentas.",
     "columns": "Colunas",
     "noColumns": "Sem colunas.",
     "noData": "Nenhum dado disponível.",
     "openPage": "Abrir página",
     "categories": {
-      "dataSources": "Fontes de dados",
+      "dataSources": "Agentes",
       "queries": "Consultas",
       "files": "Arquivos",
       "tables": "Tabelas"

@@ -71,6 +71,7 @@ class InstructionService:
         build = None,  # Optional: use existing build instead of creating new one
         auto_finalize: bool = True,  # If False, skip auto-finalization (for batching)
         agent_execution_id: str = None,  # Optional: link instruction to agent execution (for training mode)
+        version_status_override: Optional[str] = None,  # AI flows pass 'published' to flip the live row on build promotion
     ) -> InstructionSchema:
         """Create a new instruction. Approval workflow is handled by builds, not instruction status."""
         
@@ -133,7 +134,8 @@ class InstructionService:
             
             # Create the first version
             version = await self.version_service.create_version(
-                db, instruction, user_id=current_user.id
+                db, instruction, user_id=current_user.id,
+                status_override=version_status_override,
             )
             
             # Update instruction's current version
@@ -190,7 +192,10 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.primary_instruction),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
@@ -607,6 +612,7 @@ class InstructionService:
                     selectinload(DataSource.data_source_memberships),
                     selectinload(DataSource.git_repository),
                     selectinload(DataSource.connections).options(lazyload("*")),
+                    selectinload(DataSource.primary_instruction),
                 ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
@@ -753,7 +759,10 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.primary_instruction),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
@@ -1344,7 +1353,10 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.data_sources).options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.primary_instruction),
+                ),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
@@ -1379,27 +1391,91 @@ class InstructionService:
         report_id: str,
         organization: Organization,
     ) -> List[InstructionSchema]:
-        """Get all instructions created during a report's training sessions.
+        """Get all instructions created OR edited during this report's agent sessions.
 
-        This queries instructions that were created by the AI agent during
-        training mode sessions associated with the given report.
+        Union of two sources:
+        - Instructions whose `agent_execution_id` matches one of this report's
+          agent executions (covers creates).
+        - Instructions touched by any InstructionBuild whose `agent_execution_id`
+          matches one of this report's agent executions (covers edits — an edit
+          adds a new version to the build without changing the instruction row's
+          original `agent_execution_id`).
         """
         from app.models.agent_execution import AgentExecution
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
 
+        # 1. Instructions created in this report's sessions.
+        created_subq = (
+            select(Instruction.id)
+            .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
+            .where(AgentExecution.report_id == report_id)
+        )
+
+        # 2. Instructions edited in this report's sessions — i.e. BuildContent
+        #    rows in a report-tied build whose (instruction_id, version_id)
+        #    pair is NOT in the main build. Builds created by sessions inherit
+        #    every main instruction via copy_from_main=True; without filtering
+        #    that out we'd return every instruction in the org.
+        from sqlalchemy.orm import aliased
+        BC = aliased(BuildContent)
+        MAIN_BC = aliased(BuildContent)
+        main_build_ids_subq = (
+            select(InstructionBuild.id).where(
+                and_(
+                    InstructionBuild.organization_id == organization.id,
+                    InstructionBuild.is_main.is_(True),
+                    InstructionBuild.deleted_at.is_(None),
+                )
+            )
+        )
+        edited_subq = (
+            select(BC.instruction_id)
+            .join(InstructionBuild, InstructionBuild.id == BC.build_id)
+            .join(AgentExecution, AgentExecution.id == InstructionBuild.agent_execution_id)
+            .outerjoin(
+                MAIN_BC,
+                and_(
+                    MAIN_BC.instruction_id == BC.instruction_id,
+                    MAIN_BC.instruction_version_id == BC.instruction_version_id,
+                    MAIN_BC.build_id.in_(main_build_ids_subq),
+                ),
+            )
+            .where(
+                and_(
+                    AgentExecution.report_id == report_id,
+                    MAIN_BC.id.is_(None),  # pair not in main = a truly new version
+                )
+            )
+        )
+
+        # Eager-load every relationship InstructionSchema (and its nested
+        # DataSourceSchema) touches; otherwise pydantic from_orm trips on
+        # lazy='raise' relationships in the async session. Mirrors the option
+        # set used by the singular get_instruction path.
         query = (
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).options(
+                    lazyload("*"),
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.git_repository),
+                    selectinload(DataSource.connections).options(lazyload("*")),
+                    selectinload(DataSource.primary_instruction),
+                ),
+                selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
             )
-            .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
             .where(
                 and_(
-                    AgentExecution.report_id == report_id,
                     Instruction.organization_id == organization.id,
                     Instruction.deleted_at == None,
+                    or_(
+                        Instruction.id.in_(created_subq),
+                        Instruction.id.in_(edited_subq),
+                    ),
                 )
             )
             .order_by(Instruction.created_at.asc())
@@ -1407,7 +1483,10 @@ class InstructionService:
 
         result = await db.execute(query)
         instructions = result.scalars().all()
-        return [InstructionSchema.from_orm(instruction) for instruction in instructions]
+        return [
+            await self._instruction_to_schema_with_references(db, instruction)
+            for instruction in instructions
+        ]
 
     async def _validate_data_sources(
         self,
@@ -2153,7 +2232,7 @@ class InstructionService:
                 )
 
             queries_to_union.append(inst_query)
-        
+
         # Execute single UNION query if we have queries to run
         if queries_to_union:
             if len(queries_to_union) == 1:
@@ -2174,7 +2253,70 @@ class InstructionService:
                 }
 
                 items.append(item)
-        
+
+        # Connection tools — only when scoped to specific data sources.
+        # Runs outside the UNION to apply per-agent overlay logic cleanly.
+        if "connection_tool" in wanted and target_data_source_ids:
+            from app.models.connection_tool import ConnectionTool
+            from app.models.data_source_connection_tool import DataSourceConnectionTool
+
+            ct_q = (
+                select(
+                    ConnectionTool.id.label('id'),
+                    ConnectionTool.name.label('name'),
+                    ConnectionTool.description.label('description'),
+                    Connection.id.label('connection_id'),
+                    Connection.name.label('connection_name'),
+                    Connection.type.label('connection_type'),
+                    DataSourceConnectionTool.is_enabled.label('overlay_is_enabled'),
+                    ConnectionTool.is_enabled.label('default_is_enabled'),
+                )
+                .select_from(ConnectionTool)
+                .join(Connection, ConnectionTool.connection_id == Connection.id)
+                .join(domain_connection, domain_connection.c.connection_id == Connection.id)
+                .outerjoin(
+                    DataSourceConnectionTool,
+                    and_(
+                        DataSourceConnectionTool.connection_tool_id == ConnectionTool.id,
+                        DataSourceConnectionTool.data_source_id == domain_connection.c.data_source_id,
+                        DataSourceConnectionTool.deleted_at.is_(None),
+                    ),
+                )
+                .where(
+                    domain_connection.c.data_source_id.in_(target_data_source_ids),
+                    Connection.organization_id == organization.id,
+                    ConnectionTool.deleted_at.is_(None),
+                )
+            )
+
+            if q:
+                ct_q = ct_q.where(
+                    or_(
+                        ConnectionTool.name.ilike(f"%{q}%"),
+                        ConnectionTool.description.ilike(f"%{q}%"),
+                    )
+                )
+
+            seen_tool_ids: set = set()
+            for row in (await db.execute(ct_q)).fetchall():
+                effective_enabled = (
+                    row.overlay_is_enabled
+                    if row.overlay_is_enabled is not None
+                    else row.default_is_enabled
+                )
+                if not effective_enabled or row.id in seen_tool_ids:
+                    continue
+                seen_tool_ids.add(row.id)
+                items.append({
+                    "id": str(row.id),
+                    "type": "connection_tool",
+                    "name": row.name,
+                    "data_source_id": None,
+                    "data_source_name": row.connection_name,
+                    "data_source_type": row.connection_type,
+                    "text_preview": row.description,
+                })
+
         return items
 
     async def _get_accessible_data_source_ids(
@@ -2256,7 +2398,25 @@ class InstructionService:
                 instruction_dict["current_build_status"] = latest[1]
         except Exception as e:
             logger.warning(f"Failed to resolve current build for instruction {instruction.id}: {e}")
-        
+
+        # Populate primary_for: data sources that have this instruction as their primary
+        try:
+            from app.models.data_source import DataSource as DataSourceModel
+            from app.schemas.data_source_schema import DataSourceMinimalSchema
+            primary_result = await db.execute(
+                select(DataSourceModel).where(
+                    DataSourceModel.primary_instruction_id == str(instruction.id),
+                    DataSourceModel.deleted_at.is_(None),
+                )
+            )
+            primary_ds = primary_result.scalars().all()
+            instruction_dict["primary_for"] = [
+                DataSourceMinimalSchema(id=str(ds.id), name=ds.name).model_dump()
+                for ds in primary_ds
+            ]
+        except Exception as e:
+            logger.warning(f"Failed to resolve primary_for for instruction {instruction.id}: {e}")
+
         # Populate the referenced objects for each reference
         if instruction.references:
             logger.debug(f"Populating {len(instruction.references)} references for instruction {instruction.id}")

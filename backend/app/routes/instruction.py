@@ -519,3 +519,93 @@ async def revert_instruction_to_version(
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     return reverted
 
+
+# ==================== Pending Builds (Tracked Changes) ====================
+
+from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
+from app.models.instruction_build import InstructionBuild
+from app.models.build_content import BuildContent
+from app.models.instruction_version import InstructionVersion
+
+
+@router.get("/instructions/{instruction_id}/pending-builds")
+async def get_instruction_pending_builds(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """List all pending/draft builds containing this instruction, with the
+    pending version text. Used by the tracked-changes UI to show suggested
+    edits awaiting approval."""
+    existing = await instruction_service.get_instruction(
+        db, instruction_id, organization, current_user
+    )
+    if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+
+    # Exclude builds that contain this instruction at the same version the
+    # MAIN build already has — those are drafts that just inherited the main
+    # build's content without making a real change. Compared against main
+    # (not against `instruction.current_version_id`) so that a brand-new
+    # instruction created inside a draft (and not yet in main) still surfaces
+    # as a pending suggestion.
+    main_version_stmt = (
+        select(BuildContent.instruction_version_id)
+        .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+        .where(
+            and_(
+                BuildContent.instruction_id == instruction_id,
+                InstructionBuild.organization_id == str(organization.id),
+                InstructionBuild.is_main.is_(True),
+                InstructionBuild.deleted_at.is_(None),
+            )
+        )
+        .limit(1)
+    )
+    main_version_id = (await db.execute(main_version_stmt)).scalar_one_or_none()
+
+    where_clauses = [
+        BuildContent.instruction_id == instruction_id,
+        InstructionBuild.organization_id == str(organization.id),
+        InstructionBuild.deleted_at.is_(None),
+        InstructionBuild.status.in_(["draft", "pending_approval"]),
+        InstructionBuild.is_main.is_(False),
+    ]
+    if main_version_id is not None:
+        where_clauses.append(BuildContent.instruction_version_id != main_version_id)
+
+    stmt = (
+        select(BuildContent, InstructionBuild, InstructionVersion)
+        .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+        .join(
+            InstructionVersion,
+            InstructionVersion.id == BuildContent.instruction_version_id,
+        )
+        .where(and_(*where_clauses))
+        .options(selectinload(InstructionBuild.created_by_user))
+        .order_by(InstructionBuild.created_at.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+
+    result = []
+    for _content, build, version in rows:
+        creator = getattr(build, "created_by_user", None)
+        result.append({
+            "build_id": str(build.id),
+            "build_number": build.build_number,
+            "status": build.status,
+            "source": build.source,
+            "created_at": build.created_at.isoformat() if build.created_at else None,
+            "created_by": (
+                {"id": str(creator.id), "name": getattr(creator, "name", None) or getattr(creator, "email", None)}
+                if creator else None
+            ),
+            "pending_version_id": str(version.id),
+            "pending_version_number": version.version_number,
+            "pending_text": version.text or "",
+            "pending_title": version.title,
+        })
+    return result
+
