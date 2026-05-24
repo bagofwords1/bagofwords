@@ -33,35 +33,69 @@
 
                 <!-- Primary Instruction -->
                 <div>
-                    <div v-if="editingInstruction">
-                        <textarea
-                            ref="instrInputRef"
-                            v-model="instrForm"
-                            rows="5"
-                            class="w-full text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white resize-none"
-                            placeholder="Write the primary instruction for this agent..."
-                        ></textarea>
-                        <div class="flex items-center gap-2 mt-2">
-                            <button @click="saveInstruction" :disabled="savingInstruction" class="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                                {{ savingInstruction ? 'Saving…' : 'Save' }}
-                            </button>
-                            <button @click="cancelEditInstruction" class="px-3 py-1 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50">Cancel</button>
-                        </div>
+                    <!-- Inline create form -->
+                    <div
+                        v-if="creatingInstruction"
+                        class="flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
+                        style="height: min(600px, 70vh)"
+                    >
+                        <InstructionGlobalCreateComponent
+                            default-status="published"
+                            :agent-id="(route.params.id as string)"
+                            :initial-title="primaryInstructionDefaultTitle"
+                            :uppercase-title="false"
+                            @instruction-saved="onPrimaryInstructionCreated"
+                            @cancel="creatingInstruction = false"
+                        />
                     </div>
-                    <template v-else>
+
+                    <!-- Inline edit form -->
+                    <div
+                        v-else-if="editingInstruction && dataSource?.primary_instruction"
+                        class="flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
+                        style="height: min(600px, 70vh)"
+                    >
+                        <InstructionGlobalCreateComponent
+                            :key="dataSource.primary_instruction.id"
+                            :instruction="dataSource.primary_instruction"
+                            :uppercase-title="false"
+                            :start-in-edit-mode="true"
+                            @instruction-saved="onPrimaryInstructionSaved"
+                            @cancel="editingInstruction = false"
+                        />
+                    </div>
+
+                    <!-- Existing instruction: simple read-only view -->
+                    <template v-else-if="dataSource?.primary_instruction">
                         <div class="flex items-center gap-2 mb-2">
-                            <span class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{{  dataSource?.primary_instruction.title }}</span>
-                            <button v-if="useCan('update_data_source') && dataSource?.primary_instruction" @click="startEditInstruction" class="text-[10px] text-blue-600 hover:underline">Edit</button>
-                            <button v-else-if="useCan('update_data_source')" @click="startCreateInstruction" class="text-[10px] text-blue-600 hover:underline">Create</button>
+                            <span class="text-sm font-medium text-gray-800">{{ dataSource.primary_instruction.title || 'Primary instruction' }}</span>
+                            <button v-if="useCan('update_data_source')" @click="editingInstruction = true" class="text-[10px] text-blue-600 hover:underline">Edit</button>
                         </div>
                         <InstructionText
-                            v-if="dataSource?.primary_instruction"
                             :text="dataSource.primary_instruction.text"
                             :references="dataSource.primary_instruction.references || []"
                             :prose="true"
                         />
-                        <span v-else class="text-sm text-gray-400 italic">No primary agent instruction</span>
                     </template>
+
+                    <!-- Empty state -->
+                    <div v-else class="border border-dashed border-gray-200 rounded-xl px-6 py-10 text-center bg-gray-50/40">
+                        <div class="mx-auto w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mb-3">
+                            <UIcon name="heroicons-document-text" class="w-5 h-5 text-blue-500" />
+                        </div>
+                        <div class="text-sm font-medium text-gray-800">No primary instruction</div>
+                        <div class="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                            Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.
+                        </div>
+                        <button
+                            v-if="useCan('update_data_source')"
+                            @click="creatingInstruction = true"
+                            class="mt-4 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
+                            Add Primary Instruction
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Conversation Starters -->
@@ -122,9 +156,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, inject, watch, nextTick } from 'vue'
+import { ref, computed, inject, watch } from 'vue'
 import { useCan } from '~/composables/usePermissions'
 import { isIndexingActive, indexingSummary } from '~/composables/useConnectionStatus'
+import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import type { Ref } from 'vue'
 
@@ -149,66 +184,36 @@ const showEditModal = ref(false)
 const editStarters = ref<{ title: string; prompt: string }[]>([])
 const savingStarters = ref(false)
 
-// Primary instruction inline editing
+// Primary instruction: read-only display by default; create + edit use InstructionGlobalCreateComponent inline.
+const creatingInstruction = ref(false)
 const editingInstruction = ref(false)
-const instrForm = ref('')
-const instrInputRef = ref<HTMLTextAreaElement | null>(null)
-const savingInstruction = ref(false)
+const primaryInstructionDefaultTitle = computed(() => {
+    const name = (dataSource.value?.name || '').trim()
+    return name ? `${name} - Main` : 'Main'
+})
 
-function startEditInstruction() {
-    instrForm.value = dataSource.value?.primary_instruction?.text || ''
-    editingInstruction.value = true
-    nextTick(() => instrInputRef.value?.focus())
-}
-
-function startCreateInstruction() {
-    instrForm.value = ''
-    editingInstruction.value = true
-    nextTick(() => instrInputRef.value?.focus())
-}
-
-function cancelEditInstruction() {
-    editingInstruction.value = false
-    instrForm.value = ''
-}
-
-async function saveInstruction() {
-    if (savingInstruction.value) return
-    const text = instrForm.value.trim()
-    if (!text) return
-    savingInstruction.value = true
+async function onPrimaryInstructionCreated(saved: any) {
     const id = route.params.id as string
+    const newId = saved?.id
     try {
-        const existingId = dataSource.value?.primary_instruction_id
-        if (existingId) {
-            const { error } = await useMyFetch(`/instructions/${existingId}`, {
+        if (newId) {
+            const { error } = await useMyFetch(`/data_sources/${id}`, {
                 method: 'PUT',
-                body: { text },
+                body: { primary_instruction_id: newId },
             })
             if (error?.value) throw new Error(String(error.value))
-        } else {
-            const { data, error } = await useMyFetch('/instructions/global', {
-                method: 'POST',
-                body: { text, status: 'published', data_source_ids: [id] },
-            })
-            if (error?.value) throw new Error(String(error.value))
-            const newId = (data.value as any)?.id
-            if (newId) {
-                const { error: dsErr } = await useMyFetch(`/data_sources/${id}`, {
-                    method: 'PUT',
-                    body: { primary_instruction_id: newId },
-                })
-                if (dsErr?.value) throw new Error(String(dsErr.value))
-            }
         }
-        editingInstruction.value = false
+        creatingInstruction.value = false
         await injectedFetchIntegration()
-        toast?.add?.({ title: 'Saved', description: 'Primary instruction updated.' })
+        toast?.add?.({ title: 'Saved', description: 'Primary instruction created.' })
     } catch (e: any) {
         toast?.add?.({ title: 'Error', description: String(e?.message || e), color: 'red' })
-    } finally {
-        savingInstruction.value = false
     }
+}
+
+async function onPrimaryInstructionSaved(_saved: any) {
+    editingInstruction.value = false
+    await injectedFetchIntegration()
 }
 
 const indexingConnections = computed(() =>

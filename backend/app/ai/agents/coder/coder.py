@@ -465,9 +465,31 @@ class Coder:
                 - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
                 - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do not add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
 
-            1. **Function Signature**: Implement exactly:
-               `def generate_df(ds_clients, excel_files):`
+            1. **Function Signature**: Implement either:
+               `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
+               `def generate_df(ds_clients, excel_files, http):` — when fetching URLs (see HTTP section below).
                - The function should return the main dataframe that answers the user prompt.
+
+            1a. **HTTP client (when the task involves URLs)**:
+               - When fetching web pages, accept a third parameter `http` in your signature. It is a pre-built sync client; do NOT `import httpx`, `requests`, `urllib`, `asyncio`, `socket`, or `threading` (all forbidden by the sandbox).
+               - **Do NOT import `bs4`, `lxml`, `html.parser`, or any HTML parser.** The pages returned by `http.get`/`http.batch_get` are ALREADY parsed for you — see the field list below.
+               - `http.get(url, timeout=15) -> FetchedPage` for a single URL.
+               - `http.batch_get(urls, concurrency=20, timeout=15) -> list[FetchedPage]` for many URLs in parallel. Prefer this over a Python loop of `http.get` whenever you have more than ~5 URLs.
+               - **Access `FetchedPage` fields with dot notation directly — do NOT use `getattr` or `hasattr` (both are forbidden by the sandbox). The fields always exist; check truthiness (`if page.text:`) rather than presence.**
+               - `FetchedPage` is a dataclass with these pre-extracted fields — read them directly, don't re-parse:
+                 * `.url`, `.final_url`, `.status`, `.success`
+                 * `.title` — already extracted from `<title>` (or `og:title` via `.meta`)
+                 * `.description` — already extracted from meta description / `og:description`
+                 * `.text` — **already the visible text content** with `<script>`, `<style>`, `<nav>`, `<footer>` etc. stripped and whitespace collapsed. Use `len(page.text)` directly for "text length"; do NOT pipe it through BeautifulSoup.
+                 * `.meta` — dict of all meta tags (`og:*`, `twitter:*`, `product:price:amount`, etc.)
+                 * `.json_ld` — list of parsed JSON-LD dicts (common for Product/Offer/Article schemas on retail sites)
+                 * `.headings` — list of h1/h2 text
+                 * `.truncated` — bool; True if content was capped
+                 * `.error` — str when the fetch failed; `.success` is False in that case
+               - Failures never raise — they appear as pages with `.error` set. Filter them: `good = [p for p in pages if p.success and not p.error]`.
+               - For HTML pages, prefer structured fields in this order when extracting prices/ratings/stock/etc.: (1) `json_ld`, (2) `meta`, (3) regex on `.text`. Always fall back gracefully — write the value as `None` for rows you can't parse rather than crashing.
+               - For non-HTML responses (JSON, XML, plain text — check `.content_type`), `.text` contains the raw body; parse it directly (e.g. `json.loads(page.text)`).
+               - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
 
             2. **Data Source Usage**:
                - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
@@ -609,6 +631,13 @@ class Coder:
         **Excel File Access**: Use `pd.read_excel(excel_files[INDEX].path, sheet_name=0)` to read Excel files.
         - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)
         - Example: `df = pd.read_excel(excel_files[0].path, sheet_name=0)`
+
+        **HTTP inspection (when the task involves URLs)**:
+        - Signature becomes `def generate_df(ds_clients, excel_files, http):` — accept `http` as the third parameter.
+        - Use `http.get(url, timeout=15)` on 1–3 sample URLs to learn what the page returns. Do NOT import `httpx`/`requests`/`urllib`/`asyncio`/`socket`/`threading`/`bs4`/`lxml` — all forbidden.
+        - `FetchedPage` has exactly these fields (a dataclass, guaranteed to exist on every result): `.status`, `.success`, `.error`, `.content_type`, `.url`, `.final_url`, `.text` (raw body for non-HTML; cleaned visible text for HTML), `.title`, `.description`, `.meta` (dict), `.json_ld` (list), `.headings` (list), `.truncated`. **Access them with dot notation directly — do NOT use `getattr` or `hasattr` (both are forbidden by the sandbox). The fields always exist; check truthiness (`if page.text:`) rather than presence.**
+        - Print whatever helps the next step decide how to parse — sample fields, content_type, errors, a slice of `.text`. Keep it short.
+        - If `http` is `None`, web fetch is disabled — print a clear message and return `None`.
 
         **Constraints**:
         1. **Keep it to 2-3 queries** — this is a quick validation, not a full analysis.

@@ -940,8 +940,17 @@ Do not use generic placeholders like "value" unless that is the actual column na
         
         # Check if we have any data sources (tables or files)
         total_resolved = sum(len(g.get("tables", [])) for g in resolved_tables)
-        
-        if total_resolved == 0 and not has_files:
+
+        # When `enable_web_fetch` is on, the sandbox exposes `http` to the
+        # coder — a URL-fetch task is a valid "no tables, no files" case.
+        web_fetch_enabled = False
+        try:
+            _ef = organization_settings.get_config("enable_web_fetch") if organization_settings else None
+            web_fetch_enabled = bool(getattr(_ef, "value", False))
+        except Exception:
+            web_fetch_enabled = False
+
+        if total_resolved == 0 and not has_files and not web_fetch_enabled:
             # No tables resolved AND no files available - fail
             _requested = [
                 {"data_source_id": str(g.data_source_id), "tables": g.tables}

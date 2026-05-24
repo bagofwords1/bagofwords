@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.384 (May 24, 2026)
+- Improve instructions mgmt and creation
+- Add web/http tools to code gen
+
 ## Version 0.0.383 (May 21, 2026)
 - Improve ds selector to support 'auto' mode
 - Performance & reliability fixes

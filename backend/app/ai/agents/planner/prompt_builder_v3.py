@@ -122,6 +122,18 @@ class PromptBuilderV3:
         if row_limit and row_limit > 0:
             row_limit_text = f"ROW LIMIT POLICY SET BY ORG: {row_limit}\n"
 
+        # Only inject URL-fetch routing rules when the org has web fetch on —
+        # otherwise the planner sees instructions for a capability it can't use.
+        web_fetch_directives_text = ""
+        if getattr(planner_input, "web_fetch_enabled", False):
+            web_fetch_directives_text = (
+                "- **URL fetching (web_fetch is enabled for this org):** when the user references one or more HTTP/HTTPS URLs, pick the tool by what they're asking for, not by URL count:\n"
+                "  - Just \"read / what does it say / summarize\" → `web_fetch` (single URL, returns parsed content in one shot).\n"
+                "  - Build a tracked table / chart / insight from URL content → `create_data`. The code-exec sandbox has an injected `http` client (`http.get(url)`, `http.batch_get(urls)`); the coder will fetch and parse as needed.\n"
+                "  - Validate URL structure or sample content before a larger fetch → `inspect_data` on 1–3 URLs first, then `create_data`.\n"
+                "  - `create_data` / `inspect_data` accept URL-only tasks (no `tables_by_source`, no uploaded file required) when web fetch is enabled."
+            )
+
         platform_directives = PromptBuilderV3._platform_system_directives(planner_input)
         platform_directives_text = f"{platform_directives}\n\n" if platform_directives else ""
 
@@ -175,6 +187,7 @@ PLAN TYPE GUIDANCE
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
 - If the user attached a screenshot or an image — describe it briefly in message text — don't use inspect_data for images.
 - When working with data files (excel, csv, etc), ALWAYS use inspect_data to verify the file content and structure before creating data widgets.
+{web_fetch_directives_text}
 
 {platform_directives_text}clarify protocol (read this every time)
 
