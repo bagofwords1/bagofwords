@@ -592,6 +592,119 @@ class UserManager(BaseUserManager[User, str]):
             # Add any other pre-registration checks
             # If any check fails, raise an HTTPException
 
+async def _org_signup_policy(db: AsyncSession, organization_id: str) -> dict:
+    from app.models.organization_settings import OrganizationSettings
+    from app.ee.license import has_feature
+    if not has_feature("domain_signup"):
+        return {}
+    result = await db.execute(
+        select(OrganizationSettings).where(OrganizationSettings.organization_id == organization_id)
+    )
+    s = result.scalar_one_or_none()
+    if not s:
+        return {}
+    policy = (s.config or {}).get("signup_policy") or {}
+    if not policy.get("enabled"):
+        return {}
+    return policy
+
+
+async def auto_provision_user_for_org(
+    db: AsyncSession,
+    organization_id: str,
+    email: str,
+    name: Optional[str] = None,
+) -> Optional[User]:
+    """Provision (or attach) a user for chat-onboarding into a specific org.
+
+    Returns the User if admitted via (a) an existing open invite scoped to this
+    org or (b) this org's domain_signup policy. Returns None if neither applies
+    (caller should block the chat user with an "ask your admin" message).
+    """
+    from sqlalchemy import func
+    from fastapi_users.password import PasswordHelper
+
+    if not email or "@" not in email:
+        return None
+    email_norm = email.strip().lower()
+
+    # Step 1 (find existing user) is the caller's responsibility. Here we
+    # handle: existing user with no membership in this org, or no user at all.
+    existing_user = (await db.execute(
+        select(User).where(func.lower(User.email) == email_norm)
+    )).scalar_one_or_none()
+
+    open_invite = (await db.execute(
+        select(Membership).where(
+            Membership.organization_id == organization_id,
+            func.lower(Membership.email) == email_norm,
+            Membership.user_id.is_(None),
+        )
+    )).scalar_one_or_none()
+
+    policy = await _org_signup_policy(db, organization_id)
+    domain = email_norm.split("@", 1)[-1]
+    allowed_domains = [str(d).lower() for d in (policy.get("allowed_domains") or []) if isinstance(d, str)]
+    domain_admitted = domain in allowed_domains
+
+    if not open_invite and not domain_admitted:
+        return None
+
+    if existing_user:
+        if open_invite:
+            open_invite.user_id = existing_user.id
+        else:
+            role = str(policy.get("auto_invite_role") or "member")
+            db.add(Membership(
+                user_id=existing_user.id,
+                organization_id=organization_id,
+                role=role,
+            ))
+        await db.commit()
+        return existing_user
+
+    ph = PasswordHelper()
+    user = User(
+        email=email_norm,
+        name=name or email_norm.split("@")[0],
+        hashed_password=ph.hash(ph.generate()),
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+    db.add(user)
+    await db.flush()
+
+    if open_invite:
+        open_invite.user_id = user.id
+    else:
+        role = str(policy.get("auto_invite_role") or "member")
+        db.add(Membership(
+            user_id=user.id,
+            organization_id=organization_id,
+            role=role,
+        ))
+
+    await db.commit()
+    await db.refresh(user)
+
+    try:
+        await telemetry.capture(
+            "user_auto_provisioned_from_chat",
+            {
+                "organization_id": str(organization_id),
+                "user_id": str(user.id),
+                "via": "domain_signup" if not open_invite else "open_invite",
+            },
+            user_id=str(user.id),
+            org_id=str(organization_id),
+        )
+    except Exception:
+        pass
+
+    return user
+
+
 async def get_user_manager(user_db: SQLAlchemyUserDatabase = Depends(get_user_db)):
     yield UserManager(user_db)
 

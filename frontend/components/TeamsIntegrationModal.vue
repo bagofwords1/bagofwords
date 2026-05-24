@@ -57,7 +57,7 @@
             <span class="text-sm">
               <span class="font-medium">Auto-link users by tenant email</span>
               <span class="block text-xs text-gray-500 mt-0.5">
-                When enabled, Teams users are automatically linked to BagOfWords accounts whose email matches their Azure AD profile (no verification link required).
+                When enabled, Teams users are automatically linked to BOW accounts whose email matches their Azure AD profile (no verification link required).
                 Since the email comes from your tenant directory, this is generally safe — but only enable for tenants you fully trust.
               </span>
             </span>
@@ -92,7 +92,7 @@
               <span class="text-sm">
                 <span class="font-medium">Auto-link users by tenant email</span>
                 <span class="block text-xs text-gray-500 mt-0.5">
-                  Users messaging the bot are linked to BagOfWords accounts whose email matches their Azure AD profile — no verification link required. Recommended.
+                  Users messaging the bot are linked to BOW accounts whose email matches their Azure AD profile — no verification link required. Recommended.
                 </span>
               </span>
             </label>

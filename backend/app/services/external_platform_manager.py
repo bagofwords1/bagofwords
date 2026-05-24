@@ -96,12 +96,22 @@ class ExternalPlatformManager:
         organization = await self.organization_service.get_organization(db, platform.organization_id, None)
 
         # Optional: auto-link via verified platform email (per-integration opt-in).
-        # Only safe for platforms whose email originates from a trusted IdP/SSO
-        # (Slack workspace email, Teams AAD). Disabled by default.
+        # Trust model: workspace/tenant email is treated like an IdP-vouched
+        # identity. Lookup ladder:
+        #   1. existing member of this org with matching email -> link
+        #   2. existing user (any org) + open invite to this org -> attach + link
+        #   3. no user, but open invite to this org -> create user, attach, link
+        #   4. no user, but this org's signup_policy admits the email domain
+        #      -> create user + membership(role=auto_invite_role), link
+        #   5. otherwise -> block with an "ask your admin" DM
+        from app.core.auth import auto_provision_user_for_org
+
         auto_link_enabled = bool((platform.platform_config or {}).get("auto_link_by_email"))
         auto_linked_user = None
         auto_linked_email = None
         auto_linked_name = None
+        block_message = None
+
         if auto_link_enabled and platform.platform_type in ("slack", "teams"):
             try:
                 user_info = await adapter.get_user_info(
@@ -109,16 +119,43 @@ class ExternalPlatformManager:
                     conversation_id=processed_data.get("channel_id"),
                 )
                 email = (user_info or {}).get("email")
-                if email:
+                display_name = (user_info or {}).get("real_name") or (user_info or {}).get("name")
+                if not email:
+                    block_message = (
+                        "I couldn't read your workspace email, so I can't link you "
+                        "to a BOW account. Ask your admin to check the integration's "
+                        "email permissions."
+                    )
+                else:
                     matched = await self.mapping_service.find_user_by_email(
                         db, platform.organization_id, email
                     )
                     if matched:
                         auto_linked_user = matched
+                    else:
+                        provisioned = await auto_provision_user_for_org(
+                            db, platform.organization_id, email, name=display_name
+                        )
+                        if provisioned:
+                            auto_linked_user = provisioned
+                        else:
+                            block_message = (
+                                f"Your email {email} isn't linked to a BOW account "
+                                f"in this workspace. Ask your admin to invite you, "
+                                f"then try again."
+                            )
+                    if auto_linked_user:
                         auto_linked_email = email
-                        auto_linked_name = (user_info or {}).get("real_name") or (user_info or {}).get("name")
+                        auto_linked_name = display_name
             except Exception as e:
                 print(f"Auto-link by email failed, falling back to verification: {e}")
+
+        if block_message:
+            try:
+                await adapter.send_dm(external_user_id, block_message)
+            except Exception as e:
+                print(f"Failed to send block DM: {e}")
+            return None
 
         mapping_data = ExternalUserMappingCreate(
             platform_type=platform.platform_type,
@@ -144,7 +181,7 @@ class ExternalPlatformManager:
                 try:
                     await adapter.send_dm(
                         external_user_id,
-                        f"You've been auto-linked to BagOfWords account {auto_linked_email}. "
+                        f"You've been auto-linked to BOW account {auto_linked_email}. "
                         f"If this isn't you, contact your admin.",
                     )
                 except Exception as e:

@@ -61,7 +61,7 @@
             <span class="text-sm">
               <span class="font-medium">Auto-link users by workspace email</span>
               <span class="block text-xs text-gray-500 mt-0.5">
-                When enabled, Slack users are automatically linked to BagOfWords accounts whose email matches their Slack workspace profile (no verification link required).
+                When enabled, Slack users are automatically linked to BOW accounts whose email matches their Slack workspace profile (no verification link required).
                 Only enable if your workspace emails are managed by SSO/IdP — otherwise users could self-set an email and impersonate someone. Requires the <code>users:read.email</code> scope on the bot.
               </span>
             </span>
@@ -92,7 +92,7 @@
               <span class="text-sm">
                 <span class="font-medium">Auto-link users by workspace email</span>
                 <span class="block text-xs text-gray-500 mt-0.5">
-                  Users messaging the bot are linked to BagOfWords accounts whose email matches their Slack profile — no verification link required. Requires the <code>users:read.email</code> scope. Recommended for SSO-managed workspaces.
+                  Users messaging the bot are linked to BOW accounts whose email matches their Slack profile — no verification link required. Requires the <code>users:read.email</code> scope. Recommended for SSO-managed workspaces.
                 </span>
               </span>
             </label>
