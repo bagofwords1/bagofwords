@@ -56,6 +56,13 @@ from app.schemas.data_sources.configs import (
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
+    # SharePoint / OneDrive / Google Drive (file connectors)
+    SharePointConfig,
+    SharePointCredentials,
+    OneDriveConfig,
+    OneDriveCredentials,
+    GoogleDriveConfig,
+    GoogleDriveCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Timbr
@@ -531,6 +538,82 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.qlik_sense_client.QlikSenseClient",
         requires_license="enterprise",
+    ),
+    "sharepoint": DataSourceRegistryEntry(
+        type="sharepoint",
+        title="SharePoint",
+        description=(
+            "SharePoint document library connector via Microsoft Graph. "
+            "Admin configures the Entra ID app; users sign in to grant per-user file access. "
+            "Files are enumerated as a live catalog and read on demand."
+        ),
+        config_schema=SharePointConfig,
+        credentials_auth=AuthOptions(
+            default="oauth",
+            by_auth={
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+                "service_principal": AuthVariant(
+                    title="Service Principal (Azure AD)",
+                    schema=SharePointCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.graph_drive_client.SharepointClient",
+        is_document_based=True,
+    ),
+    "onedrive": DataSourceRegistryEntry(
+        type="onedrive",
+        title="OneDrive",
+        description=(
+            "OneDrive connector via Microsoft Graph. Each user connects their own "
+            "OneDrive via OAuth; files in the configured folder are enumerated as a "
+            "live catalog and read on demand."
+        ),
+        config_schema=OneDriveConfig,
+        credentials_auth=AuthOptions(
+            default="oauth",
+            by_auth={
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+                "service_principal": AuthVariant(
+                    title="Service Principal (Azure AD)",
+                    schema=OneDriveCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.graph_drive_client.OnedriveClient",
+        is_document_based=True,
+    ),
+    "google_drive": DataSourceRegistryEntry(
+        type="google_drive",
+        title="Google Drive",
+        description=(
+            "Google Drive (and Sheets) connector. Admin configures a Google Cloud "
+            "OAuth client; users sign in with Google to grant per-user access. "
+            "Files are enumerated as a live catalog and read on demand."
+        ),
+        config_schema=GoogleDriveConfig,
+        credentials_auth=AuthOptions(
+            default="oauth",
+            by_auth={
+                "oauth": AuthVariant(
+                    title="Sign in with Google",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.google_drive_client.GoogleDriveClient",
+        is_document_based=True,
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",

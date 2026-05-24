@@ -709,6 +709,150 @@ class MSFabricConfig(BaseModel):
     )
 
 
+# SharePoint (Microsoft Graph)
+class SharePointCredentials(BaseModel):
+    tenant_id: str = Field(
+        ...,
+        title="Tenant ID",
+        description="Azure AD Tenant ID (Directory ID)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="Azure AD App Registration Client ID (used for OAuth authorization code flow with users)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Azure AD App Registration Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID (override)",
+        description="Optional separate App Registration Client ID for user sign-in. Falls back to Client ID above.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret (override)",
+        description="Optional separate App Registration Secret for user sign-in. Falls back to Client Secret above.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class SharePointConfig(BaseModel):
+    site_url: str = Field(
+        ...,
+        title="Site URL",
+        description="Full SharePoint site URL, e.g. https://contoso.sharepoint.com/sites/Finance",
+        json_schema_extra={"ui:type": "string"}
+    )
+    drive_name: Optional[str] = Field(
+        None,
+        title="Document Library",
+        description="Name of the document library (drive) on the site. Leave blank to use the site's default Documents library.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    folder_path: Optional[str] = Field(
+        None,
+        title="Folder Path",
+        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). Leave blank for the root.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,pdf'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    recursive: bool = Field(
+        False,
+        title="Include Subfolders",
+        description="Recursively enumerate subfolders. Leave off for flatter, faster catalogs.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
+# OneDrive (Microsoft Graph — same auth, scoped to a user's personal drive
+# or a shared folder accessible via the configured OAuth user)
+class OneDriveCredentials(SharePointCredentials):
+    """OneDrive uses the same Microsoft Graph auth as SharePoint."""
+    pass
+
+
+class OneDriveConfig(BaseModel):
+    folder_path: Optional[str] = Field(
+        None,
+        title="Folder Path",
+        description="Optional folder path within OneDrive to scope the connection (e.g. 'Documents/Reports'). Leave blank for the user's root.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,pdf'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    recursive: bool = Field(
+        False,
+        title="Include Subfolders",
+        description="Recursively enumerate subfolders.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
+# Google Drive
+class GoogleDriveCredentials(BaseModel):
+    oauth_client_id: str = Field(
+        ...,
+        title="OAuth Client ID",
+        description="Google Cloud OAuth 2.0 Client ID (Web application type)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: str = Field(
+        ...,
+        title="OAuth Client Secret",
+        description="Google Cloud OAuth 2.0 Client Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    workspace_domain: Optional[str] = Field(
+        None,
+        title="Workspace Domain",
+        description="Optional Google Workspace domain to restrict sign-in to (e.g. 'company.com'). Sets the `hd` hint on the authorize URL.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
+class GoogleDriveConfig(BaseModel):
+    folder_id: Optional[str] = Field(
+        None,
+        title="Folder ID",
+        description="Optional Drive folder ID to scope the connection. The folder ID is the trailing segment of a folder's URL. Leave blank for the user's My Drive root.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    shared_drive_id: Optional[str] = Field(
+        None,
+        title="Shared Drive ID",
+        description="Optional Shared Drive (Team Drive) ID. If set, lists files within the shared drive instead of My Drive.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,gsheet,pdf'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    recursive: bool = Field(
+        False,
+        title="Include Subfolders",
+        description="Recursively enumerate subfolders.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""
@@ -1091,6 +1235,13 @@ __all__ = [
     # Microsoft Fabric
     "MSFabricCredentials",
     "MSFabricConfig",
+    # SharePoint / OneDrive / Google Drive (file connectors)
+    "SharePointCredentials",
+    "SharePointConfig",
+    "OneDriveCredentials",
+    "OneDriveConfig",
+    "GoogleDriveCredentials",
+    "GoogleDriveConfig",
     # Sybase SQL Anywhere
     "SybaseConfig",
     # Timbr
