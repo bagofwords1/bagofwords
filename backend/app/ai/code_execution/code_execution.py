@@ -129,7 +129,8 @@ def resolve_query_timeout(client, organization_settings) -> int:
 # Modules that should never be imported
 FORBIDDEN_MODULES = frozenset({
     'os', 'subprocess', 'sys', 'shutil', 'importlib', 'builtins',
-    'code', 'pty', 'socket', 'requests', 'urllib', 'http', 'ftplib',
+    'code', 'pty', 'socket', 'requests', 'urllib', 'urllib3', 'http',
+    'httpx', 'aiohttp', 'httplib2', 'curl_cffi', 'ftplib',
     'telnetlib', 'smtplib', 'poplib', 'imaplib', 'nntplib',
     'multiprocessing', 'threading', 'concurrent', 'asyncio',
     'ctypes', 'cffi', 'pickle', 'shelve', 'marshal',

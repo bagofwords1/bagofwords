@@ -472,11 +472,21 @@ class Coder:
 
             1a. **HTTP client (when the task involves URLs)**:
                - When fetching web pages, accept a third parameter `http` in your signature. It is a pre-built sync client; do NOT `import httpx`, `requests`, `urllib`, `asyncio`, `socket`, or `threading` (all forbidden by the sandbox).
+               - **Do NOT import `bs4`, `lxml`, `html.parser`, or any HTML parser.** The pages returned by `http.get`/`http.batch_get` are ALREADY parsed for you — see the field list below.
                - `http.get(url, timeout=15) -> FetchedPage` for a single URL.
                - `http.batch_get(urls, concurrency=20, timeout=15) -> list[FetchedPage]` for many URLs in parallel. Prefer this over a Python loop of `http.get` whenever you have more than ~5 URLs.
-               - `FetchedPage` fields: `.url`, `.final_url`, `.status`, `.success`, `.text`, `.title`, `.description`, `.meta` (dict of meta-tag content, includes `og:*`, `twitter:*`, `product:price:amount`, etc.), `.json_ld` (list of parsed JSON-LD blocks — common for Product/Offer/Article schemas on retail sites), `.headings`, `.truncated`, `.error` (str when the fetch failed; `.success` is False in that case).
+               - `FetchedPage` is a dataclass with these pre-extracted fields — read them directly, don't re-parse:
+                 * `.url`, `.final_url`, `.status`, `.success`
+                 * `.title` — already extracted from `<title>` (or `og:title` via `.meta`)
+                 * `.description` — already extracted from meta description / `og:description`
+                 * `.text` — **already the visible text content** with `<script>`, `<style>`, `<nav>`, `<footer>` etc. stripped and whitespace collapsed. Use `len(page.text)` directly for "text length"; do NOT pipe it through BeautifulSoup.
+                 * `.meta` — dict of all meta tags (`og:*`, `twitter:*`, `product:price:amount`, etc.)
+                 * `.json_ld` — list of parsed JSON-LD dicts (common for Product/Offer/Article schemas on retail sites)
+                 * `.headings` — list of h1/h2 text
+                 * `.truncated` — bool; True if content was capped
+                 * `.error` — str when the fetch failed; `.success` is False in that case
                - Failures never raise — they appear as pages with `.error` set. Filter them: `good = [p for p in pages if p.success and not p.error]`.
-               - Extraction order of preference: (1) `json_ld` (most reliable on ecommerce/news sites — look for `Product.offers.price`, `Offer.price`, etc.), (2) `meta` (look for `product:price:amount`, `og:price:amount`, `twitter:data1`), (3) regex on `.text`. Always fall back gracefully — write the price as `None` for rows you can't parse rather than crashing.
+               - Extraction order of preference for structured data (prices, ratings, stock, etc.): (1) `json_ld` (most reliable on ecommerce/news sites — look for `Product.offers.price`, `Offer.price`, etc.), (2) `meta` (look for `product:price:amount`, `og:price:amount`, `twitter:data1`), (3) regex on `.text`. Always fall back gracefully — write the value as `None` for rows you can't parse rather than crashing.
                - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
 
             2. **Data Source Usage**:
