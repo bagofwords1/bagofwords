@@ -21,13 +21,20 @@ class InstructionVersionService:
         db: AsyncSession,
         instruction: Instruction,
         user_id: Optional[str] = None,
+        status_override: Optional[str] = None,
     ) -> InstructionVersion:
         """
         Create a new version by snapshotting the current instruction state.
-        
+
         Copies: text, title, structured_data, formatted_content, load_mode,
         references (as JSON), data_sources (as IDs), labels (as IDs), categories.
         Computes content_hash from all versioned fields.
+
+        status_override: when set, overrides the snapshot of instruction.status
+        for the version's status field. Used by AI-suggestion flows where the
+        intended live state ('published') differs from the staged instruction
+        state ('draft'); promote_build reads version.status to decide whether
+        to flip the live row.
         """
         # Get next version number
         version_number = await self.get_next_version_number(db, instruction.id)
@@ -58,13 +65,15 @@ class InstructionVersionService:
             else:
                 category_ids = [instruction.category] if instruction.category else None
         
+        effective_status = status_override if status_override is not None else instruction.status
+
         # Compute content hash (includes status for versioning)
         version_data = {
             "text": instruction.text,
             "title": instruction.title,
             "structured_data": instruction.structured_data,
             "formatted_content": instruction.formatted_content,
-            "status": instruction.status,
+            "status": effective_status,
             "load_mode": instruction.load_mode,
             "references_json": references_json,
             "data_source_ids": data_source_ids,
@@ -72,7 +81,7 @@ class InstructionVersionService:
             "category_ids": category_ids,
         }
         content_hash = self.compute_content_hash(version_data)
-        
+
         # Create version
         version = InstructionVersion(
             instruction_id=instruction.id,
@@ -81,7 +90,7 @@ class InstructionVersionService:
             title=instruction.title,
             structured_data=instruction.structured_data,
             formatted_content=instruction.formatted_content,
-            status=instruction.status,
+            status=effective_status,
             load_mode=instruction.load_mode or 'always',
             references_json=references_json,
             data_source_ids=data_source_ids,
