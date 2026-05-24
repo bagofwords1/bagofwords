@@ -47,6 +47,8 @@ class ConnectionService:
         credentials: dict = None,
         auth_policy: str = "system_only",
         allowed_user_auth_modes: list = None,
+        auto_reindex_enabled: Optional[bool] = None,
+        auto_reindex_interval_hours: Optional[int] = None,
     ) -> Connection:
         """Create a new connection with validation."""
 
@@ -99,6 +101,14 @@ class ConnectionService:
             existing_count = count_result.scalar() or 0
             connection_name = f"{type}-{existing_count + 1}"
 
+        # Auto-reindex defaults: enabled, 24h. Clamp to >= 1h to keep the scan
+        # cheap and the indexer from re-firing on top of itself.
+        if auto_reindex_interval_hours is not None and auto_reindex_interval_hours < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="auto_reindex_interval_hours must be >= 1",
+            )
+
         connection = Connection(
             name=connection_name,
             type=type,
@@ -107,6 +117,8 @@ class ConnectionService:
             allowed_user_auth_modes=allowed_user_auth_modes,
             organization_id=organization.id,
             is_active=True,
+            auto_reindex_enabled=True if auto_reindex_enabled is None else auto_reindex_enabled,
+            auto_reindex_interval_hours=24 if auto_reindex_interval_hours is None else auto_reindex_interval_hours,
         )
 
         if credentials:
@@ -233,6 +245,17 @@ class ConnectionService:
             target_type = updates.get("type", connection.type)
             if target_type in ENTRA_OBO_CONNECTION_TYPES and not (connection.allowed_user_auth_modes or []):
                 updates["allowed_user_auth_modes"] = ["oauth"]
+
+        # Validate auto-reindex interval before applying any updates.
+        if (
+            "auto_reindex_interval_hours" in updates
+            and updates["auto_reindex_interval_hours"] is not None
+            and updates["auto_reindex_interval_hours"] < 1
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="auto_reindex_interval_hours must be >= 1",
+            )
 
         # Track if connection-relevant fields changed
         connection_changed = False

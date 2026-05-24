@@ -43,6 +43,7 @@ from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.data_sources.clients.powerbi_report_server_client import warm_all_pbirs_caches
+from app.services.connection_indexing_service import auto_reindex_due_connections
 from app.core.otel import setup_telemetry, instrument_app
 from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
@@ -427,6 +428,27 @@ async def startup_event():
             logger.info("Scheduled job: pbirs_warmup every 1 hour")
         except Exception as e:
             logger.error(f"Failed to schedule PBIRS warmup job: {e}")
+
+    # Per-connection periodic schema reindex. Scans every 15 minutes and kicks
+    # off `ConnectionIndexingService.start` for every active connection whose
+    # last_synced_at is older than its per-connection `auto_reindex_interval_hours`
+    # (default 24h). Default cadence is conservative — the scan itself is one
+    # SELECT, and idempotency in `start()` keeps re-fires safe.
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                auto_reindex_due_connections,
+                trigger="interval",
+                minutes=15,
+                id="connection_auto_reindex",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: connection_auto_reindex every 15 minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule connection auto-reindex job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):

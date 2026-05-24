@@ -17,6 +17,8 @@ class ConnectionCreate(BaseModel):
     credentials: Optional[dict] = None
     auth_policy: str = "system_only"
     allowed_user_auth_modes: Optional[list] = None
+    auto_reindex_enabled: Optional[bool] = None
+    auto_reindex_interval_hours: Optional[int] = None
 
 
 class ConnectionUpdate(BaseModel):
@@ -27,6 +29,8 @@ class ConnectionUpdate(BaseModel):
     is_active: Optional[bool] = None
     auth_policy: Optional[str] = None  # system_only, user_required
     allowed_user_auth_modes: Optional[list] = None
+    auto_reindex_enabled: Optional[bool] = None
+    auto_reindex_interval_hours: Optional[int] = None
 
 
 class ConnectionSchema(BaseModel):
@@ -43,6 +47,8 @@ class ConnectionSchema(BaseModel):
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     indexing: Optional[Dict[str, Any]] = None
+    auto_reindex_enabled: bool = True
+    auto_reindex_interval_hours: int = 24
 
     class Config:
         from_attributes = True
@@ -64,6 +70,8 @@ class ConnectionDetailSchema(BaseModel):
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
+    auto_reindex_enabled: bool = True
+    auto_reindex_interval_hours: int = 24
 
     class Config:
         from_attributes = True

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, Integer, JSON, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from importlib import import_module
@@ -24,7 +24,13 @@ class Connection(BaseSchema):
     
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime, nullable=True)
-    
+
+    # Periodic auto-reindex (schema reload). Scheduler scans every N minutes
+    # and kicks off `ConnectionIndexingService.start` for connections whose
+    # last_synced_at is older than `auto_reindex_interval_hours`.
+    auto_reindex_enabled = Column(Boolean, nullable=False, default=True)
+    auto_reindex_interval_hours = Column(Integer, nullable=False, default=24)
+
     # Connection test cache - stores last test result to avoid repeated slow tests
     last_connection_status = Column(String, nullable=True)  # "success", "not_connected", "offline"
     last_connection_checked_at = Column(DateTime, nullable=True)

@@ -17,10 +17,10 @@ import asyncio
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.connection import Connection
@@ -536,3 +536,75 @@ class ConnectionIndexingService:
                     extra={"connection_id": str(connection_id), "data_source_id": ds_id},
                 )
         return synced
+
+
+# Tool-provider types skip scheduled re-indexing — the periodic refresh is
+# specifically for schema (tables/columns), and tool discovery already runs
+# eagerly on connection create/update.
+_AUTO_REINDEX_SKIP_TYPES = {"mcp", "custom_api"}
+
+
+async def auto_reindex_due_connections() -> dict:
+    """Scheduler entry point — kick off an indexing run for every connection
+    whose `last_synced_at` is older than its `auto_reindex_interval_hours`.
+
+    Returns a small stats dict for logging. Never raises — a single bad
+    connection must not stop the scan from advancing to the next one.
+    Idempotent: `ConnectionIndexingService.start` returns the active row if
+    one is already in flight, so re-scans never double-fire.
+    """
+    from app.dependencies import async_session_maker
+
+    now = datetime.utcnow()
+    kicked = 0
+    skipped_inflight = 0
+    errors = 0
+
+    try:
+        async with async_session_maker() as db:
+            # System-only connections are eligible — user_required has no
+            # system credentials to refresh schema with.
+            result = await db.execute(
+                select(Connection)
+                .where(
+                    Connection.is_active.is_(True),
+                    Connection.auto_reindex_enabled.is_(True),
+                    Connection.auth_policy == "system_only",
+                    Connection.type.notin_(_AUTO_REINDEX_SKIP_TYPES),
+                )
+            )
+            candidates = result.scalars().all()
+
+            service = ConnectionIndexingService()
+            for conn in candidates:
+                interval = max(1, int(conn.auto_reindex_interval_hours or 24))
+                if conn.last_synced_at is not None and (
+                    conn.last_synced_at + timedelta(hours=interval) > now
+                ):
+                    continue
+                try:
+                    existing = await service.get_active(db, str(conn.id))
+                    if existing is not None:
+                        skipped_inflight += 1
+                        continue
+                    await service.start(db=db, connection=conn)
+                    kicked += 1
+                except Exception:
+                    errors += 1
+                    logger.exception(
+                        "auto_reindex.kick_failed",
+                        extra={"connection_id": str(conn.id)},
+                    )
+    except Exception:
+        logger.exception("auto_reindex.scan_failed")
+        return {"kicked": kicked, "skipped_inflight": skipped_inflight, "errors": errors + 1}
+
+    logger.info(
+        "auto_reindex.scan_done",
+        extra={
+            "kicked": kicked,
+            "skipped_inflight": skipped_inflight,
+            "errors": errors,
+        },
+    )
+    return {"kicked": kicked, "skipped_inflight": skipped_inflight, "errors": errors}

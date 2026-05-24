@@ -182,6 +182,8 @@ async def list_connections(
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
+            auto_reindex_enabled=conn.auto_reindex_enabled,
+            auto_reindex_interval_hours=conn.auto_reindex_interval_hours,
         ))
     return result
 
@@ -205,6 +207,8 @@ async def create_connection(
         credentials=data.credentials,
         auth_policy=data.auth_policy,
         allowed_user_auth_modes=data.allowed_user_auth_modes,
+        auto_reindex_enabled=data.auto_reindex_enabled,
+        auto_reindex_interval_hours=data.auto_reindex_interval_hours,
     )
     
     # Inline the latest indexing run so the modal can show progress
@@ -224,6 +228,8 @@ async def create_connection(
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         indexing=indexing_payload.model_dump() if indexing_payload else None,
+        auto_reindex_enabled=connection.auto_reindex_enabled,
+        auto_reindex_interval_hours=connection.auto_reindex_interval_hours,
     )
 
 
@@ -277,6 +283,8 @@ async def get_connection(
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=has_credentials,
+        auto_reindex_enabled=connection.auto_reindex_enabled,
+        auto_reindex_interval_hours=connection.auto_reindex_interval_hours,
     )
 
 
@@ -311,6 +319,8 @@ async def update_connection(
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else (len(connection.connection_tables) if connection.connection_tables else 0),
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
+        auto_reindex_enabled=connection.auto_reindex_enabled,
+        auto_reindex_interval_hours=connection.auto_reindex_interval_hours,
     )
 
 
