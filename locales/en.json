@@ -236,7 +236,7 @@
     },
     "table": {
       "title": "Title",
-      "dataSources": "Data Sources",
+      "dataSources": "Agents",
       "created": "Created",
       "user": "User",
       "actions": "Actions"

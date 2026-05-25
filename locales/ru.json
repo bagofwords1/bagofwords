@@ -226,7 +226,7 @@
     },
     "table": {
       "title": "Название",
-      "dataSources": "Источники данных",
+      "dataSources": "Агенты",
       "created": "Создан",
       "user": "Пользователь",
       "actions": "Действия"

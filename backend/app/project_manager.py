@@ -948,6 +948,10 @@ class ProjectManager:
         with the full record (start time, end time, result, status all at once).
         """
         tool_exec = ToolExecution(
+            # Generate the id eagerly so synchronous callers (e.g. the tool.finished
+            # SSE emit, which fires before the bg INSERT) can reference it. The
+            # background INSERT will commit this same id.
+            id=str(uuid.uuid4()),
             agent_execution_id=agent_execution.id,
             plan_decision_id=plan_decision_id,
             tool_name=tool_name,

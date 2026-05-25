@@ -958,6 +958,7 @@ class AgentV2:
                         seq=seq_fin,
                         data={
                             "tool_name": tool_name,
+                            "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
                             "status": _tool_status,
                             "result_summary": observation.get("summary", "") if observation else "",
                             "result_json": safe_result_json,
@@ -2886,6 +2887,7 @@ class AgentV2:
                                 seq=seq_fin,
                                 data={
                                     "tool_name": tool_name,
+                                    "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
                                     "status": _tool_status,
                                     "result_summary": observation.get("summary", "") if observation else "",
                                     # Include query_id for hydration in frontend previews when available

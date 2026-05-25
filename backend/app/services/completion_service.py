@@ -2262,6 +2262,67 @@ class CompletionService:
             )
         return {"ok": True}
 
+    async def submit_clarify_response(
+        self,
+        db: AsyncSession,
+        completion_id: str,
+        tool_execution_id: str,
+        body: dict,
+        current_user: User = None,
+        organization: Organization = None,
+    ):
+        """Persist clarify-form selections on the tool_execution's ``result_json``
+        so the UI can rehydrate them on reload. The user's answer is the result
+        of this tool from the agent's perspective, so it lives alongside the
+        existing ``status`` field under a ``user_response`` key:
+        { status, user_response: { selected_chips, other_texts, free_texts } }.
+        """
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Body must be an object")
+
+        completion = (await db.execute(
+            select(Completion).where(Completion.id == completion_id)
+        )).scalars().first()
+        if not completion:
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        report = (await db.execute(
+            select(Report).where(Report.id == completion.report_id)
+        )).scalars().first()
+        if not report or (organization and str(report.organization_id) != str(organization.id)):
+            raise HTTPException(status_code=404, detail="Completion not found")
+
+        # Only the user who initiated this completion / owns the report may answer
+        # the clarify form — prevents another org member from poisoning a pending
+        # clarify by guessing the tool_execution_id.
+        if current_user is not None:
+            initiator_id = completion.user_id or report.user_id
+            if initiator_id is not None and str(initiator_id) != str(current_user.id):
+                raise HTTPException(status_code=403, detail="Not allowed to answer this clarify")
+
+        # Tool execution must belong to an agent_execution under this completion.
+        tool_exec = (await db.execute(
+            select(ToolExecution)
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(ToolExecution.id == tool_execution_id)
+            .where(AgentExecution.completion_id == completion_id)
+        )).scalars().first()
+        if not tool_exec:
+            raise HTTPException(status_code=404, detail="Tool execution not found")
+        if tool_exec.tool_name != 'clarify':
+            raise HTTPException(status_code=400, detail="Not a clarify tool execution")
+
+        merged = dict(tool_exec.result_json or {})
+        merged["status"] = "answered"
+        merged["user_response"] = {
+            "selected_chips": body.get("selected_chips") or [],
+            "other_texts": body.get("other_texts") or [],
+            "free_texts": body.get("free_texts") or [],
+        }
+        tool_exec.result_json = merged
+        await db.commit()
+        return {"ok": True, "result_json": merged}
+
     async def update_completion_sigkill(self, db: AsyncSession, completion_id: str, current_user: User = None, organization: Organization = None):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()

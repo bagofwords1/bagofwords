@@ -158,3 +158,20 @@ async def submit_tool_result(
     """Accept an Office.js execution result from the Excel taskpane and resolve
     the waiting tool future. Used by the write_officejs_code tool."""
     return await completion_service.submit_tool_result(db, completion_id, tool_call_id, body, current_user, organization)
+
+
+@requires_permission('create_reports')
+@router.post("/api/completions/{completion_id}/tool_executions/{tool_execution_id}/clarify_response")
+async def submit_clarify_response(
+    completion_id: str,
+    tool_execution_id: str,
+    body: dict,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Persist the user's selections from the clarify tool form so the UI can
+    rehydrate them on reload (and across devices)."""
+    return await completion_service.submit_clarify_response(
+        db, completion_id, tool_execution_id, body, current_user, organization
+    )
