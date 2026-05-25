@@ -158,7 +158,7 @@ class WhatsAppAdapter(PlatformAdapter):
             payload["context"] = {"message_id": thread_ts}
         return await self._post_message(payload)
 
-    async def get_user_info(self, external_user_id: str) -> Dict[str, Any]:
+    async def get_user_info(self, external_user_id: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
         """WhatsApp Cloud API does not expose a user-info endpoint.
 
         We return whatever profile name we captured from the last inbound

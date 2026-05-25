@@ -36,12 +36,14 @@ class SlackConfig(BaseModel):
     bot_token: str
     signing_secret: str
     webhook_url: Optional[str] = None
+    auto_link_by_email: bool = True
 
 class TeamsConfig(BaseModel):
     app_id: str
     client_secret: str
     tenant_id: str
     webhook_url: Optional[str] = None
+    auto_link_by_email: bool = True
 
 class WhatsAppConfig(BaseModel):
     access_token: str

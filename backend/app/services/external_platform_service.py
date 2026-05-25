@@ -275,12 +275,13 @@ class ExternalPlatformService:
         return {"success": False, "error": "Email integration not yet implemented"}
 
     async def create_slack_platform(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         organization: Organization,
         bot_token: str,
         signing_secret: str,
-        current_user: User
+        current_user: User,
+        auto_link_by_email: bool = True,
     ) -> ExternalPlatformSchema:
         """Create a Slack platform with proper configuration"""
         # Test the bot token first
@@ -308,7 +309,8 @@ class ExternalPlatformService:
         platform_config = {
             "team_id": team_id,
             "team_name": team_name,
-            "base_url": "https://your-domain.com"  # Update this
+            "base_url": "https://your-domain.com",  # Update this
+            "auto_link_by_email": auto_link_by_email,
         }
         
         # Create credentials
@@ -356,6 +358,7 @@ class ExternalPlatformService:
         client_secret: str,
         tenant_id: str,
         current_user: User,
+        auto_link_by_email: bool = True,
     ) -> ExternalPlatformSchema:
         """Create a Teams platform with proper configuration"""
         # Test credentials first
@@ -377,6 +380,7 @@ class ExternalPlatformService:
         platform_config = {
             "tenant_id": tenant_id,
             "app_id": app_id,
+            "auto_link_by_email": auto_link_by_email,
         }
 
         credentials = {

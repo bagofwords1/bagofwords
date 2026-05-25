@@ -47,8 +47,29 @@
           </div>
         </div>
         
-        <UButton 
-          color="red" 
+        <!-- Account Linking -->
+        <div class="bg-gray-50 rounded-lg p-4 mb-4">
+          <h3 class="text-sm font-medium text-gray-700 mb-3">Account Linking</h3>
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              v-model="autoLinkByEmail"
+              :disabled="savingAutoLink"
+              @change="saveAutoLinkByEmail"
+              class="mt-0.5"
+            />
+            <span class="text-sm">
+              <span class="font-medium">Auto-link users by workspace email</span>
+              <span class="block text-xs text-gray-500 mt-0.5">
+                When enabled, Slack users are automatically linked to BOW accounts whose email matches their Slack workspace profile (no verification link required).
+                Only enable if your workspace emails are managed by SSO/IdP — otherwise users could self-set an email and impersonate someone. Requires the <code>users:read.email</code> scope on the bot.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <UButton
+          color="red"
           variant="soft"
           @click="disconnect"
         >
@@ -65,6 +86,17 @@
             <label class="block text-sm font-medium mb-1">Signing Secret</label>
             <input v-model="signingSecret" type="text" class="w-full border rounded px-2 py-1" required />
           </div>
+          <div class="mb-4">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" v-model="autoLinkByEmail" class="mt-0.5" />
+              <span class="text-sm">
+                <span class="font-medium">Auto-link users by workspace email</span>
+                <span class="block text-xs text-gray-500 mt-0.5">
+                  Users messaging the bot are linked to BOW accounts whose email matches their Slack profile — no verification link required. Requires the <code>users:read.email</code> scope. Recommended for SSO-managed workspaces.
+                </span>
+              </span>
+            </label>
+          </div>
           <button type="submit" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md">Connect</button>
         </form>
       </div>
@@ -73,16 +105,53 @@
   </template>
   
   <script setup lang="ts">
-  import { ref } from 'vue'
-  const props = defineProps<{ 
+  import { ref, watch } from 'vue'
+  const props = defineProps<{
     integrated: boolean
-    integrationData?: any 
+    integrationData?: any
   }>()
   const emit = defineEmits(['close', 'updated'])
   const toast = useToast()
-  
+
   const botToken = ref('')
   const signingSecret = ref('')
+  // Default ON for new connections; reflects stored config for existing ones.
+  const autoLinkByEmail = ref<boolean>(
+    props.integrationData?.platform_config?.auto_link_by_email ?? true
+  )
+  const savingAutoLink = ref(false)
+
+  watch(() => props.integrationData?.platform_config?.auto_link_by_email, (v) => {
+    if (v !== undefined) autoLinkByEmail.value = !!v
+  })
+
+  async function saveAutoLinkByEmail() {
+    if (!props.integrationData?.id) return
+    savingAutoLink.value = true
+    const nextConfig = {
+      ...(props.integrationData?.platform_config || {}),
+      auto_link_by_email: autoLinkByEmail.value,
+    }
+    const res = await useMyFetch(`/api/settings/integrations/${props.integrationData.id}`, {
+      method: 'PUT',
+      body: { platform_config: nextConfig },
+    })
+    savingAutoLink.value = false
+    if (res.status.value === 'success') {
+      toast.add({
+        title: autoLinkByEmail.value ? 'Auto-link enabled' : 'Auto-link disabled',
+        color: 'green',
+      })
+      emit('updated')
+    } else {
+      autoLinkByEmail.value = !autoLinkByEmail.value
+      toast.add({
+        title: 'Failed to update setting',
+        description: (res.error.value as any)?.data?.detail || (res.error.value as any)?.message,
+        color: 'red',
+      })
+    }
+  }
   
   function formatDate(dateString: string | undefined) {
     if (!dateString) return 'N/A'
@@ -98,7 +167,11 @@
   async function connect() {
       const res = await useMyFetch('/api/settings/integrations/slack', {
         method: 'POST',
-        body: { bot_token: botToken.value, signing_secret: signingSecret.value }
+        body: {
+          bot_token: botToken.value,
+          signing_secret: signingSecret.value,
+          auto_link_by_email: autoLinkByEmail.value,
+        }
       })
       if (res.status.value === 'success') {
         toast.add({
