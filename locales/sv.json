@@ -226,7 +226,7 @@
     },
     "table": {
       "title": "Titel",
-      "dataSources": "Datakällor",
+      "dataSources": "Agenter",
       "created": "Skapad",
       "user": "Användare",
       "actions": "Åtgärder"

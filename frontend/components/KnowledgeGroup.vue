@@ -54,39 +54,73 @@
           v-for="ch in changes"
           :key="ch.id"
           :class="[
-            'flex items-start gap-2 py-1.5 px-2 -mx-1.5 rounded border border-gray-150 bg-gray-50 hover:bg-gray-100 cursor-pointer',
+            '-mx-1.5 rounded border border-gray-150 bg-gray-50',
             !isBuildPublished && !selectedIds.has(ch.id) ? 'opacity-50' : ''
           ]"
-          @click="handleEdit(ch)"
         >
-          <UCheckbox
-            v-if="!isBuildPublished"
-            :model-value="selectedIds.has(ch.id)"
-            color="blue"
-            @update:model-value="toggleSelection(ch.id, $event)"
-            @click.stop
-            class="mt-0.5"
-          />
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-1.5">
-              <span
-                :class="[
-                  'text-[9px] font-mono font-semibold uppercase tracking-wide',
-                  ch.type === 'create' ? 'text-green-600' : 'text-blue-600'
-                ]"
-              >
-                {{ ch.type === 'create' ? 'new' : 'edit' }}
-              </span>
-              <span class="text-[12px] text-gray-700 truncate hover:text-gray-900">
-                {{ ch.title }}
-              </span>
-              <span v-if="ch.added > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
-              <span v-if="ch.removed > 0" class="text-[10px] font-mono text-red-500 shrink-0">−{{ ch.removed }}</span>
-            </div>
-            <div class="text-[11px] text-gray-400 line-clamp-1 mt-0.5">
-              {{ ch.preview }}
+          <div
+            class="flex items-start gap-2 py-1.5 px-2 cursor-pointer hover:bg-gray-100 rounded"
+            @click="toggleChangeExpanded(ch.id)"
+          >
+            <UCheckbox
+              v-if="!isBuildPublished"
+              :model-value="selectedIds.has(ch.id)"
+              color="blue"
+              @update:model-value="toggleSelection(ch.id, $event)"
+              @click.stop
+              class="mt-0.5"
+            />
+            <Icon
+              :name="expandedChangeIds.has(ch.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+              class="w-3 h-3 mt-1 text-gray-400 shrink-0 rtl-flip"
+            />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span
+                  :class="[
+                    'text-[9px] font-mono font-semibold uppercase tracking-wide',
+                    ch.type === 'create' ? 'text-green-600' : 'text-blue-600'
+                  ]"
+                >
+                  {{ ch.type === 'create' ? 'new' : 'edit' }}
+                </span>
+                <span class="text-[12px] text-gray-700 truncate hover:text-gray-900">
+                  {{ ch.title }}
+                </span>
+                <span v-if="ch.added > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
+                <span v-if="ch.removed > 0" class="text-[10px] font-mono text-red-500 shrink-0">−{{ ch.removed }}</span>
+              </div>
+              <div v-if="!expandedChangeIds.has(ch.id)" class="text-[11px] text-gray-400 line-clamp-1 mt-0.5">
+                {{ ch.preview }}
+              </div>
             </div>
           </div>
+
+          <Transition name="slide">
+            <div v-if="expandedChangeIds.has(ch.id)" class="px-2 pb-2">
+              <div class="border border-gray-150 rounded-md overflow-hidden bg-white">
+                <div class="px-3 py-1.5 bg-gray-50 border-b border-gray-150 flex items-center justify-between">
+                  <span class="text-[10px] text-gray-600 font-medium">
+                    {{ ch.type === 'create' ? 'New instruction' : 'Text changes' }}
+                  </span>
+                  <button
+                    v-if="ch.instructionId"
+                    class="text-[10px] text-gray-500 hover:text-gray-800 flex items-center gap-1"
+                    @click.stop="handleEdit(ch)"
+                  >
+                    <Icon name="heroicons-pencil-square" class="w-3 h-3" />
+                    Open
+                  </button>
+                </div>
+                <div
+                  class="px-3 py-2 bg-white cursor-pointer hover:bg-gray-50"
+                  @click="handleEdit(ch)"
+                >
+                  <TrackedChangesView :diff-ops="diffOpsForChange(ch)" />
+                </div>
+              </div>
+            </div>
+          </Transition>
         </div>
 
         <!-- Publish button -->
@@ -118,8 +152,11 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import DiffMatchPatch from 'diff-match-patch'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
+import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
+import type { DiffOp, DiffOpType } from '~/composables/useTrackedChanges'
 
 interface ToolExecution {
   id: string
@@ -249,6 +286,8 @@ interface Change {
   removed: number
   instructionId: string | null
   text: string
+  previousText: string
+  nextText: string
   buildId: string | null
 }
 
@@ -272,6 +311,8 @@ const changes = computed<Change[]>(() => {
         removed: 0,
         instructionId: rj.instruction_id || null,
         text,
+        previousText: '',
+        nextText: text,
         buildId: rj.build_id || null,
       })
     } else if (te.tool_name === 'edit_instruction' && rj.success === true) {
@@ -290,6 +331,8 @@ const changes = computed<Change[]>(() => {
         removed,
         instructionId: rj.instruction_id || null,
         text: next,
+        previousText: prev,
+        nextText: next,
         buildId: rj.build_id || null,
       })
     }
@@ -344,6 +387,25 @@ const toggleSelection = (id: string, checked: boolean) => {
   if (checked) next.add(id)
   else next.delete(id)
   selectedIds.value = next
+}
+
+const expandedChangeIds = ref<Set<string>>(new Set())
+
+const toggleChangeExpanded = (id: string) => {
+  const next = new Set(expandedChangeIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedChangeIds.value = next
+}
+
+function diffOpsForChange(ch: Change): DiffOp[] {
+  const base = ch.previousText || ''
+  const next = ch.nextText || ''
+  if (base === next) return [{ type: 0 as DiffOpType, text: base }]
+  const dmp = new DiffMatchPatch()
+  const ops = dmp.diff_main(base, next)
+  dmp.diff_cleanupSemantic(ops)
+  return ops.map(([type, text]) => ({ type: type as DiffOpType, text }))
 }
 
 // Select all new changes by default

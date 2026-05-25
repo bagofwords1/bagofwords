@@ -283,7 +283,7 @@
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                             <UTooltip
-                                                v-for="data_source in report.data_sources"
+                                                v-for="data_source in report.data_sources.slice(0, 2)"
                                                 :key="data_source.id || data_source.name"
                                                 :text="data_source.name"
                                             >
@@ -292,9 +292,18 @@
                                                     class="h-3 inline me-2"
                                                 />
                                             </UTooltip>
+                                            <UTooltip
+                                                v-if="report.data_sources.length > 2"
+                                                :text="report.data_sources.slice(2).map(d => d.name).join(', ')"
+                                            >
+                                                <span class="text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
+                                                    +{{ report.data_sources.length - 2 }}
+                                                </span>
+                                            </UTooltip>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                             {{ report.created_at.split('T')[0].split('-').reverse().join('/') }}
+                                            <span class="text-gray-400">{{ report.created_at.split('T')[1].slice(0, 5) }}</span>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                             {{ report.user.name }}

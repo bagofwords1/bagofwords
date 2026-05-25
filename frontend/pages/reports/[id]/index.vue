@@ -277,8 +277,9 @@
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
 													:tool-execution="block.tool_execution"
+													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
 													:data-sources="report?.data_sources"
-													:system-completion-id="m.system_completion_id"
+													:system-completion-id="m.system_completion_id || m.id"
 													@addWidget="handleAddWidgetFromPreview"
 													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
@@ -2322,6 +2323,14 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					|| [...blocks].reverse().find(b => b.tool_execution?.tool_name === payload.tool_name)
 
 				if (blockWithTool?.tool_execution) {
+					// Replace the synthetic kickoff-/temp- id with the real DB UUID once
+					// the backend reports it — the form submit endpoint needs the real id.
+					const realId = payload.tool_execution_id
+					const looksLikeUuid = typeof realId === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(realId)
+					if (looksLikeUuid && typeof blockWithTool.tool_execution.id === 'string' &&
+						(blockWithTool.tool_execution.id.startsWith('kickoff-') || blockWithTool.tool_execution.id.startsWith('temp-'))) {
+						blockWithTool.tool_execution.id = realId
+					}
 					blockWithTool.tool_execution.status = payload.status
 					blockWithTool.status = payload.status === 'success' ? 'success' : payload.status === 'stopped' ? 'stopped' : 'error'
 					if (payload.result_summary) {

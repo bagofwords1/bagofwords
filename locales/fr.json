@@ -226,7 +226,7 @@
     },
     "table": {
       "title": "Titre",
-      "dataSources": "Sources de données",
+      "dataSources": "Agents",
       "created": "Créé",
       "user": "Utilisateur",
       "actions": "Actions"

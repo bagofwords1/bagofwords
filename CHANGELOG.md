@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.386 (May 25, 2026)
+- UI improvement for knowledge group
+- auto-link teams/slack members
+
 ## Version 0.0.384 (May 24, 2026)
 - Improve instructions mgmt and creation
 - Add web/http tools to code gen

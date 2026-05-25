@@ -320,17 +320,17 @@ class TeamsAdapter(PlatformAdapter):
             print(f"TEAMS: Error sending message: {e}")
             return False
 
-    async def get_user_info(self, external_user_id: str) -> Dict[str, Any]:
+    async def get_user_info(self, external_user_id: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
         """Get Teams user information via Bot Connector API."""
         try:
             token = await self._get_access_token()
             if not token:
                 return {}
 
-            # We need a conversation_id to query members; use stored config
-            # This is typically called in context where we have a conversation
-            # For now, return basic info from what we have
-            url = f"{self.service_url.rstrip('/')}/v3/conversations/placeholder/members/{external_user_id}"
+            if not conversation_id:
+                return {}
+
+            url = f"{self.service_url.rstrip('/')}/v3/conversations/{conversation_id}/members/{external_user_id}"
 
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(

@@ -20,13 +20,13 @@
             v-for="(opt, j) in q.options"
             :key="opt"
             type="button"
-            :disabled="submitted"
-            @click="!submitted && selectOption(i, opt)"
+            :disabled="isLocked"
+            @click="!isLocked && selectOption(i, opt)"
             :class="[
               'flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-lg border transition-all duration-100',
               selectedChips[i] === opt
                 ? 'border-sky-200 bg-sky-50'
-                : submitted
+                : isLocked
                   ? 'border-gray-100 bg-white opacity-40 cursor-default'
                   : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 cursor-pointer',
             ]"
@@ -52,7 +52,7 @@
           <!-- "Other…" free-text expander -->
           <Transition name="expand">
             <div
-              v-if="isOtherSelected(i) && !submitted"
+              v-if="isOtherSelected(i) && !isLocked"
               class="px-3 py-2 rounded-lg border border-sky-200 bg-sky-50"
             >
               <input
@@ -69,7 +69,7 @@
 
         <!-- Free-form question -->
         <div
-          v-else-if="!submitted"
+          v-else-if="!isLocked"
           class="px-3 py-2 rounded-lg border border-gray-200 bg-white focus-within:border-gray-400 transition-colors"
         >
           <input
@@ -85,7 +85,7 @@
 
       <!-- Submit -->
       <button
-        v-if="!submitted"
+        v-if="!isLocked"
         type="button"
         :disabled="!allAnswered"
         @click="submit"
@@ -111,6 +111,12 @@ interface ClarifyQuestion {
   options?: string[]
 }
 
+interface ClarifyResponse {
+  selected_chips?: string[]
+  other_texts?: string[]
+  free_texts?: string[]
+}
+
 interface ToolExecution {
   id: string
   tool_name: string
@@ -119,9 +125,20 @@ interface ToolExecution {
     questions?: ClarifyQuestion[]
     context?: string
   }
+  result_json?: {
+    status?: string
+    user_response?: ClarifyResponse | null
+  } | null
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = withDefaults(
+  defineProps<{
+    toolExecution: ToolExecution
+    alreadyAnswered?: boolean
+    systemCompletionId?: string | null
+  }>(),
+  { alreadyAnswered: false, systemCompletionId: null }
+)
 
 const storageKey = computed(() => `clarify:${props.toolExecution.id}`)
 const status = computed(() => props.toolExecution.status)
@@ -130,11 +147,24 @@ const questions = computed<ClarifyQuestion[]>(
   () => props.toolExecution?.arguments_json?.questions ?? []
 )
 
+const persistedResponse = computed<ClarifyResponse | null>(
+  () => props.toolExecution?.result_json?.user_response ?? null
+)
+const hasPersistedResponse = computed(() => {
+  const r = persistedResponse.value
+  if (!r) return false
+  return (r.selected_chips?.some(Boolean) || r.other_texts?.some(Boolean) || r.free_texts?.some(Boolean)) ?? false
+})
+
 const selectedChips = ref<string[]>([])
 const otherTexts = ref<string[]>([])
 const freeTexts = ref<string[]>([])
 const submitted = ref(false)
 const otherInputRefs = ref<HTMLInputElement[]>([])
+
+const isLocked = computed(() =>
+  submitted.value || hasPersistedResponse.value || props.alreadyAnswered
+)
 
 function isOtherOption(opt: string) {
   return /^other/i.test(opt.trim())
@@ -165,7 +195,7 @@ const allChipBased = computed(() =>
 )
 
 watch(allAnswered, (val) => {
-  if (val && allChipBased.value && !submitted.value) submit()
+  if (val && allChipBased.value && !isLocked.value) submit()
 })
 
 function initArrays(len: number) {
@@ -174,8 +204,26 @@ function initArrays(len: number) {
   freeTexts.value = Array(len).fill('')
 }
 
+function applyPersistedResponse(r: ClarifyResponse) {
+  const n = questions.value.length
+  const pad = (arr: string[] | undefined) => {
+    const out = Array(n).fill('')
+    ;(arr || []).slice(0, n).forEach((v, idx) => { out[idx] = v ?? '' })
+    return out
+  }
+  selectedChips.value = pad(r.selected_chips)
+  otherTexts.value = pad(r.other_texts)
+  freeTexts.value = pad(r.free_texts)
+}
+
 onMounted(() => {
   initArrays(questions.value.length)
+  // Prefer backend-persisted response (survives reload + cross-device)
+  if (hasPersistedResponse.value && persistedResponse.value) {
+    applyPersistedResponse(persistedResponse.value)
+    return
+  }
+  // Fall back to sessionStorage for in-flight, unsaved selections
   const saved = sessionStorage.getItem(storageKey.value)
   if (saved) {
     try {
@@ -192,6 +240,11 @@ watch(questions, (qs) => {
   if (qs.length && selectedChips.value.length === 0) initArrays(qs.length)
 }, { immediate: false })
 
+// If clarify_response_json arrives via SSE after mount, rehydrate the form.
+watch(persistedResponse, (r) => {
+  if (r && hasPersistedResponse.value) applyPersistedResponse(r)
+})
+
 function selectOption(index: number, option: string) {
   selectedChips.value[index] = selectedChips.value[index] === option ? '' : option
   if (isOtherOption(option)) {
@@ -205,6 +258,25 @@ function assemblePrompt(): string {
     .join('\n\n')
 }
 
+async function persistResponseToBackend() {
+  if (!props.systemCompletionId) return
+  const res = await useMyFetch(
+    `/completions/${props.systemCompletionId}/tool_executions/${props.toolExecution.id}/clarify_response`,
+    {
+      method: 'POST',
+      body: {
+        selected_chips: [...selectedChips.value],
+        other_texts: [...otherTexts.value],
+        free_texts: [...freeTexts.value],
+      },
+    }
+  )
+  if (res?.error?.value) {
+    // Non-blocking: sessionStorage still holds the answer for this tab.
+    console.warn('Failed to persist clarify response', res.error.value)
+  }
+}
+
 function submit() {
   if (!allAnswered.value) return
   submitted.value = true
@@ -212,6 +284,7 @@ function submit() {
     storageKey.value,
     JSON.stringify({ submitted: true, selectedChips: [...selectedChips.value], otherTexts: [...otherTexts.value], freeTexts: [...freeTexts.value] })
   )
+  persistResponseToBackend()
   window.dispatchEvent(new CustomEvent('prompt:prefill', { detail: { text: assemblePrompt(), autoSubmit: true } }))
 }
 </script>

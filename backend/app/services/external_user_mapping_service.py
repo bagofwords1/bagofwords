@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from fastapi import HTTPException
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -220,15 +220,22 @@ class ExternalUserMappingService:
         
         from app.models.membership import Membership
         
-        # Join users with memberships to find users in the organization
+        if not email:
+            return None
+
+        # Case-insensitive match - external platforms may return mixed case
+        normalized = email.strip().lower()
         stmt = select(User).join(Membership).where(
             and_(
-                User.email == email,
+                func.lower(User.email) == normalized,
                 Membership.organization_id == organization_id
             )
         )
         result = await db.execute(stmt)
-        return result.scalar_one_or_none()
+        users = result.scalars().all()
+        if len(users) != 1:
+            return None
+        return users[0]
     
     async def _get_mapping_by_id(
         self, 

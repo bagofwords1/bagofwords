@@ -233,7 +233,7 @@
     },
     "table": {
       "title": "כותרת",
-      "dataSources": "מקורות נתונים",
+      "dataSources": "סוכנים",
       "created": "נוצר",
       "user": "משתמש",
       "actions": "פעולות"

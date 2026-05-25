@@ -233,7 +233,7 @@
     },
     "table": {
       "title": "Título",
-      "dataSources": "Fuentes de datos",
+      "dataSources": "Agentes",
       "created": "Creado",
       "user": "Usuario",
       "actions": "Acciones"

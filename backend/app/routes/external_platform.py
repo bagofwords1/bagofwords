@@ -112,7 +112,8 @@ async def create_slack_integration(
 ):
     """Create a new Slack integration"""
     result = await external_platform_service.create_slack_platform(
-        db, organization, data.bot_token, data.signing_secret, current_user
+        db, organization, data.bot_token, data.signing_secret, current_user,
+        auto_link_by_email=data.auto_link_by_email,
     )
     try:
         await audit_service.log(
@@ -175,7 +176,8 @@ async def create_teams_integration(
 ):
     """Create a new Teams integration"""
     result = await external_platform_service.create_teams_platform(
-        db, organization, data.app_id, data.client_secret, data.tenant_id, current_user
+        db, organization, data.app_id, data.client_secret, data.tenant_id, current_user,
+        auto_link_by_email=data.auto_link_by_email,
     )
     try:
         await audit_service.log(

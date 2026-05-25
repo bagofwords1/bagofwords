@@ -226,7 +226,7 @@
     },
     "table": {
       "title": "العنوان",
-      "dataSources": "مصادر البيانات",
+      "dataSources": "الوكلاء",
       "created": "تاريخ الإنشاء",
       "user": "المستخدم",
       "actions": "الإجراءات"

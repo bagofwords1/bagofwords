@@ -468,7 +468,7 @@
                         </template>
                     </UPopover>
 
-                    <!-- Send / Stop -->
+                    <!-- Send / Submitting / Stop -->
                     <button
                         v-if="latestInProgressCompletion"
                         class="text-white bg-gray-500 hover:bg-gray-600 w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
@@ -476,6 +476,14 @@
                         @click="$emit('stopGeneration')"
                     >
                         <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                        v-else-if="isSubmitting && !props.hideSubmitButton"
+                        class="text-white w-7 h-7 rounded-full flex items-center justify-center ms-1 cursor-wait"
+                        :class="mode === 'training' ? 'bg-sky-500' : 'bg-gray-700'"
+                        disabled
+                    >
+                        <Spinner class="w-3.5 h-3.5" />
                     </button>
                     <UTooltip v-else-if="!props.hideSubmitButton" :text="submitTooltip" :popper="{ strategy: 'fixed', placement: 'top' }" :disabled="canSubmit">
                         <button
@@ -672,6 +680,7 @@ const isDraggingFiles = ref(false)
 const showQueryDropdown = ref(false)
 const showScheduledDropdown = ref(false)
 const showTrainingDropdown = ref(false)
+const isSubmitting = ref(false)
 const showScheduledPromptModal = ref(false)
 const scheduleDraftContent = ref('')
 const scheduleDraftMode = ref<'chat' | 'deep'>('chat')
@@ -1127,7 +1136,8 @@ const submitTooltip = computed(() => {
 })
 
 function submit() {
-    if (!canSubmit.value) return
+    if (!canSubmit.value || isSubmitting.value) return
+    isSubmitting.value = true
 
     // Excel selection is delivered via prompt.platform_context on the parent
     // submit path (see onSubmitCompletion). It is intentionally NOT prepended
@@ -1352,6 +1362,9 @@ watch(() => props.showContextIndicator, async (newVal, oldVal) => {
 })
 
 watch(() => props.latestInProgressCompletion, (newVal, oldVal) => {
+    if (newVal) {
+        isSubmitting.value = false
+    }
     if (oldVal && !newVal) {
         markQuotaStale()
     }
@@ -1402,7 +1415,10 @@ const router = useRouter()
 
 async function createReport() {
     try {
-        if (!text.value.trim()) return
+        if (!text.value.trim()) {
+            isSubmitting.value = false
+            return
+        }
         const response = await useMyFetch('/reports', {
             method: 'POST',
             body: JSON.stringify({
@@ -1444,6 +1460,7 @@ async function createReport() {
         text.value = ''
     } catch (error) {
         console.error('Failed to create report:', error)
+        isSubmitting.value = false
     }
 }
 </script>
