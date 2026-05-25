@@ -36,7 +36,7 @@
                     <!-- Inline create form -->
                     <div
                         v-if="creatingInstruction"
-                        class="flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
+                        class="primary-instruction-editor flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
                         style="height: min(600px, 70vh)"
                     >
                         <InstructionGlobalCreateComponent
@@ -52,7 +52,7 @@
                     <!-- Inline edit form -->
                     <div
                         v-else-if="editingInstruction && dataSource?.primary_instruction"
-                        class="flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
+                        class="primary-instruction-editor flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white"
                         style="height: min(600px, 70vh)"
                     >
                         <InstructionGlobalCreateComponent
@@ -75,6 +75,7 @@
                             :text="dataSource.primary_instruction.text"
                             :references="dataSource.primary_instruction.references || []"
                             :prose="true"
+                            :markdown="true"
                         />
                     </template>
 
@@ -298,6 +299,11 @@ function onCancelEdit() {
 </script>
 
 <style scoped>
+.primary-instruction-editor :deep(.wysiwyg-content .tiptap-prose),
+.primary-instruction-editor :deep(.raw-textarea) {
+    font-size: 13px;
+}
+
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
 	font-size: 14px;

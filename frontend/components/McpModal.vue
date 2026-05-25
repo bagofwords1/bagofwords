@@ -1,4 +1,5 @@
 <template>
+    <div>
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-3xl' }">
         <UCard>
             <!-- Header -->
@@ -155,6 +156,7 @@
             </div>
         </UCard>
     </UModal>
+    </div>
 </template>
 
 <script setup lang="ts">

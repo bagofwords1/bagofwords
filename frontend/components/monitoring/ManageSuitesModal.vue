@@ -1,4 +1,5 @@
 <template>
+    <div>
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl' }">
         <UCard>
             <template #header>
@@ -91,9 +92,8 @@
     </UModal>
 
     <!-- Create Suite Modal -->
-    <Teleport to="body">
-        <CreateSuiteModal v-model="showCreateModal" @created="onSuiteCreated" />
-    </Teleport>
+    <CreateSuiteModal v-if="showCreateModal" v-model="showCreateModal" @created="onSuiteCreated" />
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -185,5 +185,3 @@ watch(isOpen, (open) => {
     if (open) loadSuites()
 })
 </script>
-
-

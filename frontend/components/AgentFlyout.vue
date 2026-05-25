@@ -1,7 +1,6 @@
 <template>
   <!-- Agent hover flyout (teleported so it never gets clipped by popovers) -->
-  <!-- NOTE: teleport into Nuxt root to preserve Nuxt context (needed for MDC rendering) -->
-  <Teleport to="#__nuxt">
+  <Teleport to="body">
     <Transition
       enter-active-class="transition-all duration-150 ease-out"
       enter-from-class="opacity-0 translate-y-1"
@@ -53,13 +52,13 @@
               </div>
 
               <!-- Open agent link - top right -->
-              <a
+              <NuxtLink
                 v-if="agentId"
-                :href="`/agents/${agentId}`"
+                :to="`/agents/${agentId}`"
                 class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline flex-shrink-0 whitespace-nowrap"
               >
                 {{ $t('agentFlyout.openAgent') }}
-              </a>
+              </NuxtLink>
             </div>
 
             <!-- Description — full width below -->
@@ -263,10 +262,10 @@
 
                   <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
                     <div class="max-h-[320px] overflow-auto">
-                      <a
+                      <NuxtLink
                         v-for="inst in instructionsResources"
                         :key="inst.id"
-                        :href="`/instructions?search=${encodeURIComponent(inst.title || '')}`"
+                        :to="`/instructions?search=${encodeURIComponent(inst.title || '')}`"
                         class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
@@ -283,7 +282,7 @@
                             {{ inst.category || 'general' }} · {{ inst.source_type || 'user' }}
                           </div>
                         </div>
-                      </a>
+                      </NuxtLink>
                     </div>
                   </div>
                 </div>
@@ -306,10 +305,10 @@
 
                   <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
                     <div class="max-h-[320px] overflow-auto">
-                      <a
+                      <NuxtLink
                         v-for="entity in queriesResources"
                         :key="entity.id"
-                        :href="`/queries/${entity.id}`"
+                        :to="`/queries/${entity.id}`"
                         class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">
@@ -324,7 +323,7 @@
                             {{ entity.description }}
                           </div>
                         </div>
-                      </a>
+                      </NuxtLink>
                     </div>
                   </div>
                 </div>

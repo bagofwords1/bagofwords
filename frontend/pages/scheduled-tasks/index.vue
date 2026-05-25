@@ -61,14 +61,14 @@
               </div>
               <div class="text-sm font-medium text-gray-900 mb-1 line-clamp-2">{{ task.prompt?.content || $t('scheduled.untitledTask') }}</div>
               <div class="flex items-center gap-3 mt-2">
-                <a
-                  :href="`/reports/${task.report_id}`"
+                <NuxtLink
+                  :to="`/reports/${task.report_id}`"
                   class="text-[11px] text-blue-500 hover:text-blue-600 flex items-center gap-1"
                   @click.stop
                 >
                   <UIcon name="heroicons-chat-bubble-left-right" class="w-3 h-3" />
                   {{ task.report?.title || $t('scheduled.untitledReport') }}
-                </a>
+                </NuxtLink>
                 <span v-if="task.user_name" class="text-[11px] text-gray-400">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
               </div>
             </div>

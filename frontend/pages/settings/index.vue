@@ -1,9 +1,6 @@
 <script setup lang="ts">
 definePageMeta({
-    layout: 'settings'
-})
-
-onMounted(() => {
-    navigateTo('/settings/members')
+    layout: 'settings',
+    middleware: () => navigateTo('/settings/members', { replace: true })
 })
 </script>

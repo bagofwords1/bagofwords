@@ -1,4 +1,5 @@
 <template>
+  <div>
     <!-- Fixed global onboarding banner shown above everything -->
     <div v-if="showGlobalOnboardingBanner" class="fixed top-0 start-0 end-0 z-[1000]">
       <div
@@ -78,9 +79,9 @@
           <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ $t(item.section) }}</span>
         </li>
         <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin)" :class="{ hidden: item.hidden }">
-          <a :href="item.href" :class="[
+          <NuxtLink :to="item.href" :class="[
             'flex items-center px-3 py-1.5 w-full rounded-md',
-            isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+            isRouteActive(item.activePath || item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
@@ -96,15 +97,15 @@
               </span>
               <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
-          </a>
+          </NuxtLink>
         </li>
         </template>
       </ul>
       <ul class="font-normal text-[13px] !ps-0">
         <li v-for="item in bottomNavItems" :key="item.href">
-          <a :href="item.href" :target="item.external ? '_blank' : undefined" :class="[
+          <a v-if="item.external" :href="item.href" target="_blank" rel="noopener noreferrer" :class="[
             'flex items-center px-3 py-1.5 w-full rounded-md',
-            item.external ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-100' : (isRouteActive(item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'),
+            'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
@@ -121,6 +122,25 @@
               <span v-if="showText">{{ $t(item.label) }}</span>
             </template>
           </a>
+          <NuxtLink v-else :to="item.href" :class="[
+            'flex items-center px-3 py-1.5 w-full rounded-md',
+            isRouteActive(item.activePath || item.href) ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+            isCollapsed ? 'justify-center' : 'gap-2.5'
+          ]">
+            <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
+                <component v-if="item.component" :is="item.component" />
+                <UIcon v-else-if="item.icon" :name="item.icon" />
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']">
+                <component v-if="item.component" :is="item.component" />
+                <UIcon v-else-if="item.icon" :name="item.icon" />
+              </span>
+              <span v-if="showText">{{ $t(item.label) }}</span>
+            </template>
+          </NuxtLink>
         </li>
         <li v-if="isMcpEnabled && useCan('manage_settings')">
           <button
@@ -181,7 +201,8 @@
     <slot />
   </div>
 
-  <McpModal v-model="showMcpModal" />
+  <McpModal v-if="showMcpModal" v-model="showMcpModal" />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -192,6 +213,7 @@
   import AgentIcon from '~/components/icons/AgentIcon.vue'
   import McpModal from '~/components/McpModal.vue'
   import AgentSelector from '~/components/AgentSelector.vue'
+  import { useCan } from '~/composables/usePermissions'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
@@ -201,6 +223,9 @@
     if (path === '/') return route.path === '/'
     return route.path === path || route.path.startsWith(path + '/')
   }
+  watch(() => route.fullPath, () => {
+    showMcpModal.value = false
+  })
 
   interface NavItem {
     href: string
@@ -212,6 +237,7 @@
     permission?: string
     section?: string
     external?: boolean
+    activePath?: string
   }
   const mainNavItems: NavItem[] = [
     { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
@@ -226,7 +252,7 @@
 
   const bottomNavItems: NavItem[] = [
     { href: '/agents', component: AgentIcon, label: 'nav.dataAgents' },
-    { href: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' },
+    { href: '/settings/members', activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' },
     { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'nav.documentation', external: true },
   ]
   
@@ -243,7 +269,6 @@
   const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
   const { organization, setOrganization } = useOrganization()
   const { onboarding, fetchOnboarding } = useOnboarding()
-  const { useCan } = await import('~/composables/usePermissions')
   const canModifySettings = computed(() => useCan('manage_settings'))
   const showGlobalOnboardingBanner = computed(() => {
     if (!canModifySettings.value) return false
@@ -430,4 +455,3 @@ const createNewReport = async () => {
   }
 
   </script>
-

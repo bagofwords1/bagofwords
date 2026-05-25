@@ -29,12 +29,13 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   if (!isAdmin) return
 
   // Fetch onboarding and redirect if needed
-  await fetchOnboarding({ in_onboarding: false, force: true })
+  if (!onboarding.value?.completed && !onboarding.value?.dismissed) {
+    await fetchOnboarding({ in_onboarding: false, force: true })
+  }
   const ob = onboarding.value
   if (!ob) return
   if (!ob.completed && !ob.dismissed) {
     return navigateTo('/onboarding')
   }
 }))
-
 

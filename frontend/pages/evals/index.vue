@@ -213,9 +213,9 @@
                                 <tbody class="bg-white divide-y divide-gray-200 text-xs">
                                     <tr v-for="r in filteredRuns" :key="r.id" class="hover:bg-gray-50">
                                         <td class="px-6 py-3 text-gray-900">
-                                            <a :href="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
+                                            <NuxtLink :to="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
                                                 {{ r.title || $t('evals.runs.fallbackTitle') }}
-                                            </a>
+                                            </NuxtLink>
                                         </td>
                                         <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
                                         <td class="px-6 py-3 capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</td>
@@ -261,11 +261,21 @@
                 </div>
             </div>
         </div>
+        <AddTestCaseModal
+            v-if="showAddCase"
+            v-model="showAddCase"
+            :suite-id="selectedSuiteId"
+            :case-id="selectedCaseId"
+            @created="onCaseCreated"
+            @updated="onCaseUpdated"
+        />
+        <ManageSuitesModal
+            v-if="showManageSuites"
+            v-model="showManageSuites"
+            @suite-created="onManageSuiteCreated"
+            @suite-deleted="onManageSuiteDeleted"
+        />
     </div>
-    <Teleport to="body">
-        <AddTestCaseModal v-model="showAddCase" :suite-id="selectedSuiteId" :case-id="selectedCaseId" @created="onCaseCreated" @updated="onCaseUpdated" />
-        <ManageSuitesModal v-model="showManageSuites" @suite-created="onManageSuiteCreated" @suite-deleted="onManageSuiteDeleted" />
-    </Teleport>
 </template>
 
 <script setup lang="ts">

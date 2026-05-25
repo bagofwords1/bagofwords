@@ -89,14 +89,14 @@
                 >
                     <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5 inline" />
                 </span>
-                <a
+                <NuxtLink
                     v-if="isOwner"
-                    :href="`/reports/${report_id}`"
+                    :to="`/reports/${report_id}`"
                     class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
                 >
                     <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
                     <span>Edit Report</span>
-                </a>
+                </NuxtLink>
                 <button
                     @click="showTopBar = false"
                     class="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"

@@ -119,13 +119,13 @@
                 <div class="my-1 border-t border-gray-100" />
 
                 <!-- View all -->
-                <a
-                  href="/agents"
+                <NuxtLink
+                  to="/agents"
                   class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
                 >
                   <AgentIcon class="w-3.5 h-3.5 flex-shrink-0" />
                   <span class="text-xs">{{ $t('nav.viewAllAgents') }}</span>
-                </a>
+                </NuxtLink>
               </template>
             </div>
           </div>
@@ -135,6 +135,7 @@
 
     <!-- Agent flyout component -->
     <AgentFlyout
+      v-if="flyout.visible && hoveredAgentId"
       :agent-id="hoveredAgentId"
       :visible="flyout.visible"
       :position="flyout"
@@ -185,6 +186,15 @@ const hoveredAgentId = ref<string | null>(null)
 const flyout = reactive({ visible: false, top: 0, left: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
 
+const hideFlyoutNow = () => {
+  if (flyoutHideTimer) {
+    clearTimeout(flyoutHideTimer)
+    flyoutHideTimer = null
+  }
+  flyout.visible = false
+  hoveredAgentId.value = null
+}
+
 const showFlyoutAtEvent = (evt: MouseEvent) => {
   const el = evt.currentTarget as HTMLElement | null
   if (!el) return
@@ -212,10 +222,7 @@ const onAgentHover = (agentId: string, evt: MouseEvent) => {
 const onAgentHoverLeave = () => {
   // Give the user time to move cursor from list → flyout
   if (flyoutHideTimer) clearTimeout(flyoutHideTimer)
-  flyoutHideTimer = setTimeout(() => {
-    flyout.visible = false
-    hoveredAgentId.value = null
-  }, 120)
+  flyoutHideTimer = setTimeout(hideFlyoutNow, 120)
 }
 
 const onFlyoutEnter = () => {
@@ -229,5 +236,9 @@ const onFlyoutEnter = () => {
 const onFlyoutLeave = () => {
   onAgentHoverLeave()
 }
-</script>
 
+const route = useRoute()
+watch(() => route.fullPath, hideFlyoutNow)
+
+onBeforeUnmount(hideFlyoutNow)
+</script>
