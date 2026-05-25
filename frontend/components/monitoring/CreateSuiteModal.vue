@@ -1,4 +1,5 @@
 <template>
+    <div>
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-md' }" :prevent-close="false">
         <UCard>
             <template #header>
@@ -25,6 +26,7 @@
             </template>
         </UCard>
     </UModal>
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -76,5 +78,4 @@ const create = async () => {
     }
 }
 </script>
-
 

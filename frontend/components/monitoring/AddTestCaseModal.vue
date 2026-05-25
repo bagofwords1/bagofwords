@@ -1,4 +1,5 @@
 <template>
+  <div>
     <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-6xl' }" :prevent-close="showCreateSuiteModal">
         <UCard>
             <template #header>
@@ -315,9 +316,8 @@
         </UCard>
     </UModal>
     <!-- Create Suite Modal -->
-    <Teleport to="body">
-        <CreateSuiteModal v-model="showCreateSuiteModal" @created="onSuiteCreatedFromModal" />
-    </Teleport>
+    <CreateSuiteModal v-if="showCreateSuiteModal" v-model="showCreateSuiteModal" @created="onSuiteCreatedFromModal" />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -329,7 +329,11 @@ import CreateSuiteModal from '~/components/monitoring/CreateSuiteModal.vue'
 const { selectedAgentObjects } = useAgent()
 
 const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string }>()
-const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void; (e: 'created', payload: any): void }>()
+const emit = defineEmits<{
+  (e: 'update:modelValue', v: boolean): void
+  (e: 'created', payload: any): void
+  (e: 'updated', payload: any): void
+}>()
 
 const isOpen = computed({ get: () => props.modelValue, set: (v) => emit('update:modelValue', v) })
 const isEditing = computed(() => !!props.caseId)
@@ -834,7 +838,7 @@ const save = async () => {
       if (!updated?.case) throw new Error('Failed to update case')
       // Editing existing case: emit only updated for in-place list updates
       // @ts-ignore - extended event (extended event type)
-      emit('updated' as any, (res as any)?.data?.value)
+      emit('updated', (res as any)?.data?.value)
       if ((res as any)?.error?.value) throw (res as any).error.value
     } else {
       const created = await createCase()
@@ -918,7 +922,7 @@ const runNow = async () => {
       if (!updated?.case?.id) throw new Error('Failed to update case')
       // Editing existing case: emit only updated for in-place list updates
       // @ts-ignore - extended event (extended event type)
-      emit('updated' as any, updated.case)
+      emit('updated', updated.case)
       caseId = updated.case.id
     } else {
       const created = await createCase()
@@ -1054,5 +1058,3 @@ async function loadCaseForEdit(caseId: string) {
   }
 }
 </script>
-
-

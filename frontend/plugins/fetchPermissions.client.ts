@@ -45,21 +45,11 @@ export default defineNuxtPlugin(async (nuxtApp) => {
     }
   }
 
-  // Load permissions on initial app load
+  // Load permissions on initial app load. Keep permissions stable after that:
+  // toggling `permissionsLoaded` during every route change removes/reinserts
+  // permission-gated sidebar links while Nuxt is also patching the page.
+  // Under fast navigation this can trip Vue's Suspense DOM moves.
   await loadPermissions()
-
-  // Add router hook to reload permissions on navigation
-  nuxtApp.hook('app:mounted', () => {
-    const router = useRouter()
-    router.afterEach(async (to, from) => {
-      // Only reload permissions if we're navigating to a different route
-      // and permissions were previously loaded
-      if (to.path !== from.path && permissionsLoaded.value) {
-        permissionsLoaded.value = false // Reset loaded state
-        await loadPermissions()
-      }
-    })
-  })
 })
 
 // Fallback: minimal MVP perms used only if the server didn't return resolved

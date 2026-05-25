@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.387 (May 25, 2026)
+- Performance improvements
+
 ## Version 0.0.386 (May 25, 2026)
 - UI improvement for knowledge group
 - auto-link teams/slack members

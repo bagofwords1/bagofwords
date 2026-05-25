@@ -15,6 +15,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 
 
+IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+SPA_INDEX_CACHE_CONTROL = "no-cache"
+
 API_PREFIXES = (
     "api/",
     "ws/",
@@ -42,6 +45,16 @@ def _is_api_path(path: str) -> bool:
             if p == prefix or p.startswith(prefix + "/"):
                 return True
     return False
+
+
+def _cache_headers(spa_path: str, resolved: str, index_file: str) -> dict[str, str]:
+    if resolved == index_file:
+        return {"Cache-Control": SPA_INDEX_CACHE_CONTROL}
+
+    if spa_path.lstrip("/").startswith("_nuxt/"):
+        return {"Cache-Control": IMMUTABLE_ASSET_CACHE_CONTROL}
+
+    return {}
 
 
 def mount_spa(app: FastAPI) -> None:
@@ -82,6 +95,12 @@ def mount_spa(app: FastAPI) -> None:
             raise HTTPException(status_code=404)
 
         if os.path.isfile(resolved):
-            return FileResponse(resolved)
+            return FileResponse(
+                resolved,
+                headers=_cache_headers(spa_path, resolved, index_file_str),
+            )
 
-        return FileResponse(index_file_str)
+        return FileResponse(
+            index_file_str,
+            headers={"Cache-Control": SPA_INDEX_CACHE_CONTROL},
+        )

@@ -5,9 +5,6 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const { token } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
 
-  // IMPORTANT: Capture component instance state BEFORE any await calls
-  // After await, getCurrentInstance() may return null even in mounted components
-  const isInComponent = getCurrentInstance() !== null
   const isClient = process.client
 
   // Ensure organization is loaded before making the request
@@ -45,9 +42,10 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
     })
   }
 
-  // Use $fetch for post-mounted requests to avoid Nuxt warning
-  // The isInComponent check was captured before any awaits to be reliable
-  if (isInComponent && isClient) {
+  // This app is a client-side SPA. On the client, prefer $fetch so calls made
+  // from onMounted/watch/event handlers do not register new async-data entries
+  // during route transitions.
+  if (isClient) {
     try {
       const data = await $fetch(request, {
         baseURL: config.public.baseURL,

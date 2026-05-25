@@ -137,9 +137,9 @@
                                 </tr>
                                 <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50">
                                     <td class="px-6 py-3">
-                                        <a :href="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
+                                        <NuxtLink :to="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
                                             {{ r.title || $t('evals.runs.fallbackTitle') }}
-                                        </a>
+                                        </NuxtLink>
                                     </td>
                                     <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
                                     <td class="px-6 py-3 capitalize">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</td>
@@ -162,17 +162,15 @@
                 </div>
             </div>
         </div>
-    </div>
-
-    <Teleport to="body">
         <AddTestCaseModal
+            v-if="showAddCase"
             v-model="showAddCase"
             :suite-id="selectedSuiteId"
             :case-id="selectedCaseId"
             @created="onCaseCreated"
             @updated="onCaseUpdated"
         />
-    </Teleport>
+    </div>
 </template>
 
 <script setup lang="ts">

@@ -2,9 +2,6 @@
 const STORAGE_KEY = 'bow.selectedOrganizationId'
 
 export const useOrganization = () => {
-  const router = useRouter()
-  const route = useRoute()
-
   const { getSession } = useAuth()
   // Initialize with null to indicate not loaded yet
   const organization = useState('organization', () => ({
@@ -43,13 +40,6 @@ export const useOrganization = () => {
   const ensureOrganization = async () => {
     if (!organization.value?.id) {
       await fetchOrganizationFromSession()
-      if (!organization.value?.id) {
-        const route = useRoute()
-        // Skip redirect if we're on the verify page or organization creation page
-        if (!route.path.startsWith('/users/') && !route.path.startsWith('/organizations/')) {
-          //router.push('/organizations/new')
-        }
-      }
     }
     return organization.value
   }

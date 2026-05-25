@@ -382,10 +382,10 @@
           <div v-if="queriesError" class="text-xs text-gray-500">{{ queriesError }}</div>
           <div v-else-if="queries.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noQueries') }}</div>
           <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
-            <a
+            <NuxtLink
               v-for="entity in queries"
               :key="entity.id"
-              :href="`/queries/${entity.id}`"
+              :to="`/queries/${entity.id}`"
               class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
@@ -400,7 +400,7 @@
                   {{ entity.description }}
                 </div>
               </div>
-            </a>
+            </NuxtLink>
           </div>
         </template>
       </div>
@@ -414,10 +414,10 @@
           <div v-if="evalsError" class="text-xs text-gray-500">{{ evalsError }}</div>
           <div v-else-if="evals.length === 0" class="text-xs text-gray-400 italic py-6 text-center">{{ $t('reportAgent.noEvals') }}</div>
           <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
-            <a
+            <NuxtLink
               v-for="tc in evals"
               :key="tc.id"
-              :href="`/evals`"
+              to="/evals"
               class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">
@@ -431,7 +431,7 @@
                   {{ tc.expectations_json.length === 1 ? $t('reportAgent.expectationOne', { n: 1 }) : $t('reportAgent.expectationMany', { n: tc.expectations_json.length }) }}
                 </div>
               </div>
-            </a>
+            </NuxtLink>
           </div>
         </template>
       </div>

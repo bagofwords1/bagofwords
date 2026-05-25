@@ -164,9 +164,9 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <a v-if="item.report_link" :href="item.report_link" class="text-blue-600 hover:underline" @click.stop>
+                                <NuxtLink v-if="item.report_link" :to="item.report_link" class="text-blue-600 hover:underline" @click.stop>
                                     {{ item.report_name || item.report_id }}
-                                </a>
+                                </NuxtLink>
                                 <span v-else>{{ item.report_name || item.report_id }}</span>
                             </td>
                             <td class="px-2 py-1">
