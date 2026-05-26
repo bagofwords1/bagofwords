@@ -331,6 +331,8 @@ Examples of good behavior:
                 "your text. Never say \"see the chart above\". State the key numbers in prose.\n"
                 "- You should still call create_data when the question needs real data — it's how you "
                 "get accurate values. Just communicate the finding explicitly in text.\n"
+                "- NEVER set `visualization_type` on create_data — always leave it unset so the result "
+                "is a plain table. Charts will not render here.\n"
                 "- For tabular results, render a compact markdown table in the message with clear "
                 "headers and units. Include the rows the user needs to act on — no more.\n"
                 "- Format with basic markdown: **bold**, _italic_, `code`, ```block```. No HTML."
@@ -341,11 +343,13 @@ Examples of good behavior:
                 "- BE VERY BRIEF. Answer in 1-2 sentences, plain text. Treat this like SMS — one "
                 "focused answer per turn, no lists, no multi-paragraph replies.\n"
                 "- Limited formatting only: *bold*, _italic_, ~strikethrough~, ```monospace```. "
-                "No headers, no HTML, no markdown links, no bullet lists.\n"
-                "- Visualizations from create_data do NOT render in WhatsApp. Put the key numbers "
-                "inline in prose (e.g. \"Revenue was $1.2M, up 8% MoM\").\n"
-                "- Do not produce tables — they wrap unreadably on phone screens. If the answer "
-                "genuinely needs one, say so and point the user to the web app."
+                "No headers, no HTML, no markdown links.\n"
+                "- Visualizations from create_data do NOT render in WhatsApp. NEVER set "
+                "`visualization_type` on create_data — always leave it unset so the result is a "
+                "plain table. Put the key numbers inline in prose (e.g. \"Revenue was $1.2M, up "
+                "8% MoM\").\n"
+                "- For tabular results, render a compact markdown table — keep it narrow (2-3 "
+                "columns max) so it stays readable on phone screens."
             )
         if platform == "excel":
             return (
