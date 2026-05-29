@@ -851,6 +851,16 @@ def credentials_schema_for(ds_type: str, auth_type: Optional[str]) -> Type[BaseM
     return variant.schema
 
 
+def tool_provider_types() -> set[str]:
+    """Connection types that act as tool providers (is_connection=False).
+
+    Used by the agent runtime to find connections whose tools can be called
+    from the agent, by the indexing service to skip schema indexing, and by
+    the create/update flows to skip data-source-flavoured validation.
+    """
+    return {t for t, e in REGISTRY.items() if not e.is_connection}
+
+
 def resolve_client_class(ds_type: str):
     """Resolve client class via configured path; fallback to dynamic naming."""
     from importlib import import_module

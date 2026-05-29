@@ -928,7 +928,10 @@ class ConnectionService:
 
     # ── MCP / Custom API tool management ──────────────────────────────
 
-    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+    @property
+    def _TOOL_PROVIDER_TYPES(self) -> set[str]:
+        from app.schemas.data_source_registry import tool_provider_types
+        return tool_provider_types()
 
     async def refresh_tools(
         self,
