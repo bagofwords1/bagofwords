@@ -48,17 +48,17 @@ class ReadFileTool(Tool):
         data = ReadFileInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={
             "title": f"Reading file {data.file_id}",
-            "data_source_id": data.data_source_id,
+            "connection_id": data.connection_id,
         })
 
         client, err = await resolve_file_client(
-            runtime_ctx, data.data_source_id, Capability.READ_FILE
+            runtime_ctx, data.connection_id, Capability.READ_FILE
         )
         if err:
             yield ToolEndEvent(type="tool.end", payload={
                 "output": {
                     "success": False,
-                    "data_source_id": data.data_source_id,
+                    "connection_id": data.connection_id,
                     "file_id": data.file_id,
                     "error": err,
                 },
@@ -73,7 +73,7 @@ class ReadFileTool(Tool):
             yield ToolEndEvent(type="tool.end", payload={
                 "output": {
                     "success": False,
-                    "data_source_id": data.data_source_id,
+                    "connection_id": data.connection_id,
                     "file_id": data.file_id,
                     "error": err,
                 },
@@ -87,7 +87,7 @@ class ReadFileTool(Tool):
 
         output = {
             "success": True,
-            "data_source_id": data.data_source_id,
+            "connection_id": data.connection_id,
             "file_id": data.file_id,
             **rendered,
         }

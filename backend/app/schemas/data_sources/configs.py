@@ -776,32 +776,18 @@ class SharePointConfig(BaseModel):
     )
 
 
-# OneDrive (Microsoft Graph — same auth, scoped to a user's personal drive
-# or a shared folder accessible via the configured OAuth user)
+# OneDrive (Microsoft Graph — same auth as SharePoint, but exposed as an
+# MCP-style tool-provider connection rather than a data source. No folder
+# scope — each user accesses their entire OneDrive via per-user OAuth.)
 class OneDriveCredentials(SharePointCredentials):
     """OneDrive uses the same Microsoft Graph auth as SharePoint."""
     pass
 
 
 class OneDriveConfig(BaseModel):
-    folder_path: Optional[str] = Field(
-        None,
-        title="Folder Path",
-        description="Optional folder path within OneDrive to scope the connection (e.g. 'Documents/Reports'). Leave blank for the user's root.",
-        json_schema_extra={"ui:type": "string"}
-    )
-    allowed_extensions: Optional[str] = Field(
-        None,
-        title="Allowed Extensions",
-        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,pdf'). Leave blank for all files.",
-        json_schema_extra={"ui:type": "string"}
-    )
-    recursive: bool = Field(
-        False,
-        title="Include Subfolders",
-        description="Recursively enumerate subfolders.",
-        json_schema_extra={"ui:type": "boolean"}
-    )
+    """OneDrive needs no admin-side configuration — each user's OAuth token
+    determines what files are visible."""
+    pass
 
 
 # Google Drive
@@ -827,30 +813,9 @@ class GoogleDriveCredentials(BaseModel):
 
 
 class GoogleDriveConfig(BaseModel):
-    folder_id: Optional[str] = Field(
-        None,
-        title="Folder ID",
-        description="Optional Drive folder ID to scope the connection. The folder ID is the trailing segment of a folder's URL. Leave blank for the user's My Drive root.",
-        json_schema_extra={"ui:type": "string"}
-    )
-    shared_drive_id: Optional[str] = Field(
-        None,
-        title="Shared Drive ID",
-        description="Optional Shared Drive (Team Drive) ID. If set, lists files within the shared drive instead of My Drive.",
-        json_schema_extra={"ui:type": "string"}
-    )
-    allowed_extensions: Optional[str] = Field(
-        None,
-        title="Allowed Extensions",
-        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,gsheet,pdf'). Leave blank for all files.",
-        json_schema_extra={"ui:type": "string"}
-    )
-    recursive: bool = Field(
-        False,
-        title="Include Subfolders",
-        description="Recursively enumerate subfolders.",
-        json_schema_extra={"ui:type": "boolean"}
-    )
+    """Google Drive needs no admin-side configuration — each user's OAuth
+    token determines what files are visible."""
+    pass
 
 
 # QVD Files (QlikView Data)

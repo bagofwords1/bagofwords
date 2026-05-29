@@ -47,17 +47,17 @@ class SearchFilesTool(Tool):
         data = SearchFilesInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={
             "title": f"Searching files: {data.query!r}",
-            "data_source_id": data.data_source_id,
+            "connection_id": data.connection_id,
         })
 
         client, err = await resolve_file_client(
-            runtime_ctx, data.data_source_id, Capability.SEARCH_FILES
+            runtime_ctx, data.connection_id, Capability.SEARCH_FILES
         )
         if err:
             yield ToolEndEvent(type="tool.end", payload={
                 "output": {
                     "success": False,
-                    "data_source_id": data.data_source_id,
+                    "connection_id": data.connection_id,
                     "query": data.query,
                     "error": err,
                 },
@@ -72,7 +72,7 @@ class SearchFilesTool(Tool):
             yield ToolEndEvent(type="tool.end", payload={
                 "output": {
                     "success": False,
-                    "data_source_id": data.data_source_id,
+                    "connection_id": data.connection_id,
                     "query": data.query,
                     "error": err,
                 },
@@ -94,7 +94,7 @@ class SearchFilesTool(Tool):
         yield ToolEndEvent(type="tool.end", payload={
             "output": {
                 "success": True,
-                "data_source_id": data.data_source_id,
+                "connection_id": data.connection_id,
                 "query": data.query,
                 "file_count": len(entries),
                 "files": entries,

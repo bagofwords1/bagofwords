@@ -291,6 +291,8 @@ async function handleInstallDemo(demoId: string) {
 const TOOL_PROVIDER_TYPES = [
   { type: 'mcp', title: 'MCP Server', status: 'active', requires_license: null },
   { type: 'custom_api', title: 'Custom API', status: 'active', requires_license: null },
+  { type: 'onedrive', title: 'OneDrive', status: 'active', requires_license: null },
+  { type: 'google_drive', title: 'Google Drive', status: 'active', requires_license: null },
 ]
 
 function selectType(ds: any) {
@@ -316,6 +318,12 @@ function backToSelect() {
 }
 
 function handleConnectionSuccess(connection: any) {
+  // Tool-provider connections (OneDrive, Google Drive, etc.) have no schema
+  // to index — close the modal as soon as the save succeeds, same as MCP.
+  if (TOOL_PROVIDER_TYPES.some(t => t.type === connection?.type)) {
+    handleToolProviderSaved(connection)
+    return
+  }
   // Stash the created connection and switch to the indexing step. We do NOT
   // close the modal — the user watches indexing run, then clicks Connect.
   createdConnection.value = connection

@@ -27,9 +27,26 @@ class TestRegistry:
 
         for t in ("sharepoint", "onedrive", "google_drive"):
             assert t in REGISTRY
+
+    def test_sharepoint_is_data_source(self):
+        """SharePoint keeps the data-source shape: admin-scoped site, files-as-tables."""
+        from app.schemas.data_source_registry import REGISTRY
+
+        entry = REGISTRY["sharepoint"]
+        assert entry.is_connection is True
+        assert entry.is_document_based is True
+
+    def test_drives_are_tool_providers(self):
+        """OneDrive and Google Drive are tool-provider connections — per-user OAuth,
+        no admin-scoped schema. They expose file capabilities via agent tools."""
+        from app.schemas.data_source_registry import REGISTRY
+
+        for t in ("onedrive", "google_drive"):
             entry = REGISTRY[t]
-            assert entry.is_document_based is True
-            assert entry.is_connection is True
+            assert entry.is_connection is False, t
+            # is_document_based was used by the indexing pipeline; tool
+            # providers don't index, so it shouldn't be true.
+            assert entry.is_document_based is False, t
 
     def test_resolve_client_class(self):
         from app.schemas.data_source_registry import resolve_client_class

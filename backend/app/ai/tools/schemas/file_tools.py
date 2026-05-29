@@ -22,11 +22,11 @@ class FileEntry(BaseModel):
 
 
 class ListFilesInput(BaseModel):
-    data_source_id: str = Field(
+    connection_id: str = Field(
         ...,
         description=(
-            "ID of the file-based data source to list (SharePoint, OneDrive, "
-            "Google Drive)."
+            "ID of the file-source connection to list (SharePoint, OneDrive, "
+            "Google Drive). The connection must be attached to the current agent."
         ),
     )
     folder_id: Optional[str] = Field(
@@ -44,7 +44,7 @@ class ListFilesInput(BaseModel):
 
 class ListFilesOutput(BaseModel):
     success: bool
-    data_source_id: str
+    connection_id: str
     file_count: int = 0
     files: List[FileEntry] = Field(default_factory=list)
     truncated: bool = False
@@ -55,7 +55,7 @@ class ListFilesOutput(BaseModel):
 
 
 class ReadFileInput(BaseModel):
-    data_source_id: str = Field(..., description="ID of the file-based data source.")
+    connection_id: str = Field(..., description="ID of the file-source connection.")
     file_id: str = Field(
         ...,
         description="File ID returned by list_files or search_files.",
@@ -80,14 +80,13 @@ class ReadFileInput(BaseModel):
 
 class ReadFileOutput(BaseModel):
     success: bool
-    data_source_id: str
+    connection_id: str
     file_id: str
     file_name: Optional[str] = None
     content_type: str = Field(
         default="unknown",
         description="One of: tabular, text, json, binary, unknown.",
     )
-    # Populated based on content_type:
     csv: Optional[str] = None  # for tabular
     text: Optional[str] = None  # for text/json/document
     row_count: Optional[int] = None
@@ -101,14 +100,14 @@ class ReadFileOutput(BaseModel):
 
 
 class SearchFilesInput(BaseModel):
-    data_source_id: str = Field(..., description="ID of the file-based data source.")
+    connection_id: str = Field(..., description="ID of the file-source connection.")
     query: str = Field(..., description="Free-text search query — matches filename / content depending on the provider.")
     max_results: int = Field(default=50, ge=1, le=500)
 
 
 class SearchFilesOutput(BaseModel):
     success: bool
-    data_source_id: str
+    connection_id: str
     query: str
     file_count: int = 0
     files: List[FileEntry] = Field(default_factory=list)

@@ -120,7 +120,7 @@ async def test_list_files_happy_path():
     ])
     with _patch_resolve(fake_client)[0]:
         tool = ListFilesTool()
-        events = await _collect(tool.run_stream({"data_source_id": "DS1"}, {}))
+        events = await _collect(tool.run_stream({"connection_id": "DS1"}, {}))
     end = events[-1].payload
     assert end["output"]["success"] is True
     assert end["output"]["file_count"] == 2
@@ -132,7 +132,7 @@ async def test_list_files_resolve_error():
     targets = ("app.ai.tools.implementations.list_files.resolve_file_client",)
     with patch(targets[0], new=AsyncMock(return_value=(None, "boom"))):
         tool = ListFilesTool()
-        events = await _collect(tool.run_stream({"data_source_id": "DS1"}, {}))
+        events = await _collect(tool.run_stream({"connection_id": "DS1"}, {}))
     end = events[-1].payload
     assert end["output"]["success"] is False
     assert end["output"]["error"] == "boom"
@@ -147,7 +147,7 @@ async def test_read_file_happy_path_csv():
     with _patch_resolve(fake_client)[1]:
         tool = ReadFileTool()
         events = await _collect(tool.run_stream(
-            {"data_source_id": "DS1", "file_id": "F1"}, {}
+            {"connection_id": "DS1", "file_id": "F1"}, {}
         ))
     out = events[-1].payload["output"]
     assert out["success"] is True
@@ -164,7 +164,7 @@ async def test_read_file_handles_client_error():
     with _patch_resolve(fake_client)[1]:
         tool = ReadFileTool()
         events = await _collect(tool.run_stream(
-            {"data_source_id": "DS1", "file_id": "F1"}, {}
+            {"connection_id": "DS1", "file_id": "F1"}, {}
         ))
     out = events[-1].payload["output"]
     assert out["success"] is False
@@ -182,7 +182,7 @@ async def test_search_files_happy_path():
     with _patch_resolve(fake_client)[2]:
         tool = SearchFilesTool()
         events = await _collect(tool.run_stream(
-            {"data_source_id": "DS1", "query": "pipeline"}, {}
+            {"connection_id": "DS1", "query": "pipeline"}, {}
         ))
     out = events[-1].payload["output"]
     assert out["success"] is True

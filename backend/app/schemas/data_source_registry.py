@@ -574,9 +574,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         type="onedrive",
         title="OneDrive",
         description=(
-            "OneDrive connector via Microsoft Graph. Each user connects their own "
-            "OneDrive via OAuth; files in the configured folder are enumerated as a "
-            "live catalog and read on demand."
+            "OneDrive connector via Microsoft Graph. Admin registers an Entra ID app "
+            "once; each user signs in with Microsoft to grant per-user access. Exposes "
+            "list_files / read_file / search_files as agent-callable tools."
         ),
         config_schema=OneDriveConfig,
         credentials_auth=AuthOptions(
@@ -595,7 +595,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.graph_drive_client.OnedriveClient",
-        is_document_based=True,
+        # Tool provider — exposes file ops as agent tools instead of files-as-tables.
+        is_connection=False,
     ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
@@ -603,12 +604,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description=(
             "Google Drive (and Sheets) connector. Admin configures a Google Cloud "
             "OAuth client; users sign in with Google to grant per-user access. "
-            "Files are enumerated as a live catalog and read on demand."
+            "Exposes list_files / read_file / search_files as agent-callable tools."
         ),
         config_schema=GoogleDriveConfig,
-        # Default captures the admin's Google OAuth client (client_id +
-        # client_secret + optional workspace domain). Per-user OAuth tokens are
-        # collected via the "oauth" variant and stored separately.
         credentials_auth=AuthOptions(
             default="oauth_app",
             by_auth={
@@ -625,7 +623,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.google_drive_client.GoogleDriveClient",
-        is_document_based=True,
+        # Tool provider — exposes file ops as agent tools instead of files-as-tables.
+        is_connection=False,
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",

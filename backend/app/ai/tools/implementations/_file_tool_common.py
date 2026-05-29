@@ -12,23 +12,25 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.data_sources.clients.base import Capability, DataSourceClient
-from app.models.data_source import DataSource
+
+
+FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive"}
 
 
 async def resolve_file_client(
     runtime_ctx: Dict[str, Any],
-    data_source_id: str,
+    connection_id: str,
     required_capability: Capability,
 ) -> Tuple[Optional[DataSourceClient], Optional[str]]:
-    """Resolve a data source ID to a constructed file client.
+    """Resolve a connection ID to a constructed file client.
 
     Returns (client, error_message). On error, client is None.
-    Validates: db/org context present, data source belongs to org and to the
-    current report, connection type is one of the file sources, client
-    declares the required capability.
+    Validates: db/org context present, connection belongs to org and is attached
+    to the current agent (report.data_sources[*].connections — same path
+    execute_mcp uses for tool-provider connections), connection type is a file
+    source, and the client declares the required capability.
     """
     db = runtime_ctx.get("db")
     organization = runtime_ctx.get("organization")
@@ -38,35 +40,31 @@ async def resolve_file_client(
     if not db or not organization:
         return None, "Missing database session or organization context."
 
-    # Restrict to data sources linked to this report (matches execute_mcp's pattern)
-    allowed_ids = None
+    # Build the allowed-connection set from the agent's attached data sources.
+    # SharePoint reaches us via DataSource (data source connection); OneDrive
+    # and Google Drive are tool-provider connections attached to the same agent
+    # via the same m2m table — both routes land here.
+    allowed_ids = set()
     if report:
-        allowed_ids = {str(ds.id) for ds in (report.data_sources or [])}
-        if allowed_ids and str(data_source_id) not in allowed_ids:
-            return None, f"Data source '{data_source_id}' is not attached to this report."
+        for ds in (report.data_sources or []):
+            for conn in (ds.connections or []):
+                if conn.type in FILE_SOURCE_TYPES:
+                    allowed_ids.add(str(conn.id))
+        if allowed_ids and str(connection_id) not in allowed_ids:
+            return None, f"Connection '{connection_id}' is not attached to this agent."
+
+    from app.models.connection import Connection
 
     result = await db.execute(
-        select(DataSource)
-        .options(selectinload(DataSource.connections))
-        .where(
-            DataSource.id == str(data_source_id),
-            DataSource.organization_id == str(organization.id),
+        select(Connection).where(
+            Connection.id == str(connection_id),
+            Connection.organization_id == str(organization.id),
+            Connection.type.in_(list(FILE_SOURCE_TYPES)),
         )
     )
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        return None, f"Data source '{data_source_id}' not found."
-
-    file_types = {"sharepoint", "onedrive", "google_drive"}
-    connection = next(
-        (c for c in (data_source.connections or []) if c.type in file_types),
-        None,
-    )
+    connection = result.scalar_one_or_none()
     if not connection:
-        return None, (
-            f"Data source '{data_source.name}' has no file-based connection "
-            "(supported: sharepoint, onedrive, google_drive)."
-        )
+        return None, f"Connection '{connection_id}' not found or not a file source."
 
     from app.services.connection_service import ConnectionService
 

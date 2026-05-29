@@ -51,15 +51,15 @@ class ListFilesTool(Tool):
         data = ListFilesInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={
             "title": "Listing files",
-            "data_source_id": data.data_source_id,
+            "connection_id": data.connection_id,
         })
 
         client, err = await resolve_file_client(
-            runtime_ctx, data.data_source_id, Capability.LIST_FILES
+            runtime_ctx, data.connection_id, Capability.LIST_FILES
         )
         if err:
             yield ToolEndEvent(type="tool.end", payload={
-                "output": {"success": False, "data_source_id": data.data_source_id, "error": err},
+                "output": {"success": False, "connection_id": data.connection_id, "error": err},
                 "observation": {"summary": err, "success": False},
             })
             return
@@ -69,7 +69,7 @@ class ListFilesTool(Tool):
         except Exception as e:
             err = f"list_files failed: {e}"
             yield ToolEndEvent(type="tool.end", payload={
-                "output": {"success": False, "data_source_id": data.data_source_id, "error": err},
+                "output": {"success": False, "connection_id": data.connection_id, "error": err},
                 "observation": {"summary": err, "success": False},
             })
             return
@@ -91,7 +91,7 @@ class ListFilesTool(Tool):
         yield ToolEndEvent(type="tool.end", payload={
             "output": {
                 "success": True,
-                "data_source_id": data.data_source_id,
+                "connection_id": data.connection_id,
                 "file_count": len(entries),
                 "files": entries,
                 "truncated": truncated,
