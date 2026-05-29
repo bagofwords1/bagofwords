@@ -295,6 +295,7 @@
   })
 
   const { isExcel } = useExcel()
+  const { isMobile } = useMobile()
   const router = useRouter()
   const { $intercom } = useNuxtApp()
 
@@ -390,8 +391,9 @@
   const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
  
   if (environment === 'production' && intercom) {
+    const hideLauncher = computed<boolean>(() => isExcel.value || isMobile.value)
     $intercom.boot({
-      hide_default_launcher: isExcel.value,
+      hide_default_launcher: hideLauncher.value,
       alignment: intercomAlignment.value
     })
     watch([currentUser, organization], ([user, org]) => {
@@ -403,7 +405,7 @@
           version: version,
           environment: environment,
           app_url: app_url,
-          hide_default_launcher: isExcel.value,
+          hide_default_launcher: hideLauncher.value,
           alignment: intercomAlignment.value,
           company: {
             company_id: org.id,
@@ -414,6 +416,9 @@
     }, { immediate: true })
     watch(intercomAlignment, (alignment) => {
       $intercom.update({ alignment })
+    })
+    watch(hideLauncher, (hide) => {
+      $intercom.update({ hide_default_launcher: hide })
     })
   }
 
