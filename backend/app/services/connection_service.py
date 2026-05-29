@@ -417,12 +417,23 @@ class ConnectionService:
                     "schema_access": False,
                 }
 
+            table_count = schema_status.get("table_count", 0)
+            is_doc = bool(getattr(client, "is_document_based", False))
+            if is_doc and table_count == 0:
+                message = (
+                    "Connected successfully. No files visible yet — files appear "
+                    "as users sign in, or once the configured folder has content."
+                )
+            elif is_doc:
+                message = f"Connected successfully. Found {table_count} file(s)."
+            else:
+                message = f"Connected successfully. Found {table_count} tables."
             return {
                 "success": True,
-                "message": f"Connected successfully. Found {schema_status.get('table_count', 0)} tables.",
+                "message": message,
                 "connectivity": True,
                 "schema_access": True,
-                "table_count": schema_status.get("table_count", 0),
+                "table_count": table_count,
             }
         except Exception as e:
             return {
