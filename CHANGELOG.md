@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.388 (May 25, 2026)
+- Hide intercom for mobile
+- Sharepoint/onedrive/Google drive integrations
+- Quick integration of agents
+
 ## Version 0.0.387 (May 25, 2026)
 - Performance improvements
 
