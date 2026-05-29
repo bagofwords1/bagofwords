@@ -106,32 +106,29 @@ test.describe('Onboarding Wizard', () => {
     // Wait for page to settle (client-side hydration + potential redirects)
     await page.waitForTimeout(5000);
 
-    // If still on any onboarding page, skip it to complete the flow
+    // If still on any onboarding page, click "Skip onboarding" to dismiss it.
+    // The button persists `dismissed=true` server-side via a PUT and then does
+    // a client-side router.push('/'). That in-SPA redirect can be racy/slow in
+    // dev-mode CI, so we don't depend on it here: we tolerate a timeout on the
+    // immediate navigation and instead verify via a fresh navigation below,
+    // which re-reads the (now persisted) dismissed state from the backend.
     if (page.url().includes('/onboarding')) {
       const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
       await expect(skipButton).toBeVisible({ timeout: 15000 });
       await skipButton.click();
-      await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
+      await page
+        .waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 })
+        .catch(() => { /* fall through to fresh-navigation verification */ });
     }
 
-    // Verify we're not on onboarding
-    expect(page.url()).not.toContain('/onboarding');
-
-    // Double-check: navigate to a feature page to verify no redirect
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(3000);
-
-    // If redirected again, try once more to dismiss
-    if (page.url().includes('/onboarding')) {
-      const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
-      if (await skipButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await skipButton.click();
-        await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
-      }
-    }
-
-    expect(page.url()).not.toContain('/onboarding');
+    // Verify access to the app with a fresh navigation. Once onboarding is
+    // dismissed/completed server-side, the middleware no longer redirects to
+    // /onboarding. Poll to absorb dev-server slowness and any redirect lag.
+    await expect(async () => {
+      await page.goto('/');
+      await page.waitForLoadState('domcontentloaded');
+      expect(page.url()).not.toContain('/onboarding');
+    }).toPass({ timeout: 30000 });
 
     // Save the final auth state (admin is now onboarded)
     await page.context().storageState({ path: 'tests/config/admin.json' });
