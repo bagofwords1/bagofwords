@@ -109,6 +109,31 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "google",
         }
 
+    if conn_type == "mcp":
+        # Pre-configured OAuth client for an MCP server. The admin registered an
+        # OAuth client at the identity provider (which may or may not be the MCP
+        # server itself); the per-user dance is standard authorization-code +
+        # PKCE. RFC 8707 resource indicator is optional but recommended so the
+        # issued token is audience-bound to the MCP server URL.
+        authorize_url = creds.get("authorize_url")
+        token_url = creds.get("token_url")
+        client_id = creds.get("client_id")
+        client_secret = creds.get("client_secret")
+        if not (authorize_url and token_url and client_id and client_secret):
+            raise ValueError(
+                f"MCP connection {connection.id} OAuth is missing authorize_url / token_url / "
+                "client_id / client_secret in credentials."
+            )
+        return {
+            "authorize_url": authorize_url,
+            "token_url": token_url,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": creds.get("scopes") or "",
+            "audience": creds.get("audience"),
+            "provider_name": "mcp",
+        }
+
     if conn_type == "bigquery":
         client_id = creds.get("oauth_client_id")
         client_secret = creds.get("oauth_client_secret")
@@ -151,6 +176,10 @@ async def exchange_code_for_tokens(
     }
     if code_verifier:
         data["code_verifier"] = code_verifier
+    # RFC 8707 resource indicator — audience-binds the token. Used by MCP
+    # (and any provider that supports it). Ignored by providers that don't.
+    if oauth_params.get("audience"):
+        data["resource"] = oauth_params["audience"]
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -191,6 +220,8 @@ async def refresh_access_token(
         "client_id": oauth_params["client_id"],
         "client_secret": oauth_params["client_secret"],
     }
+    if oauth_params.get("audience"):
+        data["resource"] = oauth_params["audience"]
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(

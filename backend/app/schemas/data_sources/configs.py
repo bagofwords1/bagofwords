@@ -1084,6 +1084,52 @@ class MCPBearerCredentials(BaseModel):
     )
 
 
+class MCPOAuthAppCredentials(BaseModel):
+    """Pre-configured OAuth client for an MCP server.
+
+    The admin registers an OAuth client at the identity provider that fronts
+    the MCP server (or at the MCP server itself if it's also the authorization
+    server). Each user then completes the authorization-code + PKCE dance and
+    their per-user access_token is sent to the MCP server on every tool call.
+    """
+    authorize_url: str = Field(
+        ...,
+        title="Authorize URL",
+        description="OAuth authorization endpoint (e.g. https://idp.example.com/oauth/authorize)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    token_url: str = Field(
+        ...,
+        title="Token URL",
+        description="OAuth token endpoint (e.g. https://idp.example.com/oauth/token)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="OAuth client ID registered at the identity provider",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="OAuth client secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    scopes: Optional[str] = Field(
+        None,
+        title="Scopes",
+        description="Space-separated OAuth scopes (e.g. 'openid profile offline_access read:files')",
+        json_schema_extra={"ui:type": "string"}
+    )
+    audience: Optional[str] = Field(
+        None,
+        title="Resource (Audience)",
+        description="Optional RFC 8707 resource indicator — usually the MCP server's URL — to audience-bind the issued token.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Custom API
 class CustomAPIConfig(BaseModel):
     base_url: str = Field(
@@ -1219,6 +1265,7 @@ __all__ = [
     "MCPConfig",
     "MCPNoAuthCredentials",
     "MCPBearerCredentials",
+    "MCPOAuthAppCredentials",
     # Custom API
     "CustomAPIConfig",
     "CustomAPINoAuthCredentials",

@@ -102,6 +102,7 @@ from app.schemas.data_sources.configs import (
     MCPConfig,
     MCPNoAuthCredentials,
     MCPBearerCredentials,
+    MCPOAuthAppCredentials,
     # Custom API
     CustomAPIConfig,
     CustomAPINoAuthCredentials,
@@ -754,6 +755,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     title="API Key",
                     schema=CustomAPIKeyCredentials,
                     scopes=["system", "user"],
+                ),
+                "oauth_app": AuthVariant(
+                    title="OAuth Client (admin-configured)",
+                    schema=MCPOAuthAppCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in (per-user OAuth)",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
                 ),
             },
         ),

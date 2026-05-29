@@ -464,3 +464,59 @@ class TestOAuthServiceWiring:
 
         with pytest.raises(ValueError, match="oauth_client"):
             get_oauth_params(self._conn("google_drive", {}))
+
+    def test_mcp_oauth_params(self):
+        """MCP OAuth pre-configured: admin enters authorize/token URLs + client
+        creds + scopes + optional audience. The audience is RFC 8707 resource
+        indicator and audience-binds the token to the MCP server."""
+        from app.services.connection_oauth_service import get_oauth_params
+
+        params = get_oauth_params(self._conn("mcp", {
+            "authorize_url": "https://idp.example.com/oauth/authorize",
+            "token_url": "https://idp.example.com/oauth/token",
+            "client_id": "cid",
+            "client_secret": "cs",
+            "scopes": "openid profile offline_access",
+            "audience": "https://mcp.example.com",
+        }))
+        assert params["provider_name"] == "mcp"
+        assert params["authorize_url"].startswith("https://idp")
+        assert params["audience"] == "https://mcp.example.com"
+        assert params["scopes"] == "openid profile offline_access"
+
+    def test_mcp_oauth_missing_required_fields_raises(self):
+        from app.services.connection_oauth_service import get_oauth_params
+
+        with pytest.raises(ValueError, match="missing authorize_url"):
+            get_oauth_params(self._conn("mcp", {"client_id": "x"}))
+
+    def test_mcp_oauth_audience_propagates_to_token_request(self):
+        """RFC 8707 `resource` parameter is added to token-exchange body when
+        an audience is configured."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.services.connection_oauth_service import exchange_code_for_tokens
+
+        params = {
+            "token_url": "https://idp.example.com/token",
+            "client_id": "cid",
+            "client_secret": "cs",
+            "audience": "https://mcp.example.com",
+        }
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.json.return_value = {
+            "access_token": "tok", "refresh_token": "rt",
+            "expires_in": 3600, "token_type": "Bearer",
+        }
+        fake_client = AsyncMock()
+        fake_client.__aenter__.return_value = fake_client
+        fake_client.post.return_value = fake_response
+
+        with patch("app.services.connection_oauth_service.httpx.AsyncClient", return_value=fake_client):
+            asyncio.run(exchange_code_for_tokens(
+                params, code="code", redirect_uri="https://x.com/cb",
+            ))
+        post_kwargs = fake_client.post.call_args
+        body = post_kwargs.kwargs.get("data") or post_kwargs.args[1]
+        assert body.get("resource") == "https://mcp.example.com"

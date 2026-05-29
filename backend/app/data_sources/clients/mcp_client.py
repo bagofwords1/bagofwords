@@ -23,6 +23,13 @@ class McpClient(ToolProviderClient):
         token: Optional[str] = None,
         api_key: Optional[str] = None,
         api_key_header: Optional[str] = None,
+        # OAuth user_required mode: per-user access_token from
+        # UserConnectionCredentials is fed in as a bearer token.
+        access_token: Optional[str] = None,
+        **_ignored,  # OAuth-app fields (authorize_url, token_url, client_id,
+                     # client_secret, scopes, audience) live on the connection
+                     # creds but are only used by the OAuth service, not the
+                     # client. Swallow them.
     ):
         self.server_url = server_url
         self.transport = transport
@@ -30,7 +37,7 @@ class McpClient(ToolProviderClient):
         self.args = args or []
         self.env = env or {}
         self.headers = headers or {}
-        self.token = token
+        self.token = token or access_token
         self.api_key = api_key
         self.api_key_header = api_key_header or "X-API-Key"
 
