@@ -315,7 +315,7 @@ async def auto_provision_connection_credentials(
     Queries all connections where:
       - auth_policy = "user_required"
       - "oauth" in allowed_user_auth_modes
-      - type in ENTRA_OBO_CONNECTION_TYPES (powerbi, ms_fabric)
+      - type in ENTRA_OBO_CONNECTION_TYPES (powerbi, ms_fabric, sharepoint, onedrive)
 
     For each, if the user doesn't already have valid credentials, performs
     an OBO token exchange and stores the result.
