@@ -303,6 +303,26 @@ class TestTestConnection:
         assert not resolve_drive.called
         assert "sign in" in result["message"].lower()
 
+    def test_onedrive_admin_only_when_token_populates_access_token(self):
+        """Regression: _token() in service-principal mode sets self.access_token
+        to the app-only token. test_connection must NOT then take the delegated
+        branch and call /me/drive — that's exactly the bug observed in production."""
+        c = OnedriveClient(tenant_id="t", client_id="c", client_secret="s")
+        assert c.access_token is None  # admin-only: no user token
+
+        def fake_token():
+            c.access_token = "app-only-token-from-client-credentials"
+            return c.access_token
+
+        with patch.object(c, "_token", side_effect=fake_token), \
+             patch.object(c, "_resolve_drive_id") as resolve_drive, \
+             patch.object(c, "_resolve_root_item_id") as resolve_root:
+            result = c.test_connection()
+        assert result["success"] is True
+        assert not resolve_drive.called, "Must not call /me/drive after _token() populates access_token"
+        assert not resolve_root.called
+        assert "sign in" in result["message"].lower()
+
     def test_sharepoint_admin_only_resolves_site_not_drive(self):
         c = SharepointClient(
             tenant_id="t", client_id="c", client_secret="s",

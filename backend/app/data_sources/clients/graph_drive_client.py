@@ -323,13 +323,15 @@ class GraphDriveClient(DataSourceClient):
           the configured URL is reachable.
         """
         try:
-            delegated = bool(self.access_token) and not (
-                self.tenant_id and self.client_id and self.client_secret
-            )
+            # Capture this BEFORE _token() runs — in service-principal mode
+            # _token() populates self.access_token with the app-only token,
+            # which would make a naive `self.access_token` check think we have
+            # a delegated user token.
+            had_user_token = bool(self.access_token)
             # Acquire a token either way; this validates the credentials.
             self._token()
 
-            if delegated or self.access_token:
+            if had_user_token:
                 # We have a user token — exercise the real read path.
                 self._resolve_drive_id()
                 self._resolve_root_item_id()
