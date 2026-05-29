@@ -1,7 +1,6 @@
 from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
-from importlib import import_module
 from cryptography.fernet import Fernet
 from app.settings.config import settings
 import json
@@ -93,14 +92,9 @@ class Connection(BaseSchema):
     def get_client(self):
         """Instantiate and return the appropriate database client."""
         try:
-            module_name = f"app.data_sources.clients.{self.type.lower()}_client"
-            # Capitalize the first letter of each word without changing the rest
-            title = "".join(word[:1].upper() + word[1:] for word in self.type.split("_"))
-            class_name = f"{title}Client"
+            from app.schemas.data_source_registry import resolve_client_class
+            ClientClass = resolve_client_class(self.type)
 
-            module = import_module(module_name)
-            ClientClass = getattr(module, class_name)
-            
             # Parse config if it's a string
             config = json.loads(self.config) if isinstance(self.config, str) else self.config
             client_params = config.copy()
