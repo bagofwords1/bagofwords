@@ -308,12 +308,53 @@ class GraphDriveClient(DataSourceClient):
     # ---------------------------------------- DataSourceClient compatibility
 
     def test_connection(self) -> dict:
+        """Verify the connection is configured well enough to be usable.
+
+        Two modes:
+        - Delegated (a user access_token is present): fully resolve the drive
+          and touch the configured root — proves end-to-end access.
+        - Admin-only (service-principal credentials, no user token yet): just
+          verify the token can be acquired. Drive/root access needs a user
+          token, which arrives after a user completes OAuth — testing it now
+          would fail with `/me request is only valid with delegated
+          authentication flow` for OneDrive, or with insufficient privileges
+          for SharePoint depending on app permissions. For SharePoint we also
+          resolve the site URL since `/sites/{id}` works app-only and proves
+          the configured URL is reachable.
+        """
         try:
+            delegated = bool(self.access_token) and not (
+                self.tenant_id and self.client_id and self.client_secret
+            )
+            # Acquire a token either way; this validates the credentials.
             self._token()
-            self._resolve_drive_id()
-            # Touch root once to confirm access
-            self._resolve_root_item_id()
-            return {"success": True, "message": "Connected"}
+
+            if delegated or self.access_token:
+                # We have a user token — exercise the real read path.
+                self._resolve_drive_id()
+                self._resolve_root_item_id()
+                return {"success": True, "message": "Connected"}
+
+            if self.mode == "sharepoint":
+                # App-only token can resolve the site (proves URL + perms).
+                self._resolve_site_id()
+                return {
+                    "success": True,
+                    "message": (
+                        "Service principal verified and site is reachable. "
+                        "Have a user sign in to access files."
+                    ),
+                }
+
+            # OneDrive admin-only: token-only check, since /me/drive needs
+            # delegated auth.
+            return {
+                "success": True,
+                "message": (
+                    "Service principal credentials verified. Have a user sign "
+                    "in with Microsoft to access their OneDrive."
+                ),
+            }
         except Exception as e:
             return {"success": False, "message": str(e)}
 

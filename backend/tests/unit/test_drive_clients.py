@@ -287,6 +287,65 @@ class TestGoogleListFiles:
         assert names == ["Pipeline", "data.csv"]
 
 
+# ---------------------------------------------------- test_connection
+
+
+class TestTestConnection:
+    def test_onedrive_admin_only_does_not_hit_me_drive(self):
+        """Regression: admin-only OneDrive test_connection must not call /me/drive
+        (which returns 400 'request is only valid with delegated auth')."""
+        c = OnedriveClient(tenant_id="t", client_id="c", client_secret="s")
+        with patch.object(c, "_token", return_value="app-only-token") as tok, \
+             patch.object(c, "_resolve_drive_id") as resolve_drive:
+            result = c.test_connection()
+        assert result["success"] is True
+        assert tok.called
+        assert not resolve_drive.called
+        assert "sign in" in result["message"].lower()
+
+    def test_sharepoint_admin_only_resolves_site_not_drive(self):
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+        )
+        with patch.object(c, "_token", return_value="app-only-token"), \
+             patch.object(c, "_resolve_site_id", return_value="site-id") as resolve_site, \
+             patch.object(c, "_resolve_drive_id") as resolve_drive:
+            result = c.test_connection()
+        assert result["success"] is True
+        assert resolve_site.called
+        assert not resolve_drive.called
+
+    def test_delegated_runs_full_path(self):
+        """User access_token present → resolve drive + root (real read-path test)."""
+        c = OnedriveClient(access_token="user-token")
+        with patch.object(c, "_token", return_value="user-token"), \
+             patch.object(c, "_resolve_drive_id") as resolve_drive, \
+             patch.object(c, "_resolve_root_item_id") as resolve_root:
+            result = c.test_connection()
+        assert result["success"] is True
+        assert resolve_drive.called
+        assert resolve_root.called
+        assert result["message"] == "Connected"
+
+    def test_google_drive_no_token_skips_calls(self):
+        c = GoogleDriveClient()
+        # No network call should happen
+        with patch.object(c, "_get") as get:
+            result = c.test_connection()
+        assert result["success"] is True
+        assert not get.called
+        assert "sign in" in result["message"].lower()
+
+    def test_google_drive_with_token_calls_about(self):
+        c = GoogleDriveClient(access_token="t")
+        with patch.object(c, "_get", return_value={"user": {"emailAddress": "x@y"}}) as get, \
+             patch.object(c, "_list_in_folder", return_value=[]):
+            result = c.test_connection()
+        assert result["success"] is True
+        assert get.called
+
+
 # -------------------------------------------- OAuth params service wiring
 
 

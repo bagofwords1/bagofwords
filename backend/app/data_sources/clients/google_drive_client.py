@@ -272,9 +272,22 @@ class GoogleDriveClient(DataSourceClient):
     # ----------------------------------------- DataSourceClient compatibility
 
     def test_connection(self) -> dict:
+        """Verify what we can without a user token.
+
+        Drive access is per-user; without a user OAuth token there's nothing
+        meaningful to call. When admin saves the connection (admin app creds
+        only), just acknowledge — the real test happens when a user signs in.
+        """
+        if not self.access_token:
+            return {
+                "success": True,
+                "message": (
+                    "OAuth client saved. Have a user sign in with Google to "
+                    "access Drive files."
+                ),
+            }
         try:
             self._get(f"{DRIVE_BASE}/about", params={"fields": "user(emailAddress)"})
-            # Verify the configured scope is reachable
             self._list_in_folder(self._root_folder_id())
             return {"success": True, "message": "Connected"}
         except Exception as e:
