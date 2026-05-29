@@ -95,6 +95,13 @@ class GraphDriveClient(DataSourceClient):
         self.recursive = bool(recursive)
         self.mode = mode
 
+        # Snapshot whether a user OAuth token was provided up front. `_token()`
+        # may later populate `self.access_token` with an app-only token in
+        # service-principal mode, which would otherwise be indistinguishable
+        # from a delegated user token — and `/me/*` endpoints reject app-only
+        # tokens with HTTP 400.
+        self._user_token_provided = bool(access_token)
+
         # Cached IDs (resolved lazily)
         self._site_id: Optional[str] = None
         self._drive_id: Optional[str] = None
@@ -249,6 +256,12 @@ class GraphDriveClient(DataSourceClient):
     # ---------------------------------------------------- public capabilities
 
     def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
+        # OneDrive enumeration goes through /me/drive, which only works with a
+        # delegated user token. Without one (e.g. admin-save indexing before
+        # any user has signed in), return an empty catalog rather than 400.
+        # The real enumeration runs per-user once a user completes OAuth.
+        if self.mode == "onedrive" and not self._user_token_provided:
+            return []
         drive_id = self._resolve_drive_id()
         item_id = folder_id or self._resolve_root_item_id()
         prev = self.recursive
@@ -323,15 +336,13 @@ class GraphDriveClient(DataSourceClient):
           the configured URL is reachable.
         """
         try:
-            # Capture this BEFORE _token() runs — in service-principal mode
-            # _token() populates self.access_token with the app-only token,
-            # which would make a naive `self.access_token` check think we have
-            # a delegated user token.
-            had_user_token = bool(self.access_token)
             # Acquire a token either way; this validates the credentials.
+            # In service-principal mode this populates `self.access_token`
+            # with an app-only token, so we use `_user_token_provided`
+            # (captured at __init__) to distinguish.
             self._token()
 
-            if had_user_token:
+            if self._user_token_provided:
                 # We have a user token — exercise the real read path.
                 self._resolve_drive_id()
                 self._resolve_root_item_id()

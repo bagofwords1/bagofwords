@@ -175,6 +175,11 @@ class GoogleDriveClient(DataSourceClient):
     # ----------------------------------------------------------- public API
 
     def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
+        # No user token yet (e.g. admin-save indexing before any user has
+        # signed in) → no Drive access is possible. Return an empty catalog
+        # rather than raising; per-user enumeration happens after OAuth.
+        if not self.access_token:
+            return []
         target = folder_id or self._root_folder_id()
         prev = self.recursive
         if recursive is not None:

@@ -357,6 +357,43 @@ class TestTestConnection:
         assert not get.called
         assert "sign in" in result["message"].lower()
 
+    def test_onedrive_list_files_without_user_token_returns_empty(self):
+        """get_schemas at admin-save calls list_files; OneDrive can't enumerate
+        without a user token, so it must return [] (not raise / not call /me)."""
+        c = OnedriveClient(tenant_id="t", client_id="c", client_secret="s")
+        with patch.object(c, "_resolve_drive_id") as resolve_drive:
+            files = c.list_files()
+        assert files == []
+        assert not resolve_drive.called
+
+    def test_onedrive_get_schemas_without_user_token_is_empty(self):
+        c = OnedriveClient(tenant_id="t", client_id="c", client_secret="s")
+        with patch.object(c, "_resolve_drive_id") as resolve_drive:
+            schemas = c.get_schemas()
+        assert schemas == []
+        assert not resolve_drive.called
+
+    def test_sharepoint_list_files_without_user_token_still_works(self):
+        """SharePoint app-only auth uses /sites/{id}/drive, which works.
+        Must not be short-circuited like OneDrive."""
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+        )
+        with patch.object(c, "_resolve_drive_id", return_value="drive-id"), \
+             patch.object(c, "_resolve_root_item_id", return_value="root"), \
+             patch.object(c, "_get", return_value={"value": []}) as get:
+            files = c.list_files()
+        assert files == []
+        assert get.called  # we DID try to enumerate
+
+    def test_google_drive_list_files_without_token_returns_empty(self):
+        c = GoogleDriveClient()
+        with patch.object(c, "_get") as get:
+            files = c.list_files()
+        assert files == []
+        assert not get.called
+
     def test_google_drive_with_token_calls_about(self):
         c = GoogleDriveClient(access_token="t")
         with patch.object(c, "_get", return_value={"user": {"emailAddress": "x@y"}}) as get, \
