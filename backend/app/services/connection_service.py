@@ -555,6 +555,34 @@ class ConnectionService:
         """
         try:
             logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
+            # For user_required connections, indexing only makes sense per user
+            # — there's nothing to enumerate with system creds (delegated APIs
+            # like Microsoft Graph /me/* reject app-only tokens). When no user
+            # creds exist yet (admin just saved, no OAuth dance completed),
+            # skip the indexing run cleanly instead of raising 403 from
+            # resolve_credentials. Per-user indexing will run after a user
+            # signs in (see auto_provision_connection_credentials).
+            if connection.auth_policy == "user_required":
+                from app.models.user_connection_credentials import UserConnectionCredentials
+                from sqlalchemy import select as _select
+
+                has_creds = False
+                if current_user is not None:
+                    row = (await db.execute(
+                        _select(UserConnectionCredentials).where(
+                            UserConnectionCredentials.connection_id == str(connection.id),
+                            UserConnectionCredentials.user_id == str(current_user.id),
+                            UserConnectionCredentials.is_active == True,
+                        ).limit(1)
+                    )).scalars().first()
+                    has_creds = row is not None
+                if not has_creds:
+                    logger.info(
+                        f"refresh_schema: connection {connection.id} is user_required and "
+                        "no user credentials are available yet — skipping schema indexing."
+                    )
+                    return []
+
             client = await self.construct_client(db, connection, current_user)
             logger.info(f"refresh_schema: Client constructed successfully, calling get_schemas()...")
             if progress_callback is not None:
