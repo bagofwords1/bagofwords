@@ -1,5 +1,4 @@
 import asyncio
-import importlib
 import logging
 
 from app.models.user import User
@@ -1587,12 +1586,7 @@ class DataSourceService:
         if not data_source_type:
             raise ValueError("Data source type is required")
         try:
-            module_name = f"app.data_sources.clients.{data_source_type.lower()}_client"
-            title = "".join(word[:1].upper() + word[1:] for word in data_source_type.split("_"))
-            class_name = f"{title}Client"
-
-            module = importlib.import_module(module_name)
-            ClientClass = getattr(module, class_name)
+            ClientClass = resolve_client_class(data_source_type)
 
             client_params = (config or {}).copy()
             if credentials:
