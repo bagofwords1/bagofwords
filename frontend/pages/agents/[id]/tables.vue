@@ -282,6 +282,39 @@ watch([injectedIntegration, permissionsLoaded], ([ds, loaded]) => {
 }, { immediate: true })
 
 function onSaved() { toast.add({ title: 'Saved', description: 'Schema updated', color: 'green' }) }
+
+// Auto-refresh the per-user catalog on first visit when the user has signed
+// in but the catalog hasn't been fetched yet. Bridges the gap between
+// "OAuth completed" (token saved) and "Files tab populated" without the
+// user having to know about the Reload button.
+const triedAutoRefresh = ref(false)
+async function maybeAutoRefreshUserCatalog() {
+  if (triedAutoRefresh.value) return
+  if (!id.value) return
+  // Only trigger when at least one connection is per_user-owned AND the
+  // current user already has credentials on it. Per_user catalogs are the
+  // only ones whose admin-side schema is meaningless on its own.
+  const hasPerUserSignedIn = connections.value.some((c: any) => {
+    const entry = registryByType.value[c.type]
+    return entry?.catalog_ownership === 'per_user'
+      && c.auth_policy === 'user_required'
+      && c.user_status?.has_user_credentials
+  })
+  if (!hasPerUserSignedIn) return
+  // Need both the registry map and connections to be populated before
+  // deciding to refresh.
+  if (Object.keys(registryByType.value).length === 0) return
+  triedAutoRefresh.value = true
+  try {
+    await useMyFetch(`/data_sources/${id.value}/refresh_schema`, { method: 'GET' })
+    // TablesSelector reads from /full_schema on its own — emit nothing,
+    // the next user interaction (or Reload click) will see the fresh rows.
+  } catch (e) {
+    console.warn('Auto-refresh of per-user catalog failed', e)
+  }
+}
+
+watch([connections, registryByType], () => maybeAutoRefreshUserCatalog(), { immediate: true, deep: true })
 </script>
 
 
