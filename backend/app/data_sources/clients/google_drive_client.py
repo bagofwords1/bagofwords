@@ -56,7 +56,11 @@ class GoogleDriveClient(DataSourceClient):
         folder_id: Optional[str] = None,
         shared_drive_id: Optional[str] = None,
         allowed_extensions: Optional[str] = None,
-        recursive: bool = False,
+        # None ⇒ default ON. Personal Drive root almost always contains
+        # folders rather than loose files; a non-recursive walk returns
+        # empty for most users. Admins who scope to a specific folder can
+        # explicitly pass False to opt out.
+        recursive: Optional[bool] = None,
         workspace_domain: Optional[str] = None,
         **_ignored,
     ):
@@ -65,7 +69,7 @@ class GoogleDriveClient(DataSourceClient):
         self.folder_id = (folder_id or "").strip() or None
         self.shared_drive_id = (shared_drive_id or "").strip() or None
         self.allowed_extensions = self._parse_exts(allowed_extensions)
-        self.recursive = bool(recursive)
+        self.recursive = True if recursive is None else bool(recursive)
         self.workspace_domain = workspace_domain
 
     # -------------------------------------------------------------- helpers

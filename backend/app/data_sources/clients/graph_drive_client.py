@@ -452,8 +452,15 @@ class SharepointClient(GraphDriveClient):
 
 
 class OnedriveClient(GraphDriveClient):
-    """OneDrive data source — alias with mode preset."""
+    """OneDrive data source — alias with mode preset.
+
+    Defaults `recursive=True` because the user's OneDrive root almost always
+    contains folders (Documents, Pictures, etc.) rather than loose files;
+    a non-recursive walk returns empty for most users. SharePoint stays
+    non-recursive by default since the admin picks a specific folder scope.
+    """
 
     def __init__(self, **kwargs):
         kwargs["mode"] = "onedrive"
+        kwargs.setdefault("recursive", True)
         super().__init__(**kwargs)

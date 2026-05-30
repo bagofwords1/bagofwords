@@ -338,7 +338,10 @@ class TestGoogleListFiles:
         return GoogleDriveClient(access_token="tok", **kwargs)
 
     def test_filters_folders_and_extensions(self):
-        c = self._client(allowed_extensions="csv,gsheet")
+        # recursive=False so the mock fixture (which always returns the same
+        # files including a folder) doesn't loop infinitely. This test
+        # exercises filter logic, not recursion semantics.
+        c = self._client(allowed_extensions="csv,gsheet", recursive=False)
         files = [
             {"id": "1", "name": "data.csv", "mimeType": "text/csv",
              "modifiedTime": "2025-01-01", "size": "10", "webViewLink": "u1"},
