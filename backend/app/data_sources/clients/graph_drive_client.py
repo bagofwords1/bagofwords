@@ -224,8 +224,17 @@ class GraphDriveClient(DataSourceClient):
         url: Optional[str] = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children?$top=200"
         while url:
             data = self._get(url)
-            out.extend(data.get("value", []))
+            page = data.get("value", []) or []
+            out.extend(page)
             url = data.get("@odata.nextLink")
+        import logging
+        logging.getLogger(__name__).info(
+            "graph_drive._list_children: drive=%s item=%s → %d entries "
+            "(folders=%d files=%d)",
+            drive_id, item_id, len(out),
+            sum(1 for e in out if "folder" in e),
+            sum(1 for e in out if "file" in e),
+        )
         return out
 
     def _walk(self, drive_id: str, item_id: str, prefix: str = "") -> List[dict]:
@@ -268,9 +277,18 @@ class GraphDriveClient(DataSourceClient):
         if recursive is not None:
             self.recursive = bool(recursive)
         try:
-            return self._walk(drive_id, item_id)
+            results = self._walk(drive_id, item_id)
         finally:
             self.recursive = prev
+        import logging
+        logging.getLogger(__name__).info(
+            "graph_drive.list_files: mode=%s drive=%s root=%s recursive=%s "
+            "ext_filter=%s → %d file(s)",
+            self.mode, drive_id, item_id, self.recursive,
+            sorted(self.allowed_extensions) if self.allowed_extensions else None,
+            len(results),
+        )
+        return results
 
     def read_file(self, file_id: str, sheet: Optional[str] = None, max_bytes: Optional[int] = None, **_) -> Any:
         drive_id = self._resolve_drive_id()
