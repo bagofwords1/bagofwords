@@ -282,10 +282,34 @@ function userHasAccess(ds: any): boolean {
 }
 
 // Open credentials modal for an agent
-function openCredentialsModal(ds: any) {
+async function openCredentialsModal(ds: any) {
+    // Direct-redirect path: if the agent's pending-sign-in connection has
+    // OAuth as its only user auth mode, skip the modal and jump straight to
+    // the provider — there's nothing to type or pick.
+    const pending = findPendingSignInConnection(ds)
+    if (pending) {
+        const result = await signIn.triggerUserSignIn(pending)
+        if (result.redirecting) return
+        if (result.error) {
+            toast.add({ title: t('data.oauthStartFailed'), description: result.error, color: 'red' })
+        }
+    }
     selectedDs.value = ds
     showCredsModal.value = true
 }
+
+// Locate the first attached connection that's user_required without
+// credentials — that's what the sign-in flow should target.
+function findPendingSignInConnection(ds: any): any | null {
+    for (const conn of (ds.connections || [])) {
+        if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
+            return conn
+        }
+    }
+    return null
+}
+
+const signIn = useConnectionSignIn()
 
 // Check if connection is healthy - uses agent data to derive status
 function isConnectionHealthy(conn: any): boolean {

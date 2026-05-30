@@ -193,8 +193,16 @@ const signInProviderName = computed(() => {
 
 const showCredsModal = ref(false)
 const selectedConnForSignIn = ref<any>(null)
-function startSignIn() {
+const signIn = useConnectionSignIn()
+async function startSignIn() {
   if (!pendingSignInConn.value) return
+  // If oauth is the only user-allowed auth mode, redirect immediately.
+  // Otherwise, fall back to the credentials modal so the user can pick.
+  const result = await signIn.triggerUserSignIn(pendingSignInConn.value)
+  if (result.redirecting) return
+  if (result.error) {
+    toast.add({ title: 'Sign-in failed to start', description: result.error, color: 'red' })
+  }
   selectedConnForSignIn.value = {
     name: pendingSignInConn.value.name,
     type: pendingSignInConn.value.type,
