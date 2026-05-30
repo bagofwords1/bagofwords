@@ -1223,16 +1223,8 @@ class DataSourceService:
                 }
             
             table_count = schema_status.get("table_count", 0)
-            is_doc = bool(getattr(client, "is_document_based", False))
-            if is_doc and table_count == 0:
-                message = (
-                    "Connected successfully. No files visible yet — files appear "
-                    "as users sign in, or once the configured folder has content."
-                )
-            elif is_doc:
-                message = f"Connected successfully. Found {table_count} file(s)."
-            else:
-                message = f"Connected successfully. Found {table_count} tables."
+            from app.services.connection_service import _connected_message
+            message = _connected_message(data_source_type, table_count)
             return {
                 "success": True,
                 "message": message,

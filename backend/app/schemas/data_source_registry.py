@@ -149,12 +149,41 @@ class DataSourceRegistryEntry(BaseModel):
     # Optional explicit client path; if None, fallback to dynamic resolution
     client_path: Optional[str] = None
     dev_only: bool = False
-    # Flag for document-based data sources (MongoDB, Elasticsearch, etc.)
+    # Legacy flag — derived from `data_shape != "tables"`. Kept for backwards
+    # compatibility with callers reading `client.is_document_based`. New code
+    # should branch on `data_shape` directly.
     is_document_based: bool = False
     # License tier required to use this data source (e.g., "enterprise")
     requires_license: Optional[str] = None
     # Whether this entry is a traditional data source connection (vs a tool provider like MCP/Custom API)
     is_connection: bool = True
+
+    # ── Connection-shape axes ───────────────────────────────────────────────
+    #
+    # `data_shape` describes what the agent sees at runtime. Determines copy
+    # ("Found N files" vs "Found N tables" vs "N tools available"), how the
+    # planner refers to it, and how the agent prompt is templated.
+    #
+    # `catalog_ownership` describes where the catalog comes from. Critical
+    # because per-user-owned catalogs (OneDrive, personal Drive) have NO
+    # admin-side catalog — each user's catalog is fully independent, not a
+    # filtered subset of an admin universe. The indexing pipeline and UX
+    # branch on this.
+    #
+    #   shared    → admin connection has a single catalog of truth; user
+    #               overlays are ACL-filtered subsets (Postgres, SharePoint
+    #               site, Power BI with RLS).
+    #   per_user  → each user's catalog is independent and primary; admin
+    #               connection has no catalog (OneDrive, personal Drive,
+    #               personal Notion).
+    #   none      → no catalog at all; runtime tool calls only (MCP, REST).
+    #
+    # `ui_form` selects the admin-side create form on the frontend. Decoupled
+    # from data_shape and catalog_ownership so e.g. OneDrive can be a
+    # per-user files catalog AND use the lean Integration form.
+    data_shape: str = "tables"          # tables | files | objects | tools
+    catalog_ownership: str = "shared"   # shared | per_user | none
+    ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
 
     class Config:
         arbitrary_types_allowed = True
@@ -419,6 +448,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.mongodb_client.MongodbClient",
         is_document_based=True,
+        data_shape="objects",
     ),
     "posthog": DataSourceRegistryEntry(
         type="posthog",
@@ -569,15 +599,20 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.graph_drive_client.SharepointClient",
+        # SharePoint catalog is shared (admin curates a site/library); each
+        # user's overlay is an ACL-filtered subset of that catalog.
         is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
     ),
     "onedrive": DataSourceRegistryEntry(
         type="onedrive",
         title="OneDrive",
         description=(
             "OneDrive connector via Microsoft Graph. Admin registers an Entra ID app "
-            "once; each user signs in with Microsoft to grant per-user access. Exposes "
-            "list_files / read_file / search_files as agent-callable tools."
+            "once; each user signs in with Microsoft and their personal file catalog "
+            "is fetched and cached. Files appear in the agent's catalog and the agent "
+            "can also call list_files / read_file / search_files directly."
         ),
         config_schema=OneDriveConfig,
         credentials_auth=AuthOptions(
@@ -596,16 +631,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.graph_drive_client.OnedriveClient",
-        # Tool provider — exposes file ops as agent tools instead of files-as-tables.
-        is_connection=False,
+        # Agent-attachable data source whose catalog is per-user-owned: each
+        # user's OneDrive is fully independent (not a subset of an admin
+        # universe). Admin save just registers the OAuth app; per-user
+        # catalog is fetched after each user signs in.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
     ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
         title="Google Drive",
         description=(
             "Google Drive (and Sheets) connector. Admin configures a Google Cloud "
-            "OAuth client; users sign in with Google to grant per-user access. "
-            "Exposes list_files / read_file / search_files as agent-callable tools."
+            "OAuth client; users sign in with Google and their personal file catalog "
+            "is fetched and cached. Files appear in the agent's catalog and the agent "
+            "can also call list_files / read_file / search_files directly."
         ),
         config_schema=GoogleDriveConfig,
         credentials_auth=AuthOptions(
@@ -624,8 +666,10 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.google_drive_client.GoogleDriveClient",
-        # Tool provider — exposes file ops as agent tools instead of files-as-tables.
-        is_connection=False,
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
@@ -771,6 +815,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.mcp_client.McpClient",
         version="beta",
         is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="mcp",
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",
@@ -800,6 +847,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.custom_api_client.CustomApiClient",
         version="beta",
         is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="custom_api",
     ),
 }
 
@@ -830,6 +880,9 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "version": e.version,
             "requires_license": e.requires_license,
             "is_connection": e.is_connection,
+            "data_shape": e.data_shape,
+            "catalog_ownership": e.catalog_ownership,
+            "ui_form": e.ui_form,
         }
         for e in REGISTRY.values()
         if (

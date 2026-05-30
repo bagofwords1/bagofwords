@@ -310,26 +310,24 @@ async function handleInstallDemo(demoId: string) {
   }
 }
 
-// Bespoke create forms — connection types whose configuration shape doesn't
-// fit the generic IntegrationConnectionForm (e.g. server URL + transport for
-// MCP, custom REST endpoints for Custom API).
-const BESPOKE_TOOL_PROVIDER_TYPES = new Set(['mcp', 'custom_api'])
-
-// Any tool-provider (is_connection=false) that ISN'T MCP/Custom API uses the
-// generic integration form — OneDrive, Google Drive, and any future "admin
-// configures an OAuth app, users sign in individually" integration.
-function isGenericIntegration(type: string | undefined): boolean {
-  if (!type) return false
+// Form routing is driven by the registry's `ui_form` field. Independent of
+// is_connection — e.g., OneDrive is a data-source-shape connection
+// (catalog_ownership=per_user) but uses the lean integration form.
+function uiFormFor(type: string | undefined): string {
+  if (!type) return 'data_source'
   const entry = dataSources.value.find((d: any) => d.type === type)
-  return entry?.is_connection === false && !BESPOKE_TOOL_PROVIDER_TYPES.has(type)
+  return entry?.ui_form || 'data_source'
+}
+function isGenericIntegration(type: string | undefined): boolean {
+  return uiFormFor(type) === 'integration'
 }
 
-// Backwards-compat: `TOOL_PROVIDER_TYPES` was used by handleConnectionSuccess
-// to decide whether to skip the indexing step. Compute it now from the
-// response — anything with is_connection=false is a tool provider, so saving
-// it should bypass indexing.
-const TOOL_PROVIDER_TYPES = computed(() =>
-  dataSources.value.filter((d: any) => d.is_connection === false)
+// Connections that should skip the schema-indexing step on save. Anything
+// without an admin-side catalog (tool providers + per-user catalogs).
+const SKIP_INDEXING_TYPES = computed(() =>
+  dataSources.value.filter((d: any) =>
+    d.catalog_ownership === 'none' || d.catalog_ownership === 'per_user'
+  )
 )
 
 function selectType(ds: any) {
@@ -357,7 +355,7 @@ function backToSelect() {
 function handleConnectionSuccess(connection: any) {
   // Tool-provider connections (OneDrive, Google Drive, etc.) have no schema
   // to index — close the modal as soon as the save succeeds, same as MCP.
-  if (TOOL_PROVIDER_TYPES.value.some((t: any) => t.type === connection?.type)) {
+  if (SKIP_INDEXING_TYPES.value.some((t: any) => t.type === connection?.type)) {
     handleToolProviderSaved(connection)
     return
   }

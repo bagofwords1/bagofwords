@@ -28,25 +28,75 @@ class TestRegistry:
         for t in ("sharepoint", "onedrive", "google_drive"):
             assert t in REGISTRY
 
-    def test_sharepoint_is_data_source(self):
-        """SharePoint keeps the data-source shape: admin-scoped site, files-as-tables."""
+    def test_sharepoint_shape(self):
+        """SharePoint: file-shaped, admin-curated shared catalog."""
         from app.schemas.data_source_registry import REGISTRY
 
         entry = REGISTRY["sharepoint"]
         assert entry.is_connection is True
-        assert entry.is_document_based is True
+        assert entry.data_shape == "files"
+        assert entry.catalog_ownership == "shared"
 
-    def test_drives_are_tool_providers(self):
-        """OneDrive and Google Drive are tool-provider connections — per-user OAuth,
-        no admin-scoped schema. They expose file capabilities via agent tools."""
+    def test_drives_shape(self):
+        """OneDrive / Google Drive: file-shaped, per-user catalogs.
+
+        Each user's catalog is independent (not a subset of an admin universe).
+        Admin save just registers the OAuth app; per-user catalog is fetched
+        after each user signs in.
+        """
         from app.schemas.data_source_registry import REGISTRY
 
         for t in ("onedrive", "google_drive"):
             entry = REGISTRY[t]
+            assert entry.is_connection is True, t  # agent-attachable
+            assert entry.data_shape == "files", t
+            assert entry.catalog_ownership == "per_user", t
+            assert entry.ui_form == "integration", t
+
+    def test_mcp_and_custom_api_shape(self):
+        """MCP / Custom API: tools-shaped, no catalog."""
+        from app.schemas.data_source_registry import REGISTRY
+
+        for t in ("mcp", "custom_api"):
+            entry = REGISTRY[t]
             assert entry.is_connection is False, t
-            # is_document_based was used by the indexing pipeline; tool
-            # providers don't index, so it shouldn't be true.
-            assert entry.is_document_based is False, t
+            assert entry.data_shape == "tools", t
+            assert entry.catalog_ownership == "none", t
+
+    def test_mongodb_shape(self):
+        from app.schemas.data_source_registry import REGISTRY
+
+        assert REGISTRY["mongodb"].data_shape == "objects"
+        assert REGISTRY["mongodb"].catalog_ownership == "shared"
+
+    def test_defaults_for_sql_sources(self):
+        """Unset entries keep the SQL-shape defaults."""
+        from app.schemas.data_source_registry import REGISTRY
+
+        pg = REGISTRY["postgresql"]
+        assert pg.data_shape == "tables"
+        assert pg.catalog_ownership == "shared"
+        assert pg.ui_form == "data_source"
+
+    def test_connected_message_branches(self):
+        """The success message must reflect catalog ownership + data_shape."""
+        from app.services.connection_service import _connected_message
+
+        # per_user catalog → don't lie about admin-side counts
+        msg = _connected_message("onedrive", 0)
+        assert "their own files" in msg
+        # shared file catalog with zero items → "no files visible yet"
+        msg = _connected_message("sharepoint", 0)
+        assert "No files visible yet" in msg
+        # shared file catalog with items
+        msg = _connected_message("sharepoint", 5)
+        assert "Found 5 files" in msg
+        # tools catalog
+        msg = _connected_message("mcp", 3)
+        assert "tools" in msg.lower()
+        # SQL tables
+        msg = _connected_message("postgresql", 12)
+        assert "12 tables" in msg
 
     def test_resolve_client_class(self):
         from app.schemas.data_source_registry import resolve_client_class

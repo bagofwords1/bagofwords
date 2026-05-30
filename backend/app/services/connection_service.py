@@ -24,10 +24,53 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
-from app.schemas.data_source_registry import resolve_client_class, list_available_data_sources
+from app.schemas.data_source_registry import resolve_client_class, list_available_data_sources, get_entry
 from app.ee.audit.service import audit_service
 
 logger = logging.getLogger(__name__)
+
+
+# Human-readable noun for each data_shape; used in connection-test messages.
+_SHAPE_NOUNS = {
+    "tables": ("table", "tables"),
+    "files": ("file", "files"),
+    "objects": ("collection", "collections"),
+    "tools": ("tool", "tools"),
+}
+
+
+def _connected_message(connection_type: str, table_count: int) -> str:
+    """Build the success message after a connection test.
+
+    Branches on the registry's `catalog_ownership` + `data_shape`:
+    - per_user → admin has no catalog to count; explain how it'll populate
+    - shared + zero items → "No X visible yet" wording
+    - shared + N items → "Found N X" using the right noun
+    """
+    try:
+        entry = get_entry(connection_type)
+    except ValueError:
+        return f"Connected successfully. Found {table_count} tables."
+
+    singular, plural = _SHAPE_NOUNS.get(entry.data_shape, ("item", "items"))
+
+    if entry.catalog_ownership == "per_user":
+        return (
+            f"Connected successfully. Each user sees their own {plural} after "
+            "signing in — no admin-side catalog for this connector."
+        )
+
+    if entry.catalog_ownership == "none":
+        return f"Connected successfully. Found {table_count} {plural if table_count != 1 else singular}."
+
+    # shared
+    if table_count == 0 and entry.data_shape == "files":
+        return (
+            "Connected successfully. No files visible yet — files appear as "
+            "users sign in, or once the configured folder has content."
+        )
+    noun = singular if table_count == 1 else plural
+    return f"Connected successfully. Found {table_count} {noun}."
 
 
 class ConnectionService:
@@ -418,16 +461,7 @@ class ConnectionService:
                 }
 
             table_count = schema_status.get("table_count", 0)
-            is_doc = bool(getattr(client, "is_document_based", False))
-            if is_doc and table_count == 0:
-                message = (
-                    "Connected successfully. No files visible yet — files appear "
-                    "as users sign in, or once the configured folder has content."
-                )
-            elif is_doc:
-                message = f"Connected successfully. Found {table_count} file(s)."
-            else:
-                message = f"Connected successfully. Found {table_count} tables."
+            message = _connected_message(connection.type, table_count)
             return {
                 "success": True,
                 "message": message,
@@ -555,13 +589,28 @@ class ConnectionService:
         """
         try:
             logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
-            # For user_required connections, indexing only makes sense per user
-            # — there's nothing to enumerate with system creds (delegated APIs
-            # like Microsoft Graph /me/* reject app-only tokens). When no user
-            # creds exist yet (admin just saved, no OAuth dance completed),
-            # skip the indexing run cleanly instead of raising 403 from
-            # resolve_credentials. Per-user indexing will run after a user
-            # signs in (see auto_provision_connection_credentials).
+
+            # Per-user-owned catalogs (OneDrive, personal Drive) have no
+            # admin-side catalog — each user's catalog is fully independent,
+            # not a filtered subset of an admin universe. Admin-time indexing
+            # is meaningless; the user's catalog gets fetched on their first
+            # sign-in via get_user_data_source_schema. Skip cleanly.
+            from app.schemas.data_source_registry import get_entry
+            try:
+                entry = get_entry(connection.type)
+                if entry.catalog_ownership == "per_user":
+                    logger.info(
+                        f"refresh_schema: connection {connection.id} has per-user catalog "
+                        "ownership — admin-side indexing skipped; per-user catalogs are "
+                        "fetched after each user signs in."
+                    )
+                    return []
+            except ValueError:
+                pass  # unknown type, fall through
+
+            # For shared catalogs with user_required auth, indexing needs the
+            # current user's credentials. When no user has signed in yet, skip
+            # instead of 403-ing from resolve_credentials.
             if connection.auth_policy == "user_required":
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
