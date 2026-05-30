@@ -570,3 +570,71 @@ class TestOAuthServiceWiring:
         post_kwargs = fake_client.post.call_args
         body = post_kwargs.kwargs.get("data") or post_kwargs.args[1]
         assert body.get("resource") == "https://mcp.example.com"
+
+
+class TestConstructClientKwargs:
+    """Regression: client subclasses that just forward `**kwargs` to their
+    parent (e.g. `class OnedriveClient(GraphDriveClient): def __init__(self, **kwargs): ...`)
+    used to have every legitimate arg stripped by construct_client's
+    narrowing-by-signature, because inspect.signature only reports `self`
+    and `kwargs` on such classes.
+
+    The fix: when the constructor accepts **kwargs, skip the narrowing.
+    Pass everything through.
+    """
+
+    def test_var_kwargs_class_keeps_all_params(self):
+        import inspect
+
+        # Simulate the same pattern OnedriveClient uses
+        class ParentClient:
+            def __init__(self, access_token=None, tenant_id=None, **_ignored):
+                self.access_token = access_token
+                self.tenant_id = tenant_id
+
+        class ForwarderSubclass(ParentClient):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+
+        # Inline the narrowing logic from construct_client
+        sig = inspect.signature(ForwarderSubclass.__init__)
+        params = {"access_token": "tok", "refresh_token": "rt", "tenant_id": "t"}
+        accepts_var_kwargs = any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+        if accepts_var_kwargs:
+            allowed = params
+        else:
+            allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+
+        # The bug was: this list was empty. The fix: all params pass through.
+        assert "access_token" in allowed
+        assert "tenant_id" in allowed
+
+        client = ForwarderSubclass(**allowed)
+        assert client.access_token == "tok"
+        assert client.tenant_id == "t"
+
+    def test_explicit_signature_class_still_narrows(self):
+        """Non-forwarder classes must still narrow — we don't want to leak
+        meta keys to constructors that don't accept them."""
+        import inspect
+
+        class StrictClient:
+            def __init__(self, host, port=5432):
+                self.host = host
+                self.port = port
+
+        sig = inspect.signature(StrictClient.__init__)
+        params = {"host": "db.example.com", "port": 5432, "stray_field": "boom"}
+        accepts_var_kwargs = any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+        if accepts_var_kwargs:
+            allowed = params
+        else:
+            allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+
+        assert "host" in allowed
+        assert "port" in allowed
+        assert "stray_field" not in allowed

@@ -2689,10 +2689,26 @@ class DataSourceService:
                 schemas = await data_source.get_schemas(db=db, include_inactive=True)
                 return schemas
 
+        # For per-user-catalog connections (OneDrive, personal Drive), the
+        # admin has nothing to refresh — each user's catalog is fetched and
+        # cached against their own credentials. Route to the per-user path
+        # so the caller's own catalog actually populates.
+        from app.schemas.data_source_registry import get_entry
+        per_user_conns = []
+        for conn in (data_source.connections or []):
+            try:
+                if get_entry(conn.type).catalog_ownership == "per_user":
+                    per_user_conns.append(conn)
+            except Exception:
+                continue
+        if per_user_conns and current_user is not None:
+            schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+            return schemas or []
+
         # Fallback to legacy behavior for user_required connections or if no connections
         # This uses data_source_service.resolve_credentials which has owner/admin fallback
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
-        return schemas
+        return schemas or []
     
     async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))

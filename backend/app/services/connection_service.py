@@ -814,7 +814,19 @@ class ConnectionService:
         try:
             import inspect
             sig = inspect.signature(ClientClass.__init__)
-            allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+            # If the constructor accepts **kwargs, it'll happily eat anything
+            # we pass — narrowing would actively drop legitimate parameters.
+            # OnedriveClient / SharepointClient are thin subclasses that just
+            # do `__init__(self, **kwargs)` then forward to the parent; their
+            # signature reports only `self` + `kwargs`, so the narrowing would
+            # strip access_token and every other real arg.
+            accepts_var_kwargs = any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            if accepts_var_kwargs:
+                allowed = params
+            else:
+                allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             allowed = params
 
