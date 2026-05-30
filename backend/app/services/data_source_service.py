@@ -1725,12 +1725,16 @@ class DataSourceService:
         if data_source.connections:
             auth_policy = data_source.connections[0].auth_policy or "system_only"
             
-        # For user_required policy, prefer the user's live schema view and upsert overlay
+        # For user_required policy, read from the persisted user overlay.
+        # The live walk happens only on explicit refresh (post-OAuth, manual
+        # /refresh_schema button, OBO auto-provision) — see
+        # `get_user_data_source_schema`. Cache-first read keeps page renders
+        # fast and avoids hammering Drive APIs on every UI navigation.
         if auth_policy == "user_required" and current_user is not None:
             try:
-                return await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                return await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
             except Exception:
-                # Fallback to canonical schema if user overlay fetch fails
+                # Fallback to canonical schema if overlay read fails
                 pass
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
@@ -2246,8 +2250,68 @@ class DataSourceService:
             total_selected=total_selected,
         )
 
+    async def read_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
+        """Return the user's catalog from persisted UserOverlayTable rows.
+
+        Cache-first — does NOT touch the live source. Use this for every
+        read-shaped surface: /mentions, prompt builds, /full_schema, list
+        renderers. Refreshes happen explicitly via `get_user_data_source_schema`
+        (post-OAuth, manual refresh, OBO auto-provision).
+
+        Empty list when the overlay hasn't been populated yet (first sign-in
+        before the post-OAuth refresh completes). Callers can decide whether
+        to trigger a fresh fetch or surface a "still loading" state.
+        """
+        from app.ai.prompt_formatters import Table, TableColumn
+        from sqlalchemy.orm import selectinload
+
+        rows_q = await db.execute(
+            select(UserOverlayTable)
+            .options(selectinload(UserOverlayTable.data_source))
+            .where(
+                UserOverlayTable.data_source_id == str(data_source.id),
+                UserOverlayTable.user_id == str(user.id),
+                UserOverlayTable.deleted_at.is_(None),
+                UserOverlayTable.is_accessible.is_(True),
+            )
+        )
+        overlay_rows = rows_q.scalars().all()
+        if not overlay_rows:
+            return []
+
+        # Load all columns for these overlay rows in one query.
+        col_q = await db.execute(
+            select(UserOverlayColumn).where(
+                UserOverlayColumn.user_data_source_table_id.in_([str(r.id) for r in overlay_rows]),
+                UserOverlayColumn.is_accessible.is_(True),
+            )
+        )
+        cols_by_table: dict[str, list] = {}
+        for c in col_q.scalars().all():
+            cols_by_table.setdefault(str(c.user_data_source_table_id), []).append(c)
+
+        tables: list[Table] = []
+        for row in overlay_rows:
+            tables.append(Table(
+                name=row.table_name,
+                columns=[
+                    TableColumn(name=c.column_name, dtype=c.data_type)
+                    for c in cols_by_table.get(str(row.id), [])
+                ],
+                pks=[],
+                fks=[],
+                metadata_json=row.metadata_json,
+            ))
+        return tables
+
     async def get_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
-        """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list."""
+        """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
+
+        EXPENSIVE — hits the upstream source (Drive walk, SQL describe, etc.).
+        Call only when a refresh is intended: post-OAuth, manual /refresh_schema,
+        OBO auto-provision. Read-shaped surfaces should call
+        `read_user_data_source_schema` instead.
+        """
         client = await self.construct_client(db=db, data_source=data_source, current_user=user)
         fresh = await client.aget_schemas()
         if not fresh:
@@ -3022,9 +3086,10 @@ class DataSourceService:
         - For system_only: use canonical via DataSource.prompt_schema
         - For user_required with user: use per-user overlay tables and TableFormatter
         """
-        # User-required path uses per-user overlays
+        # User-required path uses per-user overlays — cache-first read, no
+        # live walk on every prompt build.
         if getattr(data_source, "auth_policy", "system_only") == "user_required" and current_user is not None:
-            tables = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+            tables = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
             try:
                 from app.ai.prompt_formatters import TableFormatter
                 return TableFormatter(tables).table_str
