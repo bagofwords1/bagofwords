@@ -886,7 +886,7 @@ class DataSourceService:
             schemas.append(s)
         return schemas
 
-    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None) -> List[DataSourceListItemSchema]:
+    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape"""
         # See get_data_sources above for the lazyload("*") rationale — same
         # cascade applies here. The list schema doesn't expose
@@ -961,13 +961,15 @@ class DataSourceService:
 
             # Exclude user_required data sources lacking user credentials,
             # unless the user has permission to update data sources (admin/editor)
+            # or the caller explicitly opted in via include_unconnected (so the
+            # client can surface a "Connect" action for them).
             auth_policy = conn.auth_policy if conn else "system_only"
             if auth_policy == "user_required" and current_user:
                 try:
                     has_user_creds = getattr(s.user_status, "has_user_credentials", False)
                 except Exception:
                     has_user_creds = False
-                if not has_user_creds and not has_update_perm:
+                if not has_user_creds and not has_update_perm and not include_unconnected:
                     continue
             items.append(s)
         return items

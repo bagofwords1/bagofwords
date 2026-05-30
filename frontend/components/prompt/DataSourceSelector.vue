@@ -45,35 +45,63 @@
                         <span>Loading data sources…</span>
                     </div>
                     <template v-else>
-                        <div v-if="visibleDataSources.length === 0" class="text-center text-gray-500 py-4">
+                        <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 py-4">
                             No data sources found
                         </div>
                         <template v-else>
-                            <div
-                                class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
-                                @click="toggleAutoMode"
-                            >
-                                <div class="flex items-center">
-                                    <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 me-2" />
-                                    <span class="text-[13px]">Auto</span>
+                            <template v-if="visibleDataSources.length > 0">
+                                <div
+                                    class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                                    @click="toggleAutoMode"
+                                >
+                                    <div class="flex items-center">
+                                        <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 me-2" />
+                                        <span class="text-[13px]">Auto</span>
+                                    </div>
+                                    <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-                            </div>
-                            <div class="my-1 border-t border-gray-100" />
-                            <div
-                                v-for="ds in visibleDataSources"
-                                :key="ds.id"
-                                class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
-                                @click="() => { toggleDataSource(ds); }"
-                                @mouseenter="onDataSourceHover(ds.id, $event)"
-                                @mouseleave="onDataSourceHoverLeave()"
-                            >
-                                <div class="flex items-center">
-                                    <DataSourceIcon :type="ds.type" class="h-4" />
-                                    <span class="ms-2 text-[13px]">{{ ds.name }}</span>
+                                <div class="my-1 border-t border-gray-100" />
+                                <div
+                                    v-for="ds in visibleDataSources"
+                                    :key="ds.id"
+                                    class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                                    @click="() => { toggleDataSource(ds); }"
+                                    @mouseenter="onDataSourceHover(ds.id, $event)"
+                                    @mouseleave="onDataSourceHoverLeave()"
+                                >
+                                    <div class="flex items-center">
+                                        <DataSourceIcon :type="ds.type" class="h-4" />
+                                        <span class="ms-2 text-[13px]">{{ ds.name }}</span>
+                                    </div>
+                                    <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-                            </div>
+                            </template>
+
+                            <!-- Not-yet-connected (user_required) data sources: grayed out
+                                 with a Connect action. These are NOT selectable and are
+                                 never persisted to the report until connected. -->
+                            <template v-if="connectableDataSources.length > 0">
+                                <div v-if="visibleDataSources.length > 0" class="my-1 border-t border-gray-100" />
+                                <div
+                                    v-for="ds in connectableDataSources"
+                                    :key="ds.id"
+                                    class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between gap-2"
+                                    @click="openCredentialsModal(ds)"
+                                >
+                                    <div class="flex items-center min-w-0 opacity-50">
+                                        <DataSourceIcon :type="ds.type" class="h-4 flex-shrink-0" />
+                                        <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                                        @click.stop="openCredentialsModal(ds)"
+                                    >
+                                        <Icon name="heroicons-key" class="w-3 h-3" />
+                                        {{ $t('data.connect') }}
+                                    </button>
+                                </div>
+                            </template>
                         </template>
                     </template>
                 </div>
@@ -88,6 +116,13 @@
             @mouseenter="onFlyoutEnter"
             @mouseleave="onFlyoutLeave"
         />
+
+        <!-- User credentials / OAuth modal for connecting user_required sources -->
+        <UserDataSourceCredentialsModal
+            v-model="showCredsModal"
+            :data-source="selectedConnectDs"
+            @saved="onCredentialsSaved"
+        />
     </div>
 
 </template>
@@ -96,11 +131,16 @@
 import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
 import AgentIcon from '~/components/icons/AgentIcon.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
-type DataSource = { id: string; name: string; type?: string; auth_policy?: string; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
+type DataSource = { id: string; name: string; type?: string; auth_policy?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
 const internalSelectedDataSources = ref<DataSource[]>([])
 const dataSources = ref<DataSource[]>([])
+// user_required data sources the user hasn't connected yet — shown grayed out
+// with a Connect action. Kept separate so they never enter selection/auto-mode
+// and are never persisted to the report.
+const connectableDataSources = ref<DataSource[]>([])
 const isLoading = ref(true)
 const isOpen = ref(false)
 const containerRef = ref<HTMLElement | null>(null)
@@ -115,6 +155,32 @@ const isAutoMode = computed(() =>
 const hoveredDataSourceId = ref<string | null>(null)
 const flyout = reactive({ visible: false, bottom: 0, left: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
+
+// On touch/coarse-pointer devices there is no hover. Tapping a row would
+// otherwise fire `mouseenter` and pop the fixed flyout overlay on top of the
+// list, swallowing the tap so the selection never registers. Detect touch and
+// skip the flyout entirely so rows stay tappable on mobile.
+const isTouchDevice = ref(false)
+onMounted(() => {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+        isTouchDevice.value = window.matchMedia('(pointer: coarse)').matches
+    }
+})
+
+// Connect (user credentials / OAuth) modal state
+const showCredsModal = ref(false)
+const selectedConnectDs = ref<DataSource | null>(null)
+
+function openCredentialsModal(ds: DataSource) {
+    selectedConnectDs.value = ds
+    showCredsModal.value = true
+}
+
+async function onCredentialsSaved() {
+    showCredsModal.value = false
+    // Re-fetch so a freshly-connected source moves into the selectable list.
+    await getDataSources()
+}
 
 const showFlyoutAtEvent = (evt: MouseEvent) => {
     const el = evt.currentTarget as HTMLElement | null
@@ -149,6 +215,8 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
 }
 
 const onDataSourceHover = (dataSourceId: string, evt: MouseEvent) => {
+    // No hover flyout on touch devices — keep rows tappable.
+    if (isTouchDevice.value) return
     if (flyoutHideTimer) {
         clearTimeout(flyoutHideTimer)
         flyoutHideTimer = null
@@ -220,17 +288,20 @@ async function getDataSources() {
     try {
         const response = await useMyFetch('/data_sources/active', {
             method: 'GET',
+            query: { include_unconnected: true },
         })
         const allSources = (response.data.value as any[]) || []
-        // Exclude data sources that require user credentials the user hasn't provided
-        dataSources.value = allSources.filter((ds: any) => {
-            if (ds.auth_policy === 'user_required') {
-                const status = ds.user_status
-                if (status?.has_user_credentials) return true
-                return status?.effective_auth === 'system' && !status?.uses_fallback
-            }
-            return true
-        })
+        // A source is usable (selectable) when it doesn't require per-user
+        // credentials, or the user already has them / falls back to system auth.
+        const isUsable = (ds: any) => {
+            if (ds.auth_policy !== 'user_required') return true
+            const status = ds.user_status
+            if (status?.has_user_credentials) return true
+            return status?.effective_auth === 'system' && !status?.uses_fallback
+        }
+        dataSources.value = allSources.filter(isUsable)
+        // Everything else returned is a user_required source the user can connect.
+        connectableDataSources.value = allSources.filter((ds: any) => !isUsable(ds))
         // Initialize selection from prop if provided, otherwise leave empty for parent to decide
         if ((props.selectedDataSources as any[])?.length) {
             // Align to the objects from the current dataSources list by id
