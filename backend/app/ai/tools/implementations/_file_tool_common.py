@@ -30,13 +30,18 @@ async def resolve_file_client(
     connection_id: str,
     required_capability: Capability,
 ) -> Tuple[Optional[DataSourceClient], Optional[str]]:
-    """Resolve a connection ID to a constructed file client.
+    """Resolve an ID to a constructed file client.
+
+    The `connection_id` arg accepts either:
+      - a Connection ID (preferred), OR
+      - a DataSource (agent) ID — we then pick its first attached file-source
+        connection. The LLM frequently confuses these because the agent
+        surface refers to itself by data_source_id; resolving both makes the
+        tool robust to that.
 
     Returns (client, error_message). On error, client is None.
-    Validates: db/org context present, connection belongs to org and is attached
-    to the current agent (report.data_sources[*].connections — same path
-    execute_mcp uses for tool-provider connections), connection type is a file
-    source, and the client declares the required capability.
+    Validates: db/org context present, resolved connection belongs to the
+    current agent, type is a file source, client declares the capability.
     """
     db = runtime_ctx.get("db")
     organization = runtime_ctx.get("organization")
@@ -46,43 +51,67 @@ async def resolve_file_client(
     if not db or not organization:
         return None, "Missing database session or organization context."
 
-    # Build the allowed-connection set from the agent's attached data sources.
-    # SharePoint reaches us via DataSource (data source connection); OneDrive
-    # and Google Drive are tool-provider connections attached to the same agent
-    # via the same m2m table — both routes land here.
-    allowed_ids = set()
+    # Build the agent's attached file-source connections from the report's
+    # data sources. Used both as an allow-list (security) and as the
+    # fallback when the LLM passes a data_source_id instead of a connection_id.
+    attached_conns: list = []
     if report:
         for ds in (report.data_sources or []):
             for conn in (ds.connections or []):
                 if conn.type in FILE_SOURCE_TYPES:
-                    allowed_ids.add(str(conn.id))
-        if allowed_ids and str(connection_id) not in allowed_ids:
-            return None, f"Connection '{connection_id}' is not attached to this agent."
+                    attached_conns.append((ds, conn))
 
-    from app.models.connection import Connection
+    attached_conn_ids = {str(conn.id) for _, conn in attached_conns}
+    attached_ds_ids = {str(ds.id) for ds, _ in attached_conns}
+    sid = str(connection_id)
 
-    result = await db.execute(
-        select(Connection).where(
-            Connection.id == str(connection_id),
-            Connection.organization_id == str(organization.id),
-            Connection.type.in_(list(FILE_SOURCE_TYPES)),
+    resolved_conn = None
+
+    if sid in attached_conn_ids:
+        # Direct Connection ID match — happy path.
+        for _, conn in attached_conns:
+            if str(conn.id) == sid:
+                resolved_conn = conn
+                break
+    elif sid in attached_ds_ids:
+        # LLM passed the DataSource (agent) ID. Pick the first file-source
+        # connection on that data source.
+        for ds, conn in attached_conns:
+            if str(ds.id) == sid:
+                resolved_conn = conn
+                break
+
+    if resolved_conn is None:
+        if report and attached_conns:
+            return None, (
+                f"'{connection_id}' is not a file source attached to this agent. "
+                f"Attached file connections: {sorted(attached_conn_ids)}."
+            )
+        # No report scope — fall through to direct DB lookup (used by
+        # standalone tool calls / tests).
+        from app.models.connection import Connection
+        result = await db.execute(
+            select(Connection).where(
+                Connection.id == sid,
+                Connection.organization_id == str(organization.id),
+                Connection.type.in_(list(FILE_SOURCE_TYPES)),
+            )
         )
-    )
-    connection = result.scalar_one_or_none()
-    if not connection:
-        return None, f"Connection '{connection_id}' not found or not a file source."
+        resolved_conn = result.scalar_one_or_none()
+        if not resolved_conn:
+            return None, f"Connection '{connection_id}' not found or not a file source."
 
     from app.services.connection_service import ConnectionService
 
     service = ConnectionService()
     try:
-        client = await service.construct_client(db, connection, current_user)
+        client = await service.construct_client(db, resolved_conn, current_user)
     except Exception as e:
         return None, f"Failed to construct client: {e}"
 
     if required_capability not in getattr(client, "capabilities", set()):
         return None, (
-            f"Connection '{connection.name}' does not support {required_capability.value}."
+            f"Connection '{resolved_conn.name}' does not support {required_capability.value}."
         )
 
     return client, None

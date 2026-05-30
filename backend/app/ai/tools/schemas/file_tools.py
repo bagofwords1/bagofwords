@@ -55,7 +55,15 @@ class ListFilesOutput(BaseModel):
 
 
 class ReadFileInput(BaseModel):
-    connection_id: str = Field(..., description="ID of the file-source connection.")
+    connection_id: str = Field(
+        ...,
+        description=(
+            "ID of the file source attached to this agent. Either the "
+            "Connection ID or the DataSource (agent) ID is accepted — when "
+            "the agent has one file connection, passing the agent's own ID "
+            "is the simplest path."
+        ),
+    )
     file_id: str = Field(
         ...,
         description="File ID returned by list_files or search_files.",
@@ -107,7 +115,15 @@ class ReadFileOutput(BaseModel):
 
 
 class SearchFilesInput(BaseModel):
-    connection_id: str = Field(..., description="ID of the file-source connection.")
+    connection_id: str = Field(
+        ...,
+        description=(
+            "ID of the file source attached to this agent. Either the "
+            "Connection ID or the DataSource (agent) ID is accepted — when "
+            "the agent has one file connection, passing the agent's own ID "
+            "is the simplest path."
+        ),
+    )
     query: str = Field(..., description="Free-text search query — matches filename / content depending on the provider.")
     max_results: int = Field(default=50, ge=1, le=500)
 

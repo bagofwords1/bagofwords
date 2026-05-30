@@ -92,6 +92,92 @@ class TestCatalogCapabilityGating:
         assert "read_file" in names
 
 
+class TestResolveFileClientIdResolution:
+    """Regression: the LLM often passes a DataSource (agent) ID instead of
+    the Connection ID — the resolver must accept either, looking up the
+    file-source connection on the data source when needed."""
+
+    def _make_ctx(self, db_mock, ds_id: str, conn_id: str, conn_type: str = "onedrive"):
+        # Minimal runtime_ctx with a report containing a data source whose
+        # connections include one file-source connection. Mirrors what
+        # construct_client / get_user_data_source_schema feed in.
+        from unittest.mock import MagicMock
+
+        conn = MagicMock()
+        conn.id = conn_id
+        conn.type = conn_type
+        conn.name = "OneDrive"
+
+        ds = MagicMock()
+        ds.id = ds_id
+        ds.connections = [conn]
+
+        report = MagicMock()
+        report.data_sources = [ds]
+
+        org = MagicMock()
+        org.id = "org-1"
+
+        return {
+            "db": db_mock,
+            "organization": org,
+            "report": report,
+            "user": MagicMock(id="user-1"),
+        }, conn
+
+    def test_accepts_connection_id_direct(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from app.ai.tools.implementations._file_tool_common import resolve_file_client
+        from app.data_sources.clients.base import Capability
+
+        db = AsyncMock()
+        ctx, conn = self._make_ctx(db, ds_id="DS-1", conn_id="CONN-1")
+
+        fake_client = AsyncMock()
+        fake_client.capabilities = {Capability.LIST_FILES}
+        with patch("app.services.connection_service.ConnectionService") as svc_cls:
+            svc_cls.return_value.construct_client = AsyncMock(return_value=fake_client)
+            client, err = asyncio.run(resolve_file_client(ctx, "CONN-1", Capability.LIST_FILES))
+        assert err is None
+        assert client is fake_client
+
+    def test_accepts_data_source_id_as_alias(self):
+        """The actual bug from production: agent passed the data_source.id,
+        resolver was strict about connection_id and rejected it. After fix,
+        the data_source.id resolves to its file-source connection."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from app.ai.tools.implementations._file_tool_common import resolve_file_client
+        from app.data_sources.clients.base import Capability
+
+        db = AsyncMock()
+        ctx, conn = self._make_ctx(db, ds_id="DS-1", conn_id="CONN-1")
+
+        fake_client = AsyncMock()
+        fake_client.capabilities = {Capability.READ_FILE}
+        with patch("app.services.connection_service.ConnectionService") as svc_cls:
+            svc_cls.return_value.construct_client = AsyncMock(return_value=fake_client)
+            # Pass DS-1 (data_source id) where Connection ID is expected.
+            client, err = asyncio.run(resolve_file_client(ctx, "DS-1", Capability.READ_FILE))
+        assert err is None, f"Should accept data_source_id as alias, got: {err}"
+        assert client is fake_client
+
+    def test_rejects_unrelated_id_with_helpful_error(self):
+        import asyncio
+        from unittest.mock import AsyncMock
+        from app.ai.tools.implementations._file_tool_common import resolve_file_client
+        from app.data_sources.clients.base import Capability
+
+        db = AsyncMock()
+        ctx, _ = self._make_ctx(db, ds_id="DS-1", conn_id="CONN-1")
+        client, err = asyncio.run(resolve_file_client(ctx, "TOTALLY-WRONG", Capability.LIST_FILES))
+        assert client is None
+        assert "TOTALLY-WRONG" in err
+        # Error should hint at what IS attached.
+        assert "CONN-1" in err
+
+
 # --------------------------------------------------- render helper
 
 
