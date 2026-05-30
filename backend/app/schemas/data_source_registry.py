@@ -813,7 +813,13 @@ def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     return entry
 
 
-def list_available_data_sources() -> list[dict]:
+def list_available_data_sources(include_tool_providers: bool = True) -> list[dict]:
+    """List entries the frontend can offer in the add-connection grid.
+
+    `is_connection` discriminates data-source-shaped entries (Postgres,
+    Snowflake, SharePoint) from tool-provider integrations (OneDrive,
+    Google Drive, MCP, Custom API). Frontends can group / route accordingly.
+    """
     return [
         {
             "type": e.type,
@@ -823,9 +829,14 @@ def list_available_data_sources() -> list[dict]:
             "status": e.status,
             "version": e.version,
             "requires_license": e.requires_license,
+            "is_connection": e.is_connection,
         }
         for e in REGISTRY.values()
-        if e.status == "active" and _entry_visible(e) and e.is_connection
+        if (
+            e.status == "active"
+            and _entry_visible(e)
+            and (e.is_connection or include_tool_providers)
+        )
     ]
 
 
@@ -864,6 +875,9 @@ def tool_provider_types() -> set[str]:
 def resolve_client_class(ds_type: str):
     """Resolve client class via configured path; fallback to dynamic naming."""
     from importlib import import_module
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     entry = get_entry(ds_type)
     if entry.client_path:
@@ -871,8 +885,17 @@ def resolve_client_class(ds_type: str):
             module_path, _, class_name = entry.client_path.rpartition(".")
             module = import_module(module_path)
             return getattr(module, class_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            # The explicit client_path is the contract; falling back to the
+            # naming-convention path silently has caused real bugs (a broken
+            # import in graph_drive_client showed up as "No module named
+            # onedrive_client"). Surface the actual failure rather than
+            # swallowing it.
+            logger.exception(
+                "resolve_client_class: configured client_path %r failed to import "
+                "for type=%r; falling back to dynamic resolution. Real error: %s",
+                entry.client_path, ds_type, exc,
+            )
 
     # Fallback to dynamic resolution used previously
     module_name = f"app.data_sources.clients.{ds_type.lower()}_client"

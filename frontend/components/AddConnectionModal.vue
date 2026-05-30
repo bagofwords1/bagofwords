@@ -108,6 +108,13 @@
           @saved="handleToolProviderSaved"
           @cancel="backToSelect"
         />
+        <IntegrationConnectionForm
+          v-else-if="isGenericIntegration(selectedDataSource?.type)"
+          :integration-type="selectedDataSource?.type"
+          :integration-title="selectedDataSource?.title"
+          @saved="handleToolProviderSaved"
+          @cancel="backToSelect"
+        />
         <ConnectForm
           v-else
           @success="handleConnectionSuccess"
@@ -190,6 +197,7 @@ import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import MCPConnectionForm from '~/components/MCPConnectionForm.vue'
 import CustomAPIConnectionForm from '~/components/CustomAPIConnectionForm.vue'
+import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 
@@ -237,8 +245,22 @@ const uninstalledDemos = computed(() => (demos.value || []).filter((demo: any) =
 const isLocked = (ds: any) => ds.requires_license === 'enterprise' && !isLicensed.value
 
 // Filter data sources by search query — tool providers are always prepended
+// The backend now returns every entry — data sources + integrations + MCP /
+// Custom API. We bucket on `is_connection`: true means data-source-shaped
+// (Postgres, SharePoint), false means tool-provider integration (OneDrive,
+// Google Drive, MCP, Custom API). MCP and Custom API have their own bespoke
+// create forms; everything else with is_connection=false uses the generic
+// IntegrationConnectionForm.
+const dataSourceEntries = computed(() =>
+  dataSources.value.filter((d: any) => d.is_connection !== false)
+)
+const integrationEntries = computed(() =>
+  dataSources.value.filter((d: any) => d.is_connection === false)
+)
+
 const filteredDataSources = computed(() => {
-  const all = [...dataSources.value, ...TOOL_PROVIDER_TYPES]
+  // Single grid combining both groups (existing UI behaviour).
+  const all = [...dataSourceEntries.value, ...integrationEntries.value]
   if (!searchQuery.value.trim()) return all
   const query = searchQuery.value.toLowerCase()
   return all.filter((ds: any) =>
@@ -288,12 +310,27 @@ async function handleInstallDemo(demoId: string) {
   }
 }
 
-const TOOL_PROVIDER_TYPES = [
-  { type: 'mcp', title: 'MCP Server', status: 'active', requires_license: null },
-  { type: 'custom_api', title: 'Custom API', status: 'active', requires_license: null },
-  { type: 'onedrive', title: 'OneDrive', status: 'active', requires_license: null },
-  { type: 'google_drive', title: 'Google Drive', status: 'active', requires_license: null },
-]
+// Bespoke create forms — connection types whose configuration shape doesn't
+// fit the generic IntegrationConnectionForm (e.g. server URL + transport for
+// MCP, custom REST endpoints for Custom API).
+const BESPOKE_TOOL_PROVIDER_TYPES = new Set(['mcp', 'custom_api'])
+
+// Any tool-provider (is_connection=false) that ISN'T MCP/Custom API uses the
+// generic integration form — OneDrive, Google Drive, and any future "admin
+// configures an OAuth app, users sign in individually" integration.
+function isGenericIntegration(type: string | undefined): boolean {
+  if (!type) return false
+  const entry = dataSources.value.find((d: any) => d.type === type)
+  return entry?.is_connection === false && !BESPOKE_TOOL_PROVIDER_TYPES.has(type)
+}
+
+// Backwards-compat: `TOOL_PROVIDER_TYPES` was used by handleConnectionSuccess
+// to decide whether to skip the indexing step. Compute it now from the
+// response — anything with is_connection=false is a tool provider, so saving
+// it should bypass indexing.
+const TOOL_PROVIDER_TYPES = computed(() =>
+  dataSources.value.filter((d: any) => d.is_connection === false)
+)
 
 function selectType(ds: any) {
   selectedDataSource.value = ds
@@ -320,7 +357,7 @@ function backToSelect() {
 function handleConnectionSuccess(connection: any) {
   // Tool-provider connections (OneDrive, Google Drive, etc.) have no schema
   // to index — close the modal as soon as the save succeeds, same as MCP.
-  if (TOOL_PROVIDER_TYPES.some(t => t.type === connection?.type)) {
+  if (TOOL_PROVIDER_TYPES.value.some((t: any) => t.type === connection?.type)) {
     handleToolProviderSaved(connection)
     return
   }
