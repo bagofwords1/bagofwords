@@ -1029,6 +1029,11 @@ class DataSourceService:
                 "type": data_source_type,
                 "title": meta.get("title"),
                 "description": meta.get("description"),
+                # Surface the registry axes so frontend forms / sign-in modals
+                # can render the right UX without hardcoding type lists.
+                "data_shape": entry.data_shape,
+                "catalog_ownership": entry.catalog_ownership,
+                "ui_form": entry.ui_form,
                 "auth": {
                     "default": entry.credentials_auth.default,
                     "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)},

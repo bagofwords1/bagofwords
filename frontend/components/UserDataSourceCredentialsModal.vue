@@ -12,13 +12,27 @@
         <p class="mt-1 text-xs text-gray-500">{{ $t('data.provideCredentials') }}</p>
       </div>
 
-      <div v-if="authOptions.length > 1" class="mb-3">
+      <!-- Per-user catalog auto-redirects to OAuth; show a clean handoff state -->
+      <div v-if="isPerUserCatalog" class="mt-4 text-center py-6">
+        <div v-if="oauthLoading" class="flex flex-col items-center gap-2 text-sm text-gray-600">
+          <UIcon name="heroicons-arrow-path" class="w-5 h-5 animate-spin text-blue-500" />
+          <div>Redirecting to {{ providerName }}…</div>
+        </div>
+        <div v-else class="flex flex-col gap-3 items-center">
+          <p class="text-xs text-gray-500">Sign in to {{ providerName }} to access your files.</p>
+          <UButton size="sm" color="blue" variant="solid" :loading="oauthLoading" @click="onOAuthSignIn">
+            {{ currentAuthTitle || $t('data.signIn') }}
+          </UButton>
+        </div>
+      </div>
+
+      <div v-else-if="authOptions.length > 1" class="mb-3">
         <label class="text-xs text-gray-600">{{ $t('data.authMethod') }}</label>
         <USelectMenu v-model="authMode" :options="authOptions" option-attribute="label" value-attribute="value" />
       </div>
 
-      <!-- OAuth mode: show sign-in button instead of credential form -->
-      <div v-if="isOAuthMode" class="mt-4">
+      <!-- OAuth mode (shared catalog with OAuth option): standard sign-in button -->
+      <div v-if="!isPerUserCatalog && isOAuthMode" class="mt-4">
         <UButton
           size="sm"
           color="blue"
@@ -31,8 +45,8 @@
         </UButton>
       </div>
 
-      <!-- Standard credential form -->
-      <template v-else>
+      <!-- Standard credential form (shared catalog with non-OAuth auth) -->
+      <template v-else-if="!isPerUserCatalog">
         <div class="space-y-3">
           <div v-for="field in credentialFields" :key="field.key" class="flex flex-col">
             <label class="text-xs text-gray-600 mb-1">{{ field.title }}</label>
@@ -113,14 +127,30 @@ async function loadFields() {
   const payload = data.value as any
   const byAuth = (payload?.credentials_by_auth) || {}
   fieldsByAuth.value = byAuth
+  catalogOwnership.value = payload?.catalog_ownership || 'shared'
   // build options
   const names = Object.keys((payload?.auth?.by_auth) || {})
   authOptions.value = names.map((n) => ({ label: payload.auth.by_auth[n]?.title || n, value: n }))
+  // For per-user catalogs (OneDrive, personal Drive): the user should never
+  // see admin app credential fields. Force "oauth" mode if available — it's
+  // the only auth that makes sense at the user level.
   const defaultAuth = payload?.auth?.default
-  authMode.value = (defaultAuth && names.includes(defaultAuth)) ? defaultAuth : names[0] || ''
+  const preferred = (catalogOwnership.value === 'per_user' && names.includes('oauth'))
+    ? 'oauth'
+    : (defaultAuth && names.includes(defaultAuth)) ? defaultAuth : names[0] || ''
+  authMode.value = preferred
   form.value.auth_mode = authMode.value
   form.value.credentials = {}
+
+  // Auto-trigger OAuth for per-user catalogs — the modal becomes purely a
+  // loading indicator while we redirect to the provider. No credential form,
+  // no "Sign in" button to click. Matches Claude / ChatGPT connector UX.
+  if (catalogOwnership.value === 'per_user' && authMode.value === 'oauth' && connectionId.value) {
+    onOAuthSignIn()
+  }
 }
+
+const catalogOwnership = ref<string>('shared')
 
 watch(authMode, (v) => {
   form.value.auth_mode = v || ''
@@ -128,9 +158,19 @@ watch(authMode, (v) => {
 })
 
 const isOAuthMode = computed(() => authMode.value === 'oauth')
+const isPerUserCatalog = computed(() => catalogOwnership.value === 'per_user')
 const currentAuthTitle = computed(() => {
   const opt = authOptions.value.find(o => o.value === authMode.value)
   return opt?.label || t('data.signIn')
+})
+const providerName = computed(() => {
+  // Friendly provider name for the redirecting-state copy.
+  const t = connectionType.value
+  if (t === 'onedrive' || t === 'sharepoint') return 'Microsoft'
+  if (t === 'google_drive' || t === 'bigquery') return 'Google'
+  if (t === 'powerbi') return 'Power BI'
+  if (t === 'ms_fabric') return 'Microsoft Fabric'
+  return 'the provider'
 })
 const oauthLoading = ref(false)
 

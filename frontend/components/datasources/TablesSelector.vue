@@ -13,7 +13,7 @@
           :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50'"
         >
           <Spinner v-if="loading || refreshing" class="w-4 h-4" />
-          <span v-if="!refreshIconOnly">Reload tables</span>
+          <span v-if="!refreshIconOnly">Reload {{ props.itemNoun.plural }}</span>
         </button>
       </div>
     </div>
@@ -36,7 +36,7 @@
           v-model="searchInput" 
           @input="onSearchInput"
           type="text" 
-          placeholder="Search tables..." 
+          :placeholder="`Search ${props.itemNoun.plural}...`"
           class="border border-gray-300 rounded px-2 py-1.5 w-full h-7 text-xs focus:outline-none focus:border-blue-500" 
         />
         
@@ -47,7 +47,7 @@
           @click="toggleFilterMenu"
           class="h-7 w-7 inline-flex items-center justify-center rounded border"
           :class="hasActiveFilters ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'"
-          aria-label="Filter tables"
+          :aria-label="`Filter ${props.itemNoun.plural}`"
         >
           <UIcon name="heroicons-funnel" class="w-4 h-4" />
         </button>
@@ -58,7 +58,7 @@
           type="button"
           @click="toggleSortMenu"
           class="h-7 w-7 inline-flex items-center justify-center rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
-          aria-label="Sort tables"
+          :aria-label="`Sort ${props.itemNoun.plural}`"
         >
           <UIcon name="heroicons-arrows-up-down" class="w-4 h-4" />
         </button>
@@ -251,7 +251,7 @@
 
     <!-- Tables list -->
     <div v-else class="flex-1 flex flex-col h-full">
-      <div v-if="tables.length === 0" class="text-sm text-gray-500 py-4">No tables found.</div>
+      <div v-if="tables.length === 0" class="text-sm text-gray-500 py-4">No {{ props.itemNoun.plural }} found.</div>
       <div v-else class="flex-1 flex flex-col min-h-full">
         <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="{ maxHeight }">
           <ul class="divide-y divide-gray-100">
@@ -568,6 +568,10 @@ const props = withDefaults(defineProps<{
   showStats?: boolean;
   pageSize?: number;
   skipRefreshOnSave?: boolean;
+  // Noun used in micro-copy ("Reload {plural}", "No {plural} found", etc.).
+  // Defaults to tables. For file-shaped data sources (OneDrive, SharePoint,
+  // Google Drive) the parent passes {sing: 'file', plural: 'files'}.
+  itemNoun?: { sing: string; plural: string };
 }>(), {
   canUpdate: true,
   showRefresh: true,
@@ -578,6 +582,7 @@ const props = withDefaults(defineProps<{
   showHeader: false,
   headerTitle: 'Select tables',
   headerSubtitle: 'Choose which tables to enable',
+  itemNoun: () => ({ sing: 'table', plural: 'tables' }),
   showStats: false,
   pageSize: 100,
   skipRefreshOnSave: false,

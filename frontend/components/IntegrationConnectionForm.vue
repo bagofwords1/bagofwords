@@ -69,11 +69,27 @@
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2 pt-2">
-        <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">Cancel</UButton>
-        <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="!form.name || hasMissingRequired">
-          {{ isEditMode ? 'Save' : 'Save Integration' }}
+      <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+        {{ testResult.message }}
+      </div>
+
+      <div class="flex items-center justify-between pt-2">
+        <UButton
+          color="gray"
+          variant="ghost"
+          size="sm"
+          :loading="testing"
+          :disabled="hasMissingRequired"
+          @click="onTest"
+        >
+          Test credentials
         </UButton>
+        <div class="flex items-center gap-2">
+          <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">Cancel</UButton>
+          <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="!form.name || hasMissingRequired">
+            {{ isEditMode ? 'Save' : 'Save Integration' }}
+          </UButton>
+        </div>
       </div>
     </form>
   </div>
@@ -148,6 +164,38 @@ watch(() => props.integrationTitle, (t) => {
 })
 
 const submitting = ref(false)
+const testing = ref(false)
+const testResult = ref<{ success: boolean; message: string } | null>(null)
+
+async function onTest() {
+  testing.value = true
+  testResult.value = null
+  try {
+    const credentials: Record<string, any> = {}
+    for (const [k, v] of Object.entries(form.credentials)) {
+      if (v !== null && v !== undefined && v !== '') credentials[k] = v
+    }
+    // For per-user integrations, test-connection verifies that the admin
+    // app credentials are well-formed (token can be acquired); it doesn't
+    // touch any user-owned files.
+    const response = await useMyFetch('/connections/test-params', {
+      method: 'POST',
+      body: {
+        name: form.name || 'test',
+        type: props.integrationType,
+        config: {},
+        credentials,
+        auth_policy: 'user_required',
+        allowed_user_auth_modes: ['oauth'],
+      },
+    })
+    testResult.value = response.data.value as any
+  } catch (e: any) {
+    testResult.value = { success: false, message: e?.data?.detail || String(e) }
+  } finally {
+    testing.value = false
+  }
+}
 
 async function loadFields() {
   loadingFields.value = true
