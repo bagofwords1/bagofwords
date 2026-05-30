@@ -1379,11 +1379,22 @@ class DataSourceService:
         # Strip meta keys and oauth override keys
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
-        # Narrow to constructor signature
+        # Narrow to constructor signature — same VAR_KEYWORD-aware logic as
+        # ConnectionService.construct_client. Forwarder subclasses (e.g.
+        # `class OnedriveClient(GraphDriveClient): def __init__(self, **kw): super().__init__(**kw)`)
+        # only expose `self` + `kwargs` to inspect; narrowing on that would
+        # strip every real arg (access_token, tenant_id, …). When the ctor
+        # accepts **kwargs, pass everything through.
         try:
             import inspect
             sig = inspect.signature(ClientClass.__init__)
-            allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+            accepts_var_kwargs = any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            if accepts_var_kwargs:
+                allowed = params
+            else:
+                allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             allowed = params
         return ClientClass(**allowed)
@@ -1427,10 +1438,17 @@ class DataSourceService:
             params = {**(config or {}), **(creds or {})}
             params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
-            # Narrow to constructor signature
+            # Narrow to constructor signature (VAR_KEYWORD-aware; see
+            # ConnectionService.construct_client for the reasoning).
             try:
                 sig = inspect.signature(ClientClass.__init__)
-                allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+                accepts_var_kwargs = any(
+                    p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                if accepts_var_kwargs:
+                    allowed = params
+                else:
+                    allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
             except Exception:
                 allowed = params
 
