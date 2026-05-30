@@ -31,6 +31,7 @@ class SearchFilesTool(Tool):
             idempotent=True,
             timeout_seconds=30,
             tags=["files", "sharepoint", "onedrive", "drive", "search"],
+            requires_capability="search_files",
         )
 
     @property

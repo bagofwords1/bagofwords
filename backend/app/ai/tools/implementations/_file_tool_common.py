@@ -8,12 +8,18 @@ from __future__ import annotations
 
 import io
 import json
+import logging
+import os
+import uuid
 from typing import Any, Dict, Optional, Tuple
 
+import aiofiles
 import pandas as pd
 from sqlalchemy import select
 
 from app.data_sources.clients.base import Capability, DataSourceClient
+
+logger = logging.getLogger(__name__)
 
 
 FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive"}
@@ -129,3 +135,107 @@ def render_file_payload(name: str, payload: Any, max_rows: int, max_chars: int) 
 
     out.update({"content_type": "unknown", "text": str(payload)[:max_chars]})
     return out
+
+
+# Mime types we treat as "worth attaching as a session file" — i.e. things
+# inspect_data / read_excel_as_csv / create_data already know how to analyse.
+# Binaries we don't recognize aren't attached (the agent gets just the byte
+# count) to avoid clutter and accidental persistence of large unknown files.
+_ATTACHABLE_BY_EXT = {
+    "csv": "text/csv",
+    "tsv": "text/tab-separated-values",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "xls": "application/vnd.ms-excel",
+    "json": "application/json",
+    "txt": "text/plain",
+    "md": "text/markdown",
+    "pdf": "application/pdf",
+}
+
+# Hard cap on auto-attach size. Larger files still return content inline but
+# don't get persisted — the agent should reach for a more specific reader.
+_ATTACH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+async def attach_drive_file_to_session(
+    runtime_ctx: Dict[str, Any],
+    *,
+    filename: str,
+    content_bytes: bytes,
+    mime_type: Optional[str] = None,
+) -> Optional[str]:
+    """Persist Drive file bytes as a session File and link to the current report.
+
+    Mirrors what `file_service.upload_file` does for user uploads — once the
+    file lands in the same File table that inspect_data / read_excel_as_csv /
+    create_data already read from, the agent can analyse Drive files via the
+    existing tool stack without any per-source code path.
+
+    Returns the new File row id, or None if the file wasn't attached (no
+    report context, oversize, or persistence failed — non-fatal, caller still
+    returns inline content).
+    """
+    db = runtime_ctx.get("db")
+    report = runtime_ctx.get("report")
+    user = runtime_ctx.get("user")
+    organization = runtime_ctx.get("organization")
+    if not (db and report and user and organization):
+        return None
+    if not content_bytes:
+        return None
+    if len(content_bytes) > _ATTACH_MAX_BYTES:
+        logger.info(
+            "attach_drive_file_to_session: %s skipped (%.1f MB > cap)",
+            filename, len(content_bytes) / (1024 * 1024),
+        )
+        return None
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
+    if ext not in _ATTACHABLE_BY_EXT:
+        # Unknown / binary — don't litter the conversation with opaque blobs.
+        return None
+    resolved_mime = mime_type or _ATTACHABLE_BY_EXT[ext]
+
+    try:
+        from app.models.file import File
+        from app.models.report import Report
+
+        os.makedirs("uploads/files", exist_ok=True)
+        unique_filename = f"{uuid.uuid4()}_{filename}"
+        path = f"uploads/files/{unique_filename}"
+        async with aiofiles.open(path, "wb") as fh:
+            await fh.write(content_bytes)
+
+        db_file = File(
+            filename=filename,
+            content_type=resolved_mime,
+            path=path,
+            user_id=str(user.id),
+            organization_id=str(organization.id),
+        )
+        db.add(db_file)
+        await db.commit()
+        await db.refresh(db_file)
+
+        # Attach to the current report so it shows up in the same place
+        # uploaded files do.
+        report_q = await db.execute(select(Report).where(Report.id == str(report.id)))
+        report_row = report_q.scalar_one_or_none()
+        if report_row is not None:
+            report_row.files.append(db_file)
+            await db.commit()
+
+        # Best-effort raw preview, same as upload path.
+        try:
+            from app.services.file_preview import generate_file_preview
+            db_file.preview = generate_file_preview(db_file)
+            db.add(db_file)
+            await db.commit()
+        except Exception as e:
+            logger.warning("attach_drive_file_to_session: preview failed for %s: %s", filename, e)
+
+        logger.info("attach_drive_file_to_session: attached %s as session file %s", filename, db_file.id)
+        return str(db_file.id)
+    except Exception as e:
+        logger.warning("attach_drive_file_to_session: persistence failed for %s: %s", filename, e)
+        return None

@@ -252,9 +252,35 @@ class AgentV2:
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
 
+        # Capabilities exposed by the report's attached connections — used to
+        # gate file-source tools (list_files / read_file / search_files) so
+        # they only appear in the catalog when at least one connection
+        # actually exposes those capabilities. Avoids polluting a SQL-only
+        # agent with file tools that can never resolve.
+        available_capabilities: set[str] = set()
+        try:
+            from app.schemas.data_source_registry import resolve_client_class
+            report = getattr(self, "report", None)
+            for ds in (getattr(report, "data_sources", None) or []):
+                for conn in (getattr(ds, "connections", None) or []):
+                    try:
+                        cls = resolve_client_class(conn.type)
+                        for cap in getattr(cls, "capabilities", set()) or set():
+                            available_capabilities.add(getattr(cap, "value", str(cap)))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
         # Start with all available tools for the planner to see, filtered by mode and platform
-        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode, platform=self.platform)
-        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode, platform=self.platform))
+        all_catalog_dicts = self.registry.get_catalog_for_plan_type(
+            "action", self.organization, mode=self.mode, platform=self.platform,
+            available_capabilities=available_capabilities,
+        )
+        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type(
+            "research", self.organization, mode=self.mode, platform=self.platform,
+            available_capabilities=available_capabilities,
+        ))
 
         # Hide tools that read raw data when the org has disabled LLM data access.
         # The tool itself also self-blocks at runtime, but excluding it from the

@@ -93,6 +93,13 @@ class ReadFileOutput(BaseModel):
     col_count: Optional[int] = None
     truncated: bool = False
     byte_count: Optional[int] = None  # for binary
+    # Set when the file was persisted as a session File attached to the
+    # current report. Pass this ID to inspect_data / read_excel_as_csv /
+    # create_data exactly like a user-uploaded file.
+    session_file_id: Optional[str] = Field(
+        default=None,
+        description="Session file id you can pass to inspect_data / create_data / read_excel_as_csv. None for files that aren't attachable (oversize, unknown binary).",
+    )
     error: Optional[str] = None
 
 

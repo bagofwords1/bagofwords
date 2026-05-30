@@ -39,6 +39,16 @@ class ToolMetadata(BaseModel):
         description="Platforms where tool is available (None = all platforms). E.g., ['excel'] for Excel-only tools."
     )
 
+    # Capability gating — if set, the tool only appears in the catalog when at
+    # least one of the report's attached connections exposes this capability.
+    # Values match `app.data_sources.clients.base.Capability` (e.g. "list_files",
+    # "read_file", "search_files"). Used so file-source tools don't pollute the
+    # catalog of agents that have no file connection attached.
+    requires_capability: Optional[str] = Field(
+        default=None,
+        description="Capability name that at least one attached connection must expose for this tool to be available."
+    )
+
     # Discovery and UI
     tags: List[str] = Field(default_factory=list, description="Searchable tags")
     examples: List[Dict[str, Any]] = Field(default_factory=list, description="Usage examples")

@@ -35,6 +35,7 @@ class ListFilesTool(Tool):
             idempotent=True,
             timeout_seconds=30,
             tags=["files", "sharepoint", "onedrive", "drive", "list"],
+            requires_capability="list_files",
         )
 
     @property

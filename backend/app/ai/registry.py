@@ -19,6 +19,10 @@ class ToolCatalogFilter:
     max_research_steps: int = 3  # Prevent infinite research loops
     mode: Optional[str] = None  # "chat", "deep", "training", etc.
     platform: Optional[str] = None  # "excel", "slack", "teams", etc.
+    # Capabilities exposed by the report's attached connections. When set,
+    # tools whose `requires_capability` is NOT in this set are filtered out.
+    # None = no capability gating (legacy behaviour, include everything).
+    available_capabilities: Optional[Set[str]] = None
 
 
 class ToolRegistry:
@@ -93,9 +97,26 @@ class ToolRegistry:
         
         return filtered_tools
 
-    def get_catalog_for_plan_type(self, plan_type: str, organization: Optional[str] = None, mode: Optional[str] = None, platform: Optional[str] = None) -> List[Dict]:
-        """Get tool catalog filtered by plan type with enhanced metadata."""
-        filter_obj = ToolCatalogFilter(plan_type=plan_type, organization=organization, mode=mode, platform=platform)
+    def get_catalog_for_plan_type(
+        self,
+        plan_type: str,
+        organization: Optional[str] = None,
+        mode: Optional[str] = None,
+        platform: Optional[str] = None,
+        available_capabilities: Optional[Set[str]] = None,
+    ) -> List[Dict]:
+        """Get tool catalog filtered by plan type with enhanced metadata.
+
+        `available_capabilities`: set of capability names that the report's
+        attached connections expose. When provided, tools whose
+        `requires_capability` is not in this set are filtered out — so e.g.
+        list_files / read_file / search_files only show up for agents that
+        have a file-source connection attached.
+        """
+        filter_obj = ToolCatalogFilter(
+            plan_type=plan_type, organization=organization, mode=mode,
+            platform=platform, available_capabilities=available_capabilities,
+        )
         metadata_list = self.list_tools(filter_obj)
 
         catalog = []
@@ -168,6 +189,16 @@ class ToolRegistry:
         # Platform filtering - if tool has allowed_platforms, current platform must match
         if metadata.allowed_platforms is not None:
             if not filter_obj.platform or filter_obj.platform not in metadata.allowed_platforms:
+                return False
+
+        # Capability gating - file-source tools (list_files / read_file /
+        # search_files) only appear when at least one attached connection
+        # exposes the matching capability. Filter is None during catalog
+        # browsing / dev tooling — only enforced when the caller passes the
+        # actual report's capability set.
+        required_cap = getattr(metadata, "requires_capability", None)
+        if required_cap and filter_obj.available_capabilities is not None:
+            if required_cap not in filter_obj.available_capabilities:
                 return False
 
         # Permission filtering

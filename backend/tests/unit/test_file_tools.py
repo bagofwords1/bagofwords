@@ -44,6 +44,53 @@ class TestToolRegistration:
             assert m.idempotent is True
             assert "files" in m.tags
 
+    def test_each_tool_declares_required_capability(self):
+        """Capability gating: each file tool must declare the capability its
+        backing client needs to expose. Used by the catalog filter to hide
+        these tools from agents with no file-source connection attached."""
+        for cls, cap in [
+            (ListFilesTool, "list_files"),
+            (ReadFileTool, "read_file"),
+            (SearchFilesTool, "search_files"),
+        ]:
+            assert cls().metadata.requires_capability == cap
+
+
+class TestCatalogCapabilityGating:
+    """Catalog filter must exclude file tools when no attached connection
+    exposes the capability, and include them when one does. Future tools that
+    declare requires_capability slot into the same gate."""
+
+    def test_excluded_when_no_file_capability(self):
+        from app.ai.registry import ToolRegistry
+        catalog = ToolRegistry().get_catalog_for_plan_type(
+            "research", None, available_capabilities={"query"},
+        )
+        names = {t["name"] for t in catalog}
+        assert "list_files" not in names
+        assert "read_file" not in names
+        assert "search_files" not in names
+
+    def test_included_when_capability_present(self):
+        from app.ai.registry import ToolRegistry
+        catalog = ToolRegistry().get_catalog_for_plan_type(
+            "research", None,
+            available_capabilities={"query", "list_files", "read_file", "search_files"},
+        )
+        names = {t["name"] for t in catalog}
+        assert "list_files" in names
+        assert "read_file" in names
+        assert "search_files" in names
+
+    def test_no_filter_passes_through_for_backwards_compat(self):
+        """Legacy callers that don't pass available_capabilities should still
+        see all tools (no filter = no gating)."""
+        from app.ai.registry import ToolRegistry
+        catalog = ToolRegistry().get_catalog_for_plan_type("research", None)
+        names = {t["name"] for t in catalog}
+        assert "list_files" in names
+        assert "read_file" in names
+
 
 # --------------------------------------------------- render helper
 
