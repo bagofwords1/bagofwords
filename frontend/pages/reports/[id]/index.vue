@@ -703,6 +703,9 @@ import WriteToExcelTool from '~/components/tools/WriteToExcelTool.vue'
 import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
 import ReadExcelRangeTool from '~/components/tools/ReadExcelRangeTool.vue'
 import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
+import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
+import ListFilesTool from '~/components/tools/ListFilesTool.vue'
+import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -1362,6 +1365,12 @@ function getToolComponent(toolName: string) {
 			return ReadExcelRangeTool
 		case 'read_excel_as_csv':
 			return ReadExcelAsCsvTool
+		case 'search_files':
+			return SearchFilesTool
+		case 'list_files':
+			return ListFilesTool
+		case 'read_file':
+			return ReadFileTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':
