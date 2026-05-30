@@ -56,9 +56,11 @@
                                 </template>
                                 <span v-else class="text-xs text-gray-400 italic">No connections</span>
 
-                                <template v-if="tableCount > 0 || connectionCount > 0">
-                                    <span class="text-gray-300 select-none">·</span>
-                                    <span class="text-xs text-gray-400">{{ tableCount }} {{ tableCount === 1 ? 'table' : 'tables' }}</span>
+                                <template v-if="(catalog.shouldShow && catalog.count > 0) || connectionCount > 0">
+                                    <template v-if="catalog.shouldShow">
+                                        <span class="text-gray-300 select-none">·</span>
+                                        <span class="text-xs text-gray-400">{{ catalog.label }}</span>
+                                    </template>
                                     <span class="text-gray-300 select-none">·</span>
                                     <span class="text-xs text-gray-400">{{ connectionCount }} {{ connectionCount === 1 ? 'connection' : 'connections' }}</span>
                                 </template>
@@ -195,6 +197,22 @@ const tableCount = computed(() =>
     (integration.value?.connections || []).reduce((sum: number, c: any) => sum + (c.table_count || 0), 0)
 )
 const connectionCount = computed(() => (integration.value?.connections || []).length)
+
+// Shape-aware catalog count: respects each connection's data_shape (files
+// vs tables vs objects) and hides the number entirely when any attached
+// connection is user_required + the current user hasn't signed in (the "0"
+// would lie — per-user catalog hasn't been fetched yet).
+const registryByType = ref<Record<string, any>>({})
+onMounted(async () => {
+    try {
+        const { data } = await useMyFetch('/available_data_sources', { method: 'GET' })
+        for (const entry of (data.value as any[]) || []) {
+            registryByType.value[entry.type] = entry
+        }
+    } catch {}
+})
+const { computeFromAgent } = useCatalogCount()
+const catalog = computed(() => computeFromAgent(integration.value, registryByType.value))
 
 const integration = ref<any>(null)
 const isLoading = ref(true)
