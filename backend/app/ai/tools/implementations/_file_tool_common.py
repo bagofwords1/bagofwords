@@ -25,6 +25,29 @@ logger = logging.getLogger(__name__)
 FILE_SOURCE_TYPES = {"sharepoint", "onedrive", "google_drive"}
 
 
+async def resolve_file_data_source(
+    runtime_ctx: Dict[str, Any],
+    connection_id: str,
+) -> Tuple[Optional[Any], Optional[str]]:
+    """Same accept-either-id semantics as resolve_file_client, but returns
+    the DataSource that owns the file-source connection. Used by list_files
+    which reads the cached catalog rather than calling the upstream client.
+
+    Returns (data_source, error). On error, data_source is None.
+    """
+    report = runtime_ctx.get("report")
+    if not report:
+        return None, "No report context — list_files needs an active agent."
+    sid = str(connection_id)
+    for ds in (report.data_sources or []):
+        if str(ds.id) == sid:
+            return ds, None
+        for conn in (ds.connections or []):
+            if str(conn.id) == sid and conn.type in FILE_SOURCE_TYPES:
+                return ds, None
+    return None, f"'{connection_id}' is not a file source attached to this agent."
+
+
 async def resolve_file_client(
     runtime_ctx: Dict[str, Any],
     connection_id: str,

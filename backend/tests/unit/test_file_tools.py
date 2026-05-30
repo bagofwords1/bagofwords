@@ -233,25 +233,53 @@ def _patch_resolve(client):
     importer's binding.
     """
     targets = (
-        "app.ai.tools.implementations.list_files.resolve_file_client",
+        "app.ai.tools.implementations.list_files.resolve_file_data_source",
         "app.ai.tools.implementations.read_file.resolve_file_client",
         "app.ai.tools.implementations.search_files.resolve_file_client",
     )
-    return [patch(t, new=AsyncMock(return_value=(client, None))) for t in targets]
+    fake_ds = MagicMock()
+    fake_ds.id = "DS1"
+    return [
+        patch(targets[0], new=AsyncMock(return_value=(fake_ds, None))),
+        patch(targets[1], new=AsyncMock(return_value=(client, None))),
+        patch(targets[2], new=AsyncMock(return_value=(client, None))),
+    ]
+
+
+def _mock_cached_tables(*entries):
+    """Build a list of Table-like mocks that mimic DataSourceTable rows
+    with file metadata stashed under metadata_json.graph (the same shape
+    GraphDriveClient persists). Used by list_files tests now that the
+    tool reads from the cached catalog instead of calling the client."""
+    out = []
+    for e in entries:
+        t = MagicMock()
+        t.name = e["name"]
+        t.metadata_json = {"graph": {
+            "file_id": e["id"],
+            "mime_type": e.get("mime_type"),
+            "size": e.get("size"),
+            "modified_at": e.get("modified_at"),
+            "web_url": e.get("web_url"),
+        }}
+        out.append(t)
+    return out
 
 
 @pytest.mark.asyncio
 async def test_list_files_glob_filter():
     """name_pattern post-filters via fnmatch (case-insensitive)."""
-    fake_client = MagicMock()
-    fake_client.capabilities = {Capability.LIST_FILES}
-    fake_client.alist_files = AsyncMock(return_value=[
+    ds = MagicMock(); ds.id = "DS1"
+    cached = _mock_cached_tables(
         {"id": "1", "name": "Book 7.xlsx"},
         {"id": "2", "name": "Notes.txt"},
         {"id": "3", "name": "Book 8.xlsx"},
         {"id": "4", "name": "report.pdf"},
-    ])
-    with _patch_resolve(fake_client)[0]:
+    )
+    with patch("app.ai.tools.implementations.list_files.resolve_file_data_source",
+               new=AsyncMock(return_value=(ds, None))), \
+         patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
+               new=AsyncMock(return_value=cached)):
         tool = ListFilesTool()
         events = await _collect(tool.run_stream(
             {"connection_id": "DS1", "name_pattern": "*.xlsx"}, {}
@@ -262,17 +290,21 @@ async def test_list_files_glob_filter():
 
 
 @pytest.mark.asyncio
-async def test_list_files_happy_path():
-    fake_client = MagicMock()
-    fake_client.capabilities = {Capability.LIST_FILES}
-    fake_client.alist_files = AsyncMock(return_value=[
-        {"id": "F1", "name": "a.csv", "path": "a.csv", "mime_type": "text/csv",
+async def test_list_files_reads_from_cached_schema():
+    """list_files no longer hits the upstream client — it reads cached
+    DataSourceTable rows. metadata_json.graph carries the file_id."""
+    ds = MagicMock(); ds.id = "DS1"
+    cached = _mock_cached_tables(
+        {"id": "F1", "name": "a.csv", "mime_type": "text/csv",
          "size": 10, "modified_at": "2025-01-01", "web_url": "u"},
-        {"id": "F2", "name": "b.xlsx", "path": "b.xlsx",
+        {"id": "F2", "name": "b.xlsx",
          "mime_type": "application/vnd.openxmlformats", "size": 200,
          "modified_at": "2025-01-02", "web_url": "u2"},
-    ])
-    with _patch_resolve(fake_client)[0]:
+    )
+    with patch("app.ai.tools.implementations.list_files.resolve_file_data_source",
+               new=AsyncMock(return_value=(ds, None))), \
+         patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
+               new=AsyncMock(return_value=cached)):
         tool = ListFilesTool()
         events = await _collect(tool.run_stream({"connection_id": "DS1"}, {}))
     end = events[-1].payload
@@ -283,13 +315,29 @@ async def test_list_files_happy_path():
 
 @pytest.mark.asyncio
 async def test_list_files_resolve_error():
-    targets = ("app.ai.tools.implementations.list_files.resolve_file_client",)
-    with patch(targets[0], new=AsyncMock(return_value=(None, "boom"))):
+    target = "app.ai.tools.implementations.list_files.resolve_file_data_source"
+    with patch(target, new=AsyncMock(return_value=(None, "boom"))):
         tool = ListFilesTool()
         events = await _collect(tool.run_stream({"connection_id": "DS1"}, {}))
     end = events[-1].payload
     assert end["output"]["success"] is False
     assert end["output"]["error"] == "boom"
+
+
+@pytest.mark.asyncio
+async def test_list_files_empty_cache_shows_hint():
+    """If the cache is empty, the response includes a hint to use
+    search_files or run refresh — agent gets actionable guidance."""
+    ds = MagicMock(); ds.id = "DS1"
+    with patch("app.ai.tools.implementations.list_files.resolve_file_data_source",
+               new=AsyncMock(return_value=(ds, None))), \
+         patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
+               new=AsyncMock(return_value=[])):
+        tool = ListFilesTool()
+        events = await _collect(tool.run_stream({"connection_id": "DS1"}, {}))
+    payload = events[-1].payload
+    assert payload["output"]["file_count"] == 0
+    assert "search_files" in payload["observation"]["summary"]
 
 
 @pytest.mark.asyncio
