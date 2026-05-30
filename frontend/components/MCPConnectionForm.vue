@@ -43,6 +43,7 @@
             <option value="none">{{ $t('settings.mcpModal.authNone') }}</option>
             <option value="bearer">{{ $t('settings.mcpModal.authBearer') }}</option>
             <option value="api_key">{{ $t('settings.mcpModal.authApiKey') }}</option>
+            <option value="oauth_app">OAuth (per-user sign-in)</option>
           </select>
         </div>
 
@@ -59,6 +60,37 @@
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">{{ $t('settings.mcpModal.headerNameLabel') }}</label>
             <input v-model="form.api_key_header" type="text" placeholder="X-API-Key" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+        </div>
+
+        <div v-if="form.auth_type === 'oauth_app'" class="space-y-3 border border-gray-200 rounded-md p-3 bg-gray-50">
+          <div class="text-xs text-gray-600">
+            Register an OAuth client at the identity provider that fronts this MCP server. Users will sign in
+            individually; their tokens are stored encrypted and sent on every tool call.
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Authorize URL</label>
+            <input v-model="form.authorize_url" type="text" placeholder="https://idp.example.com/oauth/authorize" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Token URL</label>
+            <input v-model="form.token_url" type="text" placeholder="https://idp.example.com/oauth/token" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Client ID</label>
+            <input v-model="form.client_id" type="text" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Client Secret</label>
+            <input v-model="form.client_secret" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : ''" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Scopes</label>
+            <input v-model="form.scopes" type="text" placeholder="openid profile offline_access" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Resource (audience, optional)</label>
+            <input v-model="form.audience" type="text" placeholder="https://mcp.example.com" class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
         </div>
 
@@ -114,6 +146,13 @@ const form = reactive({
   token: '',
   api_key: '',
   api_key_header: 'X-API-Key',
+  // OAuth app fields (used when auth_type === 'oauth_app')
+  authorize_url: '',
+  token_url: '',
+  client_id: '',
+  client_secret: '',
+  scopes: '',
+  audience: '',
 })
 
 watch(() => props.editConnection, async (conn) => {
@@ -130,6 +169,16 @@ watch(() => props.editConnection, async (conn) => {
         form.token = ''
         form.api_key = ''
         form.api_key_header = config.api_key_header || 'X-API-Key'
+        // OAuth app fields — non-secret values come back from the backend in
+        // the `credentials_meta` blob so the admin can edit them without
+        // re-entering everything. Secrets stay blank (unchanged-placeholder).
+        const meta = detail.credentials_meta || {}
+        form.authorize_url = meta.authorize_url || ''
+        form.token_url = meta.token_url || ''
+        form.client_id = meta.client_id || ''
+        form.client_secret = ''
+        form.scopes = meta.scopes || ''
+        form.audience = meta.audience || ''
         return
       }
     } catch {}
@@ -145,8 +194,25 @@ const testResult = ref<{ success: boolean; message: string } | null>(null)
 function buildCredentials(): Record<string, any> | undefined {
   if (form.auth_type === 'bearer' && form.token) return { token: form.token }
   if (form.auth_type === 'api_key' && form.api_key) return { api_key: form.api_key, api_key_header: form.api_key_header }
+  if (form.auth_type === 'oauth_app') {
+    // Don't send empty strings; backend wants either a complete OAuth app or
+    // an updated subset (edit mode).
+    const c: Record<string, any> = {}
+    if (form.authorize_url) c.authorize_url = form.authorize_url
+    if (form.token_url) c.token_url = form.token_url
+    if (form.client_id) c.client_id = form.client_id
+    if (form.client_secret) c.client_secret = form.client_secret
+    if (form.scopes) c.scopes = form.scopes
+    if (form.audience) c.audience = form.audience
+    return Object.keys(c).length ? c : undefined
+  }
   return undefined
 }
+
+// MCP OAuth implies per-user authentication — admin creds enable the dance,
+// but each user signs in themselves and their access token gates tool calls.
+const authPolicy = computed(() => form.auth_type === 'oauth_app' ? 'user_required' : 'system_only')
+const allowedUserAuthModes = computed(() => form.auth_type === 'oauth_app' ? ['oauth'] : undefined)
 
 async function testConnection() {
   testing.value = true
@@ -178,15 +244,22 @@ async function handleSubmit() {
     const credentials = buildCredentials()
 
     if (isEditMode.value && props.editConnection) {
+      const body: Record<string, any> = { name: form.name, config, credentials, auth_policy: authPolicy.value }
+      if (allowedUserAuthModes.value) body.allowed_user_auth_modes = allowedUserAuthModes.value
       const response = await useMyFetch(`/connections/${props.editConnection.id}`, {
         method: 'PUT',
-        body: { name: form.name, config, credentials },
+        body,
       })
       if (response.data.value) emit('saved', response.data.value)
     } else {
+      const body: Record<string, any> = {
+        name: form.name, type: 'mcp', config, credentials,
+        auth_policy: authPolicy.value,
+      }
+      if (allowedUserAuthModes.value) body.allowed_user_auth_modes = allowedUserAuthModes.value
       const response = await useMyFetch('/connections', {
         method: 'POST',
-        body: { name: form.name, type: 'mcp', config, credentials, auth_policy: 'system_only' },
+        body,
       })
       if (response.data.value) emit('saved', response.data.value)
     }

@@ -56,6 +56,13 @@ from app.schemas.data_sources.configs import (
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
+    # SharePoint / OneDrive / Google Drive (file connectors)
+    SharePointConfig,
+    SharePointCredentials,
+    OneDriveConfig,
+    OneDriveCredentials,
+    GoogleDriveConfig,
+    GoogleDriveCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Timbr
@@ -95,6 +102,7 @@ from app.schemas.data_sources.configs import (
     MCPConfig,
     MCPNoAuthCredentials,
     MCPBearerCredentials,
+    MCPOAuthAppCredentials,
     # Custom API
     CustomAPIConfig,
     CustomAPINoAuthCredentials,
@@ -141,12 +149,41 @@ class DataSourceRegistryEntry(BaseModel):
     # Optional explicit client path; if None, fallback to dynamic resolution
     client_path: Optional[str] = None
     dev_only: bool = False
-    # Flag for document-based data sources (MongoDB, Elasticsearch, etc.)
+    # Legacy flag — derived from `data_shape != "tables"`. Kept for backwards
+    # compatibility with callers reading `client.is_document_based`. New code
+    # should branch on `data_shape` directly.
     is_document_based: bool = False
     # License tier required to use this data source (e.g., "enterprise")
     requires_license: Optional[str] = None
     # Whether this entry is a traditional data source connection (vs a tool provider like MCP/Custom API)
     is_connection: bool = True
+
+    # ── Connection-shape axes ───────────────────────────────────────────────
+    #
+    # `data_shape` describes what the agent sees at runtime. Determines copy
+    # ("Found N files" vs "Found N tables" vs "N tools available"), how the
+    # planner refers to it, and how the agent prompt is templated.
+    #
+    # `catalog_ownership` describes where the catalog comes from. Critical
+    # because per-user-owned catalogs (OneDrive, personal Drive) have NO
+    # admin-side catalog — each user's catalog is fully independent, not a
+    # filtered subset of an admin universe. The indexing pipeline and UX
+    # branch on this.
+    #
+    #   shared    → admin connection has a single catalog of truth; user
+    #               overlays are ACL-filtered subsets (Postgres, SharePoint
+    #               site, Power BI with RLS).
+    #   per_user  → each user's catalog is independent and primary; admin
+    #               connection has no catalog (OneDrive, personal Drive,
+    #               personal Notion).
+    #   none      → no catalog at all; runtime tool calls only (MCP, REST).
+    #
+    # `ui_form` selects the admin-side create form on the frontend. Decoupled
+    # from data_shape and catalog_ownership so e.g. OneDrive can be a
+    # per-user files catalog AND use the lean Integration form.
+    data_shape: str = "tables"          # tables | files | objects | tools
+    catalog_ownership: str = "shared"   # shared | per_user | none
+    ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
 
     class Config:
         arbitrary_types_allowed = True
@@ -411,6 +448,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.mongodb_client.MongodbClient",
         is_document_based=True,
+        data_shape="objects",
     ),
     "posthog": DataSourceRegistryEntry(
         type="posthog",
@@ -530,6 +568,110 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.qlik_sense_client.QlikSenseClient",
+        requires_license="enterprise",
+    ),
+    "sharepoint": DataSourceRegistryEntry(
+        type="sharepoint",
+        title="SharePoint",
+        description=(
+            "SharePoint document library connector via Microsoft Graph. "
+            "Admin configures the Entra ID app; users sign in to grant per-user file access. "
+            "Files are enumerated as a live catalog and read on demand."
+        ),
+        config_schema=SharePointConfig,
+        # Default captures the admin's Entra app credentials (tenant, client_id,
+        # client_secret) — these are required by the OAuth flow even when each
+        # user signs in individually. The "oauth" variant is the per-user flow
+        # that consumes the admin app credentials at runtime.
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=SharePointCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.graph_drive_client.SharepointClient",
+        # SharePoint catalog is shared (admin curates a site/library); each
+        # user's overlay is an ACL-filtered subset of that catalog.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        requires_license="enterprise",
+    ),
+    "onedrive": DataSourceRegistryEntry(
+        type="onedrive",
+        title="OneDrive",
+        description=(
+            "OneDrive connector via Microsoft Graph. Admin registers an Entra ID app "
+            "once; each user signs in with Microsoft and their personal file catalog "
+            "is fetched and cached. Files appear in the agent's catalog and the agent "
+            "can also call list_files / read_file / search_files directly."
+        ),
+        config_schema=OneDriveConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=OneDriveCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.graph_drive_client.OnedriveClient",
+        # Agent-attachable data source whose catalog is per-user-owned: each
+        # user's OneDrive is fully independent (not a subset of an admin
+        # universe). Admin save just registers the OAuth app; per-user
+        # catalog is fetched after each user signs in.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        requires_license="enterprise",
+    ),
+    "google_drive": DataSourceRegistryEntry(
+        type="google_drive",
+        title="Google Drive",
+        description=(
+            "Google Drive (and Sheets) connector. Admin configures a Google Cloud "
+            "OAuth client; users sign in with Google and their personal file catalog "
+            "is fetched and cached. Files appear in the agent's catalog and the agent "
+            "can also call list_files / read_file / search_files directly."
+        ),
+        config_schema=GoogleDriveConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(
+                    title="Google OAuth Client",
+                    schema=GoogleDriveCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Google",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.google_drive_client.GoogleDriveClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
         requires_license="enterprise",
     ),
     "ms_fabric": DataSourceRegistryEntry(
@@ -661,11 +803,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=CustomAPIKeyCredentials,
                     scopes=["system", "user"],
                 ),
+                "oauth_app": AuthVariant(
+                    title="OAuth Client (admin-configured)",
+                    schema=MCPOAuthAppCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in (per-user OAuth)",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
             },
         ),
         client_path="app.data_sources.clients.mcp_client.McpClient",
         version="beta",
         is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="mcp",
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",
@@ -695,6 +850,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.custom_api_client.CustomApiClient",
         version="beta",
         is_connection=False,
+        data_shape="tools",
+        catalog_ownership="none",
+        ui_form="custom_api",
     ),
 }
 
@@ -708,7 +866,13 @@ def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     return entry
 
 
-def list_available_data_sources() -> list[dict]:
+def list_available_data_sources(include_tool_providers: bool = True) -> list[dict]:
+    """List entries the frontend can offer in the add-connection grid.
+
+    `is_connection` discriminates data-source-shaped entries (Postgres,
+    Snowflake, SharePoint) from tool-provider integrations (OneDrive,
+    Google Drive, MCP, Custom API). Frontends can group / route accordingly.
+    """
     return [
         {
             "type": e.type,
@@ -718,9 +882,17 @@ def list_available_data_sources() -> list[dict]:
             "status": e.status,
             "version": e.version,
             "requires_license": e.requires_license,
+            "is_connection": e.is_connection,
+            "data_shape": e.data_shape,
+            "catalog_ownership": e.catalog_ownership,
+            "ui_form": e.ui_form,
         }
         for e in REGISTRY.values()
-        if e.status == "active" and _entry_visible(e) and e.is_connection
+        if (
+            e.status == "active"
+            and _entry_visible(e)
+            and (e.is_connection or include_tool_providers)
+        )
     ]
 
 
@@ -746,9 +918,22 @@ def credentials_schema_for(ds_type: str, auth_type: Optional[str]) -> Type[BaseM
     return variant.schema
 
 
+def tool_provider_types() -> set[str]:
+    """Connection types that act as tool providers (is_connection=False).
+
+    Used by the agent runtime to find connections whose tools can be called
+    from the agent, by the indexing service to skip schema indexing, and by
+    the create/update flows to skip data-source-flavoured validation.
+    """
+    return {t for t, e in REGISTRY.items() if not e.is_connection}
+
+
 def resolve_client_class(ds_type: str):
     """Resolve client class via configured path; fallback to dynamic naming."""
     from importlib import import_module
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     entry = get_entry(ds_type)
     if entry.client_path:
@@ -756,8 +941,17 @@ def resolve_client_class(ds_type: str):
             module_path, _, class_name = entry.client_path.rpartition(".")
             module = import_module(module_path)
             return getattr(module, class_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            # The explicit client_path is the contract; falling back to the
+            # naming-convention path silently has caused real bugs (a broken
+            # import in graph_drive_client showed up as "No module named
+            # onedrive_client"). Surface the actual failure rather than
+            # swallowing it.
+            logger.exception(
+                "resolve_client_class: configured client_path %r failed to import "
+                "for type=%r; falling back to dynamic resolution. Real error: %s",
+                entry.client_path, ds_type, exc,
+            )
 
     # Fallback to dynamic resolution used previously
     module_name = f"app.data_sources.clients.{ds_type.lower()}_client"

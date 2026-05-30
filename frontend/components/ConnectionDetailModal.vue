@@ -250,7 +250,7 @@ const POLL_INTERVAL_MS = 2000
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
 
-const _TOOL_PROVIDER_TYPES = ['mcp', 'custom_api']
+const _TOOL_PROVIDER_TYPES = ['mcp', 'custom_api', 'onedrive', 'google_drive']
 const isToolProvider = computed(() => _TOOL_PROVIDER_TYPES.includes(props.connection?.type))
 const toolCount = computed(() => props.connection?.tool_count || 0)
 

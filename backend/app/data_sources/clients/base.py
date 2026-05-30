@@ -1,9 +1,26 @@
 import asyncio
 import inspect
 from abc import ABC, abstractmethod
-from typing import Optional
+from enum import Enum
+from typing import Any, Optional
 
 from app.data_sources.clients.progress import ProgressCallback
+
+
+class Capability(str, Enum):
+    """Capabilities a DataSourceClient may declare.
+
+    Used by the tool layer to map a client to the agent-callable tools it can
+    back. SQL-style sources declare QUERY; file/document sources declare
+    LIST_FILES + READ_FILE. A single client may declare both — e.g. SharePoint
+    declaring LIST_FILES + READ_FILE for general files and QUERY for promoted
+    spreadsheet ranges.
+    """
+
+    QUERY = "query"
+    LIST_FILES = "list_files"
+    READ_FILE = "read_file"
+    SEARCH_FILES = "search_files"
 
 
 def _accepts_progress_callback(fn) -> bool:
@@ -24,6 +41,11 @@ def _accepts_progress_callback(fn) -> bool:
 
 
 class DataSourceClient(ABC):
+
+    # Capabilities this client supports. Subclasses override.
+    # Defaults to {QUERY} since the historic base contract is execute_query +
+    # get_schemas. File-shaped clients set their own set.
+    capabilities: set = {Capability.QUERY}
 
     def __init__(self):
         pass
@@ -85,3 +107,35 @@ class DataSourceClient(ABC):
     async def awarm_all(self) -> list:
         """Pre-warm any local caches needed before queries. No-op for most clients."""
         return []
+
+    # File-shaped capabilities. Default implementations raise NotImplementedError;
+    # clients that declare LIST_FILES / READ_FILE / SEARCH_FILES override.
+
+    def list_files(self, folder_id: Optional[str] = None, recursive: bool = False) -> list:
+        """List files in a folder. Returns a list of dicts:
+        {id, name, path, mime_type, size, modified_at, is_folder, web_url}.
+        `folder_id` of None means the connection's configured root.
+        """
+        raise NotImplementedError("list_files not supported by this client")
+
+    def read_file(self, file_id: str, **kwargs) -> Any:
+        """Read a file's content. Return type depends on file:
+        - tabular (csv/xlsx/sheets) → pandas.DataFrame
+        - text (txt/md/html) → str
+        - binary (pdf/docx/other) → bytes
+        Optional kwargs (sheet, range, max_bytes) are client-specific.
+        """
+        raise NotImplementedError("read_file not supported by this client")
+
+    def search_files(self, query: str, **kwargs) -> list:
+        """Free-text search over the connection's accessible files."""
+        raise NotImplementedError("search_files not supported by this client")
+
+    async def alist_files(self, folder_id: Optional[str] = None, recursive: bool = False) -> list:
+        return await asyncio.to_thread(self.list_files, folder_id, recursive)
+
+    async def aread_file(self, file_id: str, **kwargs) -> Any:
+        return await asyncio.to_thread(self.read_file, file_id, **kwargs)
+
+    async def asearch_files(self, query: str, **kwargs) -> list:
+        return await asyncio.to_thread(self.search_files, query, **kwargs)

@@ -50,7 +50,7 @@ def get_oauth_params(connection: Connection) -> dict:
     creds = connection.decrypt_credentials() or {}
     conn_type = connection.type
 
-    if conn_type in ("powerbi", "ms_fabric"):
+    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "onedrive"):
         tenant_id = creds.get("tenant_id")
         if not tenant_id:
             raise ValueError(f"Connection {connection.id} missing tenant_id in credentials")
@@ -64,6 +64,12 @@ def get_oauth_params(connection: Connection) -> dict:
         scopes_map = {
             "powerbi": "https://analysis.windows.net/powerbi/api/.default offline_access",
             "ms_fabric": "https://api.fabric.microsoft.com/.default offline_access",
+            # Graph delegated scopes for file access. `Sites.Read.All` covers
+            # SharePoint sites; `Files.Read.All` covers personal OneDrive and
+            # files shared with the user. `openid profile offline_access` give
+            # us the user identity + refresh token.
+            "sharepoint": "openid profile offline_access Files.Read.All Sites.Read.All User.Read",
+            "onedrive": "openid profile offline_access Files.Read.All User.Read",
         }
 
         return {
@@ -73,6 +79,59 @@ def get_oauth_params(connection: Connection) -> dict:
             "client_secret": client_secret,
             "scopes": scopes_map[conn_type],
             "provider_name": "microsoft",
+        }
+
+    if conn_type == "google_drive":
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for Google Drive. "
+                "Configure these in the connection credentials."
+            )
+
+        # Drive + Sheets read-only. `drive.readonly` is a restricted scope —
+        # production usage requires Google's CASA security review. `drive.file`
+        # is a narrower alternative if that's a concern.
+        scopes = (
+            "openid email profile "
+            "https://www.googleapis.com/auth/drive.readonly "
+            "https://www.googleapis.com/auth/spreadsheets.readonly"
+        )
+
+        return {
+            "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": scopes,
+            "provider_name": "google",
+        }
+
+    if conn_type == "mcp":
+        # Pre-configured OAuth client for an MCP server. The admin registered an
+        # OAuth client at the identity provider (which may or may not be the MCP
+        # server itself); the per-user dance is standard authorization-code +
+        # PKCE. RFC 8707 resource indicator is optional but recommended so the
+        # issued token is audience-bound to the MCP server URL.
+        authorize_url = creds.get("authorize_url")
+        token_url = creds.get("token_url")
+        client_id = creds.get("client_id")
+        client_secret = creds.get("client_secret")
+        if not (authorize_url and token_url and client_id and client_secret):
+            raise ValueError(
+                f"MCP connection {connection.id} OAuth is missing authorize_url / token_url / "
+                "client_id / client_secret in credentials."
+            )
+        return {
+            "authorize_url": authorize_url,
+            "token_url": token_url,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scopes": creds.get("scopes") or "",
+            "audience": creds.get("audience"),
+            "provider_name": "mcp",
         }
 
     if conn_type == "bigquery":
@@ -117,6 +176,10 @@ async def exchange_code_for_tokens(
     }
     if code_verifier:
         data["code_verifier"] = code_verifier
+    # RFC 8707 resource indicator — audience-binds the token. Used by MCP
+    # (and any provider that supports it). Ignored by providers that don't.
+    if oauth_params.get("audience"):
+        data["resource"] = oauth_params["audience"]
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -157,6 +220,8 @@ async def refresh_access_token(
         "client_id": oauth_params["client_id"],
         "client_secret": oauth_params["client_secret"],
     }
+    if oauth_params.get("audience"):
+        data["resource"] = oauth_params["audience"]
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -187,7 +252,7 @@ async def refresh_access_token(
 # ---------------------------------------------------------------------------
 
 # Connection types that support OBO auto-provisioning from Entra ID login
-ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric"}
+ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "onedrive"}
 
 # Resource scopes used when requesting OBO tokens per connection type.
 # These must match the API permissions granted to the Entra app registration.
@@ -199,6 +264,9 @@ _OBO_SCOPES = {
     # Requires the app registration to have "Azure SQL Database / user_impersonation" delegated
     # permission with admin consent — the Fabric API scope returns tokens the SQL endpoint rejects.
     "ms_fabric": "https://database.windows.net/user_impersonation offline_access",
+    # Microsoft Graph delegated scopes for file access.
+    "sharepoint": "https://graph.microsoft.com/.default offline_access",
+    "onedrive": "https://graph.microsoft.com/.default offline_access",
 }
 
 
@@ -278,7 +346,7 @@ async def auto_provision_connection_credentials(
     Queries all connections where:
       - auth_policy = "user_required"
       - "oauth" in allowed_user_auth_modes
-      - type in ENTRA_OBO_CONNECTION_TYPES (powerbi, ms_fabric)
+      - type in ENTRA_OBO_CONNECTION_TYPES (powerbi, ms_fabric, sharepoint, onedrive)
 
     For each, if the user doesn't already have valid credentials, performs
     an OBO token exchange and stores the result.

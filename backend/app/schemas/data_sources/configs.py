@@ -709,6 +709,115 @@ class MSFabricConfig(BaseModel):
     )
 
 
+# SharePoint (Microsoft Graph)
+class SharePointCredentials(BaseModel):
+    tenant_id: str = Field(
+        ...,
+        title="Tenant ID",
+        description="Azure AD Tenant ID (Directory ID)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="Azure AD App Registration Client ID (used for OAuth authorization code flow with users)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Azure AD App Registration Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID (override)",
+        description="Optional separate App Registration Client ID for user sign-in. Falls back to Client ID above.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret (override)",
+        description="Optional separate App Registration Secret for user sign-in. Falls back to Client Secret above.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class SharePointConfig(BaseModel):
+    site_url: str = Field(
+        ...,
+        title="Site URL",
+        description="Full SharePoint site URL, e.g. https://contoso.sharepoint.com/sites/Finance",
+        json_schema_extra={"ui:type": "string"}
+    )
+    drive_name: Optional[str] = Field(
+        None,
+        title="Document Library",
+        description="Name of the document library (drive) on the site. Leave blank to use the site's default Documents library.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    folder_path: Optional[str] = Field(
+        None,
+        title="Folder Path",
+        description="Optional folder path within the drive to scope the connection (e.g. 'Reports/2025'). Leave blank for the root.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    allowed_extensions: Optional[str] = Field(
+        None,
+        title="Allowed Extensions",
+        description="Comma-separated list of file extensions to include (e.g. 'xlsx,csv,pdf'). Leave blank for all files.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    recursive: bool = Field(
+        False,
+        title="Include Subfolders",
+        description="Recursively enumerate subfolders. Leave off for flatter, faster catalogs.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
+# OneDrive (Microsoft Graph — same auth as SharePoint, but exposed as an
+# MCP-style tool-provider connection rather than a data source. No folder
+# scope — each user accesses their entire OneDrive via per-user OAuth.)
+class OneDriveCredentials(SharePointCredentials):
+    """OneDrive uses the same Microsoft Graph auth as SharePoint."""
+    pass
+
+
+class OneDriveConfig(BaseModel):
+    """OneDrive needs no admin-side configuration — each user's OAuth token
+    determines what files are visible."""
+    pass
+
+
+# Google Drive
+class GoogleDriveCredentials(BaseModel):
+    oauth_client_id: str = Field(
+        ...,
+        title="OAuth Client ID",
+        description="Google Cloud OAuth 2.0 Client ID (Web application type)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: str = Field(
+        ...,
+        title="OAuth Client Secret",
+        description="Google Cloud OAuth 2.0 Client Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    workspace_domain: Optional[str] = Field(
+        None,
+        title="Workspace Domain",
+        description="Optional Google Workspace domain to restrict sign-in to (e.g. 'company.com'). Sets the `hd` hint on the authorize URL.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
+class GoogleDriveConfig(BaseModel):
+    """Google Drive needs no admin-side configuration — each user's OAuth
+    token determines what files are visible."""
+    pass
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""
@@ -975,6 +1084,52 @@ class MCPBearerCredentials(BaseModel):
     )
 
 
+class MCPOAuthAppCredentials(BaseModel):
+    """Pre-configured OAuth client for an MCP server.
+
+    The admin registers an OAuth client at the identity provider that fronts
+    the MCP server (or at the MCP server itself if it's also the authorization
+    server). Each user then completes the authorization-code + PKCE dance and
+    their per-user access_token is sent to the MCP server on every tool call.
+    """
+    authorize_url: str = Field(
+        ...,
+        title="Authorize URL",
+        description="OAuth authorization endpoint (e.g. https://idp.example.com/oauth/authorize)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    token_url: str = Field(
+        ...,
+        title="Token URL",
+        description="OAuth token endpoint (e.g. https://idp.example.com/oauth/token)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="OAuth client ID registered at the identity provider",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="OAuth client secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+    scopes: Optional[str] = Field(
+        None,
+        title="Scopes",
+        description="Space-separated OAuth scopes (e.g. 'openid profile offline_access read:files')",
+        json_schema_extra={"ui:type": "string"}
+    )
+    audience: Optional[str] = Field(
+        None,
+        title="Resource (Audience)",
+        description="Optional RFC 8707 resource indicator — usually the MCP server's URL — to audience-bind the issued token.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # Custom API
 class CustomAPIConfig(BaseModel):
     base_url: str = Field(
@@ -1091,6 +1246,13 @@ __all__ = [
     # Microsoft Fabric
     "MSFabricCredentials",
     "MSFabricConfig",
+    # SharePoint / OneDrive / Google Drive (file connectors)
+    "SharePointCredentials",
+    "SharePointConfig",
+    "OneDriveCredentials",
+    "OneDriveConfig",
+    "GoogleDriveCredentials",
+    "GoogleDriveConfig",
     # Sybase SQL Anywhere
     "SybaseConfig",
     # Timbr
@@ -1103,6 +1265,7 @@ __all__ = [
     "MCPConfig",
     "MCPNoAuthCredentials",
     "MCPBearerCredentials",
+    "MCPOAuthAppCredentials",
     # Custom API
     "CustomAPIConfig",
     "CustomAPINoAuthCredentials",
