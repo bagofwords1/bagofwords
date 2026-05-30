@@ -14,7 +14,7 @@
 	</div>
 
 	<SplitScreenLayout v-else
-		:isSplitScreen="isSplitScreen" 
+		:isSplitScreen="isSplitScreen && !isMobile"
 		:leftPanelWidth="leftPanelWidth"
 		:isResizing="isResizing"
 		@startResize="startResize"
@@ -519,7 +519,7 @@
 					:compact="isExcel"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
-					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
+					@viewDashboard="() => { if (isMobile) { mobileView = 'dashboard'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; } }"
 					@scrollToMessage="scrollToMessage"
 					@editScheduledPrompt="editScheduledPrompt"
 					@editTrainingInstruction="editTrainingInstruction"
@@ -2865,6 +2865,12 @@ async function checkHasArtifacts(): Promise<boolean> {
 const { collapse: collapseSidebar } = useSidebar()
 
 function toggleSplitScreen() {
+	// On mobile there is no split layout — surface the dashboard as a
+	// full-screen tab instead of opening the side panel.
+	if (isMobile.value) {
+		mobileView.value = mobileView.value === 'dashboard' ? 'chat' : 'dashboard'
+		return
+	}
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
 		if (isSplitScreen.value) {

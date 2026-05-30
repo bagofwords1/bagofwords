@@ -116,6 +116,17 @@ const hoveredDataSourceId = ref<string | null>(null)
 const flyout = reactive({ visible: false, bottom: 0, left: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
 
+// On touch/coarse-pointer devices there is no hover. Tapping a row would
+// otherwise fire `mouseenter` and pop the fixed flyout overlay on top of the
+// list, swallowing the tap so the selection never registers. Detect touch and
+// skip the flyout entirely so rows stay tappable on mobile.
+const isTouchDevice = ref(false)
+onMounted(() => {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+        isTouchDevice.value = window.matchMedia('(pointer: coarse)').matches
+    }
+})
+
 const showFlyoutAtEvent = (evt: MouseEvent) => {
     const el = evt.currentTarget as HTMLElement | null
     if (!el) return
@@ -149,6 +160,8 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
 }
 
 const onDataSourceHover = (dataSourceId: string, evt: MouseEvent) => {
+    // No hover flyout on touch devices — keep rows tappable.
+    if (isTouchDevice.value) return
     if (flyoutHideTimer) {
         clearTimeout(flyoutHideTimer)
         flyoutHideTimer = null
