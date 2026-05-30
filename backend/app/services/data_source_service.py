@@ -2319,6 +2319,39 @@ class DataSourceService:
         existing_q = await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id))
         canonical_by_name = {row.name: row for row in existing_q.scalars().all()}
 
+        # For per-user-owned catalogs (OneDrive, personal Drive) there's no
+        # admin-side sync to populate DataSourceTable — the rows would never
+        # exist. The /full_schema endpoint reads from DataSourceTable, so
+        # without canonical rows the UI shows "0 files" even after the user
+        # successfully fetched 14. Create canonical rows on-demand from
+        # whatever the first user's sync returned. Subsequent users' rows
+        # union into the same canonical set; per-user accessibility is still
+        # enforced by UserOverlayTable.
+        is_per_user_catalog = False
+        try:
+            from app.schemas.data_source_registry import get_entry
+            conn = (data_source.connections or [None])[0]
+            if conn is not None:
+                is_per_user_catalog = get_entry(conn.type).catalog_ownership == "per_user"
+        except Exception:
+            pass
+        if is_per_user_catalog:
+            for table_name, payload in normalized.items():
+                if table_name in canonical_by_name:
+                    continue
+                row = DataSourceTable(
+                    datasource_id=str(data_source.id),
+                    name=table_name,
+                    columns=payload.get("columns") or [],
+                    pks=payload.get("pks") or [],
+                    fks=payload.get("fks") or [],
+                    metadata_json=payload.get("metadata_json"),
+                    is_active=True,
+                )
+                db.add(row)
+                await db.flush()
+                canonical_by_name[table_name] = row
+
         # Load all prior overlay rows for (data_source, user). We need them both to
         # update matches AND to detect tables that disappeared from the latest sync.
         all_prior_q = await db.execute(
