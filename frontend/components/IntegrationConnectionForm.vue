@@ -49,6 +49,26 @@
         </div>
       </div>
 
+      <div v-if="!isEditMode" class="flex items-start gap-2 pt-1">
+        <UCheckbox v-model="createAgent" class="mt-0.5" />
+        <div class="text-xs">
+          <label class="font-medium text-gray-700 cursor-pointer" @click="createAgent = !createAgent">
+            Create a public agent with this integration
+          </label>
+          <div class="text-gray-500">
+            We'll create an agent named "{{ agentName || (props.integrationTitle || 'Integration') }}" everyone in your org can use.
+            Each user signs in individually before using it.
+          </div>
+          <input
+            v-if="createAgent"
+            v-model="agentName"
+            type="text"
+            :placeholder="props.integrationTitle"
+            class="mt-2 w-full border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
       <div class="flex items-center justify-end gap-2 pt-2">
         <UButton color="gray" variant="ghost" size="sm" @click="emit('cancel')">Cancel</UButton>
         <UButton type="submit" color="blue" size="sm" :loading="submitting" :disabled="!form.name || hasMissingRequired">
@@ -117,6 +137,16 @@ const form = reactive<{ name: string, credentials: Record<string, any> }>({
   credentials: {},
 })
 
+// "Auto-create a public agent" — sensible default for the common case where
+// admin enables the integration so users in the org can use it immediately.
+// Admin can uncheck if they want to enable the integration but stage agent
+// creation separately (e.g., to set up access controls first).
+const createAgent = ref(true)
+const agentName = ref(props.integrationTitle || '')
+watch(() => props.integrationTitle, (t) => {
+  if (t && !agentName.value) agentName.value = t
+})
+
 const submitting = ref(false)
 
 async function loadFields() {
@@ -180,22 +210,61 @@ async function handleSubmit() {
         body: { name: form.name, credentials },
       })
       if (response.data.value) emit('saved', response.data.value)
-    } else {
-      const response = await useMyFetch('/connections', {
-        method: 'POST',
-        body: {
-          name: form.name,
-          type: props.integrationType,
-          config: {},
-          credentials,
-          // Integrations are user_required by definition — the admin enables
-          // the org-level OAuth app; each user signs in individually.
-          auth_policy: 'user_required',
-          allowed_user_auth_modes: ['oauth'],
-        },
-      })
-      if (response.data.value) emit('saved', response.data.value)
+      return
     }
+
+    // Create the connection first — it has to exist before we can link an
+    // agent to it.
+    const connResponse = await useMyFetch('/connections', {
+      method: 'POST',
+      body: {
+        name: form.name,
+        type: props.integrationType,
+        config: {},
+        credentials,
+        // Integrations are user_required by definition — the admin enables
+        // the org-level OAuth app; each user signs in individually.
+        auth_policy: 'user_required',
+        allowed_user_auth_modes: ['oauth'],
+      },
+    })
+    const connection = connResponse.data.value as any
+    if (!connection?.id) {
+      emit('saved', connection)
+      return
+    }
+
+    // Optionally auto-create a public agent linked to this connection. This
+    // is best-effort: if it fails (e.g., duplicate name), we still surface
+    // the successful integration save and toast the agent failure.
+    if (createAgent.value) {
+      try {
+        await useMyFetch('/data_sources', {
+          method: 'POST',
+          body: {
+            name: (agentName.value || props.integrationTitle || form.name).trim(),
+            type: props.integrationType,
+            connection_ids: [connection.id],
+            is_public: true,
+            auth_policy: 'user_required',
+            allowed_user_auth_modes: ['oauth'],
+          },
+        })
+        toast.add({
+          title: 'Integration ready',
+          description: `${form.name} is connected and a public agent was created. Users can sign in to start using it.`,
+          color: 'green',
+        })
+      } catch (e: any) {
+        toast.add({
+          title: 'Integration saved, but agent creation failed',
+          description: e?.data?.detail || String(e),
+          color: 'yellow',
+        })
+      }
+    }
+
+    emit('saved', connection)
   } catch (e: any) {
     toast.add({
       title: isEditMode.value ? 'Failed to update integration' : 'Failed to create integration',
