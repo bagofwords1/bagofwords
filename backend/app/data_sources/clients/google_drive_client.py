@@ -193,7 +193,41 @@ class GoogleDriveClient(DataSourceClient):
         finally:
             self.recursive = prev
 
+    def _looks_like_filename(self, value: str) -> bool:
+        if not value:
+            return False
+        return ("." in value) or ("/" in value) or (" " in value)
+
+    def _resolve_file_id(self, file_id_or_name: str) -> str:
+        """Accept either a Drive file id or a filename; return the id.
+
+        The LLM often passes the readable name. Drive doesn't have a direct
+        path lookup like Graph does, so we fall back to a name search and
+        take the first non-trashed match.
+        """
+        if not self._looks_like_filename(file_id_or_name):
+            return file_id_or_name
+        try:
+            safe = file_id_or_name.replace("'", "\\'")
+            data = self._get(
+                f"{DRIVE_BASE}/files",
+                params={
+                    **self._drive_params(),
+                    "q": f"name = '{safe}' and trashed=false",
+                    "fields": "files(id,name,mimeType)",
+                    "pageSize": "10",
+                },
+            )
+            for entry in (data.get("files") or []):
+                if entry.get("mimeType") == GOOGLE_FOLDER_MIME:
+                    continue
+                return entry["id"]
+        except Exception:
+            pass
+        return file_id_or_name
+
     def read_file(self, file_id: str, sheet: Optional[str] = None, max_bytes: Optional[int] = None, **_) -> Any:
+        file_id = self._resolve_file_id(file_id)
         meta = self._get(
             f"{DRIVE_BASE}/files/{file_id}",
             params={"fields": "id,name,mimeType,size", "supportsAllDrives": "true"},

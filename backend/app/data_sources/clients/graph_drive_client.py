@@ -290,12 +290,60 @@ class GraphDriveClient(DataSourceClient):
         )
         return results
 
+    def _looks_like_filename(self, value: str) -> bool:
+        """Graph item IDs are opaque alphanumeric tokens (~36 chars, no dots
+        or slashes). Filenames almost always have a `.ext` and may include
+        `/`. Heuristic but cheap; on false positive we fall back through
+        path-then-search resolution which either path-resolves or returns
+        a clear 404 the caller can surface."""
+        if not value:
+            return False
+        return ("." in value) or ("/" in value) or (" " in value)
+
+    def _resolve_item_id(self, drive_id: str, file_id_or_name: str) -> str:
+        """Accept either an opaque Graph item id OR a filename/path; return
+        the opaque id. Tries in order:
+          1. If it doesn't look like a filename, assume id (cheapest path).
+          2. Path-based lookup under the connection's scoped root.
+          3. Drive-wide search by name; take first non-folder hit.
+        """
+        if not self._looks_like_filename(file_id_or_name):
+            return file_id_or_name
+        # Path lookup: relative to the connection's root (folder_path).
+        try:
+            base_path = (self.folder_path or "").strip("/")
+            rel = file_id_or_name.lstrip("/")
+            joined = f"{base_path}/{rel}" if base_path else rel
+            encoded = quote(joined)
+            meta = self._get(f"/drives/{drive_id}/root:/{encoded}")
+            if meta and meta.get("id"):
+                return meta["id"]
+        except Exception:
+            pass
+        # Search fallback: drive-wide name search; pick first file hit.
+        try:
+            encoded = quote(file_id_or_name)
+            data = self._get(f"/drives/{drive_id}/root/search(q='{encoded}')")
+            for entry in (data.get("value") or []):
+                if "folder" in entry:
+                    continue
+                if entry.get("name") == file_id_or_name or file_id_or_name in (entry.get("name") or ""):
+                    return entry["id"]
+        except Exception:
+            pass
+        # Couldn't resolve — pass original through so Graph raises a clear 404.
+        return file_id_or_name
+
     def read_file(self, file_id: str, sheet: Optional[str] = None, max_bytes: Optional[int] = None, **_) -> Any:
         drive_id = self._resolve_drive_id()
-        meta = self._get(f"/drives/{drive_id}/items/{file_id}")
+        # The LLM frequently passes the filename (e.g. "Book 7.xlsx") where
+        # an opaque item id is expected; Graph rejects that with 400. Resolve
+        # filename → item id defensively before hitting /items/{id}.
+        resolved_id = self._resolve_item_id(drive_id, file_id)
+        meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
         name = meta.get("name", "")
         ext = _ext(name)
-        content = self._get_bytes(f"/drives/{drive_id}/items/{file_id}/content")
+        content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         if max_bytes and len(content) > max_bytes:
             content = content[:max_bytes]
 

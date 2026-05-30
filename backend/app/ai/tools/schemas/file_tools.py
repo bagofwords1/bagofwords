@@ -66,7 +66,12 @@ class ReadFileInput(BaseModel):
     )
     file_id: str = Field(
         ...,
-        description="File ID returned by list_files or search_files.",
+        description=(
+            "Opaque file ID returned in the `id` field by list_files or "
+            "search_files (NOT the readable `name` field). A filename like "
+            "'Book 7.xlsx' will be resolved as a fallback, but using the id "
+            "is faster and unambiguous."
+        ),
     )
     sheet: Optional[str] = Field(
         None,

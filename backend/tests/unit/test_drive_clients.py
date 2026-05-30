@@ -311,6 +311,58 @@ class TestGraphListFiles:
         assert b["path"] == "sub/b.csv"
 
 
+class TestGraphFilenameResolution:
+    """Regression: LLM often passes filenames where Graph expects opaque
+    item IDs. The client should detect filename-shaped inputs and resolve
+    via path or search before hitting /items/{id}."""
+
+    def _client(self):
+        c = SharepointClient(
+            tenant_id="t", client_id="c", client_secret="s",
+            site_url="https://x.sharepoint.com/sites/A",
+        )
+        c._drive_id = "drive-id"
+        c.access_token = "fake"
+        return c
+
+    def test_opaque_id_passes_through(self):
+        c = self._client()
+        assert c._resolve_item_id("drive-id", "01TP3T7WF6Y2GOVW7725BZO354PWSELRRZ") \
+            == "01TP3T7WF6Y2GOVW7725BZO354PWSELRRZ"
+
+    def test_filename_resolves_via_path_lookup(self):
+        c = self._client()
+        with patch.object(c, "_get", return_value={"id": "RESOLVED-ID", "name": "Book 7.xlsx"}):
+            assert c._resolve_item_id("drive-id", "Book 7.xlsx") == "RESOLVED-ID"
+
+    def test_filename_falls_back_to_search(self):
+        """Path lookup raises (file not at expected path) → search fallback
+        finds it by name."""
+        c = self._client()
+        calls = {"n": 0}
+
+        def fake_get(url):
+            calls["n"] += 1
+            # First call (path lookup) — simulate Graph 404 by raising
+            if calls["n"] == 1:
+                raise ValueError("404 not found")
+            # Second call (search) — return name match
+            return {"value": [
+                {"id": "FOLDER-ID", "folder": {}, "name": "subfolder"},
+                {"id": "REAL-ID", "name": "Book 7.xlsx"},
+            ]}
+
+        with patch.object(c, "_get", side_effect=fake_get):
+            assert c._resolve_item_id("drive-id", "Book 7.xlsx") == "REAL-ID"
+
+    def test_unresolvable_filename_returns_input(self):
+        """If both path and search fail, pass through — Graph will 404 with
+        a clearer error than swallowing silently."""
+        c = self._client()
+        with patch.object(c, "_get", side_effect=ValueError("404")):
+            assert c._resolve_item_id("drive-id", "nonsense.xlsx") == "nonsense.xlsx"
+
+
 class TestGraphGetSchemas:
     def test_files_become_tables(self):
         c = SharepointClient(
