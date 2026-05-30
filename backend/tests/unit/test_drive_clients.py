@@ -652,6 +652,22 @@ class TestOAuthServiceWiring:
         with pytest.raises(ValueError, match="missing authorize_url"):
             get_oauth_params(self._conn("mcp", {"client_id": "x"}))
 
+    def test_google_search_uses_fulltext_for_content_parity(self):
+        """GDrive search should hit both name AND fullText so it matches
+        Microsoft Graph's content-inclusive search semantics."""
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t")
+        captured = {}
+
+        def fake_get(url, params=None, **kw):
+            captured["q"] = params.get("q")
+            return {"files": []}
+
+        with patch.object(c, "_get", side_effect=fake_get):
+            c.search_files("pipeline")
+        assert "fullText contains" in captured["q"]
+        assert "name contains" in captured["q"]
+
     def test_mcp_oauth_audience_propagates_to_token_request(self):
         """RFC 8707 `resource` parameter is added to token-exchange body when
         an audience is configured."""

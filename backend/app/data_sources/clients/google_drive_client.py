@@ -290,9 +290,13 @@ class GoogleDriveClient(DataSourceClient):
 
     def search_files(self, query: str, **_) -> List[dict]:
         safe = query.replace("'", "\\'")
+        # Search both filename AND file content (fullText index covers Docs,
+        # Sheets, PDFs, Word, Excel, plain text). Mirrors Microsoft Graph's
+        # /search(q=) semantics so the two backends behave consistently
+        # from the agent's point of view.
         params = {
             **self._drive_params(),
-            "q": f"name contains '{safe}' and trashed=false",
+            "q": f"(name contains '{safe}' or fullText contains '{safe}') and trashed=false",
             "fields": "files(id,name,mimeType,modifiedTime,size,webViewLink)",
             "pageSize": "100",
         }

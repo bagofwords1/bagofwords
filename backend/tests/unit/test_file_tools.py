@@ -241,6 +241,27 @@ def _patch_resolve(client):
 
 
 @pytest.mark.asyncio
+async def test_list_files_glob_filter():
+    """name_pattern post-filters via fnmatch (case-insensitive)."""
+    fake_client = MagicMock()
+    fake_client.capabilities = {Capability.LIST_FILES}
+    fake_client.alist_files = AsyncMock(return_value=[
+        {"id": "1", "name": "Book 7.xlsx"},
+        {"id": "2", "name": "Notes.txt"},
+        {"id": "3", "name": "Book 8.xlsx"},
+        {"id": "4", "name": "report.pdf"},
+    ])
+    with _patch_resolve(fake_client)[0]:
+        tool = ListFilesTool()
+        events = await _collect(tool.run_stream(
+            {"connection_id": "DS1", "name_pattern": "*.xlsx"}, {}
+        ))
+    out = events[-1].payload["output"]
+    assert out["success"] is True
+    assert {f["name"] for f in out["files"]} == {"Book 7.xlsx", "Book 8.xlsx"}
+
+
+@pytest.mark.asyncio
 async def test_list_files_happy_path():
     fake_client = MagicMock()
     fake_client.capabilities = {Capability.LIST_FILES}

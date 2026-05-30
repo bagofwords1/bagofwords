@@ -40,6 +40,14 @@ class ListFilesInput(BaseModel):
         False,
         description="Include files in subfolders. Off by default to keep results focused.",
     )
+    name_pattern: Optional[str] = Field(
+        None,
+        description=(
+            "Optional glob pattern (fnmatch syntax) to filter filenames — e.g. "
+            "'*.xlsx', 'Book *.xlsx', 'Q?_*.csv'. Case-insensitive. Saves a "
+            "roundtrip vs listing everything and filtering client-side."
+        ),
+    )
 
 
 class ListFilesOutput(BaseModel):

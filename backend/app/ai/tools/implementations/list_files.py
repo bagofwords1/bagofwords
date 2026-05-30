@@ -67,6 +67,10 @@ class ListFilesTool(Tool):
 
         try:
             files = await client.alist_files(folder_id=data.folder_id, recursive=data.recursive)
+            if data.name_pattern:
+                import fnmatch
+                pat = data.name_pattern.lower()
+                files = [f for f in files if fnmatch.fnmatch(str(f.get("name", "")).lower(), pat)]
         except Exception as e:
             err = f"list_files failed: {e}"
             yield ToolEndEvent(type="tool.end", payload={

@@ -20,10 +20,15 @@ class SearchFilesTool(Tool):
         return ToolMetadata(
             name="search_files",
             description=(
-                "Search files by free-text query in a SharePoint, OneDrive, or Google "
-                "Drive data source. Use when the user references a file by partial name "
-                "or topic and you don't already have its ID. Returns up to ~50 matches "
-                "with their IDs — pass an ID to read_file to fetch contents."
+                "Search files by free-text query in a SharePoint, OneDrive, or "
+                "Google Drive connection. Searches BOTH filename AND file "
+                "content (Docs, Sheets, Excel, Word, PDF, plain text are all "
+                "indexed) — relevance-ranked. Prefer this over list_files when "
+                "the user mentions a filename, topic, or term that could be "
+                "inside a file. For 'list everything in X folder' use list_files; "
+                "for 'show me .xlsx files' use list_files with name_pattern. "
+                "Returns up to ~50 matches with their IDs — pass an ID to "
+                "read_file to fetch contents."
             ),
             category="research",
             input_schema=SearchFilesInput.model_json_schema(),
