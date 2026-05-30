@@ -604,6 +604,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
+        requires_license="enterprise",
     ),
     "onedrive": DataSourceRegistryEntry(
         type="onedrive",
@@ -639,6 +640,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
+        requires_license="enterprise",
     ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
@@ -670,6 +672,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
+        requires_license="enterprise",
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
