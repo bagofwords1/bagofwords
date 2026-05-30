@@ -42,11 +42,12 @@ async def get_data_sources(
 
 @router.get("/data_sources/active", response_model=list[DataSourceListItemSchema])
 async def get_active_data_sources(
+    include_unconnected: bool = Query(False, description="Include user_required data sources the user hasn't connected yet (returned with user_status so the client can offer a Connect action)"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.get_active_data_sources(db, organization, current_user)
+    return await data_source_service.get_active_data_sources(db, organization, current_user, include_unconnected=include_unconnected)
 
 @router.get("/data_sources/{data_source_id}", response_model=DataSourceSchema)
 @requires_resource_permission('data_source', 'view')
