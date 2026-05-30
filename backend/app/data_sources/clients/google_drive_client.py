@@ -253,7 +253,8 @@ class GoogleDriveClient(DataSourceClient):
                 f"{DRIVE_BASE}/files/{file_id}/export",
                 params={"mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
             )
-            return pd.read_excel(io.BytesIO(content))
+            from app.data_sources.clients.graph_drive_client import _trim_to_data
+            return _trim_to_data(pd.read_excel(io.BytesIO(content), header=None))
 
         if mime == GOOGLE_DOC_MIME:
             content = self._get_bytes(
@@ -271,12 +272,13 @@ class GoogleDriveClient(DataSourceClient):
             content = content[:max_bytes]
 
         ext = _ext(name)
+        from app.data_sources.clients.graph_drive_client import _trim_to_data
         if ext == "csv":
-            return pd.read_csv(io.BytesIO(content))
+            return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
         if ext == "tsv":
-            return pd.read_csv(io.BytesIO(content), sep="\t")
+            return _trim_to_data(pd.read_csv(io.BytesIO(content), sep="\t", header=None))
         if ext in ("xlsx", "xls"):
-            return pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0)
+            return _trim_to_data(pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None))
         if ext == "json":
             try:
                 return json.loads(content.decode("utf-8", errors="replace"))

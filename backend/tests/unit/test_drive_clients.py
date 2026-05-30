@@ -311,6 +311,63 @@ class TestGraphListFiles:
         assert b["path"] == "sub/b.csv"
 
 
+class TestTrimToData:
+    """Regression: real-world Excel sheets often have leading blank rows
+    before the header row (Book 7.xlsx → headers on row 7, data on rows
+    8+). pd.read_excel with header=0 reads row 1 as the header → empty
+    frame. _trim_to_data finds the real table by dropping all-empty
+    rows / columns and promoting the first remaining row to header."""
+
+    def test_no_leading_blanks_is_noop(self):
+        import pandas as pd
+        from app.data_sources.clients.graph_drive_client import _trim_to_data
+        raw = pd.DataFrame([
+            ["col_a", "col_b"],
+            [1, "x"],
+            [2, "y"],
+        ])
+        out = _trim_to_data(raw)
+        assert list(out.columns) == ["col_a", "col_b"]
+        assert len(out) == 2
+
+    def test_leading_blank_rows_are_skipped(self):
+        """The Book 7.xlsx case — six blank rows before the header."""
+        import pandas as pd
+        from app.data_sources.clients.graph_drive_client import _trim_to_data
+        raw = pd.DataFrame([
+            [None, None, None],
+            [None, None, None],
+            [None, None, None],
+            [None, None, None],
+            [None, None, None],
+            [None, None, None],
+            ["AlbumId", "Album Title", "Album Revenue"],
+            [253, "Battlestar Galactica (Classic), Season 1", 35.82],
+            [254, "Battlestar Galactica (Classic), Season 2", 35.82],
+        ])
+        out = _trim_to_data(raw)
+        assert list(out.columns) == ["AlbumId", "Album Title", "Album Revenue"]
+        assert len(out) == 2
+
+    def test_trailing_blank_columns_dropped(self):
+        import pandas as pd
+        from app.data_sources.clients.graph_drive_client import _trim_to_data
+        raw = pd.DataFrame([
+            ["col_a", "col_b", None, None],
+            [1, "x", None, None],
+        ])
+        out = _trim_to_data(raw)
+        assert list(out.columns) == ["col_a", "col_b"]
+        assert len(out) == 1
+
+    def test_fully_empty_returns_empty_frame(self):
+        import pandas as pd
+        from app.data_sources.clients.graph_drive_client import _trim_to_data
+        raw = pd.DataFrame([[None, None], [None, None]])
+        out = _trim_to_data(raw)
+        assert out.empty
+
+
 class TestGraphFilenameResolution:
     """Regression: LLM often passes filenames where Graph expects opaque
     item IDs. The client should detect filename-shaped inputs and resolve

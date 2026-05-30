@@ -40,6 +40,26 @@ def _ext(name: str) -> str:
     return name.rsplit(".", 1)[-1].lower()
 
 
+def _trim_to_data(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Excel files exported from BI tools / users often have leading blank
+    rows and blank columns before the actual table starts. Pandas with
+    `header=0` then treats row 1 (empty) as the column names and returns
+    a 0-row frame — even though the sheet has 10+ rows of real data.
+
+    Drop fully-empty rows and columns, then promote the first remaining row
+    to header. Idempotent for well-formed sheets (no leading blanks → no-op).
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.dropna(how="all").dropna(axis=1, how="all")
+    if df.empty:
+        return pd.DataFrame()
+    header = df.iloc[0].tolist()
+    body = df.iloc[1:].reset_index(drop=True)
+    body.columns = [str(c) if c is not None else f"col_{i}" for i, c in enumerate(header)]
+    return body
+
+
 class GraphDriveClient(DataSourceClient):
     """Microsoft Graph file source. Used by SharePoint and OneDrive registry entries."""
 
@@ -348,11 +368,11 @@ class GraphDriveClient(DataSourceClient):
             content = content[:max_bytes]
 
         if ext == "csv":
-            return pd.read_csv(io.BytesIO(content))
+            return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
         if ext == "tsv":
-            return pd.read_csv(io.BytesIO(content), sep="\t")
+            return _trim_to_data(pd.read_csv(io.BytesIO(content), sep="\t", header=None))
         if ext in ("xlsx", "xls"):
-            return pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0)
+            return _trim_to_data(pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None))
         if ext == "json":
             try:
                 return json.loads(content.decode("utf-8", errors="replace"))
