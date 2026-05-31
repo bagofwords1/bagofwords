@@ -159,7 +159,7 @@ async def list_connections(
         indexing_row = await indexing_service.get_latest(db, str(conn.id))
         indexing_payload = _indexing_to_progress(indexing_row)
 
-        _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+        from app.schemas.data_source_registry import tool_provider_types; _TOOL_PROVIDER_TYPES = tool_provider_types()
         if conn.type in _TOOL_PROVIDER_TYPES:
             tool_count_result = await db.execute(
                 select(func.count(ConnectionTool.id))
@@ -209,7 +209,7 @@ async def create_connection(
     
     # Inline the latest indexing run so the modal can show progress
     # immediately without a second roundtrip.
-    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+    from app.schemas.data_source_registry import tool_provider_types; _TOOL_PROVIDER_TYPES = tool_provider_types()
     indexing_row = await indexing_service.get_latest(db, str(connection.id))
     indexing_payload = _indexing_to_progress(indexing_row)
     return ConnectionSchema(
@@ -261,7 +261,7 @@ async def get_connection(
         allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = bool(connection.credentials)
 
-    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+    from app.schemas.data_source_registry import tool_provider_types; _TOOL_PROVIDER_TYPES = tool_provider_types()
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -299,7 +299,7 @@ async def update_connection(
         **updates,
     )
     
-    _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
+    from app.schemas.data_source_registry import tool_provider_types; _TOOL_PROVIDER_TYPES = tool_provider_types()
     return ConnectionSchema(
         id=str(connection.id),
         name=connection.name,

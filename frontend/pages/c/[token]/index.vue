@@ -223,6 +223,9 @@ import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
+import ListFilesTool from '~/components/tools/ListFilesTool.vue'
+import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
 const route = useRoute()
@@ -355,6 +358,12 @@ function getToolComponent(toolName: string) {
             return ReadResourcesTool
         case 'inspect_data':
             return InspectDataTool
+        case 'search_files':
+            return SearchFilesTool
+        case 'list_files':
+            return ListFilesTool
+        case 'read_file':
+            return ReadFileTool
         case 'execute_code':
         case 'execute_sql':
         case 'create_and_execute_code':

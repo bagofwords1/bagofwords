@@ -14,7 +14,7 @@
 	</div>
 
 	<SplitScreenLayout v-else
-		:isSplitScreen="isSplitScreen" 
+		:isSplitScreen="isSplitScreen && !isMobile"
 		:leftPanelWidth="leftPanelWidth"
 		:isResizing="isResizing"
 		@startResize="startResize"
@@ -519,7 +519,7 @@
 					:compact="isExcel"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
-					@viewDashboard="() => { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; }"
+					@viewDashboard="() => { if (isMobile) { mobileView = 'dashboard'; } else { if (!isSplitScreen) toggleSplitScreen(); rightPanelView = 'artifact'; } }"
 					@scrollToMessage="scrollToMessage"
 					@editScheduledPrompt="editScheduledPrompt"
 					@editTrainingInstruction="editTrainingInstruction"
@@ -719,6 +719,9 @@ import WriteToExcelTool from '~/components/tools/WriteToExcelTool.vue'
 import WriteOfficeJsCodeTool from '~/components/tools/WriteOfficeJsCodeTool.vue'
 import ReadExcelRangeTool from '~/components/tools/ReadExcelRangeTool.vue'
 import ReadExcelAsCsvTool from '~/components/tools/ReadExcelAsCsvTool.vue'
+import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
+import ListFilesTool from '~/components/tools/ListFilesTool.vue'
+import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
@@ -1452,6 +1455,12 @@ function getToolComponent(toolName: string) {
 			return ReadExcelRangeTool
 		case 'read_excel_as_csv':
 			return ReadExcelAsCsvTool
+		case 'search_files':
+			return SearchFilesTool
+		case 'list_files':
+			return ListFilesTool
+		case 'read_file':
+			return ReadFileTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'create_instruction':
@@ -2865,6 +2874,12 @@ async function checkHasArtifacts(): Promise<boolean> {
 const { collapse: collapseSidebar } = useSidebar()
 
 function toggleSplitScreen() {
+	// On mobile there is no split layout — surface the dashboard as a
+	// full-screen tab instead of opening the side panel.
+	if (isMobile.value) {
+		mobileView.value = mobileView.value === 'dashboard' ? 'chat' : 'dashboard'
+		return
+	}
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
 		if (isSplitScreen.value) {

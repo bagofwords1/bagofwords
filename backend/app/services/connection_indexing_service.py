@@ -350,8 +350,8 @@ class ConnectionIndexingService:
                         pass
 
                 svc = ConnectionService()
-                _TOOL_PROVIDER_TYPES = {"mcp", "custom_api"}
-                is_tool_provider = connection.type in _TOOL_PROVIDER_TYPES
+                from app.schemas.data_source_registry import tool_provider_types
+                is_tool_provider = connection.type in tool_provider_types()
 
                 try:
                     if is_tool_provider:

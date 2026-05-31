@@ -78,9 +78,11 @@
                                 </template>
                                 <span v-else class="text-xs text-gray-400 italic">No connections</span>
 
-                                <template v-if="tableCount > 0 || connectionCount > 0">
-                                    <span class="text-gray-300 select-none">·</span>
-                                    <span class="text-xs text-gray-400">{{ tableCount }} {{ tableCount === 1 ? 'table' : 'tables' }}</span>
+                                <template v-if="(catalog.shouldShow && catalog.count > 0) || connectionCount > 0">
+                                    <template v-if="catalog.shouldShow">
+                                        <span class="text-gray-300 select-none">·</span>
+                                        <span class="text-xs text-gray-400">{{ catalog.label }}</span>
+                                    </template>
                                     <span class="text-gray-300 select-none">·</span>
                                     <span class="text-xs text-gray-400">{{ connectionCount }} {{ connectionCount === 1 ? 'connection' : 'connections' }}</span>
                                 </template>
@@ -182,19 +184,30 @@ const { isMcpToolsEnabled } = useOrgSettings()
 const canViewMonitoring = computed(() => useCan('full_admin_access'))
 const canManageEvals = computed(() => useCan('manage_evals'))
 
-const allTabs = [
-    { name: '', label: 'Overview' },
-    { name: 'tables', label: 'Tables' },
-    { name: 'context', label: 'Instructions' },
-    { name: 'queries', label: 'Queries' },
-    { name: 'tools', label: 'Tools' },
-    { name: 'monitoring', label: 'Monitoring', gate: canViewMonitoring },
-    { name: 'evals', label: 'Evals', gate: canManageEvals },
-    { name: 'settings', label: 'Settings' },
-]
+const allTabs = computed(() => {
+    // Label the Tables tab to match the agent's data_shape: "Files" for
+    // file-shape connectors (OneDrive / SharePoint / Google Drive),
+    // "Collections" for object-shape (MongoDB), default "Tables" for SQL.
+    const tablesLabel = (() => {
+        const s = catalog.value.noun.plural
+        if (s === 'tables') return 'Tables'
+        // Title-case the noun
+        return s.charAt(0).toUpperCase() + s.slice(1)
+    })()
+    return [
+        { name: '', label: 'Overview' },
+        { name: 'tables', label: tablesLabel },
+        { name: 'context', label: 'Instructions' },
+        { name: 'queries', label: 'Queries' },
+        { name: 'tools', label: 'Tools' },
+        { name: 'monitoring', label: 'Monitoring', gate: canViewMonitoring },
+        { name: 'evals', label: 'Evals', gate: canManageEvals },
+        { name: 'settings', label: 'Settings' },
+    ]
+})
 
 const tabs = computed(() =>
-    allTabs.filter(tab => {
+    allTabs.value.filter(tab => {
         if (tab.name === 'tools' && !isMcpToolsEnabled.value) return false
         if (tab.gate && !tab.gate.value) return false
         return true
@@ -219,6 +232,22 @@ const tableCount = computed(() =>
     (integration.value?.connections || []).reduce((sum: number, c: any) => sum + (c.table_count || 0), 0)
 )
 const connectionCount = computed(() => (integration.value?.connections || []).length)
+
+// Shape-aware catalog count: respects each connection's data_shape (files
+// vs tables vs objects) and hides the number entirely when any attached
+// connection is user_required + the current user hasn't signed in (the "0"
+// would lie — per-user catalog hasn't been fetched yet).
+const registryByType = ref<Record<string, any>>({})
+onMounted(async () => {
+    try {
+        const { data } = await useMyFetch('/available_data_sources', { method: 'GET' })
+        for (const entry of (data.value as any[]) || []) {
+            registryByType.value[entry.type] = entry
+        }
+    } catch {}
+})
+const { computeFromAgent } = useCatalogCount()
+const catalog = computed(() => computeFromAgent(integration.value, registryByType.value))
 
 const integration = ref<any>(null)
 const isLoading = ref(true)

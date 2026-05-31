@@ -17,7 +17,7 @@
         <USelectMenu v-model="authMode" :options="authOptions" option-attribute="label" value-attribute="value" />
       </div>
 
-      <!-- OAuth mode: show sign-in button instead of credential form -->
+      <!-- OAuth mode: standard sign-in button -->
       <div v-if="isOAuthMode" class="mt-4">
         <UButton
           size="sm"
@@ -113,14 +113,21 @@ async function loadFields() {
   const payload = data.value as any
   const byAuth = (payload?.credentials_by_auth) || {}
   fieldsByAuth.value = byAuth
+  catalogOwnership.value = payload?.catalog_ownership || 'shared'
   // build options
   const names = Object.keys((payload?.auth?.by_auth) || {})
   authOptions.value = names.map((n) => ({ label: payload.auth.by_auth[n]?.title || n, value: n }))
+  // The OAuth-only direct-redirect path is handled by `useConnectionSignIn`
+  // before this modal ever opens. By the time we're here, the user actually
+  // has a choice to make — render the standard form with the registry's
+  // default auth selected.
   const defaultAuth = payload?.auth?.default
   authMode.value = (defaultAuth && names.includes(defaultAuth)) ? defaultAuth : names[0] || ''
   form.value.auth_mode = authMode.value
   form.value.credentials = {}
 }
+
+const catalogOwnership = ref<string>('shared')
 
 watch(authMode, (v) => {
   form.value.auth_mode = v || ''

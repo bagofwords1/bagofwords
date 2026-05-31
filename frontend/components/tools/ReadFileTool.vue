@@ -1,0 +1,95 @@
+<template>
+  <div class="mt-1">
+    <Transition name="fade" appear>
+      <div class="mb-2 flex items-center text-xs text-gray-500">
+        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
+          <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
+          <span>Reading {{ fileLabel }}…</span>
+        </span>
+        <span v-else class="text-gray-700 flex items-center">
+          <Icon name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
+          <span>Read {{ fileLabel }}</span>
+          <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">{{ contentType }}</span>
+          <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
+          <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
+        </span>
+      </div>
+    </Transition>
+
+    <Transition name="fade" appear>
+      <div v-if="hasContent" class="text-xs text-gray-600">
+        <div
+          class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50"
+          @click="expanded = !expanded"
+        >
+          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
+          <span class="text-gray-500">Preview</span>
+        </div>
+        <Transition name="fade">
+          <div v-if="expanded" class="ps-6 pe-1 pb-1">
+            <pre class="text-[11px] bg-gray-50 border border-gray-200 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
+            <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500">
+              <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
+              Attached to this conversation as session file
+              <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 text-gray-600">{{ sessionFileId.slice(0, 8) }}…</code>
+            </div>
+          </div>
+        </Transition>
+      </div>
+    </Transition>
+
+    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+
+interface ToolExecution {
+  id: string
+  tool_name: string
+  status: string
+  result_summary?: string
+  result_json?: any
+  arguments_json?: any
+}
+
+const props = defineProps<{ toolExecution: ToolExecution }>()
+
+const status = computed(() => props.toolExecution?.status || '')
+const rj = computed<any>(() => props.toolExecution?.result_json || {})
+
+const fileLabel = computed(() => {
+  return rj.value.file_name
+    || props.toolExecution?.arguments_json?.file_id?.slice(0, 8)
+    || 'file'
+})
+const contentType = computed(() => rj.value.content_type || '')
+const rowCount = computed(() => rj.value.row_count)
+const colCount = computed(() => rj.value.col_count)
+const truncated = computed(() => !!rj.value.truncated)
+const sessionFileId = computed(() => rj.value.session_file_id || '')
+const errorMessage = computed(() => rj.value.error || '')
+
+const hasContent = computed(() => !!(rj.value.csv || rj.value.text || rj.value.byte_count))
+const previewText = computed(() => {
+  if (rj.value.csv) return String(rj.value.csv).slice(0, 4000)
+  if (rj.value.text) return String(rj.value.text).slice(0, 4000)
+  if (rj.value.byte_count) return `(binary, ${rj.value.byte_count} bytes)`
+  return ''
+})
+
+const expanded = ref(false)
+</script>
+
+<style scoped>
+.tool-shimmer {
+  animation: shimmer 1.6s linear infinite;
+  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
+  background-size: 300% 100%;
+  background-clip: text;
+}
+@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
+</style>

@@ -233,17 +233,46 @@ async def get_accessible_data_source_ids(
     - accessible_ds_ids is a list of data_source ids the user can see via:
       legacy DataSourceMembership (user) OR ResourceGrant (user/group/role).
       Public data sources are NOT included here — callers must OR them in.
+
+    Use this for capability checks ("can this user access DS X if they
+    navigate to it?"). For default list views, prefer
+    ``get_member_data_source_ids`` so admins only see DSs they are
+    explicitly members of.
     """
-    from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
     resolved = await resolve_permissions(db, str(user_id), str(org_id))
     is_admin = FULL_ADMIN in resolved.org_permissions
     if is_admin:
         return True, []
+    return False, await _resolved_member_ds_ids(db, user_id, resolved)
+
+
+async def get_member_data_source_ids(
+    db: AsyncSession, user_id: str, org_id: str,
+) -> list[str]:
+    """Return data_source IDs where the user holds an explicit grant or
+    legacy membership (direct, via group, or via role).
+
+    Unlike ``get_accessible_data_source_ids``, this does NOT short-circuit
+    on ``full_admin_access``. Admins get the same explicit-only view as any
+    other user — they only see DSs they actually joined or created. They
+    can still navigate directly to any DS via their admin bypass at the
+    capability layer (``get_accessible_data_source_ids``,
+    ``user_can_access_data_source``).
+
+    Public data sources are NOT included; callers must OR them in.
+    """
+    resolved = await resolve_permissions(db, str(user_id), str(org_id))
+    return await _resolved_member_ds_ids(db, user_id, resolved)
+
+
+async def _resolved_member_ds_ids(
+    db: AsyncSession, user_id: str, resolved: ResolvedPermissions,
+) -> list[str]:
+    from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
     ds_ids = {
         rid for (rtype, rid) in resolved.resource_permissions.keys()
         if rtype == "data_source"
     }
-    # Union legacy memberships
     mem_result = await db.execute(
         select(DataSourceMembership.data_source_id).where(
             DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
@@ -252,7 +281,7 @@ async def get_accessible_data_source_ids(
     )
     for (ds_id,) in mem_result.all():
         ds_ids.add(ds_id)
-    return False, list(ds_ids)
+    return list(ds_ids)
 
 
 async def get_ds_ids_with_permission(

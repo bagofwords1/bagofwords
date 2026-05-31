@@ -87,7 +87,7 @@
                                         <DataSourceIcon class="h-3.5" :type="conn.type" />
                                     </UTooltip>
                                     <span v-if="(ds.connections || []).length > 3" class="text-gray-400">+{{ (ds.connections || []).length - 3 }}</span>
-                                    <span v-if="userHasAccess(ds)">{{ getTableCount(ds) }} {{ $t('data.tables') }}</span>
+                                    <span v-if="userHasAccess(ds) && catalogFor(ds).shouldShow">{{ catalogFor(ds).label }}</span>
                                 </div>
 
                                 <!-- Description (2 lines max) -->
@@ -249,6 +249,22 @@ function getTableCount(ds: any): number {
     return ds.tables?.length || 0
 }
 
+// Shape-aware count + sign-in-aware suppression, shared with the agent
+// header in layouts/data.vue. See composables/useCatalogCount.ts.
+const registryByType = ref<Record<string, any>>({})
+onMounted(async () => {
+    try {
+        const { data } = await useMyFetch('/available_data_sources', { method: 'GET' })
+        for (const entry of (data.value as any[]) || []) {
+            registryByType.value[entry.type] = entry
+        }
+    } catch {}
+})
+const { computeFromAgent } = useCatalogCount()
+function catalogFor(ds: any) {
+    return computeFromAgent(ds, registryByType.value)
+}
+
 // Check if agent requires user auth (any connection)
 function requiresUserAuth(ds: any): boolean {
     const connections = ds.connections || []
@@ -282,10 +298,34 @@ function userHasAccess(ds: any): boolean {
 }
 
 // Open credentials modal for an agent
-function openCredentialsModal(ds: any) {
+async function openCredentialsModal(ds: any) {
+    // Direct-redirect path: if the agent's pending-sign-in connection has
+    // OAuth as its only user auth mode, skip the modal and jump straight to
+    // the provider — there's nothing to type or pick.
+    const pending = findPendingSignInConnection(ds)
+    if (pending) {
+        const result = await signIn.triggerUserSignIn(pending)
+        if (result.redirecting) return
+        if (result.error) {
+            toast.add({ title: t('data.oauthStartFailed'), description: result.error, color: 'red' })
+        }
+    }
     selectedDs.value = ds
     showCredsModal.value = true
 }
+
+// Locate the first attached connection that's user_required without
+// credentials — that's what the sign-in flow should target.
+function findPendingSignInConnection(ds: any): any | null {
+    for (const conn of (ds.connections || [])) {
+        if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
+            return conn
+        }
+    }
+    return null
+}
+
+const signIn = useConnectionSignIn()
 
 // Check if connection is healthy - uses agent data to derive status
 function isConnectionHealthy(conn: any): boolean {

@@ -1,5 +1,4 @@
 import asyncio
-import importlib
 import logging
 
 from app.models.user import User
@@ -832,8 +831,11 @@ class DataSourceService:
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
         # Table count is fetched separately via COUNT query in _build_connections_list
-        from app.core.permission_resolver import get_accessible_data_source_ids
-        is_admin, accessible_ids = await get_accessible_data_source_ids(
+        # NOTE: scope this to *explicit* memberships even for admins so the
+        # default list isn't flooded with every DS in the org. Admins keep
+        # capability bypass and can still open any DS via direct URL.
+        from app.core.permission_resolver import get_member_data_source_ids
+        member_ids = await get_member_data_source_ids(
             db, str(current_user.id), str(organization.id)
         )
 
@@ -851,11 +853,10 @@ class DataSourceService:
             )
             .filter(DataSource.organization_id == organization.id)
         )
-        if not is_admin:
-            clauses = [DataSource.is_public == True]
-            if accessible_ids:
-                clauses.append(DataSource.id.in_(accessible_ids))
-            query = query.filter(or_(*clauses))
+        clauses = [DataSource.is_public == True]
+        if member_ids:
+            clauses.append(DataSource.id.in_(member_ids))
+        query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Build list with connection info (no live test for list to keep it fast)
@@ -886,7 +887,7 @@ class DataSourceService:
             schemas.append(s)
         return schemas
 
-    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None) -> List[DataSourceListItemSchema]:
+    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape"""
         # See get_data_sources above for the lazyload("*") rationale — same
         # cascade applies here. The list schema doesn't expose
@@ -905,15 +906,14 @@ class DataSourceService:
         
         # Apply access control if user is provided (same logic as get_data_sources)
         if current_user:
-            from app.core.permission_resolver import get_accessible_data_source_ids
-            is_admin, accessible_ids = await get_accessible_data_source_ids(
+            from app.core.permission_resolver import get_member_data_source_ids
+            member_ids = await get_member_data_source_ids(
                 db, str(current_user.id), str(organization.id)
             )
-            if not is_admin:
-                clauses = [DataSource.is_public == True]
-                if accessible_ids:
-                    clauses.append(DataSource.id.in_(accessible_ids))
-                stmt = stmt.filter(or_(*clauses))
+            clauses = [DataSource.is_public == True]
+            if member_ids:
+                clauses.append(DataSource.id.in_(member_ids))
+            stmt = stmt.filter(or_(*clauses))
             
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
@@ -961,13 +961,15 @@ class DataSourceService:
 
             # Exclude user_required data sources lacking user credentials,
             # unless the user has permission to update data sources (admin/editor)
+            # or the caller explicitly opted in via include_unconnected (so the
+            # client can surface a "Connect" action for them).
             auth_policy = conn.auth_policy if conn else "system_only"
             if auth_policy == "user_required" and current_user:
                 try:
                     has_user_creds = getattr(s.user_status, "has_user_credentials", False)
                 except Exception:
                     has_user_creds = False
-                if not has_user_creds and not has_update_perm:
+                if not has_user_creds and not has_update_perm and not include_unconnected:
                     continue
             items.append(s)
         return items
@@ -1068,6 +1070,11 @@ class DataSourceService:
                 "type": data_source_type,
                 "title": meta.get("title"),
                 "description": meta.get("description"),
+                # Surface the registry axes so frontend forms / sign-in modals
+                # can render the right UX without hardcoding type lists.
+                "data_shape": entry.data_shape,
+                "catalog_ownership": entry.catalog_ownership,
+                "ui_form": entry.ui_form,
                 "auth": {
                     "default": entry.credentials_auth.default,
                     "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)},
@@ -1261,12 +1268,15 @@ class DataSourceService:
                     "table_count": 0,
                 }
             
+            table_count = schema_status.get("table_count", 0)
+            from app.services.connection_service import _connected_message
+            message = _connected_message(data_source_type, table_count)
             return {
                 "success": True,
-                "message": f"Connected successfully. Found {schema_status.get('table_count', 0)} tables.",
+                "message": message,
                 "connectivity": True,
                 "schema_access": True,
-                "table_count": schema_status.get("table_count", 0),
+                "table_count": table_count,
             }
         except Exception as e:
             return {
@@ -1410,11 +1420,22 @@ class DataSourceService:
         # Strip meta keys and oauth override keys
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
-        # Narrow to constructor signature
+        # Narrow to constructor signature — same VAR_KEYWORD-aware logic as
+        # ConnectionService.construct_client. Forwarder subclasses (e.g.
+        # `class OnedriveClient(GraphDriveClient): def __init__(self, **kw): super().__init__(**kw)`)
+        # only expose `self` + `kwargs` to inspect; narrowing on that would
+        # strip every real arg (access_token, tenant_id, …). When the ctor
+        # accepts **kwargs, pass everything through.
         try:
             import inspect
             sig = inspect.signature(ClientClass.__init__)
-            allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+            accepts_var_kwargs = any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            if accepts_var_kwargs:
+                allowed = params
+            else:
+                allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             allowed = params
         return ClientClass(**allowed)
@@ -1458,10 +1479,17 @@ class DataSourceService:
             params = {**(config or {}), **(creds or {})}
             params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
-            # Narrow to constructor signature
+            # Narrow to constructor signature (VAR_KEYWORD-aware; see
+            # ConnectionService.construct_client for the reasoning).
             try:
                 sig = inspect.signature(ClientClass.__init__)
-                allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+                accepts_var_kwargs = any(
+                    p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                if accepts_var_kwargs:
+                    allowed = params
+                else:
+                    allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
             except Exception:
                 allowed = params
 
@@ -1558,12 +1586,7 @@ class DataSourceService:
         if not data_source_type:
             raise ValueError("Data source type is required")
         try:
-            module_name = f"app.data_sources.clients.{data_source_type.lower()}_client"
-            title = "".join(word[:1].upper() + word[1:] for word in data_source_type.split("_"))
-            class_name = f"{title}Client"
-
-            module = importlib.import_module(module_name)
-            ClientClass = getattr(module, class_name)
+            ClientClass = resolve_client_class(data_source_type)
 
             client_params = (config or {}).copy()
             if credentials:
@@ -1742,12 +1765,16 @@ class DataSourceService:
         if data_source.connections:
             auth_policy = data_source.connections[0].auth_policy or "system_only"
             
-        # For user_required policy, prefer the user's live schema view and upsert overlay
+        # For user_required policy, read from the persisted user overlay.
+        # The live walk happens only on explicit refresh (post-OAuth, manual
+        # /refresh_schema button, OBO auto-provision) — see
+        # `get_user_data_source_schema`. Cache-first read keeps page renders
+        # fast and avoids hammering Drive APIs on every UI navigation.
         if auth_policy == "user_required" and current_user is not None:
             try:
-                return await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                return await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
             except Exception:
-                # Fallback to canonical schema if user overlay fetch fails
+                # Fallback to canonical schema if overlay read fails
                 pass
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
@@ -2263,8 +2290,68 @@ class DataSourceService:
             total_selected=total_selected,
         )
 
+    async def read_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
+        """Return the user's catalog from persisted UserOverlayTable rows.
+
+        Cache-first — does NOT touch the live source. Use this for every
+        read-shaped surface: /mentions, prompt builds, /full_schema, list
+        renderers. Refreshes happen explicitly via `get_user_data_source_schema`
+        (post-OAuth, manual refresh, OBO auto-provision).
+
+        Empty list when the overlay hasn't been populated yet (first sign-in
+        before the post-OAuth refresh completes). Callers can decide whether
+        to trigger a fresh fetch or surface a "still loading" state.
+        """
+        from app.ai.prompt_formatters import Table, TableColumn
+        from sqlalchemy.orm import selectinload
+
+        rows_q = await db.execute(
+            select(UserOverlayTable)
+            .options(selectinload(UserOverlayTable.data_source))
+            .where(
+                UserOverlayTable.data_source_id == str(data_source.id),
+                UserOverlayTable.user_id == str(user.id),
+                UserOverlayTable.deleted_at.is_(None),
+                UserOverlayTable.is_accessible.is_(True),
+            )
+        )
+        overlay_rows = rows_q.scalars().all()
+        if not overlay_rows:
+            return []
+
+        # Load all columns for these overlay rows in one query.
+        col_q = await db.execute(
+            select(UserOverlayColumn).where(
+                UserOverlayColumn.user_data_source_table_id.in_([str(r.id) for r in overlay_rows]),
+                UserOverlayColumn.is_accessible.is_(True),
+            )
+        )
+        cols_by_table: dict[str, list] = {}
+        for c in col_q.scalars().all():
+            cols_by_table.setdefault(str(c.user_data_source_table_id), []).append(c)
+
+        tables: list[Table] = []
+        for row in overlay_rows:
+            tables.append(Table(
+                name=row.table_name,
+                columns=[
+                    TableColumn(name=c.column_name, dtype=c.data_type)
+                    for c in cols_by_table.get(str(row.id), [])
+                ],
+                pks=[],
+                fks=[],
+                metadata_json=row.metadata_json,
+            ))
+        return tables
+
     async def get_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
-        """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list."""
+        """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
+
+        EXPENSIVE — hits the upstream source (Drive walk, SQL describe, etc.).
+        Call only when a refresh is intended: post-OAuth, manual /refresh_schema,
+        OBO auto-provision. Read-shaped surfaces should call
+        `read_user_data_source_schema` instead.
+        """
         client = await self.construct_client(db=db, data_source=data_source, current_user=user)
         fresh = await client.aget_schemas()
         if not fresh:
@@ -2335,6 +2422,39 @@ class DataSourceService:
         # Load canonical mapping to link if present
         existing_q = await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id))
         canonical_by_name = {row.name: row for row in existing_q.scalars().all()}
+
+        # For per-user-owned catalogs (OneDrive, personal Drive) there's no
+        # admin-side sync to populate DataSourceTable — the rows would never
+        # exist. The /full_schema endpoint reads from DataSourceTable, so
+        # without canonical rows the UI shows "0 files" even after the user
+        # successfully fetched 14. Create canonical rows on-demand from
+        # whatever the first user's sync returned. Subsequent users' rows
+        # union into the same canonical set; per-user accessibility is still
+        # enforced by UserOverlayTable.
+        is_per_user_catalog = False
+        try:
+            from app.schemas.data_source_registry import get_entry
+            conn = (data_source.connections or [None])[0]
+            if conn is not None:
+                is_per_user_catalog = get_entry(conn.type).catalog_ownership == "per_user"
+        except Exception:
+            pass
+        if is_per_user_catalog:
+            for table_name, payload in normalized.items():
+                if table_name in canonical_by_name:
+                    continue
+                row = DataSourceTable(
+                    datasource_id=str(data_source.id),
+                    name=table_name,
+                    columns=payload.get("columns") or [],
+                    pks=payload.get("pks") or [],
+                    fks=payload.get("fks") or [],
+                    metadata_json=payload.get("metadata_json"),
+                    is_active=True,
+                )
+                db.add(row)
+                await db.flush()
+                canonical_by_name[table_name] = row
 
         # Load all prior overlay rows for (data_source, user). We need them both to
         # update matches AND to detect tables that disappeared from the latest sync.
@@ -2724,10 +2844,26 @@ class DataSourceService:
                 schemas = await data_source.get_schemas(db=db, include_inactive=True)
                 return schemas
 
+        # For per-user-catalog connections (OneDrive, personal Drive), the
+        # admin has nothing to refresh — each user's catalog is fetched and
+        # cached against their own credentials. Route to the per-user path
+        # so the caller's own catalog actually populates.
+        from app.schemas.data_source_registry import get_entry
+        per_user_conns = []
+        for conn in (data_source.connections or []):
+            try:
+                if get_entry(conn.type).catalog_ownership == "per_user":
+                    per_user_conns.append(conn)
+            except Exception:
+                continue
+        if per_user_conns and current_user is not None:
+            schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+            return schemas or []
+
         # Fallback to legacy behavior for user_required connections or if no connections
         # This uses data_source_service.resolve_credentials which has owner/admin fallback
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
-        return schemas
+        return schemas or []
     
     async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
@@ -2990,9 +3126,10 @@ class DataSourceService:
         - For system_only: use canonical via DataSource.prompt_schema
         - For user_required with user: use per-user overlay tables and TableFormatter
         """
-        # User-required path uses per-user overlays
+        # User-required path uses per-user overlays — cache-first read, no
+        # live walk on every prompt build.
         if getattr(data_source, "auth_policy", "system_only") == "user_required" and current_user is not None:
-            tables = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+            tables = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
             try:
                 from app.ai.prompt_formatters import TableFormatter
                 return TableFormatter(tables).table_str
@@ -3098,6 +3235,21 @@ class DataSourceService:
                 new_data_source.conversation_starters = response.get("conversation_starters")
             await db.commit()
             await db.refresh(new_data_source)
+
+        # user_required sources (OneDrive, GDrive, etc.) skip LLM summary gen
+        # because their schema is per-user — so the description stays empty.
+        # Fall back to the registry entry's static description so the field
+        # isn't blank in lists/cards.
+        if not new_data_source.description:
+            try:
+                from app.schemas.data_source_registry import get_entry
+                entry = get_entry(ds_type)
+                if entry and entry.description:
+                    new_data_source.description = entry.description
+                    await db.commit()
+                    await db.refresh(new_data_source)
+            except Exception:
+                pass
         
         # Reload with relationships
         stmt = (
