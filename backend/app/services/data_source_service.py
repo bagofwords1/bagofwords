@@ -3235,6 +3235,21 @@ class DataSourceService:
                 new_data_source.conversation_starters = response.get("conversation_starters")
             await db.commit()
             await db.refresh(new_data_source)
+
+        # user_required sources (OneDrive, GDrive, etc.) skip LLM summary gen
+        # because their schema is per-user — so the description stays empty.
+        # Fall back to the registry entry's static description so the field
+        # isn't blank in lists/cards.
+        if not new_data_source.description:
+            try:
+                from app.schemas.data_source_registry import get_entry
+                entry = get_entry(ds_type)
+                if entry and entry.description:
+                    new_data_source.description = entry.description
+                    await db.commit()
+                    await db.refresh(new_data_source)
+            except Exception:
+                pass
         
         # Reload with relationships
         stmt = (

@@ -573,11 +573,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "sharepoint": DataSourceRegistryEntry(
         type="sharepoint",
         title="SharePoint",
-        description=(
-            "SharePoint document library connector via Microsoft Graph. "
-            "Admin configures the Entra ID app; users sign in to grant per-user file access. "
-            "Files are enumerated as a live catalog and read on demand."
-        ),
+        description="Read and analyze files from SharePoint document libraries — Excel, CSV, and documents become available to the agent.",
         config_schema=SharePointConfig,
         # Default captures the admin's Entra app credentials (tenant, client_id,
         # client_secret) — these are required by the OAuth flow even when each
@@ -609,12 +605,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "onedrive": DataSourceRegistryEntry(
         type="onedrive",
         title="OneDrive",
-        description=(
-            "OneDrive connector via Microsoft Graph. Admin registers an Entra ID app "
-            "once; each user signs in with Microsoft and their personal file catalog "
-            "is fetched and cached. Files appear in the agent's catalog and the agent "
-            "can also call list_files / read_file / search_files directly."
-        ),
+        description="Read and analyze files from your OneDrive — Excel, CSV, and documents become available to the agent.",
         config_schema=OneDriveConfig,
         credentials_auth=AuthOptions(
             default="service_principal",
@@ -645,12 +636,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
         title="Google Drive",
-        description=(
-            "Google Drive (and Sheets) connector. Admin configures a Google Cloud "
-            "OAuth client; users sign in with Google and their personal file catalog "
-            "is fetched and cached. Files appear in the agent's catalog and the agent "
-            "can also call list_files / read_file / search_files directly."
-        ),
+        description="Read and analyze files from your Google Drive — Sheets, Excel, CSV, and documents become available to the agent.",
         config_schema=GoogleDriveConfig,
         credentials_auth=AuthOptions(
             default="oauth_app",
