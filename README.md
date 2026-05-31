@@ -144,6 +144,9 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | QlikView                 | Service             |
 | Sybase SQL Anywhere      | Database/Warehouse  |
 | Sisense BI               | Service             |
+| OneDrive                 | Service             |
+| Google Driv              | Service             |
+| SharePoint               | Service             |
 
 > **Note:** Some data sources (like NetSuite) may be marked as inactive or beta in the registry. "Service" refers to APIs or SaaS platforms, while "Database/Warehouse" refers to systems that store and query structured data.
 
