@@ -170,8 +170,31 @@ onMounted(() => {
 // Connect (user credentials / OAuth) modal state
 const showCredsModal = ref(false)
 const selectedConnectDs = ref<DataSource | null>(null)
+const signIn = useConnectionSignIn()
+const { t } = useI18n()
+const toast = useToast()
 
-function openCredentialsModal(ds: DataSource) {
+// Mirror the agents page: if the source's pending-sign-in connection has
+// OAuth as its only user auth mode, redirect straight to the provider
+// instead of showing an empty modal. Falls back to the modal otherwise.
+function findPendingSignInConnection(ds: DataSource): any | null {
+    for (const conn of (ds.connections || [])) {
+        if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
+            return conn
+        }
+    }
+    return null
+}
+
+async function openCredentialsModal(ds: DataSource) {
+    const pending = findPendingSignInConnection(ds)
+    if (pending) {
+        const result = await signIn.triggerUserSignIn(pending)
+        if (result.redirecting) return
+        if (result.error) {
+            toast.add({ title: t('data.oauthStartFailed'), description: result.error, color: 'red' })
+        }
+    }
     selectedConnectDs.value = ds
     showCredsModal.value = true
 }
