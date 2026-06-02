@@ -1765,16 +1765,29 @@ class DataSourceService:
         if data_source.connections:
             auth_policy = data_source.connections[0].auth_policy or "system_only"
             
-        # For user_required policy, read from the persisted user overlay.
-        # The live walk happens only on explicit refresh (post-OAuth, manual
-        # /refresh_schema button, OBO auto-provision) — see
-        # `get_user_data_source_schema`. Cache-first read keeps page renders
-        # fast and avoids hammering Drive APIs on every UI navigation.
+        # For user_required policy, read from the persisted user overlay first.
+        # Cache-first keeps page renders fast and avoids hammering Drive APIs on
+        # every UI navigation.
+        #
+        # On a cache miss (no overlay rows yet) fall back to the live per-user
+        # fetch, which resolves credentials with the owner/admin system-creds
+        # fallback and persists the overlay (warming the cache for next time).
+        # This is the populate-on-first-read path; it also restores the owner
+        # fallback on shared-catalog user_required sources (e.g. SQLite), where
+        # an owner refresh stores tables as inactive canonical rows that a
+        # cache-only read would miss. If the live fetch can't run (no creds yet,
+        # e.g. OneDrive before OAuth) it raises and we drop to the canonical
+        # schema below — typically empty for per-user catalogs.
         if auth_policy == "user_required" and current_user is not None:
             try:
-                return await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                overlay = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                if overlay:
+                    return overlay
+                live = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                if live:
+                    return live
             except Exception:
-                # Fallback to canonical schema if overlay read fails
+                # Fallback to canonical schema if overlay/live fetch fails
                 pass
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)

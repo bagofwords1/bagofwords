@@ -175,7 +175,14 @@ class ConnectionService:
         if type in self._TOOL_PROVIDER_TYPES:
             if auth_policy == "system_only":
                 await self.refresh_tools(db=db, connection=connection)
-        elif credentials:
+        elif not self._is_per_user_catalog(type):
+            # Kick off background indexing for any shared-catalog source. Don't
+            # gate on `credentials` truthiness — credential-less but indexable
+            # sources (SQLite, DuckDB, …) pass `credentials={}` and must still
+            # be indexed. Per-user catalogs (OneDrive, personal Drive) have no
+            # admin-side catalog, so they're skipped here and fetched per user
+            # after sign-in. refresh_schema applies its own guards (e.g.
+            # user_required without available credentials no-ops cleanly).
             from app.services.connection_indexing_service import (
                 ConnectionIndexingService,
             )
@@ -322,7 +329,9 @@ class ConnectionService:
                 if connection.type in self._TOOL_PROVIDER_TYPES:
                     if connection.auth_policy == "system_only":
                         await self.refresh_tools(db=db, connection=connection)
-                elif connection.credentials:
+                elif not self._is_per_user_catalog(connection.type):
+                    # See create_connection: index shared-catalog sources
+                    # regardless of credential truthiness; skip per-user catalogs.
                     from app.services.connection_indexing_service import (
                         ConnectionIndexingService,
                     )
@@ -995,6 +1004,19 @@ class ConnectionService:
     def _TOOL_PROVIDER_TYPES(self) -> set[str]:
         from app.schemas.data_source_registry import tool_provider_types
         return tool_provider_types()
+
+    @staticmethod
+    def _is_per_user_catalog(connection_type: str) -> bool:
+        """True for sources whose catalog is owned per-user (OneDrive, personal
+        Drive). These have no admin-side catalog to index — each user's catalog
+        is fetched after they sign in — so create/update skip background
+        indexing for them. Unknown types default to False (treat as shared).
+        """
+        from app.schemas.data_source_registry import get_entry
+        try:
+            return get_entry(connection_type).catalog_ownership == "per_user"
+        except ValueError:
+            return False
 
     async def refresh_tools(
         self,
