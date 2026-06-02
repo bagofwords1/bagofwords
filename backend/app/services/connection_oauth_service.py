@@ -19,6 +19,7 @@ from sqlalchemy import select, update
 from app.models.connection import Connection
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.settings.logging_config import get_logger
+from app.utils.datetimes import ensure_naive_utc
 
 logger = get_logger(__name__)
 
@@ -36,10 +37,7 @@ def parse_expires_at(value: Optional[str]) -> Optional[datetime]:
     """
     if not value:
         return None
-    dt = datetime.fromisoformat(value)
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
+    return ensure_naive_utc(datetime.fromisoformat(value))
 
 
 # ---------------------------------------------------------------------------

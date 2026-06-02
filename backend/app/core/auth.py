@@ -36,6 +36,7 @@ from app.settings.config import settings
 from app.services.organization_service import OrganizationService
 from app.schemas.organization_schema import OrganizationCreate
 from app.core.telemetry import telemetry
+from app.utils.datetimes import ensure_naive_utc
 
 SECRET = settings.bow_config.encryption_key
 
@@ -184,7 +185,7 @@ class UserManager(BaseUserManager[User, str]):
             from app.dependencies import async_session_maker
             async with async_session_maker() as session:
                 await session.execute(
-                    update(User).where(User.id == str(user.id)).values(last_login=datetime.now(timezone.utc))
+                    update(User).where(User.id == str(user.id)).values(last_login=ensure_naive_utc(datetime.now(timezone.utc)))
                 )
                 await session.commit()
         except Exception:
@@ -747,7 +748,7 @@ async def _update_last_seen(user: User, db: AsyncSession) -> None:
     if user.last_seen and now - user.last_seen.replace(tzinfo=timezone.utc) < _LAST_SEEN_DEBOUNCE:
         return
     try:
-        await db.execute(update(User).where(User.id == str(user.id)).values(last_seen=now))
+        await db.execute(update(User).where(User.id == str(user.id)).values(last_seen=ensure_naive_utc(now)))
         await db.commit()
     except Exception:
         pass

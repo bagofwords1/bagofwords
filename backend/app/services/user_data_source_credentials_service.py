@@ -15,6 +15,7 @@ from app.schemas.user_data_source_credentials_schema import (
     UserDataSourceCredentialsSchema,
 )
 from app.schemas.data_source_registry import get_entry
+from app.utils.datetimes import ensure_naive_utc
 from fastapi import HTTPException
 from app.schemas.data_source_schema import DataSourceUserStatus
 from app.schemas.data_source_registry import resolve_client_class
@@ -388,13 +389,13 @@ class UserDataSourceCredentialsService:
                 auth_mode=payload.auth_mode,
                 is_active=True,
                 is_primary=bool(payload.is_primary if payload.is_primary is not None else True),
-                expires_at=payload.expires_at,
+                expires_at=ensure_naive_utc(payload.expires_at),
                 metadata_json=payload.metadata_json,
             )
         else:
             row.auth_mode = payload.auth_mode
             row.is_primary = bool(payload.is_primary if payload.is_primary is not None else row.is_primary)
-            row.expires_at = payload.expires_at
+            row.expires_at = ensure_naive_utc(payload.expires_at)
             row.metadata_json = payload.metadata_json
 
         # Encrypt secret payload
@@ -483,7 +484,7 @@ class UserDataSourceCredentialsService:
         if payload.is_primary is not None:
             row.is_primary = bool(payload.is_primary)
         if payload.expires_at is not None:
-            row.expires_at = payload.expires_at
+            row.expires_at = ensure_naive_utc(payload.expires_at)
         if payload.metadata_json is not None:
             row.metadata_json = payload.metadata_json
 
