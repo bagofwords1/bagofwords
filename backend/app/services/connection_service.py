@@ -167,18 +167,19 @@ class ConnectionService:
                 detail=f"A connection named '{name}' already exists in this organization."
             )
 
-        # Discover and save tables/tools for system_only connections.
         # Schema discovery is pushed to a background indexing job so POST
         # returns in ~ms even for slow sources (QVD/PBIRS/large warehouses).
         # Tool providers (MCP/custom_api) stay synchronous — they're fast.
-        if auth_policy == "system_only":
-            if type in self._TOOL_PROVIDER_TYPES:
+        # For user_required, the saved admin creds still drive the initial
+        # catalog; runtime queries flow through per-user OBO tokens separately.
+        if type in self._TOOL_PROVIDER_TYPES:
+            if auth_policy == "system_only":
                 await self.refresh_tools(db=db, connection=connection)
-            else:
-                from app.services.connection_indexing_service import (
-                    ConnectionIndexingService,
-                )
-                await ConnectionIndexingService().start(db=db, connection=connection)
+        elif credentials:
+            from app.services.connection_indexing_service import (
+                ConnectionIndexingService,
+            )
+            await ConnectionIndexingService().start(db=db, connection=connection)
 
         # Audit log
         try:
@@ -317,10 +318,11 @@ class ConnectionService:
 
             # Refresh tables/tools if connection changed.
             # Schema refresh is backgrounded; tool refresh stays synchronous.
-            if connection_changed and connection.auth_policy == "system_only":
+            if connection_changed:
                 if connection.type in self._TOOL_PROVIDER_TYPES:
-                    await self.refresh_tools(db=db, connection=connection)
-                else:
+                    if connection.auth_policy == "system_only":
+                        await self.refresh_tools(db=db, connection=connection)
+                elif connection.credentials:
                     from app.services.connection_indexing_service import (
                         ConnectionIndexingService,
                     )
@@ -461,7 +463,7 @@ class ConnectionService:
                 }
 
             table_count = schema_status.get("table_count", 0)
-            message = _connected_message(connection.type, table_count)
+            message = _connected_message(data_source_type, table_count)
             return {
                 "success": True,
                 "message": message,
