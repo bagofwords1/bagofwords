@@ -28,6 +28,7 @@ from app.services.connection_oauth_service import (
     generate_pkce_pair,
     get_oauth_params,
     exchange_code_for_tokens,
+    parse_expires_at,
 )
 
 logger = get_logger(__name__)
@@ -292,7 +293,7 @@ async def oauth_callback(
     if existing:
         existing.auth_mode = "oauth"
         existing.encrypt_credentials(tokens)
-        existing.expires_at = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else None
+        existing.expires_at = parse_expires_at(tokens.get("expires_at"))
         db.add(existing)
     else:
         row = UserConnectionCredentials(
@@ -302,7 +303,7 @@ async def oauth_callback(
             auth_mode="oauth",
             is_active=True,
             is_primary=True,
-            expires_at=datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else None,
+            expires_at=parse_expires_at(tokens.get("expires_at")),
         )
         row.encrypt_credentials(tokens)
         db.add(row)

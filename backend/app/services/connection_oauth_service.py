@@ -23,6 +23,25 @@ from app.settings.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def parse_expires_at(value: Optional[str]) -> Optional[datetime]:
+    """Parse an OAuth ``expires_at`` ISO string into a naive UTC datetime.
+
+    Token responses encode ``expires_at`` as an RFC3339 string with a UTC
+    offset (e.g. ``2026-06-02T10:09:32+00:00``), which ``datetime.fromisoformat``
+    turns into a timezone-aware datetime. The ``user_connection_credentials``
+    columns are ``TIMESTAMP WITHOUT TIME ZONE`` (matching ``created_at`` /
+    ``updated_at``, which use naive UTC), and asyncpg rejects aware datetimes
+    for those columns. Normalize to naive UTC so the value is consistent with
+    the rest of the schema and storable on PostgreSQL.
+    """
+    if not value:
+        return None
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
 # ---------------------------------------------------------------------------
 # PKCE helpers (extracted from auth_providers.py for reuse)
 # ---------------------------------------------------------------------------
@@ -402,7 +421,7 @@ async def auto_provision_connection_credentials(
         # Upsert credentials
         if existing:
             existing.encrypt_credentials(tokens)
-            existing.expires_at = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else None
+            existing.expires_at = parse_expires_at(tokens.get("expires_at"))
             db.add(existing)
         else:
             row = UserConnectionCredentials(
@@ -412,7 +431,7 @@ async def auto_provision_connection_credentials(
                 auth_mode="oauth",
                 is_active=True,
                 is_primary=True,
-                expires_at=datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else None,
+                expires_at=parse_expires_at(tokens.get("expires_at")),
             )
             row.encrypt_credentials(tokens)
             db.add(row)
@@ -481,7 +500,7 @@ async def maybe_refresh_oauth_credentials(
         new_tokens = await refresh_access_token(oauth_params, refresh_token)
         # Update stored credentials
         cred_row.encrypt_credentials(new_tokens)
-        cred_row.expires_at = datetime.fromisoformat(new_tokens["expires_at"])
+        cred_row.expires_at = parse_expires_at(new_tokens.get("expires_at"))
         db.add(cred_row)
         await db.commit()
         await db.refresh(cred_row)
