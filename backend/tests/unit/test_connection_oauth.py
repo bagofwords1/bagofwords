@@ -19,6 +19,7 @@ from app.services.connection_oauth_service import (
     exchange_code_for_tokens,
     refresh_access_token,
     exchange_obo_token,
+    parse_expires_at,
     ENTRA_OBO_CONNECTION_TYPES,
 )
 
@@ -434,3 +435,42 @@ class TestIsEntraProvider:
         from app.services.auth_providers import _is_entra_provider
         with patch("app.services.auth_providers._get_oidc_config", return_value=None):
             assert _is_entra_provider("nonexistent") is False
+
+
+# ---------------------------------------------------------------------------
+# parse_expires_at Tests
+# ---------------------------------------------------------------------------
+
+class TestParseExpiresAt:
+    """parse_expires_at must return naive UTC so the value is storable on
+    PostgreSQL TIMESTAMP WITHOUT TIME ZONE columns (regression: asyncpg
+    DataError 'can't subtract offset-naive and offset-aware datetimes')."""
+
+    def test_aware_iso_string_becomes_naive_utc(self):
+        # The shape produced by exchange_*_token(): RFC3339 with +00:00 offset.
+        result = parse_expires_at("2026-06-02T10:09:32.274348+00:00")
+        assert result.tzinfo is None
+        assert result == datetime(2026, 6, 2, 10, 9, 32, 274348)
+
+    def test_offset_is_converted_to_utc_then_stripped(self):
+        # A +02:00 wall-clock time must be shifted to 08:00 UTC, then made naive.
+        result = parse_expires_at("2026-06-02T10:00:00+02:00")
+        assert result.tzinfo is None
+        assert result == datetime(2026, 6, 2, 8, 0, 0)
+
+    def test_naive_iso_string_passthrough(self):
+        result = parse_expires_at("2026-06-02T10:00:00")
+        assert result.tzinfo is None
+        assert result == datetime(2026, 6, 2, 10, 0, 0)
+
+    def test_none_returns_none(self):
+        assert parse_expires_at(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert parse_expires_at("") is None
+
+    def test_real_token_expires_at_is_naive(self):
+        # End-to-end with the exact producer expression.
+        expires_at = datetime.fromtimestamp(time.time() + 3600, tz=timezone.utc).isoformat()
+        result = parse_expires_at(expires_at)
+        assert result.tzinfo is None
