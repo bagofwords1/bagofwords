@@ -239,6 +239,24 @@
     external?: boolean
     activePath?: string
   }
+  // Settings tabs and the permission each requires — must mirror the tab list
+  // in layouts/settings.vue. The sidebar Settings link uses this to (a) hide
+  // itself when no tab is reachable and (b) deep-link to the first reachable
+  // tab, so clicking it never lands on a page the user gets redirected out of.
+  const settingsTabPermissions: { name: string; permission: string }[] = [
+    { name: 'members', permission: 'view_members' },
+    { name: 'models', permission: 'manage_llm' },
+    { name: 'ai_settings', permission: 'manage_settings' },
+    { name: 'general', permission: 'manage_settings' },
+    { name: 'integrations', permission: 'manage_settings' },
+    { name: 'audit', permission: 'view_audit_logs' },
+    { name: 'identity-provider', permission: 'manage_identity_providers' },
+    { name: 'license', permission: 'manage_settings' },
+  ]
+  const firstAccessibleSettingsTab = computed(() =>
+    settingsTabPermissions.find(tab => useCan(tab.permission)) || null
+  )
+
   const mainNavItems: NavItem[] = [
     { href: '/reports', icon: 'heroicons-chat-bubble-left-right', label: 'nav.reports' },
     { href: '/dashboards', icon: 'heroicons-chart-bar-square', label: 'nav.dashboards' },
@@ -250,11 +268,22 @@
     { href: '/evals', icon: 'heroicons-check-circle', label: 'nav.evals', permission: 'manage_evals' },
   ]
 
-  const bottomNavItems: NavItem[] = [
-    { href: '/agents', component: AgentIcon, label: 'nav.dataAgents' },
-    { href: '/settings/members', activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' },
-    { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'nav.documentation', external: true },
-  ]
+  const bottomNavItems = computed<NavItem[]>(() => {
+    const items: NavItem[] = [
+      { href: '/agents', component: AgentIcon, label: 'nav.dataAgents' },
+    ]
+    // The Settings entry was always shown but hard-linked to /settings/members,
+    // which requires `view_members`. A user on a custom role without that perm
+    // would click it and get silently bounced to '/' by permissions.global.ts —
+    // i.e. "the Settings button does nothing". Only surface it when the user can
+    // actually reach a settings tab, and point it at the first one they can open.
+    const tab = firstAccessibleSettingsTab.value
+    if (tab) {
+      items.push({ href: `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.settings' })
+    }
+    items.push({ href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'nav.documentation', external: true })
+    return items
+  })
   
   // Agent management - use selectedAgentObjects for new report creation
   const { initAgent, selectedAgentObjects, agents, hasAgents } = useAgent()
