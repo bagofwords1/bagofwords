@@ -1,0 +1,13 @@
+# Snyk (https://snyk.io) policy file.
+#
+# Pin the Python version Snyk uses when resolving this project's
+# requirements_versioned.txt during SCM/Git scans.
+#
+# Without this, Snyk defaults to Python 3.7 and resolves version-gated
+# packages down to their newest 3.7-compatible release (e.g. pillow ->
+# 9.5.0, pyarrow -> 12.0.1), producing false-positive vulnerabilities for
+# versions this project does not ship. The deployed image runs on Ubuntu
+# 24.04 (Python 3.12), where the pinned versions (pillow 12.2.0,
+# pyarrow 16.1.0) are current and unaffected.
+language-settings:
+  python: '3.12'
