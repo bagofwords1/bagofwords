@@ -88,7 +88,7 @@ class AwsAthenaClient(DataSourceClient):
         self,
         region: str,
         database: str,
-        s3_output_location: str,
+        s3_output_location: str = None,
         access_key: str = None,
         secret_key: str = None,
         role_arn: str = None,
@@ -164,10 +164,11 @@ class AwsAthenaClient(DataSourceClient):
                 'sql': sql,
                 'database': self.database,
                 'ctas_approach': False,
-                's3_output': self.s3_output_location,
                 'workgroup': self.workgroup,
                 'data_source': self.data_source,
             }
+            if self.s3_output_location:
+                wrangler_params['s3_output'] = self.s3_output_location
             
             # Add optional parameters
             if self.encryption_option:
@@ -222,9 +223,10 @@ class AwsAthenaClient(DataSourceClient):
             }
         except Exception as e:
             if "AccessDenied" in str(e) and "S3" in str(e):
+                location = self.s3_output_location or "workgroup output location"
                 return {
                     "success": False,
-                    "message": f"Connected to Glue catalog but S3 access denied. Check S3 permissions for: {self.s3_output_location}"
+                    "message": f"Connected to Glue catalog but S3 access denied. Check S3 permissions for: {location}"
                 }
             elif "INVALID_INPUT" in str(e) and "database" in str(e).lower():
                 return {

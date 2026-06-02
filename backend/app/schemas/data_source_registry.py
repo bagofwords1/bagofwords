@@ -90,6 +90,7 @@ from app.schemas.data_sources.configs import (
     GCPCredentials,
     AWSCostCredentials,
     AWSAthenaCredentials,
+    AWSAthenaDefaultCredentials,
     VerticaCredentials,
     AwsRedshiftUserPassCredentials,
     AwsRedshiftIAMCredentials,
@@ -307,8 +308,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="AWS Athena",
         description="AWS Athena is a serverless query service that makes it easy to analyze data in Amazon S3 using standard SQL.",
         config_schema=AWSAthenaConfig,
-        credentials_auth=AuthOptions(default="key", by_auth={
-            "key": AuthVariant(title="AWS Keys", schema=AWSAthenaCredentials, scopes=["system", "user"])  # system
+        credentials_auth=AuthOptions(default="default", by_auth={
+            "default": AuthVariant(title="AWS Default (IAM Role / Instance Profile)", schema=AWSAthenaDefaultCredentials, scopes=["system", "user"]),
+            "key": AuthVariant(title="AWS Access Keys", schema=AWSAthenaCredentials, scopes=["system", "user"]),
         }),
         client_path=None,
         version="beta",

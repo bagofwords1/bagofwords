@@ -316,11 +316,17 @@ class AWSAthenaCredentials(BaseModel):
     role_arn: str = Field(..., title="Role ARN", description="", json_schema_extra={"ui:type": "string"})
 
 
+class AWSAthenaDefaultCredentials(BaseModel):
+    """No credentials required — boto3 resolves via its default chain (env vars, instance profile, IRSA, etc.)."""
+    class Config:
+        extra = 'allow'
+
+
 class AWSAthenaConfig(BaseModel):
     region: str = Field(..., title="Region", description="", json_schema_extra={"ui:type": "string"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
     workgroup: str = Field("primary", title="Workgroup", description="", json_schema_extra={"ui:type": "string"})
-    s3_output_location: str = Field(..., title="S3 Output Location", description="", json_schema_extra={"ui:type": "string"})
+    s3_output_location: Optional[str] = Field(None, title="S3 Output Location", description="Leave blank if your workgroup has a default output location", json_schema_extra={"ui:type": "string"})
     data_source: str = Field("AwsDataCatalog", title="Data Source", description="", json_schema_extra={"ui:type": "string"})
 
 
@@ -1219,6 +1225,7 @@ __all__ = [
     "GCPCredentials",
     "AWSCostCredentials",
     "AWSAthenaCredentials",
+    "AWSAthenaDefaultCredentials",
     "VerticaCredentials",
     "AwsRedshiftCredentials",
     "TableauCredentials",

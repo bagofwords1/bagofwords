@@ -461,7 +461,7 @@ class ConnectionService:
                 }
 
             table_count = schema_status.get("table_count", 0)
-            message = _connected_message(connection.type, table_count)
+            message = _connected_message(data_source_type, table_count)
             return {
                 "success": True,
                 "message": message,
