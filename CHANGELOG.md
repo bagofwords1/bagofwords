@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.389 (June 2, 2026)
+- Security patches/dependecy updates
+- OneDrive indexing fixes
+
 ## Version 0.0.388 (May 25, 2026)
 - Hide intercom for mobile
 - Sharepoint/onedrive/Google drive integrations
