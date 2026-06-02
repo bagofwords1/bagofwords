@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from app.models.report import Report
 from app.ee.audit.service import audit_service
-from app.core.path_safety import UnsafePathError, ensure_within
 
 router = APIRouter(tags=["files"])
 file_service = FileService()
@@ -124,15 +123,16 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
 
-    if not file.path or not os.path.exists(file.path):
+    if not file.path:
         raise HTTPException(status_code=404, detail="File content not found")
 
-    # Centralised path-traversal guard. The DB-stored path was written by our
-    # own upload handler; verify it still resolves under uploads/ at the sink
-    # (Snyk python/PT, defence in depth).
-    try:
-        safe_path = str(ensure_within(file.path, [os.path.join(os.getcwd(), "uploads")]))
-    except UnsafePathError:
+    # Path-traversal guard at the sink. Uploaded files (and tool outputs) are
+    # always stored flat under uploads/files/, so rebuild the path to open from
+    # the trusted root plus the sanitized basename. os.path.basename strips any
+    # directory-traversal sequences, so a tampered DB value can never make
+    # open() escape uploads/files/.
+    safe_path = os.path.join(os.getcwd(), "uploads", "files", os.path.basename(file.path))
+    if not os.path.exists(safe_path):
         raise HTTPException(status_code=404, detail="File content not found")
 
     try:
