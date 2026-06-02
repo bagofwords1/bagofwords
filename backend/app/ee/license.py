@@ -4,6 +4,7 @@
 
 import jwt
 import logging
+import os
 from datetime import datetime, timezone
 from functools import wraps
 from inspect import signature
@@ -33,17 +34,16 @@ TIER_FEATURES = {
 # Data sources that require an enterprise license
 ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau"]
 
-# Public key for license verification (RS256)
-# This key is used to verify license signatures without exposing the private key
-LICENSE_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxmmTEMSxkicmKkQY1fmR
-reBzCRZqxD6Pj2B4f33yo0zIOZ/uZy+hbN2MX1HN/NSErgxeBc2Cc4V0jVn3ElZY
-xqbJ0s+Yx86ycwczkn2Lv7PTxBDjcMKI9duBjrR6A2C38PI1ij1LwRLbERtpCJ0I
-8+B8/Act9FTVM/xs/L4ZFiT4gM9C04QBWB5pBsxXkrIp2kPEU2Djfx7U8KlwBsCC
-/A4ARnvXMlXvakY7m3D377ZMFKQ+qjgn6ILGwpYPq2LtH2/V6/sHTzu0Q8Xv8PH4
-VLPjN9mwZy0QlE26rUXElbaPSMmlhk3RPXCmmwHRrPFZXQmPV4HBJAleA7U9MswG
-PwIDAQAB
------END PUBLIC KEY-----"""
+# Public key for license verification (RS256).
+#
+# This is an asymmetric *public* key — it only verifies license signatures and
+# is safe to distribute (the private signing key never leaves Bag of Words).
+# It is loaded from an adjacent .pem file rather than inlined so the key can be
+# rotated without code changes and so static analysis does not mistake a public
+# verification key for a hardcoded secret.
+_LICENSE_PUBLIC_KEY_PATH = os.path.join(os.path.dirname(__file__), "license_public_key.pem")
+with open(_LICENSE_PUBLIC_KEY_PATH, "r", encoding="utf-8") as _key_file:
+    LICENSE_PUBLIC_KEY = _key_file.read()
 
 
 class LicenseInfo(BaseModel):
