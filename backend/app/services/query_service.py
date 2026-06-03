@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.models.query import Query
 from app.models.widget import Widget
 from app.models.report import Report
+from app.models.user import User
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
 from app.schemas.step_schema import StepSchema
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
@@ -212,12 +213,15 @@ class QueryService:
         if not report:
             raise ValueError("Report not found for step's widget")
 
-        # Build ds_clients using construct_clients for multi-connection support
+        # Build ds_clients using construct_clients for multi-connection support.
+        # Run as the user who triggered the run so user_required connections use
+        # their credentials (or owner/admin → system-cred fallback).
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
+        run_user = await db.get(User, user_id) if user_id else None
         ds_clients = {}
         for ds in report.data_sources:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
             ds_clients.update(ds_conns)
         excel_files = report.files
         usage_context = self._usage_context(organization_id, user_id, source="query_run", source_ref_id=query_id)
