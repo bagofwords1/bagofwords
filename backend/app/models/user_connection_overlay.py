@@ -14,10 +14,12 @@ class UserConnectionTable(BaseSchema):
         UniqueConstraint('connection_id', 'user_id', 'table_name', name='uq_user_conn_table'),
     )
 
-    connection_id = Column(String(36), ForeignKey('connections.id'), nullable=False, index=True)
+    connection_id = Column(String(36), ForeignKey('connections.id', ondelete='CASCADE'), nullable=False, index=True)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
     table_name = Column(String, nullable=False)
-    connection_table_id = Column(String(36), ForeignKey('connection_tables.id'), nullable=True)
+    # SET NULL (not CASCADE): keep the per-user row across schema re-syncs that drop
+    # a canonical table; cleaned up via the connection_id CASCADE on connection delete.
+    connection_table_id = Column(String(36), ForeignKey('connection_tables.id', ondelete='SET NULL'), nullable=True)
 
     # Visibility and status for this user
     is_accessible = Column(Boolean, nullable=False, default=True)
@@ -41,7 +43,7 @@ class UserConnectionColumn(BaseSchema):
         UniqueConstraint('user_connection_table_id', 'column_name', name='uq_user_conn_table_column'),
     )
 
-    user_connection_table_id = Column(String(36), ForeignKey('user_connection_tables.id'), nullable=False, index=True)
+    user_connection_table_id = Column(String(36), ForeignKey('user_connection_tables.id', ondelete='CASCADE'), nullable=False, index=True)
     column_name = Column(String, nullable=False)
     is_accessible = Column(Boolean, nullable=False, default=True)
     is_masked = Column(Boolean, nullable=False, default=False)

@@ -320,7 +320,11 @@ async function getDataSources() {
             if (ds.auth_policy !== 'user_required') return true
             const status = ds.user_status
             if (status?.has_user_credentials) return true
-            return status?.effective_auth === 'system' && !status?.uses_fallback
+            // effective_auth === 'system' means the user can run via system/service-
+            // principal creds — including the owner/admin fallback (uses_fallback).
+            // Treat that as usable so admins aren't forced through "Connect" for a
+            // source they can already query.
+            return status?.effective_auth === 'system'
         }
         dataSources.value = allSources.filter(isUsable)
         // Everything else returned is a user_required source the user can connect.

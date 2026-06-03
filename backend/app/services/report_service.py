@@ -587,7 +587,10 @@ class ReportService:
 
                 try:
                     logger.info(f"Running visualization {viz_id} via step {step.id} for report {report_id}")
-                    await self.widget_service.step_service.rerun_step(db, step.id)
+                    # Run as the report run's user (interactive caller, or the
+                    # schedule creator for scheduled runs) so user_required
+                    # connections resolve their creds / owner-admin fallback.
+                    await self.widget_service.step_service.rerun_step(db, step.id, current_user=current_user)
                 except Exception as e:
                     logger.warning(f"Failed to rerun step {step.id} for visualization {viz_id}: {e}; continuing")
                     continue

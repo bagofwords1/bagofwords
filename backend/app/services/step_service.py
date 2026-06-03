@@ -14,7 +14,9 @@ from app.ai.prompt_formatters import TableFormatter
 from app.models.completion import Completion
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from typing import Optional
 from app.models.report import Report
+from app.models.user import User
 
 from app.ai.code_execution.code_execution import CodeExecutionManager
 
@@ -109,23 +111,26 @@ class StepService:
 
         return step_schema
     
-    async def rerun_step(self, db: AsyncSession, step_id: str):
+    async def rerun_step(self, db: AsyncSession, step_id: str, current_user: Optional[User] = None):
 
         step = await self.get_step_by_id(db, step_id)
         if not step:
             raise ValueError("Step not found")
-        
+
         # get messages from the original step
         report = step.widget.report
         if not report:
             raise ValueError("Report not found")
-        
-        # Build db_clients using construct_clients for multi-connection support
+
+        # Build db_clients using construct_clients for multi-connection support.
+        # Run as the user who triggered the rerun so user_required connections use
+        # their credentials (or owner/admin → system-cred fallback). Background
+        # callers that pass no user still get None here (handled in case B).
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         db_clients = {}
         for data_source in report.data_sources:
-            ds_clients = await ds_service.construct_clients(db, data_source, current_user=None)
+            ds_clients = await ds_service.construct_clients(db, data_source, current_user=current_user)
             db_clients.update(ds_clients)
 
         excel_files = report.files

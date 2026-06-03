@@ -453,28 +453,35 @@ class DataSourceService:
         # Save tables (validation already passed above)
         # Note: Description, conversation starters, and instructions are generated
         # later via llm_sync (after user selects tables) to use the correct schema
-        if auth_policy == "system_only":
-            if connections_to_link:
-                # Mode 2: Link to existing connection(s) - use new architecture
-                # ConnectionTable was populated above, now sync to DataSourceTable for each connection
-                for conn in connections_to_link:
-                    await self.sync_domain_tables_from_connection(
-                        db, new_data_source, conn,
-                        max_auto_select=self.ONBOARDING_MAX_TABLES
-                    )
-            else:
-                # Mode 1: New connection - schema discovery runs in the
-                # background. The indexing runner populates ConnectionTable
-                # and then syncs DataSourceTable for this data source
-                # (and any others linked to the connection).
-                from app.services.connection_indexing_service import (
-                    ConnectionIndexingService,
+        if connections_to_link:
+            # Mode 2: Link to existing connection(s). Seed DataSourceTable from
+            # each connection's already-discovered ConnectionTable catalog so the
+            # new agent shows tables immediately — for user_required too, not just
+            # system_only. The admin/service-principal indexing already populated
+            # the shared catalog; per-user accessibility is layered via the
+            # overlay at read time. This is a local DB copy (no live fetch / creds):
+            # a connection whose catalog is still empty (e.g. delegated-only OBO
+            # before anyone signs in) just syncs zero rows and fills in later.
+            for conn in connections_to_link:
+                await self.sync_domain_tables_from_connection(
+                    db, new_data_source, conn,
+                    max_auto_select=self.ONBOARDING_MAX_TABLES
                 )
-                logger.info(
-                    f"create_data_source: Mode 1 - kicking off background indexing "
-                    f"for new connection {new_connection.id}"
-                )
-                await ConnectionIndexingService().start(db=db, connection=new_connection)
+            await db.commit()
+            await db.refresh(new_data_source)
+        elif auth_policy == "system_only":
+            # Mode 1: New connection - schema discovery runs in the
+            # background. The indexing runner populates ConnectionTable
+            # and then syncs DataSourceTable for this data source
+            # (and any others linked to the connection).
+            from app.services.connection_indexing_service import (
+                ConnectionIndexingService,
+            )
+            logger.info(
+                f"create_data_source: Mode 1 - kicking off background indexing "
+                f"for new connection {new_connection.id}"
+            )
+            await ConnectionIndexingService().start(db=db, connection=new_connection)
             await db.commit()
             await db.refresh(new_data_source)
 

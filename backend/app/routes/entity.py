@@ -212,7 +212,7 @@ async def run_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     try:
-        entity = await service.run_entity_with_update(db, entity_id, payload, organization)
+        entity = await service.run_entity_with_update(db, entity_id, payload, organization, current_user=current_user)
         return EntitySchema.model_validate(entity)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -228,7 +228,7 @@ async def preview_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     try:
-        result = await service.preview_entity(db, entity_id, payload, organization)
+        result = await service.preview_entity(db, entity_id, payload, organization, current_user=current_user)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
