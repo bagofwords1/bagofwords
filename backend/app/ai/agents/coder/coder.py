@@ -259,9 +259,10 @@ class Coder:
            - The function should return the main dataframe that will answer the user prompt.
 
         2. **Data Source Usage**:
-           - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
+           - Use `ds_clients["<client_key>"].execute_query(...)` to query non-Excel data sources.
              * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
-             * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
+             * IMPORTANT: `execute_query` is NOT the same for every client. Some clients are SQL-based and take a single SQL string (e.g. `execute_query("SELECT * FROM orders")`); others are NOT SQL-based and take structured keyword arguments (e.g. Tableau uses `execute_query(datasource_luid=..., fields=[...])`). ALWAYS follow the exact method signature, argument names, and call examples shown in that client's `description` under <connection_clients>. Do NOT pass a SQL string to a non-SQL client.
+             * SQL example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
            - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
@@ -492,9 +493,10 @@ class Coder:
                - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
 
             2. **Data Source Usage**:
-               - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
+               - Use `ds_clients["<client_key>"].execute_query(...)` to query non-Excel data sources.
                  * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
-                 * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
+                 * IMPORTANT: `execute_query` is NOT the same for every client. Some clients are SQL-based and take a single SQL string (e.g. `execute_query("SELECT * FROM orders")`); others are NOT SQL-based and take structured keyword arguments (e.g. Tableau uses `execute_query(datasource_luid=..., fields=[...])`). ALWAYS follow the exact method signature, argument names, and call examples shown in that client's `description` under <connection_clients>. Do NOT pass a SQL string to a non-SQL client.
+                 * SQL example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
                - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
                - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())

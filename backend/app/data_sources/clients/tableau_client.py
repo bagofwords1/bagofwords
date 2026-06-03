@@ -370,11 +370,22 @@ class TableauClient(DataSourceClient):
         text = """
 Executes VizQL queries against Tableau data sources to answer business questions from published data. This tool allows you to retrieve aggregated and filtered data with proper sorting and grouping.
 
+## IMPORTANT: This client is NOT SQL-based
+Tableau does NOT accept a SQL string. Do NOT call `execute_query("SELECT ...")` — that will fail.
+The `execute_query` method signature is:
+
+    execute_query(datasource_luid: str, fields: list[dict], filters: list[dict] = None, ...) -> pandas.DataFrame
+
+Both `datasource_luid` and `fields` are REQUIRED. `datasource_luid` is the version-4 UUID of the
+published data source (take it from the schema). `fields` is a list of field dicts (see examples below).
+Call it on the connection client using the exact client_key, e.g.
+`ds_clients["<client_key>"].execute_query(datasource_luid="...", fields=[...])`.
+
 ## Examples
 
 ```python
 # Quick profiling: record count
-df = client.execute_query(
+df = ds_clients["<client_key>"].execute_query(
   datasource_luid="version-4 UUID (take it from the schema)",
   fields=[{"fieldCaption": "Order ID", "function": "COUNT", "fieldAlias": "Total Records"}]
 )
@@ -382,7 +393,7 @@ df = client.execute_query(
 
 ```python
 # Top 10 customers by revenue (with current year filter)
-df = client.execute_query(
+df = ds_clients["<client_key>"].execute_query(
   datasource_luid="version-4 UUID (take it from the schema)",
   fields=[
     {"fieldCaption": "Customer Name"},
@@ -414,7 +425,7 @@ df = client.execute_query(
 
 ```python
 # Monthly sales trend (last 12 months)
-df = client.execute_query(
+df = ds_clients["<client_key>"].execute_query(
   datasource_luid="version-4 UUID (take it from the schema)",
   fields=[
     {
