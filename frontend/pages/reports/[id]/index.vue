@@ -1702,10 +1702,18 @@ function promptMentionsToRefs(mentions?: Array<{ name: string; items: any[] }>) 
 	for (const group of mentions) {
 		const type = GROUP_TYPE_MAP[(group.name || '').toUpperCase()] || 'entity'
 		for (const item of group.items || []) {
+			let name = item.name || item.title || item.filename || ''
+			// Data-source tables are serialized into the prompt text with their
+			// source prefix (e.g. "@Microsoft Fabric / dbo.sales"), so the ref
+			// name must include it to match and render as a single mention chip.
+			if (type === 'datasource_table') {
+				const prefix = item.connection_name || item.data_source_name
+				if (prefix) name = `${prefix} / ${name}`
+			}
 			refs.push({
 				id: item.id,
 				type,
-				name: item.name || item.title || item.filename || '',
+				name,
 				data_source_type: item.connection_type || item.data_source_type || undefined,
 			})
 		}
