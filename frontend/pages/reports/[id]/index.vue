@@ -725,6 +725,7 @@ import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import SendEmailTool from '~/components/tools/SendEmailTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
@@ -1467,6 +1468,8 @@ function getToolComponent(toolName: string) {
 			return CreateInstructionTool
 		case 'edit_instruction':
 			return EditInstructionTool
+		case 'send_email':
+			return SendEmailTool
 		case 'list_agent_executions':
 			return ListAgentExecutionsTool
 		case 'search_instructions':

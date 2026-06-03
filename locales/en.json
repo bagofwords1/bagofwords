@@ -576,6 +576,13 @@
       "toastFailedDelete": "Failed to delete instruction",
       "toastSaved": "Instruction saved"
     },
+    "sendEmail": {
+      "sending": "Sending email...",
+      "sentPrefix": "Sent: {subject}",
+      "failed": "Failed to send email",
+      "subject": "Subject",
+      "to": "To"
+    },
     "inspectData": {
       "inspecting": "Inspecting",
       "inspected": "Inspected",
