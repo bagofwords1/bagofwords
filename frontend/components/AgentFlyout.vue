@@ -67,11 +67,15 @@
             </div>
           </div>
 
-          <!-- Connect prompt for a user_required agent the user hasn't
-               authenticated. agentDetails comes from /data_sources/{id}, which
-               populates per-user status, so this correctly hides for admins on
-               the service-account fallback. -->
-          <div v-if="agentDetails && needsUserConnection(agentDetails)" class="px-4 py-2 border-b border-gray-100">
+          <!-- Locked state: agent requires per-user auth and this user hasn't
+               connected (no creds, no system fallback). Show a slim Connect card
+               instead of the tabs/content — notably hiding Sample Questions so a
+               report can't be started against a source that has no usable creds.
+               agentDetails comes from /data_sources/{id} (populates per-user
+               status), so this correctly stays hidden for the service-account
+               fallback. -->
+          <div v-if="locked" class="px-4 py-4">
+            <p class="text-xs text-gray-500 mb-3">{{ $t('agentFlyout.connectToPreview') }}</p>
             <button
               @click.stop="emit('connect', agentDetails)"
               class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
@@ -82,7 +86,7 @@
           </div>
 
           <!-- Tabs (underline / border-bottom style like Settings) -->
-          <div class="border-b border-gray-200 px-4">
+          <div v-else class="border-b border-gray-200 px-4">
             <nav class="-mb-px flex space-x-4">
               <button
                 @click="flyoutTab = 'overview'"
@@ -134,7 +138,7 @@
             </nav>
           </div>
 
-          <div class="p-4">
+          <div v-if="!locked" class="p-4">
             <div v-if="loadingDetails" class="flex items-center justify-center py-8">
               <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
             </div>
@@ -391,6 +395,11 @@ const emit = defineEmits<{
 // fetched from /data_sources/{id} (which populates per-user status), so this is
 // correct for admins on the service-account fallback.
 const { needsUserConnection } = useDataSourceConnect()
+
+// Locked = the agent requires per-user auth this user hasn't completed. In this
+// state the flyout shows a slim Connect card instead of tabs/content (and no
+// Sample Questions, which would start a report against an unusable source).
+const locked = computed(() => !!agentDetails.value && needsUserConnection(agentDetails.value))
 
 // Allow the parent to clear the cached details after a successful connect so
 // the flyout reflects the new state on next hover.

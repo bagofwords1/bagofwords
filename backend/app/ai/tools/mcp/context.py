@@ -80,15 +80,22 @@ async def build_rich_context(
         Complete context with all sections loaded and rendered
     """
     data_sources = getattr(report, 'data_sources', []) or []
-    
+
+    # Exclude user_required data sources the running user can't actually query
+    # (no personal creds, no system fallback). Otherwise their schemas land in
+    # the LLM context and create/inspect-data tools 403 mid-run.
+    ds_service = DataSourceService()
+    data_sources, skipped_unconnected = await ds_service.filter_user_usable_data_sources(db, data_sources, user)
+    if skipped_unconnected:
+        logger.info(f"build_rich_context: excluding data source(s) the user is not connected to: {skipped_unconnected}")
+
     # Get organization settings
     org_settings = await organization.get_settings(db)
-    
+
     # Get default model
     model = await organization.get_default_llm_model(db)
-    
+
     # Build data source clients
-    ds_service = DataSourceService()
     ds_clients: Dict[str, Any] = {}
     connected_sources: List[str] = []
     failed_sources: List[str] = []

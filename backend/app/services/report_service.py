@@ -408,12 +408,21 @@ class ReportService:
             ds_result = await db.execute(
                 select(DataSource)
                 .options(
+                    selectinload(DataSource.connections),
                     selectinload(DataSource.data_source_memberships),
                     selectinload(DataSource.files),
                 )
                 .filter(DataSource.id.in_(data_source_ids))
             )
             data_sources = ds_result.scalars().all()
+            # Don't attach user_required sources the creator can't actually use
+            # (no personal creds, no system fallback) — they'd only break
+            # create/inspect-data tools at run time. Mirrors the per-execution
+            # filtering in build_rich_context / get_context.
+            from app.services.data_source_service import DataSourceService
+            data_sources, _skipped_unconnected = await DataSourceService().filter_user_usable_data_sources(
+                db, list(data_sources), current_user
+            )
             report.data_sources.extend(data_sources)
 
             # Snapshot data-source-attached files into the report so they

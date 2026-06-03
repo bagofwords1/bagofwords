@@ -1447,6 +1447,56 @@ class DataSourceService:
             allowed = params
         return ClientClass(**allowed)
 
+    async def filter_user_usable_data_sources(
+        self,
+        db: AsyncSession,
+        data_sources: list,
+        current_user: User | None,
+    ) -> tuple[list, list[str]]:
+        """Split data sources into (usable, skipped_names) for the given user.
+
+        A user_required data source is NOT usable when the user has neither
+        personal credentials nor a system/service-account fallback
+        (effective_auth == "none"). Such sources 403 inside construct_clients and
+        break create/inspect-data tools mid-run — so callers building agent
+        context or clients should exclude them up front rather than attach them
+        and fail. With no current_user (system/scheduled contexts) nothing is
+        filtered.
+
+        Note: connections must be loaded on each data source (eager-load
+        DataSource.connections) — this does not lazy-load in async contexts.
+        """
+        if not current_user:
+            return list(data_sources or []), []
+
+        from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+        status_svc = UserDataSourceCredentialsService()
+
+        usable: list = []
+        skipped: list[str] = []
+        for ds in (data_sources or []):
+            can_use = True
+            for conn in (getattr(ds, "connections", None) or []):
+                if (getattr(conn, "auth_policy", None) or "system_only") != "user_required":
+                    continue
+                try:
+                    status = await status_svc.build_user_status_for_connection(
+                        db=db, connection=conn, user=current_user, data_source=ds, live_test=False
+                    )
+                    if getattr(status, "effective_auth", "none") == "none":
+                        can_use = False
+                        break
+                except Exception:
+                    # If status can't be determined, exclude — never attach a
+                    # source that will 403 at query time.
+                    can_use = False
+                    break
+            if can_use:
+                usable.append(ds)
+            else:
+                skipped.append(getattr(ds, "name", str(getattr(ds, "id", "?"))))
+        return usable, skipped
+
     async def construct_clients(self, db: AsyncSession, data_source: DataSource, current_user: User | None) -> Dict[str, Any]:
         """
         Construct clients for ALL connections in the domain.
@@ -1808,32 +1858,72 @@ class DataSourceService:
         if data_source.connections:
             auth_policy = data_source.connections[0].auth_policy or "system_only"
             
-        # For user_required policy, a user sees ONLY their own accessible tables
-        # (the per-user overlay), never the shared canonical catalog. Read order:
-        #   1. persisted overlay (cache-first; fast page renders)
-        #   2. on cache miss, a live per-user fetch — resolves the user's creds
-        #      (or the owner/admin system-creds fallback) and persists the overlay
-        # If the user has NO usable credentials (e.g. disconnected, OneDrive before
-        # OAuth), both come back empty and we return EMPTY — we do NOT fall back to
-        # the canonical catalog, which would leak every table to a user who can't
-        # actually access them.
+        # For user_required policy, read from the persisted user overlay first.
+        # Cache-first keeps page renders fast and avoids hammering Drive APIs on
+        # every UI navigation.
+        #
+        # On a cache miss (no overlay rows yet) fall back to the live per-user
+        # fetch, which resolves credentials with the owner/admin system-creds
+        # fallback and persists the overlay (warming the cache for next time).
+        # This is the populate-on-first-read path; it also restores the owner
+        # fallback on shared-catalog user_required sources (e.g. SQLite), where
+        # an owner refresh stores tables as inactive canonical rows that a
+        # cache-only read would miss. If the live fetch can't run (no creds yet,
+        # e.g. OneDrive before OAuth) it raises and we drop to the canonical
+        # schema below — typically empty for per-user catalogs.
         if auth_policy == "user_required" and current_user is not None:
-            try:
-                overlay = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
-                if overlay:
-                    return overlay
-            except Exception:
-                pass
-            try:
-                live = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
-                return live or []
-            except Exception:
-                # No usable credentials → the user has no accessible tables.
+            # Gate on the user's CURRENT access, not just the (possibly stale)
+            # overlay. The overlay's is_accessible flag tracks the last sync, not
+            # live credential validity — a disconnected user's rows can linger as
+            # accessible. Classify access fresh and serve accordingly.
+            effective_auth = await self._resolve_effective_auth(db, data_source, current_user)
+            if effective_auth == "user":
+                # User has their own creds → their overlay/live catalog only.
+                # Never fall through to the canonical (admin) catalog: for shared
+                # user_required sources (e.g. Fabric) that would leak tables the
+                # user can't actually query.
+                try:
+                    overlay = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                    if overlay:
+                        return overlay
+                    live = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                    return live or []
+                except Exception:
+                    return []
+            elif effective_auth == "none":
+                # No proven access (disconnected, expired, revoked) → no tables.
+                # Do NOT leak the canonical catalog.
                 return []
+            # effective_auth == "system" → owner/admin via service account:
+            # fall through to the canonical full catalog below.
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
 
         return schemas
+
+    async def _resolve_effective_auth(self, db: AsyncSession, data_source: DataSource, current_user: User) -> str:
+        """Classify a user's CURRENT access to a (user_required) data source.
+
+        Returns one of:
+          'user'   — the user has their own active credentials (use their overlay)
+          'system' — owner/admin using the service-account fallback (full catalog)
+          'none'   — no proven access (use nothing)
+
+        Fails closed to 'none' so a stale overlay can't keep serving tables after
+        access is lost. Owner/admin reliably classify as 'system', so the closed
+        default never hides the canonical catalog from them.
+        """
+        try:
+            conn = data_source.connections[0] if getattr(data_source, "connections", None) else None
+            if conn is None:
+                return "none"
+            from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+            status = await UserDataSourceCredentialsService().build_user_status_for_connection(
+                db, conn, current_user, data_source=data_source, live_test=False
+            )
+            return status.effective_auth or "none"
+        except Exception:
+            return "none"
 
     async def get_data_source_schema_paginated(
         self,

@@ -95,14 +95,26 @@ class SchemaContextBuilder:
             ds_tables = ds_tables_result.scalars().all()
             canonical_by_name: Dict[str, DataSourceTable] = {getattr(t, 'name', ''): t for t in ds_tables}
 
-            # Choose source: overlay for user_required with user, else canonical
-            use_overlay = (getattr(ds, 'auth_policy', 'system_only') == 'user_required') and (self.user is not None)
+            # Choose source based on the user's CURRENT access to this data source.
+            # auth_policy lives on the Connection (not the DataSource), so resolve
+            # it from the linked connection — reading it off `ds` would always
+            # default to 'system_only' and silently serve the full catalog.
+            #   'user'   → this user's per-user overlay (their visible subset)
+            #   'system' → owner/admin via service account → full canonical catalog
+            #   'none'   → no proven access → no tables (don't leak the catalog)
+            effective_auth = await self._resolve_user_access(ds)
+            use_overlay = (effective_auth == "user")
+            access_denied = (effective_auth == "none")
 
             # Normalize into a common shape for downstream rendering
             # Each entry: { name, columns: [{name,dtype}], pks: [{name,dtype}], fks: [fk], metadata_json, metrics, is_active }
             normalized: List[Dict[str, Any]] = []
 
-            if use_overlay:
+            if access_denied:
+                # User has no current access — emit the data source with no tables
+                # rather than the canonical catalog they can't actually query.
+                pass
+            elif use_overlay:
                 overlays_q = await self.db.execute(
                     select(UserDataSourceTable).where(
                         UserDataSourceTable.data_source_id == str(ds.id),
@@ -125,7 +137,12 @@ class SchemaContextBuilder:
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
-                    columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None), "description": getattr(c, 'description', None), "metadata": getattr(c, 'metadata', None)} for c in overlay_cols]
+                    # NOTE: do NOT use getattr(c, 'metadata') — c is a SQLAlchemy
+                    # ORM instance whose `.metadata` is the declarative MetaData
+                    # registry, not column metadata. It would fail PromptTableColumn
+                    # validation and abort the whole schema build. UserDataSourceColumn
+                    # carries neither description nor metadata, so emit None.
+                    columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None), "description": None, "metadata": None} for c in overlay_cols]
                     base = canonical_by_name.get(name)
                     # Respect canonical table's is_active status (default False if not found)
                     canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
@@ -374,6 +391,31 @@ class SchemaContextBuilder:
             )
 
         return TablesSchemaContext(data_sources=ds_sections)
+
+    async def _resolve_user_access(self, ds) -> str:
+        """Classify self.user's CURRENT access to data source `ds`.
+
+        Returns 'user' (own creds → overlay), 'system' (owner/admin via service
+        account → full catalog), or 'none' (no proven access → no tables).
+
+        For non-user_required connections, or when there is no user in context,
+        returns 'system' (the canonical catalog is the right thing to serve).
+        Fails closed to 'none' for user_required so a stale overlay can't keep
+        leaking tables after a user loses access.
+        """
+        conns = list(getattr(ds, 'connections', None) or [])
+        conn = conns[0] if conns else None
+        auth_policy = (getattr(conn, 'auth_policy', None) or 'system_only') if conn else 'system_only'
+        if auth_policy != 'user_required' or self.user is None or conn is None:
+            return 'system'
+        try:
+            from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+            status = await UserDataSourceCredentialsService().build_user_status_for_connection(
+                self.db, conn, self.user, data_source=ds, live_test=False
+            )
+            return status.effective_auth or 'none'
+        except Exception:
+            return 'none'
 
     async def _build_mcp_tools(self, ds) -> List[MCPToolItem]:
         """Query enabled MCP/custom_api tools for a data source's connections."""
