@@ -184,6 +184,33 @@ async def list_connections(
             except Exception:
                 user_status_payload = None
 
+        # User-scoped table count: for a user_required connection the UI should
+        # show what THIS user can actually see (their per-user overlay), not the
+        # org catalog. Mirrors the per-connection count in
+        # DataSourceService._build_connections_list.
+        #   'user' → count the user's accessible overlay tables
+        #   'none' → 0 (no proven access)
+        #   else   → keep the canonical catalog count above
+        if conn.auth_policy == "user_required" and current_user and user_status_payload:
+            eff_auth = user_status_payload.get("effective_auth") if isinstance(user_status_payload, dict) else None
+            if eff_auth == "none":
+                table_count = 0
+            elif eff_auth == "user":
+                from app.models.user_data_source_overlay import UserDataSourceTable
+                ds_ids = [str(ds.id) for ds in (conn.data_sources or [])]
+                if ds_ids:
+                    user_count_result = await db.execute(
+                        select(func.count(func.distinct(UserDataSourceTable.table_name)))
+                        .where(
+                            UserDataSourceTable.data_source_id.in_(ds_ids),
+                            UserDataSourceTable.user_id == str(current_user.id),
+                            UserDataSourceTable.is_accessible == True,
+                        )
+                    )
+                    table_count = user_count_result.scalar() or 0
+                else:
+                    table_count = 0
+
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,
@@ -492,6 +519,53 @@ async def reindex_connection(
         "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",
         "indexing": progress.model_dump() if progress else None,
     }
+
+
+@router.post("/{connection_id}/my-schema/refresh")
+async def refresh_my_connection_schema(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Re-fetch the CURRENT user's accessible schema for a user_required
+    connection (their per-user overlay), using their own credentials.
+
+    This is the per-user counterpart to /reindex — which re-indexes the shared
+    catalog via the service principal and is admin-only. Here each user refreshes
+    only what they can see, so a Fabric/OBO user can pull in tables they gained
+    access to without an admin reindex.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+
+    from app.services.data_source_service import DataSourceService
+    from app.models.user_data_source_overlay import UserDataSourceTable
+    ds_service = DataSourceService()
+    for ds in (connection.data_sources or []):
+        try:
+            # Live fetch with the user's creds + upsert their overlay (same path
+            # the OAuth callback runs after sign-in).
+            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user)
+        except Exception as e:
+            logger.warning(f"Per-user schema refresh failed for data source {ds.id}: {e}")
+
+    # Recompute the user's accessible table count for this connection.
+    ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
+    table_count = 0
+    if ds_ids:
+        result = await db.execute(
+            select(func.count(func.distinct(UserDataSourceTable.table_name)))
+            .where(
+                UserDataSourceTable.data_source_id.in_(ds_ids),
+                UserDataSourceTable.user_id == str(current_user.id),
+                UserDataSourceTable.is_accessible == True,
+            )
+        )
+        table_count = result.scalar() or 0
+    return {"message": "Schema refreshed", "table_count": table_count}
 
 
 @router.get("/{connection_id}/indexing", response_model=ConnectionIndexingProgress)

@@ -149,6 +149,48 @@ class DataSourceService:
                 )
                 table_count = legacy_count_result.scalar() or 0
 
+            # User-scoped count: for a user_required connection, the count the UI
+            # shows should reflect what THIS user can actually see — their per-user
+            # overlay — not the org catalog. Mirror SchemaContextBuilder's
+            # effective_auth resolution (which already drives the schema served):
+            #   'user'   → count the user's accessible overlay tables
+            #   'none'   → 0 (no proven access; don't advertise the catalog)
+            #   'system' / non-user_required → keep the canonical catalog count
+            # (admins/service-account see everything).
+            eff_auth = getattr(user_status, "effective_auth", None) if user_status is not None else None
+            if (conn.auth_policy or "system_only") == "user_required" and current_user and eff_auth:
+                if eff_auth == "none":
+                    table_count = 0
+                elif eff_auth == "user":
+                    from app.models.user_data_source_overlay import UserDataSourceTable
+                    # Scope to this connection via the table link when present.
+                    per_conn_result = await db.execute(
+                        select(func.count(func.distinct(UserDataSourceTable.table_name)))
+                        .join(DataSourceTable, UserDataSourceTable.data_source_table_id == DataSourceTable.id)
+                        .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                        .where(
+                            UserDataSourceTable.data_source_id == str(data_source.id),
+                            UserDataSourceTable.user_id == str(current_user.id),
+                            UserDataSourceTable.is_accessible == True,
+                            ConnectionTable.connection_id == str(conn.id),
+                        )
+                    )
+                    user_count = per_conn_result.scalar() or 0
+                    # Fallback for single-connection sources whose overlay rows
+                    # aren't cleanly linked to a connection_table: count the
+                    # user's accessible tables at the data-source level.
+                    if user_count == 0 and len(data_source.connections) == 1:
+                        ds_level_result = await db.execute(
+                            select(func.count(func.distinct(UserDataSourceTable.table_name)))
+                            .where(
+                                UserDataSourceTable.data_source_id == str(data_source.id),
+                                UserDataSourceTable.user_id == str(current_user.id),
+                                UserDataSourceTable.is_accessible == True,
+                            )
+                        )
+                        user_count = ds_level_result.scalar() or 0
+                    table_count = user_count
+
             # Inline latest indexing row (for UI polling / status badge).
             indexing_row = indexing_by_conn.get(str(conn.id))
             indexing_payload = None
@@ -2954,58 +2996,58 @@ class DataSourceService:
         if data_source.connections:
             from app.services.connection_service import ConnectionService
             from app.services.connection_indexing_service import ConnectionIndexingService
+            from app.schemas.data_source_registry import get_entry
             connection_service = ConnectionService()
             indexing_service = ConnectionIndexingService()
             logger.info(f"refresh_data_source_schema: Found {len(data_source.connections)} connections for data_source {data_source_id}")
-            has_system_only_conn = False
-            for conn in data_source.connections:
-                logger.info(f"refresh_data_source_schema: Connection {conn.id} has auth_policy={conn.auth_policy}")
-                if conn.auth_policy == "system_only":
-                    has_system_only_conn = True
+
+            # Classify by catalog ownership, NOT by auth_policy. Any SHARED catalog
+            # — system_only AND user_required (e.g. Fabric) — has an admin/system
+            # catalog that should be refreshed via the connection's creds and synced
+            # into DataSourceTable LINKED to ConnectionTable. Routing user_required
+            # through this path (instead of the old save_or_update_tables fallback)
+            # keeps exactly one canonical row per table and never creates name-keyed
+            # orphans. Per-user catalogs (OneDrive, personal Drive) have no shared
+            # catalog and are fetched per user below.
+            shared_conns, per_user_conns = [], []
+            for conn in (data_source.connections or []):
+                ownership = "shared"
+                try:
+                    ownership = get_entry(conn.type).catalog_ownership
+                except Exception:
+                    ownership = "shared"
+                (per_user_conns if ownership == "per_user" else shared_conns).append(conn)
+
+            if shared_conns:
+                for conn in shared_conns:
                     # Wait for any active indexing run before refreshing synchronously.
                     try:
                         await indexing_service.wait_for_active(db, str(conn.id))
                     except TimeoutError as exc:
-                        raise HTTPException(
-                            status_code=504,
-                            detail=str(exc),
-                        ) from exc
-                    logger.info(f"refresh_data_source_schema: Calling refresh_schema for connection {conn.id}")
+                        raise HTTPException(status_code=504, detail=str(exc)) from exc
+                    logger.info(f"refresh_data_source_schema: refresh_schema for connection {conn.id} (auth_policy={conn.auth_policy})")
                     await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
-                    logger.info(f"refresh_data_source_schema: refresh_schema completed for connection {conn.id}")
+                # Sync ConnectionTable -> DataSourceTable (linked). Reconciles/heals
+                # any legacy unlinked orphan rows; keep existing is_active state.
+                for conn in shared_conns:
+                    await self.sync_domain_tables_from_connection(
+                        db, data_source, conn, max_auto_select=None
+                    )
+                if not per_user_conns:
+                    schemas = await data_source.get_schemas(db=db, include_inactive=True)
+                    return schemas
 
-            if has_system_only_conn:
-                # Then sync from ConnectionTable to DataSourceTable
-                # This ensures any new tables from the connection are added to the domain
-                for conn in data_source.connections:
-                    if conn.auth_policy == "system_only":
-                        await self.sync_domain_tables_from_connection(
-                            db, data_source, conn,
-                            max_auto_select=None  # Don't auto-select, keep existing is_active state
-                        )
+            # Per-user catalogs: fetch the caller's own catalog against their creds.
+            if per_user_conns and current_user is not None:
+                schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                return schemas or []
 
-                # Get updated schema
+            # Mixed (shared + per-user) already refreshed the shared side above.
+            if shared_conns:
                 schemas = await data_source.get_schemas(db=db, include_inactive=True)
                 return schemas
 
-        # For per-user-catalog connections (OneDrive, personal Drive), the
-        # admin has nothing to refresh — each user's catalog is fetched and
-        # cached against their own credentials. Route to the per-user path
-        # so the caller's own catalog actually populates.
-        from app.schemas.data_source_registry import get_entry
-        per_user_conns = []
-        for conn in (data_source.connections or []):
-            try:
-                if get_entry(conn.type).catalog_ownership == "per_user":
-                    per_user_conns.append(conn)
-            except Exception:
-                continue
-        if per_user_conns and current_user is not None:
-            schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
-            return schemas or []
-
-        # Fallback to legacy behavior for user_required connections or if no connections
-        # This uses data_source_service.resolve_credentials which has owner/admin fallback
+        # No connections at all: legacy direct fetch (nothing to link against).
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas or []
     
@@ -3558,7 +3600,16 @@ class DataSourceService:
         existing = await db.execute(
             select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source.id)
         )
-        existing_by_conn_table_id = {t.connection_table_id: t for t in existing.scalars().all() if t.connection_table_id}
+        existing_rows = existing.scalars().all()
+        existing_by_conn_table_id = {t.connection_table_id: t for t in existing_rows if t.connection_table_id}
+        # Unlinked rows (connection_table_id is NULL) keyed by name. These are
+        # legacy name-keyed rows from the old save_or_update_tables path. We adopt
+        # them below instead of creating a duplicate linked row, which both
+        # prevents new duplicates and heals existing orphans on the next sync.
+        unlinked_by_name: dict[str, list] = {}
+        for t in existing_rows:
+            if not t.connection_table_id:
+                unlinked_by_name.setdefault(t.name, []).append(t)
 
         total_tables = len(conn_tables)
 
@@ -3583,26 +3634,97 @@ class DataSourceService:
                 domain_table.no_rows = conn_table.no_rows
                 domain_table.metadata_json = conn_table.metadata_json
             else:
-                # Create new domain table linked to connection table
-                domain_table = DataSourceTable(
-                    name=conn_table.name,
-                    datasource_id=data_source.id,
-                    connection_table_id=conn_table.id,
-                    is_active=should_activate,
-                    # Copy legacy fields for backward compatibility
-                    columns=conn_table.columns,
-                    pks=conn_table.pks,
-                    fks=conn_table.fks,
-                    no_rows=conn_table.no_rows,
-                    metadata_json=conn_table.metadata_json,
-                    centrality_score=conn_table.centrality_score,
-                    richness=conn_table.richness,
-                    degree_in=conn_table.degree_in,
-                    degree_out=conn_table.degree_out,
-                    entity_like=conn_table.entity_like,
-                    metrics_computed_at=conn_table.metrics_computed_at,
+                # Reconcile first: if a legacy unlinked (connection_table_id=NULL)
+                # row of the same name exists, ADOPT it — link it to this conn_table
+                # rather than inserting a duplicate. Preserves its is_active (it may
+                # be the row users currently see/select) and its per-user overlay
+                # links (UserDataSourceTable.data_source_table_id points at it).
+                pool = unlinked_by_name.get(conn_table.name)
+                if pool:
+                    domain_table = pool.pop(0)
+                    domain_table.connection_table_id = conn_table.id
+                    domain_table.columns = conn_table.columns
+                    domain_table.pks = conn_table.pks
+                    domain_table.fks = conn_table.fks
+                    domain_table.no_rows = conn_table.no_rows
+                    domain_table.metadata_json = conn_table.metadata_json
+                    domain_table.centrality_score = conn_table.centrality_score
+                    domain_table.richness = conn_table.richness
+                    domain_table.degree_in = conn_table.degree_in
+                    domain_table.degree_out = conn_table.degree_out
+                    domain_table.entity_like = conn_table.entity_like
+                    domain_table.metrics_computed_at = conn_table.metrics_computed_at
+                    db.add(domain_table)
+                else:
+                    # Create new domain table linked to connection table
+                    domain_table = DataSourceTable(
+                        name=conn_table.name,
+                        datasource_id=data_source.id,
+                        connection_table_id=conn_table.id,
+                        is_active=should_activate,
+                        # Copy legacy fields for backward compatibility
+                        columns=conn_table.columns,
+                        pks=conn_table.pks,
+                        fks=conn_table.fks,
+                        no_rows=conn_table.no_rows,
+                        metadata_json=conn_table.metadata_json,
+                        centrality_score=conn_table.centrality_score,
+                        richness=conn_table.richness,
+                        degree_in=conn_table.degree_in,
+                        degree_out=conn_table.degree_out,
+                        entity_like=conn_table.entity_like,
+                        metrics_computed_at=conn_table.metrics_computed_at,
+                    )
+                    db.add(domain_table)
+
+        # Heal pre-existing duplicates: when a name already had BOTH a linked row
+        # (matched by connection_table_id above) AND a leftover unlinked orphan,
+        # the conn_table matched the linked row so the orphan was never adopted.
+        # Re-point any per-user overlays from the orphan to the linked row, carry
+        # over the orphan's active state, then delete the orphan — leaving exactly
+        # one canonical row per (data_source, name) for this connection.
+        await db.flush()
+        from sqlalchemy import update as _sql_update, delete as _sql_delete
+        from app.models.user_data_source_overlay import UserDataSourceTable as _UDT
+        from app.models.table_stats import TableStats as _TStats
+        from app.models.table_usage_event import TableUsageEvent as _TUsage
+        from app.models.table_feedback_event import TableFeedbackEvent as _TFeedback
+        this_conn_linked = (await db.execute(
+            select(DataSourceTable)
+            .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+            .where(
+                DataSourceTable.datasource_id == data_source.id,
+                ConnectionTable.connection_id == connection_id_str,
+            )
+        )).scalars().all()
+        linked_by_name = {}
+        for t in this_conn_linked:
+            linked_by_name.setdefault(t.name, t)
+        if linked_by_name:
+            orphan_rows = (await db.execute(
+                select(DataSourceTable).where(
+                    DataSourceTable.datasource_id == data_source.id,
+                    DataSourceTable.connection_table_id.is_(None),
+                    DataSourceTable.name.in_(list(linked_by_name.keys())),
                 )
-                db.add(domain_table)
+            )).scalars().all()
+            for orphan in orphan_rows:
+                target = linked_by_name.get(orphan.name)
+                if target is None or str(target.id) == str(orphan.id):
+                    continue
+                oid, tid = str(orphan.id), str(target.id)
+                # Re-point everything that referenced the orphan onto the canonical
+                # linked row before deleting it (these FKs have no ON DELETE rule,
+                # so a bare delete would FK-violate). Stats uniqueness is by
+                # table_fqn/scope, not table_id, so re-pointing is safe.
+                await db.execute(_sql_update(_UDT).where(_UDT.data_source_table_id == oid).values(data_source_table_id=tid))
+                await db.execute(_sql_update(_TStats).where(_TStats.datasource_table_id == oid).values(datasource_table_id=tid))
+                await db.execute(_sql_update(_TUsage).where(_TUsage.datasource_table_id == oid).values(datasource_table_id=tid))
+                await db.execute(_sql_update(_TFeedback).where(_TFeedback.datasource_table_id == oid).values(datasource_table_id=tid))
+                if orphan.is_active and not target.is_active:
+                    target.is_active = True
+                    db.add(target)
+                await db.execute(_sql_delete(DataSourceTable).where(DataSourceTable.id == oid))
 
         # Deactivate domain tables that no longer exist in the connection
         # (table was deleted from the database)

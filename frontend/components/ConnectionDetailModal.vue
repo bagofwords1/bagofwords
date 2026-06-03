@@ -44,8 +44,9 @@
           <span class="text-xs text-gray-700">{{ lastCheckedDisplay || $t('data.never') }}</span>
         </div>
 
-        <!-- Last Indexed (terminal state) -->
-        <div v-if="indexingState && !isIndexingActive(indexingState) && indexingState.finished_at" class="flex items-center justify-between">
+        <!-- Last Indexed (terminal state) — service-principal run, admin-only.
+             Per-user viewers get their own "refreshed" line below instead. -->
+        <div v-if="canUpdateDataSource && indexingState && !isIndexingActive(indexingState) && indexingState.finished_at" class="flex items-center justify-between">
           <span class="text-xs text-gray-500">Last indexed</span>
           <span class="text-xs text-gray-700">
             {{ lastIndexedDisplay }}
@@ -54,16 +55,35 @@
             </span>
           </span>
         </div>
+
+        <!-- Per-user "last refreshed" — when the viewer runs on their own creds,
+             show when THEY last pulled their accessible tables (not the SP run). -->
+        <div v-if="isPerUserViewer && myLastRefreshedDisplay" class="flex items-center justify-between">
+          <span class="text-xs text-gray-500">{{ $t('data.lastRefreshed') }}</span>
+          <span class="text-xs text-gray-700">{{ myLastRefreshedDisplay }}</span>
+        </div>
       </div>
 
-      <!-- Indexing block — live progress / completion / failure + logs toggle -->
-      <div v-if="indexingState || canUpdateDataSource" class="py-3 border-t border-gray-100">
+      <!-- Indexing block — service-principal run (live progress / logs / reindex).
+           Admin-only: this is the shared catalog index, not the viewer's. -->
+      <div v-if="canUpdateDataSource" class="py-3 border-t border-gray-100">
         <ConnectionIndexingProgress v-if="indexingState" :indexing="indexingState" :show-logs="true" />
-        <div v-if="canUpdateDataSource" class="mt-2">
+        <div class="mt-2">
           <UButton size="xs" color="gray" variant="soft" :loading="reindexing" @click="reindex">
             <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5 me-1" />
             {{ indexingState?.status === 'failed' ? 'Retry' : 'Reindex' }}
           </UButton>
+        </div>
+      </div>
+
+      <!-- Per-user summary — honest, user-scoped view for OBO viewers: what THEY
+           can see, not the service-principal's "Discovered N tables" / logs. -->
+      <div v-else-if="isPerUserViewer" class="py-3 border-t border-gray-100">
+        <div class="flex items-center gap-1.5 text-xs text-green-700">
+          <UIcon name="heroicons-check-circle" class="w-4 h-4 flex-shrink-0" />
+          <span>{{ isToolProvider
+            ? $t('data.toolsAccessible', { n: toolCount })
+            : $t('data.tablesAccessible', { n: tableCount }) }}</span>
         </div>
       </div>
 
@@ -91,6 +111,19 @@
 
         <!-- Connect / Disconnect (user auth required, no admin permission) -->
         <template v-else-if="requiresUserAuth">
+          <!-- Per-user reload: refresh the tables THIS user can see (their
+               overlay) via their own creds — the per-user counterpart to the
+               admin Reindex. -->
+          <button
+            v-if="hasUserCredentials"
+            @click="reloadMySchema"
+            :disabled="reloadingMySchema"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Spinner v-if="reloadingMySchema" class="w-3.5 h-3.5" />
+            <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
+            {{ reloadingMySchema ? $t('data.refreshing') : $t('data.reloadMyTables') }}
+          </button>
           <button
             v-if="hasUserCredentials"
             @click="disconnect"
@@ -280,6 +313,11 @@ const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_
 const hasUserCredentials = computed(() => !!props.connection?.user_status?.has_user_credentials)
 // Owner/admin runs via the connection's system (service principal) creds.
 const usesServiceAccount = computed(() => props.connection?.user_status?.effective_auth === 'system')
+// Non-admin viewer running on their own per-user (OBO) creds: show a user-scoped
+// summary instead of the shared service-principal indexing run + logs.
+const isPerUserViewer = computed(() =>
+  requiresUserAuth.value && hasUserCredentials.value && !canUpdateDataSource.value
+)
 const disconnecting = ref(false)
 // The credentials modal expects a data-source-shaped object whose
 // `connections[0].id` is the connection to authorize. We only have the
@@ -310,7 +348,11 @@ const isConnected = computed(() => {
   return true
 })
 
-const tableCount = computed(() => props.connection?.table_count || 0)
+// Prefer a freshly-reloaded per-user count (set by reloadMySchema) over the
+// value carried on the connection prop, so the count updates without waiting
+// for the parent to refetch the connections list.
+const myTableCountOverride = ref<number | null>(null)
+const tableCount = computed(() => myTableCountOverride.value ?? (props.connection?.table_count || 0))
 const agentCount = computed(() => props.connection?.agent_count || 0)
 const agentNames = computed(() => props.connection?.agent_names || [])
 
@@ -326,6 +368,20 @@ const lastCheckedDisplay = computed(() => {
 
 const lastIndexedDisplay = computed(() => {
   const ts = indexingState.value?.finished_at
+  if (!ts) return ''
+  const seconds = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
+  if (seconds < 60) return t('data.justNow')
+  if (seconds < 3600) return t('data.minutesAgo', { n: Math.floor(seconds / 60) })
+  if (seconds < 86400) return t('data.hoursAgo', { n: Math.floor(seconds / 3600) })
+  return t('data.daysAgo', { n: Math.floor(seconds / 86400) })
+})
+
+// When THIS user last pulled their accessible tables. Prefer a fresh local
+// timestamp set right after a per-user reload; otherwise the last successful
+// use of their creds from the connection payload.
+const myRefreshedAt = ref<string | null>(null)
+const myLastRefreshedDisplay = computed(() => {
+  const ts = myRefreshedAt.value || props.connection?.user_status?.last_used_at
   if (!ts) return ''
   const seconds = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
   if (seconds < 60) return t('data.justNow')
@@ -460,6 +516,25 @@ async function openCredentialsModal() {
   showCredentialsModal.value = true
 }
 
+const reloadingMySchema = ref(false)
+async function reloadMySchema() {
+  // Per-user reindex: re-fetch THIS user's accessible tables (their overlay)
+  // via their own creds — the per-user counterpart to the admin /reindex.
+  if (!props.connection?.id || reloadingMySchema.value) return
+  reloadingMySchema.value = true
+  try {
+    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/my-schema/refresh`, { method: 'POST' })
+    if (!error.value) {
+      const result = data.value as any
+      if (result?.table_count != null) myTableCountOverride.value = result.table_count
+      myRefreshedAt.value = new Date().toISOString()
+      emit('updated')
+    }
+  } finally {
+    reloadingMySchema.value = false
+  }
+}
+
 async function disconnect() {
   // Per-user creds are CONNECTION-level — clear them via the connection endpoint.
   if (!props.connection?.id || disconnecting.value) return
@@ -508,6 +583,8 @@ watch(isOpen, (val) => {
   }
   // Modal opened — seed indexing state from props, fetch fresh, then poll
   // if active.
+  myTableCountOverride.value = null
+  myRefreshedAt.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
 })
