@@ -619,9 +619,19 @@ class ConnectionService:
             except ValueError:
                 pass  # unknown type, fall through
 
-            # For shared catalogs with user_required auth, indexing needs the
-            # current user's credentials. When no user has signed in yet, skip
-            # instead of 403-ing from resolve_credentials.
+            # For shared catalogs with user_required auth, indexing needs
+            # credentials. Two sources can satisfy that:
+            #   1. The current user's saved per-user credentials.
+            #   2. The connection's saved admin/system credentials, which (per
+            #      create_connection) drive the *initial* catalog — runtime
+            #      queries still flow through each user's own creds at query time.
+            #      For OBO connectors (e.g. ms_fabric) these admin creds are the
+            #      service-principal client_id/secret; MsFabricClient falls back
+            #      to ClientSecretCredential when no delegated token is present,
+            #      so the SP seeds the shared catalog.
+            # Only skip when neither is available (e.g. a delegated-only OBO setup
+            # where the admin stored no creds and no user has signed in yet), so we
+            # don't 403 out of resolve_credentials.
             if connection.auth_policy == "user_required":
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
@@ -636,10 +646,12 @@ class ConnectionService:
                         ).limit(1)
                     )).scalars().first()
                     has_creds = row is not None
-                if not has_creds:
+
+                has_system_creds = bool(connection.credentials)
+                if not has_creds and not has_system_creds:
                     logger.info(
                         f"refresh_schema: connection {connection.id} is user_required and "
-                        "no user credentials are available yet — skipping schema indexing."
+                        "no user or admin credentials are available yet — skipping schema indexing."
                     )
                     return []
 
@@ -856,6 +868,16 @@ class ConnectionService:
 
         # user_required - need per-user credentials
         if not current_user:
+            # System/indexing path (no user in context): fall back to the saved
+            # admin/system credentials so the initial catalog can be built. This
+            # only runs for admin-side operations (schema/tool indexing, warm-up)
+            # that always pass current_user=None — per-user runtime queries pass a
+            # real user and resolve their own credentials below.
+            if connection.credentials:
+                try:
+                    return connection.decrypt_credentials() or {}
+                except Exception:
+                    pass
             raise HTTPException(status_code=403, detail="User credentials required")
 
         result = await db.execute(
