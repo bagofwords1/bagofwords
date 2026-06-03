@@ -182,7 +182,44 @@ async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
     return response
 
 
+def _friendly_error_message(detail: Any) -> str:
+    """Extract a user-facing message from an HTTPException detail.
+
+    OAuth/OIDC errors (missing invite, bad state, token exchange failures, etc.)
+    should be surfaced to the user on the sign-in page rather than rendered as a
+    raw JSON error response.
+    """
+    if isinstance(detail, dict):
+        return detail.get("message") or "Sign-in failed. Please try again or contact your admin."
+    if isinstance(detail, str) and detail:
+        return detail
+    return "Sign-in failed. Please try again or contact your admin."
+
+
+def _error_redirect(message: str) -> RedirectResponse:
+    """Redirect back to the sign-in page with a visible error message."""
+    msg = urllib.parse.quote(message)
+    return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
+
+
 async def handle_callback(provider: str, request: Request, code: Optional[str], state: Optional[str], user_manager) -> RedirectResponse:
+    """Public entrypoint: convert any callback failure into a user-visible redirect.
+
+    Without this, errors raised during the OAuth/OIDC flow (e.g. a user without an
+    invite signing in via EntraID/Okta) would surface as a raw JSON error page
+    instead of being shown on the sign-in/sign-up screen.
+    """
+    try:
+        return await _handle_callback(provider, request, code, state, user_manager)
+    except HTTPException as e:
+        _auth_logger.warning(f"OAuth callback failed for provider={provider}: {e.detail}")
+        return _error_redirect(_friendly_error_message(e.detail))
+    except Exception as e:
+        _auth_logger.error(f"Unexpected error in OAuth callback for provider={provider}: {e}", exc_info=True)
+        return _error_redirect("Sign-in failed due to an unexpected error. Please try again or contact your admin.")
+
+
+async def _handle_callback(provider: str, request: Request, code: Optional[str], state: Optional[str], user_manager) -> RedirectResponse:
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code/state")
 
@@ -226,22 +263,17 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
             )
             raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
 
-        # Use user manager to link/create
-        try:
-            user = await user_manager.oauth_callback(
-                oauth_name=provider,
-                access_token=access_token,
-                account_id=str(account_id),
-                account_email=str(account_email),
-                expires_at=expires_at,
-                refresh_token=refresh_token,
-                request=request,
-            )
-        except HTTPException as e:
-            if isinstance(e.detail, dict) and e.detail.get("code") == "invitation_required":
-                msg = urllib.parse.quote(e.detail.get("message") or "Sign-up is disabled. Ask your admin for an invite.")
-                return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
-            raise
+        # Use user manager to link/create. Any failure (e.g. missing invite) is
+        # handled by the outer wrapper and surfaced on the sign-in page.
+        user = await user_manager.oauth_callback(
+            oauth_name=provider,
+            access_token=access_token,
+            account_id=str(account_id),
+            account_email=str(account_email),
+            expires_at=expires_at,
+            refresh_token=refresh_token,
+            request=request,
+        )
 
         await _audit_auth_event(
             action="auth.login",
@@ -354,21 +386,17 @@ async def handle_callback(provider: str, request: Request, code: Optional[str], 
         )
         raise HTTPException(status_code=400, detail="Could not determine email from OIDC provider. Ensure the 'email' scope is configured.")
 
-    try:
-        user = await user_manager.oauth_callback(
-            oauth_name=provider,
-            access_token=access_token,
-            account_id=str(account_id),
-            account_email=str(account_email),
-            expires_at=expires_at,
-            refresh_token=refresh_token,
-            request=request,
-        )
-    except HTTPException as e:
-        if isinstance(e.detail, dict) and e.detail.get("code") == "invitation_required":
-            msg = urllib.parse.quote(e.detail.get("message") or "Sign-up is disabled. Ask your admin for an invite.")
-            return RedirectResponse(f"{settings.bow_config.base_url}/users/sign-in?error={msg}", status_code=303)
-        raise
+    # Any failure here (e.g. missing invite) is handled by the outer wrapper
+    # and surfaced on the sign-in page.
+    user = await user_manager.oauth_callback(
+        oauth_name=provider,
+        access_token=access_token,
+        account_id=str(account_id),
+        account_email=str(account_email),
+        expires_at=expires_at,
+        refresh_token=refresh_token,
+        request=request,
+    )
 
     await _audit_auth_event(
         action="auth.login",
