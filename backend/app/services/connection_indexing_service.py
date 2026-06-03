@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -390,6 +391,12 @@ class ConnectionIndexingService:
                     try:
                         client = await svc.construct_client(db, connection)
                         asyncio.ensure_future(client.awarm_all())
+                    except HTTPException as exc:
+                        # Expected for user_required connections: warming runs in a
+                        # background context with no current_user, so credential
+                        # resolution returns 403. The first user-initiated query warms
+                        # the cache instead. Log cleanly without a scary traceback.
+                        logger.debug("indexing.warm.skipped status=%s detail=%s", exc.status_code, exc.detail)
                     except Exception:
                         logger.debug("indexing.warm.skipped", exc_info=True)
 
