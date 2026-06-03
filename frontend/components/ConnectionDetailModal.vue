@@ -528,7 +528,10 @@ async function reloadMySchema() {
       const result = data.value as any
       if (result?.table_count != null) myTableCountOverride.value = result.table_count
       myRefreshedAt.value = new Date().toISOString()
-      emit('updated')
+      // Intentionally NOT emitting 'updated': the reload only changes this
+      // user's overlay/count, which we already reflect locally above. Emitting
+      // would trigger the parent's full refreshData (incl. the admin-only demos
+      // fetch), producing a spurious access.denied for non-admins.
     }
   } finally {
     reloadingMySchema.value = false
