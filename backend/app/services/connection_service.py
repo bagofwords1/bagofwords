@@ -175,7 +175,14 @@ class ConnectionService:
         if type in self._TOOL_PROVIDER_TYPES:
             if auth_policy == "system_only":
                 await self.refresh_tools(db=db, connection=connection)
-        elif credentials:
+        elif not self._is_per_user_catalog(type):
+            # Kick off background indexing for any shared-catalog source. Don't
+            # gate on `credentials` truthiness — credential-less but indexable
+            # sources (SQLite, DuckDB, …) pass `credentials={}` and must still
+            # be indexed. Per-user catalogs (OneDrive, personal Drive) have no
+            # admin-side catalog, so they're skipped here and fetched per user
+            # after sign-in. refresh_schema applies its own guards (e.g.
+            # user_required without available credentials no-ops cleanly).
             from app.services.connection_indexing_service import (
                 ConnectionIndexingService,
             )
@@ -322,7 +329,9 @@ class ConnectionService:
                 if connection.type in self._TOOL_PROVIDER_TYPES:
                     if connection.auth_policy == "system_only":
                         await self.refresh_tools(db=db, connection=connection)
-                elif connection.credentials:
+                elif not self._is_per_user_catalog(connection.type):
+                    # See create_connection: index shared-catalog sources
+                    # regardless of credential truthiness; skip per-user catalogs.
                     from app.services.connection_indexing_service import (
                         ConnectionIndexingService,
                     )
@@ -610,9 +619,19 @@ class ConnectionService:
             except ValueError:
                 pass  # unknown type, fall through
 
-            # For shared catalogs with user_required auth, indexing needs the
-            # current user's credentials. When no user has signed in yet, skip
-            # instead of 403-ing from resolve_credentials.
+            # For shared catalogs with user_required auth, indexing needs
+            # credentials. Two sources can satisfy that:
+            #   1. The current user's saved per-user credentials.
+            #   2. The connection's saved admin/system credentials, which (per
+            #      create_connection) drive the *initial* catalog — runtime
+            #      queries still flow through each user's own creds at query time.
+            #      For OBO connectors (e.g. ms_fabric) these admin creds are the
+            #      service-principal client_id/secret; MsFabricClient falls back
+            #      to ClientSecretCredential when no delegated token is present,
+            #      so the SP seeds the shared catalog.
+            # Only skip when neither is available (e.g. a delegated-only OBO setup
+            # where the admin stored no creds and no user has signed in yet), so we
+            # don't 403 out of resolve_credentials.
             if connection.auth_policy == "user_required":
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
@@ -627,10 +646,12 @@ class ConnectionService:
                         ).limit(1)
                     )).scalars().first()
                     has_creds = row is not None
-                if not has_creds:
+
+                has_system_creds = bool(connection.credentials)
+                if not has_creds and not has_system_creds:
                     logger.info(
                         f"refresh_schema: connection {connection.id} is user_required and "
-                        "no user credentials are available yet — skipping schema indexing."
+                        "no user or admin credentials are available yet — skipping schema indexing."
                     )
                     return []
 
@@ -847,6 +868,16 @@ class ConnectionService:
 
         # user_required - need per-user credentials
         if not current_user:
+            # System/indexing path (no user in context): fall back to the saved
+            # admin/system credentials so the initial catalog can be built. This
+            # only runs for admin-side operations (schema/tool indexing, warm-up)
+            # that always pass current_user=None — per-user runtime queries pass a
+            # real user and resolve their own credentials below.
+            if connection.credentials:
+                try:
+                    return connection.decrypt_credentials() or {}
+                except Exception:
+                    pass
             raise HTTPException(status_code=403, detail="User credentials required")
 
         result = await db.execute(
@@ -995,6 +1026,19 @@ class ConnectionService:
     def _TOOL_PROVIDER_TYPES(self) -> set[str]:
         from app.schemas.data_source_registry import tool_provider_types
         return tool_provider_types()
+
+    @staticmethod
+    def _is_per_user_catalog(connection_type: str) -> bool:
+        """True for sources whose catalog is owned per-user (OneDrive, personal
+        Drive). These have no admin-side catalog to index — each user's catalog
+        is fetched after they sign in — so create/update skip background
+        indexing for them. Unknown types default to False (treat as shared).
+        """
+        from app.schemas.data_source_registry import get_entry
+        try:
+            return get_entry(connection_type).catalog_ownership == "per_user"
+        except ValueError:
+            return False
 
     async def refresh_tools(
         self,

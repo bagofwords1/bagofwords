@@ -1,7 +1,44 @@
 import { test, expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
 // Get OpenAI API key from environment
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY_TEST;
+
+// Dismiss the onboarding wizard and wait until we've actually left /onboarding.
+//
+// This is resilient to two CI-only races that make a single click flaky:
+//   1. SSR hydration lag — the "Skip onboarding" button renders (and reports
+//      visible) before its Vue @click handler is attached, so an early click is
+//      a no-op. We wait for the network to go idle first, and re-click if the
+//      first click didn't take.
+//   2. A brief middleware bounce back to /onboarding right after dismissal.
+// Returns once the URL no longer contains /onboarding (or throws after retries).
+async function dismissOnboarding(page: Page, attempts = 5): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    if (!page.url().includes('/onboarding')) return;
+
+    // Let client-side hydration settle so the click handler is bound.
+    await page.waitForLoadState('networkidle').catch(() => {});
+
+    const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
+    if (!(await skipButton.isVisible({ timeout: 15000 }).catch(() => false))) {
+      // No skip button — either already off onboarding, or page still settling.
+      if (!page.url().includes('/onboarding')) return;
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
+    await skipButton.click();
+    const left = await page
+      .waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 8000 })
+      .then(() => true)
+      .catch(() => false);
+    if (left) return;
+    // Click didn't take (hydration race) or we bounced back — retry.
+  }
+  expect(page.url(), 'should have left /onboarding after dismissing').not.toContain('/onboarding');
+}
+
 
 test.describe('Onboarding Wizard', () => {
   
@@ -106,13 +143,9 @@ test.describe('Onboarding Wizard', () => {
     // Wait for page to settle (client-side hydration + potential redirects)
     await page.waitForTimeout(5000);
 
-    // If still on any onboarding page, skip it to complete the flow
-    if (page.url().includes('/onboarding')) {
-      const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
-      await expect(skipButton).toBeVisible({ timeout: 15000 });
-      await skipButton.click();
-      await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
-    }
+    // If still on any onboarding page, skip it to complete the flow.
+    // dismissOnboarding handles the hydration/bounce races (retries the click).
+    await dismissOnboarding(page);
 
     // Verify we're not on onboarding
     expect(page.url()).not.toContain('/onboarding');
@@ -122,14 +155,8 @@ test.describe('Onboarding Wizard', () => {
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(3000);
 
-    // If redirected again, try once more to dismiss
-    if (page.url().includes('/onboarding')) {
-      const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
-      if (await skipButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await skipButton.click();
-        await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
-      }
-    }
+    // If redirected again, dismiss once more.
+    await dismissOnboarding(page);
 
     expect(page.url()).not.toContain('/onboarding');
 
