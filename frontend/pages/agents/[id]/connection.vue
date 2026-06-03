@@ -434,9 +434,10 @@ function openAddCredentials(connectionId: string) {
 }
 
 async function disconnectUserCredentials(connectionId: string) {
-  if (!dsId.value) return
   try {
-    await useMyFetch(`/data_sources/${dsId.value}/my-credentials`, { method: 'DELETE' })
+    // Per-user creds are CONNECTION-level (user_connection_credentials), so
+    // disconnect must hit the connection endpoint — not the data-source one.
+    await useMyFetch(`/connections/${connectionId}/my-credentials`, { method: 'DELETE' })
     await injectedFetchIntegration()
   } catch (e) {
     // no-op

@@ -169,12 +169,28 @@ async def list_connections(
         else:
             tool_count = 0
 
+        # Per-user auth status (so the UI can show Connected/Disconnect vs Connect
+        # for user_required connections). Cached (live_test=False) — cheap.
+        user_status_payload = None
+        if conn.auth_policy == "user_required":
+            try:
+                from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+                status = await UserDataSourceCredentialsService().build_user_status_for_connection(
+                    db, conn, current_user, live_test=False
+                )
+                user_status_payload = status.model_dump() if hasattr(status, "model_dump") else (
+                    status.dict() if hasattr(status, "dict") else status
+                )
+            except Exception:
+                user_status_payload = None
+
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,
             type=conn.type,
             is_active=conn.is_active,
             auth_policy=conn.auth_policy,
+            allowed_user_auth_modes=conn.allowed_user_auth_modes,
             last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
             organization_id=str(conn.organization_id),
             table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
@@ -182,6 +198,7 @@ async def list_connections(
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
+            user_status=user_status_payload,
         ))
     return result
 
@@ -402,6 +419,24 @@ async def test_my_connection_credentials(
         table_count=result.get("table_count", 0),
         timings=result.get("timings"),
         details=result.get("details"),
+    )
+
+
+@router.delete("/{connection_id}/my-credentials")
+async def delete_my_connection_credentials(
+    connection_id: str,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Disconnect: delete the current user's saved credentials for this connection."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, user, connection)
+    return await connection_service.delete_user_credentials(
+        db=db,
+        connection_id=connection_id,
+        organization=organization,
+        current_user=user,
     )
 
 

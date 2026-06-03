@@ -89,15 +89,37 @@
           {{ $t('data.edit') }}
         </button>
 
-        <!-- Connect button (user auth required, no admin permission) -->
-        <button
-          v-else-if="requiresUserAuth"
-          @click="openCredentialsModal"
-          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-        >
-          <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
-          {{ $t('data.connect') }}
-        </button>
+        <!-- Connect / Disconnect (user auth required, no admin permission) -->
+        <template v-else-if="requiresUserAuth">
+          <button
+            v-if="hasUserCredentials"
+            @click="disconnect"
+            :disabled="disconnecting"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+          >
+            <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
+            <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
+            {{ disconnecting ? 'Disconnecting…' : 'Disconnect' }}
+          </button>
+          <!-- Owner runs via the connection's system (service principal) creds. -->
+          <div
+            v-else-if="usesServiceAccount"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg"
+          >
+            <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
+            Service account
+          </div>
+          <button
+            v-else
+            @click="openCredentialsModal"
+            :disabled="connecting"
+            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Spinner v-if="connecting" class="w-3.5 h-3.5" />
+            <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
+            {{ $t('data.connect') }}
+          </button>
+        </template>
       </div>
 
       <!-- Test Result -->
@@ -199,9 +221,11 @@
   />
 
   <!-- User Credentials Modal (for users without update permission but require auth) -->
+  <!-- The modal derives the connection id from a data-source-shaped object
+       (.connections[0].id), so wrap the connection to satisfy that contract. -->
   <UserDataSourceCredentialsModal
     v-model="showCredentialsModal"
-    :dataSource="connection"
+    :dataSource="connectionAsDataSource"
     @saved="handleCredentialsSaved"
   />
 </template>
@@ -226,6 +250,10 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const toast = useToast()
+const signIn = useConnectionSignIn()
+// True while awaiting the OAuth authorize redirect; spins the Connect button.
+const connecting = ref(false)
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -249,6 +277,16 @@ const POLL_INTERVAL_MS = 2000
 // Permission and auth checks
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
+const hasUserCredentials = computed(() => !!props.connection?.user_status?.has_user_credentials)
+// Owner/admin runs via the connection's system (service principal) creds.
+const usesServiceAccount = computed(() => props.connection?.user_status?.effective_auth === 'system')
+const disconnecting = ref(false)
+// The credentials modal expects a data-source-shaped object whose
+// `connections[0].id` is the connection to authorize. We only have the
+// connection here, so wrap it.
+const connectionAsDataSource = computed(() =>
+  props.connection ? { ...props.connection, connections: [props.connection] } : null
+)
 
 const _TOOL_PROVIDER_TYPES = ['mcp', 'custom_api', 'onedrive', 'google_drive']
 const isToolProvider = computed(() => _TOOL_PROVIDER_TYPES.includes(props.connection?.type))
@@ -404,9 +442,35 @@ function handleEditSuccess() {
   emit('updated')
 }
 
-function openCredentialsModal() {
+async function openCredentialsModal() {
+  // OAuth-only (Entra/OBO) connections have nothing to type or pick — redirect
+  // straight to the provider instead of opening an empty credentials modal,
+  // collapsing the old Connect → Sign in two-click flow into one. The button
+  // keeps spinning through the slow authorize round-trip until the browser
+  // navigates away. Anything else (multiple auth modes, no oauth) falls back
+  // to the modal as before.
+  connecting.value = true
+  const result = await signIn.triggerUserSignIn(props.connection)
+  if (result.redirecting) return // keep spinning; the page is navigating to the provider
+  connecting.value = false
+  if (result.error) {
+    toast.add({ title: t('data.oauthStartFailed'), description: result.error, color: 'red' })
+  }
   isOpen.value = false
   showCredentialsModal.value = true
+}
+
+async function disconnect() {
+  // Per-user creds are CONNECTION-level — clear them via the connection endpoint.
+  if (!props.connection?.id || disconnecting.value) return
+  disconnecting.value = true
+  try {
+    await useMyFetch(`/connections/${props.connection.id}/my-credentials`, { method: 'DELETE' })
+    emit('updated')
+    isOpen.value = false
+  } finally {
+    disconnecting.value = false
+  }
 }
 
 function handleCredentialsSaved() {
@@ -438,6 +502,7 @@ watch(isOpen, (val) => {
   if (!val) {
     testResult.value = null
     confirmingDelete.value = false
+    connecting.value = false
     stopPolling()
     return
   }

@@ -67,6 +67,20 @@
             </div>
           </div>
 
+          <!-- Connect prompt for a user_required agent the user hasn't
+               authenticated. agentDetails comes from /data_sources/{id}, which
+               populates per-user status, so this correctly hides for admins on
+               the service-account fallback. -->
+          <div v-if="agentDetails && needsUserConnection(agentDetails)" class="px-4 py-2 border-b border-gray-100">
+            <button
+              @click.stop="emit('connect', agentDetails)"
+              class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              <Icon name="heroicons-key" class="w-3.5 h-3.5" />
+              {{ $t('data.connect') }}
+            </button>
+          </div>
+
           <!-- Tabs (underline / border-bottom style like Settings) -->
           <div class="border-b border-gray-200 px-4">
             <nav class="-mb-px flex space-x-4">
@@ -367,7 +381,26 @@ const positionStyle = computed(() => {
 const emit = defineEmits<{
   mouseenter: []
   mouseleave: []
+  // Emitted with the fetched agent details when the user clicks Connect. The
+  // parent owns the credentials modal / OAuth flow — the flyout itself is a
+  // hover preview that unmounts on mouseleave, so it can't host a modal.
+  connect: [agent: any]
 }>()
+
+// Detect whether the agent still needs a personal connection. agentDetails is
+// fetched from /data_sources/{id} (which populates per-user status), so this is
+// correct for admins on the service-account fallback.
+const { needsUserConnection } = useDataSourceConnect()
+
+// Allow the parent to clear the cached details after a successful connect so
+// the flyout reflects the new state on next hover.
+function refreshDetails() {
+  const id = props.agentId
+  if (!id) return
+  delete detailsCache.value[id]
+  fetchAgentDetails(id)
+}
+defineExpose({ refreshDetails })
 
 // Internal state
 const agentDetails = ref<any>(null)

@@ -69,11 +69,16 @@
                                     @mouseenter="onDataSourceHover(ds.id, $event)"
                                     @mouseleave="onDataSourceHoverLeave()"
                                 >
-                                    <div class="flex items-center">
-                                        <DataSourceIcon :type="ds.type" class="h-4" />
-                                        <span class="ms-2 text-[13px]">{{ ds.name }}</span>
+                                    <div class="flex items-center min-w-0">
+                                        <DataSourceIcon :type="ds.type" class="h-4 flex-shrink-0" />
+                                        <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
+                                        <!-- Running via the connection's system (service principal) creds -->
+                                        <span
+                                            v-if="isServiceAccount(ds)"
+                                            class="ms-2 flex-shrink-0 text-[10px] text-gray-400 border border-gray-200 rounded px-1 py-0.5"
+                                        >Service account</span>
                                     </div>
-                                    <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
+                                    <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0" />
                                 </div>
                             </template>
 
@@ -94,10 +99,12 @@
                                     </div>
                                     <button
                                         type="button"
-                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                                        :disabled="connectingId === ds.id"
+                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                         @click.stop="openCredentialsModal(ds)"
                                     >
-                                        <Icon name="heroicons-key" class="w-3 h-3" />
+                                        <Spinner v-if="connectingId === ds.id" class="w-3 h-3" />
+                                        <Icon v-else name="heroicons-key" class="w-3 h-3" />
                                         {{ $t('data.connect') }}
                                     </button>
                                 </div>
@@ -115,6 +122,7 @@
             :position="flyout"
             @mouseenter="onFlyoutEnter"
             @mouseleave="onFlyoutLeave"
+            @connect="openCredentialsModal"
         />
 
         <!-- User credentials / OAuth modal for connecting user_required sources -->
@@ -186,11 +194,21 @@ function findPendingSignInConnection(ds: DataSource): any | null {
     return null
 }
 
+// Data source id whose Connect button is mid-sign-in (awaiting the authorize
+// redirect). Stays set through a redirect so the spinner persists until the
+// browser unloads the page.
+const connectingId = ref<string | null>(null)
+
 async function openCredentialsModal(ds: DataSource) {
     const pending = findPendingSignInConnection(ds)
     if (pending) {
+        // Spin the clicked button while we fetch the authorize URL — for
+        // SSO/Entra/OBO this round-trip hits Azure and is slow enough that the
+        // button otherwise looks frozen before the browser navigates away.
+        connectingId.value = ds.id
         const result = await signIn.triggerUserSignIn(pending)
-        if (result.redirecting) return
+        if (result.redirecting) return // keep spinning; the page is navigating to the provider
+        connectingId.value = null
         if (result.error) {
             toast.add({ title: t('data.oauthStartFailed'), description: result.error, color: 'red' })
         }
@@ -351,6 +369,14 @@ function handleSelectionChange() {
 
 function isSelected(option: any) {
     return internalSelectedDataSources.value.some((ds: any) => ds.id === option.id)
+}
+
+// The user can use this user_required source via the connection's system
+// (service principal) credentials — admin/owner fallback, no personal sign-in.
+function isServiceAccount(ds: any) {
+    return ds?.auth_policy === 'user_required'
+        && ds?.user_status?.effective_auth === 'system'
+        && !ds?.user_status?.has_user_credentials
 }
 
 function toggleAutoMode() {

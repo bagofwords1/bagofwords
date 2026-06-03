@@ -586,6 +586,56 @@ class ConnectionService:
         except Exception as e:
             return {"success": False, "message": str(e)}
 
+    async def delete_user_credentials(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Disconnect: delete the current user's per-user credentials for a
+        connection. Per-user OAuth/basic creds live at the CONNECTION level
+        (user_connection_credentials), so this is what 'Disconnect' must clear —
+        the data-source-level table is a separate, legacy store.
+        """
+        connection = await self.get_connection(db, connection_id, organization)
+        result = await db.execute(
+            select(UserConnectionCredentials).where(
+                UserConnectionCredentials.connection_id == str(connection.id),
+                UserConnectionCredentials.user_id == str(current_user.id),
+            )
+        )
+        rows = result.scalars().all()
+        for row in rows:
+            await db.delete(row)
+
+        # Invalidate this user's per-user schema overlay too — it records the
+        # tables they could see while connected. Leaving it behind would let a
+        # disconnected user keep seeing (and the agent keep listing) tables they
+        # can no longer access. The overlay is rebuilt on the next connect/fetch.
+        # (FK ON DELETE CASCADE removes the dependent column overlay rows.)
+        from sqlalchemy import delete as sql_delete
+        from app.models.user_data_source_overlay import UserDataSourceTable
+        from app.models.user_connection_overlay import UserConnectionTable
+
+        ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
+        if ds_ids:
+            await db.execute(
+                sql_delete(UserDataSourceTable).where(
+                    UserDataSourceTable.user_id == str(current_user.id),
+                    UserDataSourceTable.data_source_id.in_(ds_ids),
+                )
+            )
+        await db.execute(
+            sql_delete(UserConnectionTable).where(
+                UserConnectionTable.user_id == str(current_user.id),
+                UserConnectionTable.connection_id == str(connection.id),
+            )
+        )
+
+        await db.commit()
+        return {"deleted": len(rows)}
+
     async def refresh_schema(
         self,
         db: AsyncSession,

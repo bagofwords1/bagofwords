@@ -59,7 +59,7 @@
 					</div>
 					<!-- Agent View -->
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
-						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" @starter-click="handleExampleClick" />
+						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" @starter-click="handleExampleClick" @connected="handleAgentConnected" />
 					</div>
 					<!-- Dashboard View -->
 					<ArtifactFrame
@@ -625,7 +625,7 @@
 			<!-- Agent View -->
 			<div v-else-if="rightPanelView === 'agent'" class="h-full flex flex-col">
 				<div class="flex-1 overflow-y-auto">
-					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" @starter-click="handleExampleClick" />
+					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" @starter-click="handleExampleClick" @connected="handleAgentConnected" />
 				</div>
 			</div>
 
@@ -1072,6 +1072,15 @@ const currentAgents = ref<any[]>([])
 watch(() => report.value?.data_sources, (val) => {
     if (val && currentAgents.value.length === 0) currentAgents.value = [...val]
 }, { immediate: true })
+
+// An agent was connected from ReportAgentPanel's credentials modal — refetch
+// the report so updated per-user auth status flows back and the Connect prompt
+// clears. (The OAuth redirect path reloads the page on return and refreshes on
+// its own.)
+async function handleAgentConnected() {
+    await loadReport()
+    if (report.value?.data_sources) currentAgents.value = [...report.value.data_sources]
+}
 
 // Flat, deduplicated conversation starters from all selected agents (max 3)
 // Each stored starter is "Title\nDetailed prompt" — split into { title, prompt }

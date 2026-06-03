@@ -258,21 +258,33 @@ class UserDataSourceCredentialsService:
             is_owner = False
             has_update_perm = False
 
-            if data_source:
-                is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
+            # Ownership: the given data_source, or — when only a connection is in
+            # scope (the /connections list) — any data source linked to it.
+            try:
+                if data_source is not None:
+                    owner_candidates = [data_source]
+                else:
+                    owner_candidates = list(getattr(connection, "data_sources", []) or [])
+            except Exception:
+                owner_candidates = [data_source] if data_source is not None else []
+            for ds in owner_candidates:
+                if ds is not None and str(getattr(ds, "owner_user_id", "")) == str(getattr(user, "id", "")):
+                    is_owner = True
+                    break
 
-                # Admin-level access: full_admin or per-DS `manage` grant
-                try:
-                    from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                    resolved = await resolve_permissions(
-                        db, str(user.id), str(getattr(data_source, "organization_id", ""))
-                    )
-                    has_update_perm = (
-                        FULL_ADMIN in resolved.org_permissions
-                        or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
-                    )
-                except Exception:
-                    has_update_perm = False
+            # Admin-level access: org-wide full_admin / manage_connections (no
+            # data_source needed) or a per-DS `manage` grant.
+            try:
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                org_id = getattr(data_source, "organization_id", None) or getattr(connection, "organization_id", None)
+                resolved = await resolve_permissions(db, str(user.id), str(org_id))
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_org_permission("manage_connections")
+                    or (data_source is not None and resolved.has_resource_permission("data_source", str(data_source.id), "manage"))
+                )
+            except Exception:
+                has_update_perm = False
 
             if is_owner or has_update_perm:
                 return DataSourceUserStatus(

@@ -1560,6 +1560,30 @@ class DataSourceService:
             except Exception:
                 pass
 
+            # Per-user sign-in (OBO / "Connect") saves credentials at the
+            # CONNECTION level (user_connection_credentials), not the data-source
+            # level. Resolve those via ConnectionService, which reads the right
+            # table and handles OAuth token refresh. Without this, a signed-in
+            # user's query would 403 here and the source gets silently skipped
+            # in the completion loop -> KeyError on the data source's name.
+            try:
+                from app.models.user_connection_credentials import UserConnectionCredentials
+                from sqlalchemy import select as _select
+                has_conn_creds = (await db.execute(
+                    _select(UserConnectionCredentials.id).where(
+                        UserConnectionCredentials.connection_id == str(connection.id),
+                        UserConnectionCredentials.user_id == str(current_user.id),
+                        UserConnectionCredentials.is_active == True,
+                    ).limit(1)
+                )).first() is not None
+                if has_conn_creds:
+                    from app.services.connection_service import ConnectionService
+                    return await ConnectionService().resolve_credentials(db, connection, current_user)
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+
             # Check if owner or admin can use system credentials
             is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
             has_update_perm = False
@@ -1784,30 +1808,28 @@ class DataSourceService:
         if data_source.connections:
             auth_policy = data_source.connections[0].auth_policy or "system_only"
             
-        # For user_required policy, read from the persisted user overlay first.
-        # Cache-first keeps page renders fast and avoids hammering Drive APIs on
-        # every UI navigation.
-        #
-        # On a cache miss (no overlay rows yet) fall back to the live per-user
-        # fetch, which resolves credentials with the owner/admin system-creds
-        # fallback and persists the overlay (warming the cache for next time).
-        # This is the populate-on-first-read path; it also restores the owner
-        # fallback on shared-catalog user_required sources (e.g. SQLite), where
-        # an owner refresh stores tables as inactive canonical rows that a
-        # cache-only read would miss. If the live fetch can't run (no creds yet,
-        # e.g. OneDrive before OAuth) it raises and we drop to the canonical
-        # schema below — typically empty for per-user catalogs.
+        # For user_required policy, a user sees ONLY their own accessible tables
+        # (the per-user overlay), never the shared canonical catalog. Read order:
+        #   1. persisted overlay (cache-first; fast page renders)
+        #   2. on cache miss, a live per-user fetch — resolves the user's creds
+        #      (or the owner/admin system-creds fallback) and persists the overlay
+        # If the user has NO usable credentials (e.g. disconnected, OneDrive before
+        # OAuth), both come back empty and we return EMPTY — we do NOT fall back to
+        # the canonical catalog, which would leak every table to a user who can't
+        # actually access them.
         if auth_policy == "user_required" and current_user is not None:
             try:
                 overlay = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
                 if overlay:
                     return overlay
-                live = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
-                if live:
-                    return live
             except Exception:
-                # Fallback to canonical schema if overlay/live fetch fails
                 pass
+            try:
+                live = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                return live or []
+            except Exception:
+                # No usable credentials → the user has no accessible tables.
+                return []
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
 
