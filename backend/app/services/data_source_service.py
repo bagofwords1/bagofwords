@@ -1571,8 +1571,20 @@ class DataSourceService:
                 pass
 
             if is_owner or has_update_perm:
-                # Owner/admin can use system credentials
-                return connection.get_credentials() if hasattr(connection, 'get_credentials') else {}
+                # Owner/admin fall back to the connection's stored credentials.
+                # Use decrypt_credentials(), NOT get_credentials() — the latter
+                # returns None for user_required, which strands OBO connectors:
+                # the stored service-principal client_id/secret would be dropped
+                # and MsFabricClient's ClientSecretCredential then fails with
+                # "client_id should be the id of a Microsoft Entra application".
+                # This mirrors ConnectionService.resolve_credentials so an
+                # owner/admin queries with the same SP creds that drive indexing
+                # (a regular user without their own token still 403s below and is
+                # routed to per-user OBO sign-in).
+                try:
+                    return connection.decrypt_credentials() or {}
+                except Exception:
+                    return {}
 
             raise HTTPException(status_code=403, detail="User credentials required for this connection")
 
