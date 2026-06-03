@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.390 (June 3, 2026)
+- Improve tests reliabilty
+
 ## Version 0.0.389 (June 2, 2026)
 - Security patches/dependecy updates
 - OneDrive indexing fixes
