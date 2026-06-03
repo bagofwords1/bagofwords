@@ -282,7 +282,9 @@ async def oauth_callback(
         logger.error(f"OAuth token exchange failed: {e}")
         return _error_redirect(frontend_url, "Token exchange failed")
 
-    # Upsert UserConnectionCredentials
+    # Upsert UserConnectionCredentials, then verify the token actually works.
+    # A failed test must NOT strand a non-working credential, so capture the prior
+    # state and restore (existing row) or delete (new row) if verification fails.
     stmt = select(UserConnectionCredentials).where(
         UserConnectionCredentials.connection_id == connection_id,
         UserConnectionCredentials.user_id == str(user.id),
@@ -290,11 +292,17 @@ async def oauth_callback(
     )
     existing = (await db.execute(stmt)).scalars().first()
 
+    prior_blob = existing.encrypted_credentials if existing else None
+    prior_expires = existing.expires_at if existing else None
+    prior_mode = existing.auth_mode if existing else None
+
     if existing:
-        existing.auth_mode = "oauth"
-        existing.encrypt_credentials(tokens)
-        existing.expires_at = parse_expires_at(tokens.get("expires_at"))
-        db.add(existing)
+        row = existing
+        row.auth_mode = "oauth"
+        row.encrypt_credentials(tokens)
+        row.expires_at = parse_expires_at(tokens.get("expires_at"))
+        db.add(row)
+        is_new = False
     else:
         row = UserConnectionCredentials(
             connection_id=connection_id,
@@ -307,11 +315,12 @@ async def oauth_callback(
         )
         row.encrypt_credentials(tokens)
         db.add(row)
+        is_new = True
 
     await db.commit()
-    logger.info(f"OAuth credentials saved for user {user.id} on connection {connection_id}")
 
-    # Test the connection with the new credentials
+    # Verify with the freshly-saved credentials (test_user_connection uses
+    # construct_client, which builds the right client for every OBO type).
     try:
         from app.services.connection_service import ConnectionService
         conn_service = ConnectionService()
@@ -321,13 +330,30 @@ async def oauth_callback(
             organization=connection.organization,
             current_user=user,
         )
-        if not test_result.get("success"):
-            error_msg = test_result.get("message", "Connection test failed")
-            logger.warning(f"OAuth connection test failed for user {user.id}: {error_msg}")
-            return _error_redirect(frontend_url, error_msg)
+        test_ok = bool(test_result.get("success"))
+        test_msg = test_result.get("message", "Connection test failed")
     except Exception as e:
-        logger.warning(f"OAuth connection test failed: {e}")
-        return _error_redirect(frontend_url, str(e))
+        test_ok = False
+        test_msg = str(e)
+
+    if not test_ok:
+        # Roll back so a failed sign-in doesn't leave a broken credential that
+        # would then shadow the owner/system fallback and break every query.
+        try:
+            if is_new:
+                await db.delete(row)
+            else:
+                row.encrypted_credentials = prior_blob
+                row.expires_at = prior_expires
+                row.auth_mode = prior_mode
+                db.add(row)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+        logger.warning(f"OAuth connection test failed for user {user.id}: {test_msg}")
+        return _error_redirect(frontend_url, test_msg)
+
+    logger.info(f"OAuth credentials saved for user {user.id} on connection {connection_id}")
 
     # Trigger overlay sync (best-effort)
     try:

@@ -53,6 +53,25 @@
       </div>
     </div>
 
+    <!-- Connect prompt for a user_required agent the user hasn't authenticated.
+         Driven by selectedAgentDetails (fetched from /data_sources/{id}) — NOT
+         the report-sourced selectedAgent, whose connections carry no user_status
+         (the report endpoint skips per-user status), which would false-positive
+         for admins on the service-account fallback.
+         OAuth-only (Entra/OBO) redirects straight to the provider; otherwise the
+         credentials modal opens. -->
+    <div v-if="selectedAgentDetails && needsUserConnection(selectedAgentDetails)" class="px-4 pb-2 flex-shrink-0">
+      <button
+        @click="onConnect(selectedAgentDetails)"
+        :disabled="connectingId === selectedAgentDetails.id"
+        class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        <Spinner v-if="connectingId === selectedAgentDetails.id" class="w-3.5 h-3.5" />
+        <Icon v-else name="heroicons-key" class="w-3.5 h-3.5" />
+        {{ $t('data.connect') }}
+      </button>
+    </div>
+
     <!-- Tabs -->
     <div v-if="selectedAgent" class="border-b border-gray-200 px-4 flex-shrink-0">
       <nav class="-mb-px flex space-x-4">
@@ -473,12 +492,20 @@
       v-model="showBuildExplorer"
       :build-id="buildExplorerBuildId"
     />
+
+    <!-- User credentials / OAuth modal for connecting user_required agents -->
+    <UserDataSourceCredentialsModal
+      v-model="showCredsModal"
+      :data-source="selectedConnectDs"
+      @saved="onCredentialsSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
@@ -492,7 +519,27 @@ const props = defineProps<{
   showClose?: boolean
 }>()
 
-const emit = defineEmits(['close', 'starter-click'])
+const emit = defineEmits(['close', 'starter-click', 'connected'])
+
+// Connect (user credentials / OAuth) affordance for user_required agents.
+const { connectingId, needsUserConnection, startConnect, asCredentialsModalSource } = useDataSourceConnect()
+const showCredsModal = ref(false)
+const selectedConnectDs = ref<any>(null)
+
+async function onConnect(agent: any) {
+  const openModal = await startConnect(agent)
+  if (!openModal) return // redirecting to the provider; the page will reload on return
+  selectedConnectDs.value = asCredentialsModalSource(agent)
+  showCredsModal.value = true
+}
+
+function onCredentialsSaved() {
+  showCredsModal.value = false
+  // The agent's user_status is owned by the parent (the report); ask it to
+  // refresh so the Connect prompt clears. The OAuth redirect path reloads the
+  // page on return and refreshes naturally.
+  emit('connected')
+}
 
 // Permissions
 const canUpdateDataSource = computed(() => useCan('update_data_source'))

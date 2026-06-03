@@ -112,7 +112,26 @@
                     />
                     <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-400 flex-shrink-0" />
                     <span :class="['text-xs font-medium truncate flex-1', isAgentSelected(a.id) ? 'text-indigo-700' : 'text-gray-700']">{{ a.name }}</span>
-                    <UIcon v-if="isAgentSelected(a.id)" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    <!-- Connect chip for user_required agents not yet authenticated.
+                         Nested as a span (the row is a <button>) to keep markup valid. -->
+                    <span
+                      v-if="needsUserConnection(a)"
+                      role="button"
+                      tabindex="0"
+                      @click.stop="onConnect(a)"
+                      @keydown.enter.stop="onConnect(a)"
+                      :class="[
+                        'flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border transition-colors',
+                        connectingId === a.id
+                          ? 'text-blue-400 bg-blue-50 border-blue-100 cursor-default'
+                          : 'text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100'
+                      ]"
+                    >
+                      <Spinner v-if="connectingId === a.id" class="w-3 h-3" />
+                      <UIcon v-else name="heroicons-key" class="w-3 h-3" />
+                      {{ $t('data.connect') }}
+                    </span>
+                    <UIcon v-else-if="isAgentSelected(a.id)" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                   </button>
                 </div>
 
@@ -141,6 +160,14 @@
       :position="flyout"
       @mouseenter="onFlyoutEnter"
       @mouseleave="onFlyoutLeave"
+      @connect="onConnect"
+    />
+
+    <!-- User credentials / OAuth modal for connecting user_required agents -->
+    <UserDataSourceCredentialsModal
+      v-model="showCredsModal"
+      :data-source="selectedConnectDs"
+      @saved="onCredentialsSaved"
     />
   </div>
 </template>
@@ -150,6 +177,7 @@ import Spinner from '~/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import AgentIcon from '~/components/icons/AgentIcon.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -169,8 +197,29 @@ const {
   currentAgentName,
   selectedAgentObjects,
   toggleAgent,
-  isAgentSelected
+  isAgentSelected,
+  initAgent
 } = useAgent()
+
+// Connect (user credentials / OAuth) affordance for user_required agents.
+const { connectingId, needsUserConnection, startConnect, asCredentialsModalSource } = useDataSourceConnect()
+const showCredsModal = ref(false)
+const selectedConnectDs = ref<any>(null)
+
+async function onConnect(agent: any) {
+  // OAuth-only (Entra/OBO) redirects straight to the provider; anything else
+  // falls back to the credentials modal.
+  const openModal = await startConnect(agent)
+  if (!openModal) return
+  selectedConnectDs.value = asCredentialsModalSource(agent)
+  showCredsModal.value = true
+}
+
+async function onCredentialsSaved() {
+  showCredsModal.value = false
+  // Re-fetch so the freshly-connected agent drops its Connect chip.
+  await initAgent()
+}
 
 // Returns the connection type when exactly one agent is selected (for icon display)
 const singleSelectedConnection = computed(() => {

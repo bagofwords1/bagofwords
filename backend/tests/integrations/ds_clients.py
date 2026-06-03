@@ -53,6 +53,11 @@ try:
         "seed_sql": [
             "CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(100), email VARCHAR(100))",
             "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT REFERENCES users(id), total DECIMAL(10,2))",
+            # Materialized view: not exposed via information_schema, must be
+            # discovered via pg_catalog (see PostgresqlClient).
+            "CREATE MATERIALIZED VIEW user_order_totals AS "
+            "SELECT u.id, u.name, SUM(o.total) AS total "
+            "FROM users u LEFT JOIN orders o ON o.user_id = u.id GROUP BY u.id, u.name",
         ],
     }
 except ImportError:

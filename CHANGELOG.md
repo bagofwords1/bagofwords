@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.391 (June 3, 2026)
+- Email sending tool in reports when SMTP is enabled
+- Postgres support for materialized views
+- Enhance tableau system prompt
+
 ## Version 0.0.390 (June 3, 2026)
 - Improve tests reliabilty
 

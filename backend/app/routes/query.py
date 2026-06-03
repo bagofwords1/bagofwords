@@ -104,7 +104,7 @@ async def run_existing_step(
     db: AsyncSession = Depends(get_async_db),
 ):
     try:
-        step = await service.run_existing_step(db, step_id)
+        step = await service.run_existing_step(db, step_id, current_user=current_user)
         return {"step": step}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

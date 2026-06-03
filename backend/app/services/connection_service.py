@@ -586,6 +586,67 @@ class ConnectionService:
         except Exception as e:
             return {"success": False, "message": str(e)}
 
+    async def delete_user_credentials(
+        self,
+        db: AsyncSession,
+        connection_id: str,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Disconnect: delete the current user's per-user credentials for a
+        connection. Per-user OAuth/basic creds live at the CONNECTION level
+        (user_connection_credentials), so this is what 'Disconnect' must clear —
+        the data-source-level table is a separate, legacy store.
+        """
+        connection = await self.get_connection(db, connection_id, organization)
+        result = await db.execute(
+            select(UserConnectionCredentials).where(
+                UserConnectionCredentials.connection_id == str(connection.id),
+                UserConnectionCredentials.user_id == str(current_user.id),
+            )
+        )
+        rows = result.scalars().all()
+        for row in rows:
+            await db.delete(row)
+
+        # Invalidate this user's per-user schema overlay too — it records the
+        # tables they could see while connected. Leaving it accessible would let
+        # a disconnected user keep seeing (and the agent keep listing) tables
+        # they can no longer reach.
+        #
+        # We MARK the rows revoked (is_accessible=False, status='revoked')
+        # rather than delete them: the read surfaces already filter on
+        # is_accessible == True, so this immediately hides the tables while
+        # preserving audit history. The overlay is repopulated on the next
+        # connect/fetch via _upsert_user_overlay. (We can't rely on a re-sync to
+        # revoke these — a disconnected user can never re-sync — so we flip them
+        # here, at the moment access is lost.)
+        from sqlalchemy import update as sql_update
+        from app.models.user_data_source_overlay import UserDataSourceTable
+        from app.models.user_connection_overlay import UserConnectionTable
+
+        ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
+        if ds_ids:
+            await db.execute(
+                sql_update(UserDataSourceTable)
+                .where(
+                    UserDataSourceTable.user_id == str(current_user.id),
+                    UserDataSourceTable.data_source_id.in_(ds_ids),
+                )
+                .values(is_accessible=False, status="revoked")
+            )
+        await db.execute(
+            sql_update(UserConnectionTable)
+            .where(
+                UserConnectionTable.user_id == str(current_user.id),
+                UserConnectionTable.connection_id == str(connection.id),
+            )
+            .values(is_accessible=False, status="revoked")
+        )
+
+        await db.commit()
+        return {"deleted": len(rows)}
+
     async def refresh_schema(
         self,
         db: AsyncSession,

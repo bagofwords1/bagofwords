@@ -449,6 +449,7 @@ class EntityService:
         entity_id: str,
         payload: EntityRunPayload,
         organization: Organization,
+        current_user: Optional[User] = None,
     ) -> Entity:
         """Execute the entity's code, update its data/view/metadata, and persist."""
         # Load entity scoped to organization
@@ -467,7 +468,7 @@ class EntityService:
         ds_service = DataSourceService()
         ds_clients = {}
         for ds in (entity.data_sources or []):
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
             ds_clients.update(ds_conns)
         excel_files = []
 
@@ -514,6 +515,7 @@ class EntityService:
         entity_id: str,
         payload,
         organization: Organization,
+        current_user: Optional[User] = None,
     ) -> dict:
         """Execute provided code (or entity code) without persisting, return preview/result or error."""
         result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
@@ -528,7 +530,7 @@ class EntityService:
         ds_service = DataSourceService()
         ds_clients = {}
         for ds in (entity.data_sources or []):
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
             ds_clients.update(ds_conns)
         excel_files = []
 

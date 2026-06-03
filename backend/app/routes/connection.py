@@ -169,12 +169,55 @@ async def list_connections(
         else:
             tool_count = 0
 
+        # Per-user auth status (so the UI can show Connected/Disconnect vs Connect
+        # for user_required connections). Cached (live_test=False) — cheap.
+        user_status_payload = None
+        if conn.auth_policy == "user_required":
+            try:
+                from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+                status = await UserDataSourceCredentialsService().build_user_status_for_connection(
+                    db, conn, current_user, live_test=False
+                )
+                user_status_payload = status.model_dump() if hasattr(status, "model_dump") else (
+                    status.dict() if hasattr(status, "dict") else status
+                )
+            except Exception:
+                user_status_payload = None
+
+        # User-scoped table count: for a user_required connection the UI should
+        # show what THIS user can actually see (their per-user overlay), not the
+        # org catalog. Mirrors the per-connection count in
+        # DataSourceService._build_connections_list.
+        #   'user' → count the user's accessible overlay tables
+        #   'none' → 0 (no proven access)
+        #   else   → keep the canonical catalog count above
+        if conn.auth_policy == "user_required" and current_user and user_status_payload:
+            eff_auth = user_status_payload.get("effective_auth") if isinstance(user_status_payload, dict) else None
+            if eff_auth == "none":
+                table_count = 0
+            elif eff_auth == "user":
+                from app.models.user_data_source_overlay import UserDataSourceTable
+                ds_ids = [str(ds.id) for ds in (conn.data_sources or [])]
+                if ds_ids:
+                    user_count_result = await db.execute(
+                        select(func.count(func.distinct(UserDataSourceTable.table_name)))
+                        .where(
+                            UserDataSourceTable.data_source_id.in_(ds_ids),
+                            UserDataSourceTable.user_id == str(current_user.id),
+                            UserDataSourceTable.is_accessible == True,
+                        )
+                    )
+                    table_count = user_count_result.scalar() or 0
+                else:
+                    table_count = 0
+
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,
             type=conn.type,
             is_active=conn.is_active,
             auth_policy=conn.auth_policy,
+            allowed_user_auth_modes=conn.allowed_user_auth_modes,
             last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
             organization_id=str(conn.organization_id),
             table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
@@ -182,6 +225,7 @@ async def list_connections(
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
+            user_status=user_status_payload,
         ))
     return result
 
@@ -405,6 +449,24 @@ async def test_my_connection_credentials(
     )
 
 
+@router.delete("/{connection_id}/my-credentials")
+async def delete_my_connection_credentials(
+    connection_id: str,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Disconnect: delete the current user's saved credentials for this connection."""
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, user, connection)
+    return await connection_service.delete_user_credentials(
+        db=db,
+        connection_id=connection_id,
+        organization=organization,
+        current_user=user,
+    )
+
+
 @router.post("/{connection_id}/refresh")
 @requires_permission('manage_connections')  # Admin-only
 async def refresh_connection_schema(
@@ -457,6 +519,53 @@ async def reindex_connection(
         "message": "Schema indexing started." if row.status == "pending" else "Schema indexing in progress.",
         "indexing": progress.model_dump() if progress else None,
     }
+
+
+@router.post("/{connection_id}/my-schema/refresh")
+async def refresh_my_connection_schema(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Re-fetch the CURRENT user's accessible schema for a user_required
+    connection (their per-user overlay), using their own credentials.
+
+    This is the per-user counterpart to /reindex — which re-indexes the shared
+    catalog via the service principal and is admin-only. Here each user refreshes
+    only what they can see, so a Fabric/OBO user can pull in tables they gained
+    access to without an admin reindex.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+
+    from app.services.data_source_service import DataSourceService
+    from app.models.user_data_source_overlay import UserDataSourceTable
+    ds_service = DataSourceService()
+    for ds in (connection.data_sources or []):
+        try:
+            # Live fetch with the user's creds + upsert their overlay (same path
+            # the OAuth callback runs after sign-in).
+            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user)
+        except Exception as e:
+            logger.warning(f"Per-user schema refresh failed for data source {ds.id}: {e}")
+
+    # Recompute the user's accessible table count for this connection.
+    ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
+    table_count = 0
+    if ds_ids:
+        result = await db.execute(
+            select(func.count(func.distinct(UserDataSourceTable.table_name)))
+            .where(
+                UserDataSourceTable.data_source_id.in_(ds_ids),
+                UserDataSourceTable.user_id == str(current_user.id),
+                UserDataSourceTable.is_accessible == True,
+            )
+        )
+        table_count = result.scalar() or 0
+    return {"message": "Schema refreshed", "table_count": table_count}
 
 
 @router.get("/{connection_id}/indexing", response_model=ConnectionIndexingProgress)

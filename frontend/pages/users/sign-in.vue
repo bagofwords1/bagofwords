@@ -6,6 +6,7 @@
       </div>
       <h1 class="font-medium text-3xl mt-4 mb-5">{{ $t('auth.signIn') }}</h1>
       <div class="px-10 py-6  border border-gray-200 rounded-xl shadow-sm bg-white">
+      <p v-if="error_message" v-html="error_message" class="mb-4 text-red-500 text-sm whitespace-pre-line"></p>
       <form @submit.prevent="signInWithCredentials()" v-if="authMode !== 'sso_only' || localOverride">
         <div class="field block mt-3">
           <i class="i-heroicons-user"></i>
@@ -23,7 +24,6 @@
           v-model='password'
           class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
           />
-          <p v-if="error_message" v-html="error_message" class="mt-1 text-red-500 text-sm whitespace-pre-line"></p>
         </div>
 
         <div class="field mt-2 text-start" v-if="smtpEnabled">

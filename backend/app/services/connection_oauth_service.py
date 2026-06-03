@@ -82,7 +82,12 @@ def get_oauth_params(connection: Connection) -> dict:
 
         scopes_map = {
             "powerbi": "https://analysis.windows.net/powerbi/api/.default offline_access",
-            "ms_fabric": "https://api.fabric.microsoft.com/.default offline_access",
+            # Fabric Warehouse/Lakehouse SQL endpoints authenticate with Azure SQL
+            # tokens (aud=database.windows.net), NOT Fabric API tokens — the latter
+            # are rejected by the SQL endpoint with login error 18456. Requires the
+            # app registration to have the "Azure SQL Database / user_impersonation"
+            # delegated permission with admin consent. (Matches _OBO_SCOPES.)
+            "ms_fabric": "https://database.windows.net/user_impersonation offline_access",
             # Graph delegated scopes for file access. `Sites.Read.All` covers
             # SharePoint sites; `Files.Read.All` covers personal OneDrive and
             # files shared with the user. `openid profile offline_access` give

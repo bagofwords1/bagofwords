@@ -175,9 +175,14 @@ const headerSubtitle = computed(() => `Choose which ${shapeNoun.value.plural} to
 // looks broken.
 const pendingSignInConn = computed(() => {
   for (const conn of connections.value as any[]) {
-    if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
-      return conn
-    }
+    if (conn.auth_policy !== 'user_required') continue
+    if (conn.user_status?.has_user_credentials) continue
+    // effective_auth === 'system' means the user can run via system/service-
+    // principal creds (owner/admin fallback) — no personal sign-in needed.
+    // Mirror DataSourceSelector's isUsable so admins aren't forced to OAuth a
+    // source they can already query.
+    if (conn.user_status?.effective_auth === 'system') continue
+    return conn
   }
   return null
 })

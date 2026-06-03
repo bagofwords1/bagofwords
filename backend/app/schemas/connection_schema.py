@@ -36,6 +36,10 @@ class ConnectionSchema(BaseModel):
     type: str
     is_active: bool
     auth_policy: str
+    # User auth modes allowed for user_required connections (e.g. ["oauth"]).
+    # The frontend uses this to skip the credentials modal and redirect
+    # straight to the provider when OAuth is the only option.
+    allowed_user_auth_modes: Optional[list] = None
     last_synced_at: Optional[str] = None
     organization_id: str
     table_count: int = 0
@@ -43,6 +47,9 @@ class ConnectionSchema(BaseModel):
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     indexing: Optional[Dict[str, Any]] = None
+    # Per-user auth status for the requesting user (user_required connections):
+    # has_user_credentials / effective_auth / uses_fallback / connection.
+    user_status: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

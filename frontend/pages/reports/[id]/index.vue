@@ -59,7 +59,7 @@
 					</div>
 					<!-- Agent View -->
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
-						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" @starter-click="handleExampleClick" />
+						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" @starter-click="handleExampleClick" @connected="handleAgentConnected" />
 					</div>
 					<!-- Dashboard View -->
 					<ArtifactFrame
@@ -625,7 +625,7 @@
 			<!-- Agent View -->
 			<div v-else-if="rightPanelView === 'agent'" class="h-full flex flex-col">
 				<div class="flex-1 overflow-y-auto">
-					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" @starter-click="handleExampleClick" />
+					<ReportAgentPanel ref="agentPanelRef" :agents="currentAgents" :showClose="true" @close="toggleSplitScreen" @starter-click="handleExampleClick" @connected="handleAgentConnected" />
 				</div>
 			</div>
 
@@ -725,6 +725,7 @@ import ReadFileTool from '~/components/tools/ReadFileTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import SendEmailTool from '~/components/tools/SendEmailTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
@@ -1072,6 +1073,15 @@ const currentAgents = ref<any[]>([])
 watch(() => report.value?.data_sources, (val) => {
     if (val && currentAgents.value.length === 0) currentAgents.value = [...val]
 }, { immediate: true })
+
+// An agent was connected from ReportAgentPanel's credentials modal — refetch
+// the report so updated per-user auth status flows back and the Connect prompt
+// clears. (The OAuth redirect path reloads the page on return and refreshes on
+// its own.)
+async function handleAgentConnected() {
+    await loadReport()
+    if (report.value?.data_sources) currentAgents.value = [...report.value.data_sources]
+}
 
 // Flat, deduplicated conversation starters from all selected agents (max 3)
 // Each stored starter is "Title\nDetailed prompt" — split into { title, prompt }
@@ -1467,6 +1477,8 @@ function getToolComponent(toolName: string) {
 			return CreateInstructionTool
 		case 'edit_instruction':
 			return EditInstructionTool
+		case 'send_email':
+			return SendEmailTool
 		case 'list_agent_executions':
 			return ListAgentExecutionsTool
 		case 'search_instructions':
@@ -1702,10 +1714,18 @@ function promptMentionsToRefs(mentions?: Array<{ name: string; items: any[] }>) 
 	for (const group of mentions) {
 		const type = GROUP_TYPE_MAP[(group.name || '').toUpperCase()] || 'entity'
 		for (const item of group.items || []) {
+			let name = item.name || item.title || item.filename || ''
+			// Data-source tables are serialized into the prompt text with their
+			// source prefix (e.g. "@Microsoft Fabric / dbo.sales"), so the ref
+			// name must include it to match and render as a single mention chip.
+			if (type === 'datasource_table') {
+				const prefix = item.connection_name || item.data_source_name
+				if (prefix) name = `${prefix} / ${name}`
+			}
 			refs.push({
 				id: item.id,
 				type,
-				name: item.name || item.title || item.filename || '',
+				name,
 				data_source_type: item.connection_type || item.data_source_type || undefined,
 			})
 		}

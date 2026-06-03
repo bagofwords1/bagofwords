@@ -136,7 +136,85 @@ class PostgresqlClient(DataSourceClient):
                     dtype=data_type,
                     description=col_comment
                 ))
+
+            # Materialized views are not exposed via information_schema, so fetch
+            # them separately from pg_catalog and merge into the result.
+            self._append_materialized_views(conn, tables, with_comments=True)
             return list(tables.values())
+
+    def _append_materialized_views(self, conn, tables: dict, with_comments: bool) -> None:
+        """Append materialized view columns (and optional comments) to `tables`.
+
+        Materialized views (pg_class.relkind = 'm') are a Postgres-specific
+        object and are not present in information_schema, so the standard table
+        queries miss them. This reads them directly from pg_catalog.
+        """
+        params = {}
+        where_clauses = [
+            "c.relkind = 'm'",
+            "n.nspname NOT IN ('information_schema', 'pg_catalog')",
+        ]
+        if self._schemas:
+            in_keys = []
+            for idx, sch in enumerate(self._schemas):
+                key = f"mv_s{idx}"
+                params[key] = sch
+                in_keys.append(f":{key}")
+            where_clauses.append(f"n.nspname IN ({', '.join(in_keys)})")
+        where_sql = " WHERE " + " AND ".join(where_clauses)
+
+        if with_comments:
+            select_extra = (
+                ",\n                col_desc.description AS column_comment,"
+                "\n                tbl_desc.description AS table_comment"
+            )
+            join_extra = """
+            LEFT JOIN pg_catalog.pg_description col_desc
+                ON col_desc.objoid = c.oid AND col_desc.objsubid = a.attnum
+            LEFT JOIN pg_catalog.pg_description tbl_desc
+                ON tbl_desc.objoid = c.oid AND tbl_desc.objsubid = 0"""
+        else:
+            select_extra = ""
+            join_extra = ""
+
+        sql = text(f"""
+            SELECT
+                n.nspname AS table_schema,
+                c.relname AS table_name,
+                a.attname AS column_name,
+                format_type(a.atttypid, a.atttypmod) AS data_type{select_extra}
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n
+                ON n.oid = c.relnamespace
+            JOIN pg_catalog.pg_attribute a
+                ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped{join_extra}
+            {where_sql}
+            ORDER BY n.nspname, c.relname, a.attnum
+        """)
+        result = conn.execute(sql, params).fetchall()
+
+        for row in result:
+            if with_comments:
+                table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
+            else:
+                table_schema, table_name, column_name, data_type = row
+                col_comment = tbl_comment = None
+            key = (table_schema, table_name)
+            fqn = f"{table_schema}.{table_name}"
+            if key not in tables:
+                tables[key] = Table(
+                    name=fqn,
+                    description=tbl_comment,
+                    columns=[],
+                    pks=[],
+                    fks=[],
+                    metadata_json={"schema": table_schema, "is_materialized_view": True}
+                )
+            tables[key].columns.append(TableColumn(
+                name=column_name,
+                dtype=data_type,
+                description=col_comment
+            ))
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (original query - always works)."""
@@ -174,6 +252,9 @@ class PostgresqlClient(DataSourceClient):
                             name=fqn, columns=[], pks=[], fks=[], metadata_json={"schema": table_schema}
                         )
                     tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
+
+                # Materialized views are absent from information_schema; merge them in.
+                self._append_materialized_views(conn, tables, with_comments=False)
                 return list(tables.values())
         except Exception as e:
             print(f"Error retrieving tables: {e}")

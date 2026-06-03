@@ -54,7 +54,10 @@ class GetContextTool(MCPTool):
 
         # Load report as ORM model (preserves Connection.get_credentials())
         report = await self._load_report(db, input_data.report_id)
-        data_sources = report.data_sources
+        # Exclude user_required data sources this user can't query (no creds, no
+        # system fallback) so the agent doesn't advertise sources that 403.
+        from app.services.data_source_service import DataSourceService
+        data_sources, _skipped = await DataSourceService().filter_user_usable_data_sources(db, report.data_sources, user)
         
         # Update report with external_platform_id if not set (direct DB update)
         if not report.external_platform:

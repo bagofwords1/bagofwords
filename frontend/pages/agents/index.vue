@@ -103,11 +103,22 @@
                             <button
                                 v-if="needsUserConnection(ds)"
                                 @click.stop="openCredentialsModal(ds)"
-                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                                :disabled="connectingId === ds.id"
+                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                             >
-                                <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
+                                <Spinner v-if="connectingId === ds.id" class="w-3.5 h-3.5" />
+                                <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
                                 {{ $t('data.connect') }}
                             </button>
+                            <!-- Admin/owner runs via the connection's system (service
+                                 principal) credentials — no personal sign-in needed. -->
+                            <div
+                                v-else-if="usesServiceAccount(ds)"
+                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg"
+                            >
+                                <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
+                                Service account
+                            </div>
                         </div>
                     </div>
 
@@ -276,13 +287,32 @@ function requiresUserAuth(ds: any): boolean {
 function needsUserConnection(ds: any): boolean {
     if (!requiresUserAuth(ds)) return false
     const connections = ds.connections || []
-    // Check if any user_required connection has no user credentials
+    // Needs a personal connection only when the user has neither their own creds
+    // NOR a system fallback (admin/owner). effective_auth === 'system' means the
+    // service-principal fallback covers them, so no sign-in prompt.
     for (const conn of connections) {
-        if (conn.auth_policy === 'user_required' && !conn.user_status?.has_user_credentials) {
+        if (conn.auth_policy === 'user_required'
+            && !conn.user_status?.has_user_credentials
+            && conn.user_status?.effective_auth !== 'system') {
             return true
         }
     }
     return ds.user_status?.has_user_credentials !== true && ds.user_status?.effective_auth !== 'system'
+}
+
+// True when the user can use this source via the connection's system (service
+// principal) credentials — i.e. admin/owner fallback, no personal sign-in.
+function usesServiceAccount(ds: any): boolean {
+    if (!requiresUserAuth(ds)) return false
+    const connections = ds.connections || []
+    if (connections.length > 0) {
+        return connections.some((conn: any) =>
+            conn.auth_policy === 'user_required'
+            && !conn.user_status?.has_user_credentials
+            && conn.user_status?.effective_auth === 'system'
+        )
+    }
+    return ds.user_status?.has_user_credentials !== true && ds.user_status?.effective_auth === 'system'
 }
 
 // Check if user has access to this data source (for clickability / table count)
@@ -304,8 +334,13 @@ async function openCredentialsModal(ds: any) {
     // the provider — there's nothing to type or pick.
     const pending = findPendingSignInConnection(ds)
     if (pending) {
+        // Spin the clicked button while we fetch the authorize URL — for
+        // SSO/Entra/OBO this round-trip hits Azure and is slow enough that the
+        // button otherwise looks frozen before the browser navigates away.
+        connectingId.value = ds.id
         const result = await signIn.triggerUserSignIn(pending)
-        if (result.redirecting) return
+        if (result.redirecting) return // keep spinning; the page is navigating to the provider
+        connectingId.value = null
         if (result.error) {
             toast.add({ title: t('data.oauthStartFailed'), description: result.error, color: 'red' })
         }
@@ -313,6 +348,11 @@ async function openCredentialsModal(ds: any) {
     selectedDs.value = ds
     showCredsModal.value = true
 }
+
+// Data source id whose Connect button is mid-sign-in (awaiting the authorize
+// redirect). Stays set through a redirect so the spinner persists until the
+// browser unloads the page.
+const connectingId = ref<string | null>(null)
 
 // Locate the first attached connection that's user_required without
 // credentials — that's what the sign-in flow should target.

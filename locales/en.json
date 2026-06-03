@@ -576,6 +576,13 @@
       "toastFailedDelete": "Failed to delete instruction",
       "toastSaved": "Instruction saved"
     },
+    "sendEmail": {
+      "sending": "Sending email...",
+      "sentPrefix": "Sent: {subject}",
+      "failed": "Failed to send email",
+      "subject": "Subject",
+      "to": "To"
+    },
     "inspectData": {
       "inspecting": "Inspecting",
       "inspected": "Inspected",
@@ -1242,6 +1249,11 @@
     "never": "Never",
     "testing": "Testing…",
     "test": "Test",
+    "reloadMyTables": "Reload my tables",
+    "refreshing": "Refreshing…",
+    "lastRefreshed": "Last refreshed",
+    "tablesAccessible": "{n} tables accessible",
+    "toolsAccessible": "{n} tools accessible",
     "edit": "Edit",
     "editConnection": "Edit Connection",
     "testFailed": "Test failed",
@@ -1568,6 +1580,7 @@
     "connected": "Connected",
     "notConnected": "Not connected",
     "openAgent": "Open agent →",
+    "connectToPreview": "Sign in to preview tables, instructions, and ask questions.",
     "overview": "Overview",
     "tables": "Tables",
     "instructions": "Instructions",

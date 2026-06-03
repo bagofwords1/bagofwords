@@ -67,8 +67,26 @@
             </div>
           </div>
 
+          <!-- Locked state: agent requires per-user auth and this user hasn't
+               connected (no creds, no system fallback). Show a slim Connect card
+               instead of the tabs/content — notably hiding Sample Questions so a
+               report can't be started against a source that has no usable creds.
+               agentDetails comes from /data_sources/{id} (populates per-user
+               status), so this correctly stays hidden for the service-account
+               fallback. -->
+          <div v-if="locked" class="px-4 py-4">
+            <p class="text-xs text-gray-500 mb-3">{{ $t('agentFlyout.connectToPreview') }}</p>
+            <button
+              @click.stop="emit('connect', agentDetails)"
+              class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              <Icon name="heroicons-key" class="w-3.5 h-3.5" />
+              {{ $t('data.connect') }}
+            </button>
+          </div>
+
           <!-- Tabs (underline / border-bottom style like Settings) -->
-          <div class="border-b border-gray-200 px-4">
+          <div v-else class="border-b border-gray-200 px-4">
             <nav class="-mb-px flex space-x-4">
               <button
                 @click="flyoutTab = 'overview'"
@@ -120,7 +138,7 @@
             </nav>
           </div>
 
-          <div class="p-4">
+          <div v-if="!locked" class="p-4">
             <div v-if="loadingDetails" class="flex items-center justify-center py-8">
               <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
             </div>
@@ -367,7 +385,31 @@ const positionStyle = computed(() => {
 const emit = defineEmits<{
   mouseenter: []
   mouseleave: []
+  // Emitted with the fetched agent details when the user clicks Connect. The
+  // parent owns the credentials modal / OAuth flow — the flyout itself is a
+  // hover preview that unmounts on mouseleave, so it can't host a modal.
+  connect: [agent: any]
 }>()
+
+// Detect whether the agent still needs a personal connection. agentDetails is
+// fetched from /data_sources/{id} (which populates per-user status), so this is
+// correct for admins on the service-account fallback.
+const { needsUserConnection } = useDataSourceConnect()
+
+// Locked = the agent requires per-user auth this user hasn't completed. In this
+// state the flyout shows a slim Connect card instead of tabs/content (and no
+// Sample Questions, which would start a report against an unusable source).
+const locked = computed(() => !!agentDetails.value && needsUserConnection(agentDetails.value))
+
+// Allow the parent to clear the cached details after a successful connect so
+// the flyout reflects the new state on next hover.
+function refreshDetails() {
+  const id = props.agentId
+  if (!id) return
+  delete detailsCache.value[id]
+  fetchAgentDetails(id)
+}
+defineExpose({ refreshDetails })
 
 // Internal state
 const agentDetails = ref<any>(null)

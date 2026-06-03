@@ -173,6 +173,57 @@ class NotificationService:
             recipients=recipients,
         )
 
+    # ---- free-form email ----
+
+    async def send_custom_email(
+        self,
+        recipients: List[str],
+        subject: str,
+        body: str,
+        subtype: str = "plain",
+    ) -> ChannelResult:
+        """Send a free-form email with arbitrary subject/body.
+
+        Unlike ``dispatch`` (template-driven), this sends exactly the subject
+        and body provided. The send is awaited so the returned status reflects
+        actual delivery to the SMTP server, not just enqueueing.
+        """
+        fm = settings.email_client
+        if not fm:
+            return ChannelResult(
+                channel="email",
+                status="failed",
+                recipients=recipients,
+                error="SMTP is not configured",
+            )
+
+        if subtype not in ("plain", "html"):
+            subtype = "plain"
+
+        message = MessageSchema(
+            subject=subject,
+            recipients=recipients,
+            body=body,
+            subtype=subtype,
+        )
+
+        try:
+            await fm.send_message(message)
+            logger.info("Custom email sent to %s", recipients)
+            return ChannelResult(
+                channel="email",
+                status="sent",
+                recipients=recipients,
+            )
+        except Exception as e:
+            logger.error("Failed to send custom email: %s", e)
+            return ChannelResult(
+                channel="email",
+                status="failed",
+                recipients=recipients,
+                error=str(e),
+            )
+
     # ---- scheduled report results ----
 
     async def send_scheduled_report_results(
