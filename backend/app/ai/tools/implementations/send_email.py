@@ -32,11 +32,23 @@ class SendEmailTool(Tool):
         return ToolMetadata(
             name="send_email",
             description=(
-                "ACTION: Send a free-form email to the current user (yourself). "
-                "The recipient is always the requesting user — you cannot email "
-                "anyone else. Use this to deliver a summary, result, or reminder "
-                "to the user's inbox. Provide a subject and body; set "
-                "body_format='html' to send formatted HTML."
+                "ACTION: Send an email to the current user (yourself). The recipient is "
+                "ALWAYS the requesting user — you cannot send to anyone else, so there is "
+                "no recipient argument.\n\n"
+                "When to use: the user explicitly asks to be emailed something (a summary, "
+                "a result, a reminder, a list of findings), or asks to 'send me' / 'email me' "
+                "the answer. Do NOT use it to deliver every response — only when the user "
+                "wants the content in their inbox.\n\n"
+                "Writing the email — write like a person, not a marketing system:\n"
+                "- Default to plain text (body_format='text'). Keep it short, natural, and "
+                "to the point, the way a colleague would write a quick email.\n"
+                "- Use body_format='html' ONLY when light structure genuinely helps (a few "
+                "bullet points or a small table). Even then, keep the HTML simple and "
+                "human-looking — basic tags like <p>, <ul>/<li>, <strong>, <table>. Do NOT "
+                "build heavy templated layouts, inline CSS styling, wrapper divs, banners, "
+                "or branded headers/footers.\n"
+                "- Write a clear, specific subject line. Put the real content in the body; "
+                "don't just restate the subject."
             ),
             category="action",
             version="1.0.0",

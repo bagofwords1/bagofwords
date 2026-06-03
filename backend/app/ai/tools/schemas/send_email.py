@@ -15,16 +15,26 @@ class SendEmailInput(BaseModel):
         ...,
         min_length=1,
         max_length=300,
-        description="The email subject line.",
+        description="A clear, specific subject line. Don't just restate it in the body.",
     )
     body: str = Field(
         ...,
         min_length=1,
-        description="The email body. Plain text by default; set body_format='html' to send HTML.",
+        description=(
+            "The email body. Write it like a person would — short, natural, and direct. "
+            "Plain text by default. If you set body_format='html', keep the HTML simple and "
+            "human-looking (basic tags like <p>, <ul>/<li>, <strong>, small <table>); avoid "
+            "heavy templated layouts, inline CSS, wrapper divs, banners, or branded "
+            "headers/footers."
+        ),
     )
     body_format: Literal["text", "html"] = Field(
         default="text",
-        description="Format of the body: 'text' for plain text (default) or 'html' for HTML content.",
+        description=(
+            "Body format: 'text' for plain text (default, preferred) or 'html' for simple "
+            "HTML. Only choose 'html' when light structure (a few bullets or a small table) "
+            "genuinely helps readability."
+        ),
     )
 
 
