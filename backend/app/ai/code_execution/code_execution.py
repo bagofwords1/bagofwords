@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import inspect
 import io
 import os
@@ -606,50 +607,66 @@ class StreamingCodeExecutor:
             UnsafePythonError: If code contains forbidden imports, calls, or attributes
             UnsafeSQLError: If code contains SQL strings with write/modify operations
         """
-        # Security: Validate Python code and SQL strings before execution
-        validate_python_code(code)
+        with _tracer.start_as_current_span("code_execution.execute_code") as span:
+            span.set_attribute("code_execution.code_chars", len(code or ""))
+            span.set_attribute("code_execution.clients", len(ds_clients or {}))
+            span.set_attribute("code_execution.excel_files", len(excel_files or []))
 
-        output_log = ""
-        executed_queries: List[str] = captured_queries if captured_queries is not None else []
-        _timings: List[dict] = captured_timings if captured_timings is not None else []
+            # Security: Validate Python code and SQL strings before execution
+            validate_python_code(code)
 
-        # Wrap clients to capture all queries passed to execute_query
-        wrapped_clients = wrap_clients_for_capture(
-            ds_clients,
-            executed_queries,
-            _timings,
-            self.usage_context,
-            organization_settings=self.organization_settings,
-        )
+            output_log = ""
+            executed_queries: List[str] = captured_queries if captured_queries is not None else []
+            _timings: List[dict] = captured_timings if captured_timings is not None else []
 
-        # Inject a sync HTTP client when the org has web fetch enabled. The
-        # client owns concurrency internally so model code never imports
-        # asyncio/threading/socket (all of which are AST-forbidden).
-        http_client = self._build_http_client()
+            # Wrap clients to capture all queries passed to execute_query
+            wrapped_clients = wrap_clients_for_capture(
+                ds_clients,
+                executed_queries,
+                _timings,
+                self.usage_context,
+                organization_settings=self.organization_settings,
+            )
 
-        local_namespace = {
-            'pd': pd,
-            'np': np,
-            'db_clients': wrapped_clients,
-            'excel_files': excel_files,
-        }
-        if http_client is not None:
-            local_namespace['http'] = http_client
+            # Inject a sync HTTP client when the org has web fetch enabled. The
+            # client owns concurrency internally so model code never imports
+            # asyncio/threading/socket (all of which are AST-forbidden).
+            http_client = self._build_http_client()
 
-        if self.logger:
-            self.logger.debug(f"Executing code:\n{code}")
-        with _STDOUT_REDIRECT_LOCK:
-            with io.StringIO() as stdout_capture:
-                with redirect_stdout(stdout_capture):
-                    exec(code, local_namespace)
-                    generate_df = local_namespace.get('generate_df')
-                    if not generate_df:
-                        raise Exception("No generate_df function found in code")
-                    df = self._invoke_generate_df(
-                        generate_df, wrapped_clients, excel_files, http_client
-                    )
-                output_log = stdout_capture.getvalue()
-        return df, output_log, executed_queries
+            local_namespace = {
+                'pd': pd,
+                'np': np,
+                'db_clients': wrapped_clients,
+                'excel_files': excel_files,
+            }
+            if http_client is not None:
+                local_namespace['http'] = http_client
+
+            if self.logger:
+                self.logger.debug(f"Executing code:\n{code}")
+            wait_started = _time.monotonic()
+            _STDOUT_REDIRECT_LOCK.acquire()
+            lock_acquired_at = _time.monotonic()
+            try:
+                with _tracer.start_as_current_span("code_execution.stdout_lock") as lock_span:
+                    lock_span.set_attribute("code_execution.lock_wait_ms", round((lock_acquired_at - wait_started) * 1000.0, 3))
+                    lock_span.set_attribute("code_execution.code_chars", len(code or ""))
+                    with io.StringIO() as stdout_capture:
+                        with redirect_stdout(stdout_capture):
+                            exec(code, local_namespace)
+                            generate_df = local_namespace.get('generate_df')
+                            if not generate_df:
+                                raise Exception("No generate_df function found in code")
+                            df = self._invoke_generate_df(
+                                generate_df, wrapped_clients, excel_files, http_client
+                            )
+                        output_log = stdout_capture.getvalue()
+                    lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - lock_acquired_at) * 1000.0, 3))
+            finally:
+                _STDOUT_REDIRECT_LOCK.release()
+            span.set_attribute("code_execution.query_count", len(executed_queries))
+            span.set_attribute("code_execution.stdout_chars", len(output_log or ""))
+            return df, output_log, executed_queries
 
     def _build_http_client(self) -> Optional[SafeHttpClient]:
         """Return a SafeHttpClient when `enable_web_fetch` is on, else None."""
@@ -695,13 +712,28 @@ class StreamingCodeExecutor:
         loop = asyncio.get_running_loop()
         if self.usage_context is not None:
             self.usage_context.loop = loop
-        return await loop.run_in_executor(
-            _CODE_EXEC_POOL,
-            lambda: self.execute_code(
-                code=code, ds_clients=ds_clients, excel_files=excel_files,
-                captured_timings=captured_timings, captured_queries=captured_queries,
-            ),
-        )
+        with _tracer.start_as_current_span("code_execution.execute_code_async") as span:
+            span.set_attribute("code_execution.pool_max_workers", _CODE_EXEC_POOL._max_workers)
+            span.set_attribute("code_execution.code_chars", len(code or ""))
+            started = _time.monotonic()
+            worker_context = contextvars.copy_context()
+
+            def _run_execute_code():
+                return worker_context.run(
+                    self.execute_code,
+                    code=code,
+                    ds_clients=ds_clients,
+                    excel_files=excel_files,
+                    captured_timings=captured_timings,
+                    captured_queries=captured_queries,
+                )
+
+            result = await loop.run_in_executor(
+                _CODE_EXEC_POOL,
+                _run_execute_code,
+            )
+            span.set_attribute("code_execution.total_ms", round((_time.monotonic() - started) * 1000.0, 3))
+            return result
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:
         """Extract comprehensive information from a DataFrame."""

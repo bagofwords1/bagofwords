@@ -2,9 +2,10 @@
 Message Context Builder - Ports proven logic from agent._build_messages_context()
 """
 import json
+from types import SimpleNamespace
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy import and_
 
 from app.models.completion import Completion
@@ -17,6 +18,27 @@ from app.models.mention import Mention, MentionType
 from app.models.file import File
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
+from app.models.tool_execution import ToolExecution
+
+
+def _json_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+    return value
+
+
+def _is_postgres_session(db: AsyncSession) -> bool:
+    try:
+        return db.get_bind().dialect.name == "postgresql"
+    except Exception:
+        return False
 
 
 def _digest_knowledge_tool(tool_execution) -> str:
@@ -252,6 +274,81 @@ class MessageContextBuilder:
         self.report = report
         self.organization = organization
         self.organization_settings = organization.settings if organization else None
+
+    async def _load_tool_execution_for_context(self, tool_execution_id: str):
+        """Load only the tool result fields needed for conversation context.
+
+        create_data can carry full result rows in result_json.data. Message
+        history only needs stats/preview/model metadata, so project those
+        fields on Postgres and avoid hydrating the full rows JSON.
+        """
+        base_result = await self.db.execute(
+            select(
+                ToolExecution.id,
+                ToolExecution.tool_name,
+                ToolExecution.tool_action,
+                ToolExecution.status,
+                ToolExecution.result_summary,
+                ToolExecution.created_widget_id,
+                ToolExecution.created_step_id,
+                ToolExecution.error_message,
+            )
+            .where(ToolExecution.id == tool_execution_id)
+        )
+        row = base_result.first()
+        if not row:
+            return None
+
+        tool_execution = SimpleNamespace(
+            id=row.id,
+            tool_name=row.tool_name,
+            tool_action=row.tool_action,
+            status=row.status,
+            result_summary=row.result_summary,
+            created_widget_id=row.created_widget_id,
+            created_step_id=row.created_step_id,
+            error_message=row.error_message,
+            result_json=None,
+        )
+
+        if tool_execution.tool_name == "create_data":
+            tool_execution.result_json = await self._load_create_data_result_projection(tool_execution_id)
+        else:
+            result = await self.db.execute(
+                select(ToolExecution.result_json).where(ToolExecution.id == tool_execution_id)
+            )
+            tool_execution.result_json = _json_value(result.scalar_one_or_none())
+
+        return tool_execution
+
+    async def _load_create_data_result_projection(self, tool_execution_id: str) -> Dict[str, Any]:
+        if not _is_postgres_session(self.db):
+            result = await self.db.execute(
+                select(ToolExecution.result_json).where(ToolExecution.id == tool_execution_id)
+            )
+            return _json_value(result.scalar_one_or_none()) or {}
+
+        stmt = text(
+            """
+            SELECT json_build_object(
+                'success', result_json->'success',
+                'data_preview', result_json->'data_preview',
+                'stats', result_json->'stats',
+                'data_model', result_json->'data_model',
+                'view', result_json->'view',
+                'created_visualization_ids', result_json->'created_visualization_ids',
+                'query_id', result_json->'query_id',
+                'query_timings', result_json->'query_timings',
+                'codegen_ms', result_json->'codegen_ms',
+                'execution_ms', result_json->'execution_ms',
+                'errors', result_json->'errors'
+            ) AS result_json
+            FROM tool_executions
+            WHERE id = :tool_execution_id
+            """
+        )
+        result = await self.db.execute(stmt, {"tool_execution_id": tool_execution_id})
+        return _json_value(result.scalar_one_or_none()) or {}
     
     async def build_context(
         self,
@@ -352,11 +449,7 @@ class MessageContextBuilder:
                     
                     # Add tool execution details if available
                     if block.tool_execution_id:
-                        from app.models.tool_execution import ToolExecution
-                        tool_result = await self.db.execute(
-                            select(ToolExecution).filter(ToolExecution.id == block.tool_execution_id)
-                        )
-                        tool_execution = tool_result.scalars().first()
+                        tool_execution = await self._load_tool_execution_for_context(block.tool_execution_id)
                         
                         if tool_execution:
                             tool_info = f"Tool: {tool_execution.tool_name}"
@@ -396,19 +489,25 @@ class MessageContextBuilder:
                                 # Digest for create_data results (same style as create_widget)
                                 elif tool_execution.tool_name == 'create_data' and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
+                                    preview = rj.get('data_preview') or {}
+                                    stats = rj.get('stats') or {}
                                     data_obj = rj.get('data') or {}
-                                    columns = data_obj.get('columns', []) or []
+                                    columns = preview.get('columns') or data_obj.get('columns', []) or []
                                     rows = data_obj.get('rows', []) or []
+                                    preview_rows = preview.get('rows') or []
                                     col_names = [
                                         (c.get('field') or c.get('headerName'))
                                         for c in columns
                                         if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
                                     ]
-                                    row_count = len(rows)
+                                    row_count = (
+                                        stats.get('total_rows')
+                                        or preview.get('row_count')
+                                        or len(rows)
+                                        or len(preview_rows)
+                                    )
                                     sample_row = None
                                     if allow_llm_see_data:
-                                        preview = rj.get('data_preview', {}) or {}
-                                        preview_rows = preview.get('rows') or []
                                         if preview_rows:
                                             sample_row = preview_rows[0]
                                         elif rows:
