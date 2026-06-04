@@ -10,7 +10,10 @@ on:
 jobs:
   e2e-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The sqlite matrix leg runs a full alembic up/down per test on a file DB
+    # and the suite has grown past the old 60-minute cap (it was being
+    # cancelled mid-run). 90 gives headroom while still bounding runaway hangs.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:

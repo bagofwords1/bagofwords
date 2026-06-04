@@ -667,7 +667,7 @@ class ConnectionService:
             # not a filtered subset of an admin universe. Admin-time indexing
             # is meaningless; the user's catalog gets fetched on their first
             # sign-in via get_user_data_source_schema. Skip cleanly.
-            from app.schemas.data_source_registry import get_entry
+            from app.schemas.data_source_registry import get_entry, requires_no_credentials
             try:
                 entry = get_entry(connection.type)
                 if entry.catalog_ownership == "per_user":
@@ -693,7 +693,14 @@ class ConnectionService:
             # Only skip when neither is available (e.g. a delegated-only OBO setup
             # where the admin stored no creds and no user has signed in yet), so we
             # don't 403 out of resolve_credentials.
-            if connection.auth_policy == "user_required":
+            #
+            # Credential-less sources (SQLite/DuckDB/QVD — registry default auth
+            # "none") are exempt: their catalog is indexed from `config` (the DB
+            # path / file location), so they need no creds even under
+            # user_required. Without this exemption an owner/admin refresh of a
+            # user_required SQLite domain would skip indexing and return zero
+            # tables, since both `credentials` and per-user creds are empty.
+            if connection.auth_policy == "user_required" and not requires_no_credentials(connection.type):
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
 
