@@ -43,6 +43,8 @@
             multiple
             searchable
             searchable-placeholder="Search connections..."
+            option-attribute="name"
+            :search-attributes="['name', 'type']"
           >
             <template #label>
               <div v-if="selectedConnections.length > 0" class="flex items-center gap-1.5 flex-wrap">
