@@ -69,7 +69,8 @@ class OTELConfig(BaseModel):
         alias_generator=AliasGenerator(
             validation_alias=to_camel,
             serialization_alias=to_camel,
-        )
+        ),
+        populate_by_name=True,
     )
     enabled: bool = False
     service_name: str = "bagofwords-backend"
