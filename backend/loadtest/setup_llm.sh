@@ -13,7 +13,7 @@ RESP=$(curl -s -X POST "${H[@]}" "$B/api/llm/providers" -d "{
   \"provider_type\": \"anthropic\",
   \"credentials\": {\"api_key\": \"$KEY\"},
   \"models\": [
-    {\"name\": \"Claude Haiku 4.5\", \"model_id\": \"claude-haiku-4-5\", \"is_default\": true, \"is_small_default\": true}
+    {\"name\": \"Claude 4.5 Haiku\", \"model_id\": \"claude-haiku-4-5-20251001\", \"is_default\": true, \"is_small_default\": true, \"context_window_tokens\": 200000, \"input_cost_per_million_tokens_usd\": 1, \"output_cost_per_million_tokens_usd\": 5}
   ]
 }")
 echo "$RESP" | python3 -c "import sys,json;d=json.load(sys.stdin);print('provider',d.get('id'),'models',[(m['model_id'],m['id']) for m in d.get('models',[])])"
