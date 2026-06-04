@@ -848,7 +848,11 @@ def test_domain_user_required_owner_can_access(
     assert isinstance(tables, list)
     assert len(tables) > 0, "Owner should be able to refresh schema and see tables"
 
-    # Owner should be able to get schema
+    # Owner should be able to get schema. Note: a fresh refresh leaves tables
+    # INACTIVE (ONBOARDING_MAX_TABLES=0 — users select tables explicitly), and
+    # the /schema endpoint is active-only, so it may legitimately be empty here.
+    # Owner visibility was already proven above via refresh_schema (which
+    # includes inactive tables). This mirrors test_domain_inherits_connection_tables.
     schema = get_schema(
         data_source_id=domain["id"],
         user_token=owner_token,
@@ -856,7 +860,6 @@ def test_domain_user_required_owner_can_access(
     )
 
     assert isinstance(schema, list)
-    assert len(schema) > 0
 
     # Owner should be able to test connection
     connection_result = test_connection(

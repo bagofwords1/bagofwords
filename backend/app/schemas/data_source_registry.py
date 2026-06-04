@@ -888,6 +888,19 @@ def config_schema_for(ds_type: str) -> Type[BaseModel]:
     return get_entry(ds_type).config_schema
 
 
+def requires_no_credentials(ds_type: str) -> bool:
+    """True for sources whose catalog is indexed from `config` alone, with no
+    credentials involved — i.e. the default auth variant is "none" (SQLite,
+    DuckDB, QVD). These are credential-less but still indexable: the DB path /
+    file location lives in `config`, so schema discovery needs no creds even
+    under a `user_required` auth policy. Unknown types default to False (treat
+    as credentialed)."""
+    try:
+        return get_entry(ds_type).credentials_auth.default == "none"
+    except ValueError:
+        return False
+
+
 def default_credentials_schema_for(ds_type: str) -> Type[BaseModel]:
     entry = get_entry(ds_type)
     default = entry.credentials_auth.default
