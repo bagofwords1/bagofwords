@@ -2012,10 +2012,11 @@ class AgentV2:
                         # Store latest decision in memory for final persist (NO DB writes during streaming)
                         current_plan_decision_data = decision
 
-                        # Get sequence for SSE ordering (in-memory, no DB)
-                        event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        # Capture a stable sequence for the eventual persisted decision.
+                        # Text streaming uses PlanningTextStreamer below; avoid assigning
+                        # an SSE sequence for every text-only planner partial.
                         if decision_seq is None:
-                            decision_seq = event_seq
+                            decision_seq = await self.project_manager.next_seq(self.db, self.current_execution)
 
                         # Emit incremental, throttled token deltas for reasoning/content.
                         # final_answer and assistant_message are mutually exclusive by prompt contract:
@@ -2030,16 +2031,13 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Emit decision.partial when there's any new decision content:
-                        # text (reasoning / assistant / final_answer) OR an action block.
-                        # The action path matters because v3 may emit tool_use with no
-                        # narration — frontend uses action.name to paint the tool widget
-                        # ~1s before tool.started fires.
-                        reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
-                        assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
-                        final_answer_text = (getattr(decision, "final_answer", None) or "").strip()
+                        # Emit decision.partial only for action metadata. Text already
+                        # streams through block.delta.token/block.delta.text; repeating
+                        # cumulative reasoning/assistant/final_answer here can dominate
+                        # SSE bandwidth for long answers.
                         action_present = decision.action is not None
-                        if reasoning_text or assistant_text or final_answer_text or action_present:
+                        if action_present:
+                            event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.partial",
                                 completion_id=str(self.system_completion.id),
@@ -2047,9 +2045,9 @@ class AgentV2:
                                 seq=event_seq,
                                 data={
                                     "plan_type": decision.plan_type,
-                                    "reasoning": decision.reasoning_message,
-                                    "assistant": decision.assistant_message,
-                                    "final_answer": decision.final_answer,
+                                    "reasoning": None,
+                                    "assistant": None,
+                                    "final_answer": None,
                                     "action": decision.action.model_dump() if decision.action else None,
                                 }
                             ))
