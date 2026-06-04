@@ -253,18 +253,26 @@ async function reindexConnection(connectionId: string) {
     }
 }
 
-function openEditModal(conn: any) {
+async function openEditModal(conn: any) {
     editingConnection.value = conn
+    // Close the parent Connections modal first to avoid nested modal issues
+    // (nested Headless UI dialogs make the inner modal's controls non-interactive).
+    isOpen.value = false
+    await nextTick()
     showEditModal.value = true
 }
 
 function handleEditSuccess() {
+    // Closing the edit modal reopens the parent via the watcher below.
     showEditModal.value = false
     editingConnection.value = null
     fetchIntegration()
 }
 
 async function openLinkModal() {
+    // Close the parent Connections modal first to avoid nested modal issues.
+    isOpen.value = false
+    await nextTick()
     showLinkModal.value = true
     selectedConnectionId.value = null
     loadingOrgConnections.value = true
@@ -275,6 +283,22 @@ async function openLinkModal() {
         loadingOrgConnections.value = false
     }
 }
+
+// When an inner modal closes (via success, Cancel, the X button, or an
+// outside click), return the user to the Connections list.
+watch(showLinkModal, async (open) => {
+    if (!open) {
+        await nextTick()
+        isOpen.value = true
+    }
+})
+
+watch(showEditModal, async (open) => {
+    if (!open) {
+        await nextTick()
+        isOpen.value = true
+    }
+})
 
 async function linkConnection() {
     if (!selectedConnectionId.value || isLinking.value) return
