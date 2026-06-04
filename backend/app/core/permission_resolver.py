@@ -25,10 +25,14 @@ FULL_ADMIN = "full_admin_access"
 # Org-level permissions that implicitly grant specific per-resource permissions.
 # E.g. holding `manage_instructions` at the org level means the user can
 # create/edit instructions on any data source, without needing per-DS grants.
+# Likewise, `manage_connections` (org-level connection admin) implies the
+# ability to create data sources/agents on any connection, so a connection
+# admin doesn't need a per-connection `manage_data_sources` grant.
 ORG_PERM_IMPLIES_RESOURCE: dict[str, dict[str, set[str]]] = {
     "manage_instructions": {"data_source": {"manage_instructions"}},
     "manage_entities":     {"data_source": {"create_entities"}},
     "manage_evals":        {"data_source": {"manage_evals"}},
+    "manage_connections":  {"connection": {"manage_data_sources"}},
 }
 
 

@@ -971,6 +971,51 @@ def test_connection_manage_data_sources_granted(test_client, create_user, login_
     assert resp.status_code != 403, f"Should succeed with manage_data_sources grant: {resp.text}"
 
 
+@pytest.mark.e2e
+def test_connection_manage_connections_org_perm_can_create_ds(test_client, create_user, login_user, whoami, dynamic_sqlite_db, create_connection):
+    """User with org-level manage_connections can create a DS from any connection
+    without a per-connection manage_data_sources grant.
+
+    A connection admin (org-level manage_connections) should be able to build
+    data sources/agents on any connection. The org perm implies the
+    manage_data_sources resource permission on connections.
+    """
+    ctx = _setup_org_with_member(test_client, create_user, login_user, whoami)
+
+    if not _requires_enterprise(test_client, ctx["admin_token"], ctx["org_id"]):
+        pytest.skip("Enterprise license required for custom roles")
+
+    conn = create_connection(
+        name="rbac-test-conn-org-admin",
+        type="sqlite",
+        config={"database": dynamic_sqlite_db},
+        credentials={},
+        user_token=ctx["admin_token"],
+        org_id=ctx["org_id"],
+    )
+
+    # Give member create_data_source + manage_connections org-level perms, but
+    # NO per-connection resource grant.
+    role = _create_custom_role(test_client, ctx["admin_token"], ctx["org_id"], "DS Creator Conn Admin", [
+        "create_data_source", "manage_connections",
+    ])
+    _assign_role(test_client, ctx["admin_token"], ctx["org_id"], role["id"], "user", ctx["member_id"])
+
+    # Member creates a DS from the connection — should succeed via org perm
+    resp = test_client.post(
+        "/api/data_sources",
+        json={
+            "name": "Org Admin DS",
+            "type": "sqlite",
+            "connection_id": conn["id"],
+            "config": {},
+            "credentials": {},
+        },
+        headers=_headers(ctx["member_token"], ctx["org_id"]),
+    )
+    assert resp.status_code != 403, f"Should succeed with org-level manage_connections: {resp.text}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 10. Resource-grant escalation prevention
 # ═══════════════════════════════════════════════════════════════════════════
