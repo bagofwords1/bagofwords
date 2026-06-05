@@ -1525,6 +1525,23 @@ class AgentV2:
             logger.warning(f"[agent.single_writer] rebuild failed: {_e!r}")
         return True
 
+    async def _release_db_between_steps(self) -> None:
+        """Commit the agent's main session so its pooled DB connection is returned
+        to the pool during the upcoming long awaits (planner LLM call, tool /
+        code execution). Without this the connection sits 'idle in transaction'
+        for the whole iteration, and concurrent completions exhaust the pool
+        (QueuePool timeout -> 500 / mid-stream 'network error'). The session uses
+        expire_on_commit=False so already-loaded ORM objects stay usable, and the
+        single-writer model is preserved (still one writer, just committing
+        between steps — which on SQLite also releases the WAL writer lock).
+        Toggle with BOW_AGENT_RELEASE_DB_BETWEEN_STEPS (default on)."""
+        if os.getenv("BOW_AGENT_RELEASE_DB_BETWEEN_STEPS", "1") != "1":
+            return
+        try:
+            await self.db.commit()
+        except Exception as e:
+            logger.warning(f"[agent] _release_db_between_steps commit failed: {e!r}")
+
     async def main_execution(self):
         # Single-writer mode: route all migrated writers through self.db
         # (the agent's existing main session) via self._writes_session().
@@ -1771,6 +1788,11 @@ class AgentV2:
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
                     break
+
+                # Release the pooled DB connection before this iteration's long
+                # planner LLM call + tool execution so concurrent completions
+                # don't starve the connection pool (idle-in-transaction).
+                await self._release_db_between_steps()
 
                 # Refresh warm context (skip on first loop - already done above)
                 if loop_index > 0:
@@ -2547,6 +2569,10 @@ class AgentV2:
                                         }
                                     ))
 
+                            # Release the pooled connection before the (often
+                            # multi-second) tool / code execution so it isn't held
+                            # idle-in-transaction while the pool starves.
+                            await self._release_db_between_steps()
                             tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
 
                             # Capture training_build_id if set by create_instruction tool
