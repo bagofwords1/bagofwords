@@ -1,36 +1,80 @@
-"""Fast, key-free root-cause check for the "metric breakdown collapses to a
-single line" bug.
+"""Regression guard for the "metric breakdown collapses to a single line" bug.
 
-Context
+History
 -------
-When a user asks for a metric *broken down by a dimension* (e.g. "GMV by
-category", "sales by genre"), ``create_data`` generates SQL that correctly
-GROUPs BY the dimension, so the result is granular: many rows per x-axis
-value (one per category). The chart, however, renders a single total line.
+When a user asked for a metric *broken down by a dimension* (e.g. "GMV by
+category", "sales by genre"), ``create_data`` generated SQL that correctly
+GROUPed BY the dimension — so the result was granular, with many rows per
+x-axis value — yet the chart rendered a single total line.
 
-The breakdown is lost inside ``create_data``'s post-execution visualization
+The breakdown was lost in ``create_data``'s post-execution visualization
 inference. The inference LLM is prompted to emit ``group_by`` as a **string**
 (see ``implementations/create_data.py`` — the prompt examples and OUTPUT
-FORMAT all use ``"group_by": "column_name_or_null"``). That candidate is then
-fed straight into ``DataModel(**candidate_json)``, but ``DataModel.group_by``
-is typed ``Optional[List[str]]``. Pydantic v2 does not coerce a bare ``str``
-into ``List[str]`` — it raises — and the surrounding ``except`` resets the
-whole candidate to ``{"type": "table", "series": []}``, throwing away
-``group_by`` (and the series) entirely.
+FORMAT all use ``"group_by": "column_name_or_null"``). That candidate was fed
+into ``DataModel(**candidate_json)``, but ``DataModel.group_by`` was typed
+``Optional[List[str]]``. Pydantic v2 does not coerce a bare ``str`` into
+``List[str]`` — it raised — and the surrounding ``except`` reset the whole
+candidate to ``{"type": "table", "series": []}``, discarding ``group_by`` (and
+the series) entirely.
 
-This module pins that mechanism deterministically, with no LLM and no
-network. It is the *inner* loop of the feedback cycle documented in
-``REPRO-viz-breakdown.md``; the *outer* loop is the end-to-end agent repro in
+Fix
+---
+``DataModel.group_by`` now accepts ``Optional[Union[str, List[str]]]`` so the
+planner's string validates, and ``normalize_group_by`` flattens whatever shape
+to the single column name every renderer expects.
+
+This module pins that fixed behavior deterministically — no LLM, no network.
+It is the *inner* loop of the feedback cycle in ``REPRO-viz-breakdown.md``; the
+*outer* loop is the end-to-end agent repro in
 ``tests/e2e/test_repro_viz_breakdown.py``.
-
-When the fix lands, ``test_planner_string_group_by_survives`` flips from
-xfail to pass (strict=True will then flag the stale marker for removal).
 """
 
 import pytest
-from pydantic import ValidationError
 
-from app.ai.tools.schemas.create_data_model import DataModel
+from app.ai.tools.schemas.create_data_model import DataModel, normalize_group_by
+from app.ai.tools.implementations.create_data import _extract_json_object
+
+
+# The literal shape Haiku returned in the end-to-end repro: fenced JSON with a
+# trailing prose "Rationale" block. A bare json.loads() throws on this, which is
+# what dropped the series + group_by before the schema was ever reached.
+LLM_FENCED_WITH_PROSE = (
+    "```json\n"
+    '{\n  "type": "line_chart",\n'
+    '  "series": [{"name": "Total Sales", "key": "InvoiceMonth", "value": "TotalSales"}],\n'
+    '  "group_by": "GenreName"\n}\n'
+    "```\n\n"
+    "**Rationale:**\n\n1. Line chart is correct because the user asked for trends.\n"
+    "2. group_by GenreName yields one line per genre."
+)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"type": "line_chart", "series": [], "group_by": "GenreName"}',  # plain
+        '```json\n{"type": "line_chart", "group_by": "GenreName"}\n```',   # fenced
+        '```\n{"type": "bar_chart"}\n```',                                  # bare fence
+        LLM_FENCED_WITH_PROSE,                                              # fence + prose
+        'Here you go:\n{"type": "pie_chart", "series": []}\nHope that helps!',  # prose around
+    ],
+)
+def test_extract_json_object_handles_fences_and_prose(raw):
+    obj = _extract_json_object(raw)
+    assert isinstance(obj, dict) and obj.get("type")
+
+
+def test_extract_json_object_recovers_breakdown():
+    obj = _extract_json_object(LLM_FENCED_WITH_PROSE)
+    assert obj["type"] == "line_chart"
+    assert obj["series"] and obj["series"][0]["value"] == "TotalSales"
+    assert obj["group_by"] == "GenreName"
+
+
+def test_extract_json_object_returns_none_on_garbage():
+    assert _extract_json_object("no json here") is None
+    assert _extract_json_object("") is None
+    assert _extract_json_object(None) is None
 
 
 # A representative candidate exactly as the viz-inference LLM is prompted to
@@ -58,21 +102,22 @@ def _build_candidate_like_create_data(candidate_json: dict) -> dict:
     try:
         return DataModel(**keep).model_dump()
     except Exception:
-        # The production code swallows the ValidationError and falls back to a
-        # bare table — dropping series AND group_by.
+        # Pre-fix fallback: a ValidationError here dropped series AND group_by.
         return {"type": "table", "series": []}
 
 
-def test_datamodel_rejects_string_group_by():
-    """Schema-level proof: a string group_by (what the planner emits) is
-    rejected by the List[str] field."""
-    with pytest.raises(ValidationError):
-        DataModel(
-            type="line_chart",
-            series=[{"name": "Sales", "key": "month", "value": "total"}],
-            group_by="genre",
-        )
-    # A list, by contrast, validates fine.
+def test_datamodel_accepts_planner_group_by_string():
+    """The planner's single-column string must validate (it used to raise)."""
+    dm = DataModel(
+        type="line_chart",
+        series=[{"name": "Sales", "key": "month", "value": "total"}],
+        group_by="genre",
+    )
+    assert dm.group_by == "genre"
+
+
+def test_datamodel_accepts_group_by_list():
+    """A list (as other tools emit) still validates."""
     dm = DataModel(
         type="line_chart",
         series=[{"name": "Sales", "key": "month", "value": "total"}],
@@ -81,31 +126,28 @@ def test_datamodel_rejects_string_group_by():
     assert dm.group_by == ["genre"]
 
 
-def test_create_data_construction_drops_the_breakdown():
-    """End-to-end of the inline snippet: the planner's string group_by causes
-    the entire candidate to collapse to a table, so the breakdown is lost."""
-    built = _build_candidate_like_create_data(PLANNER_CANDIDATE)
-    # Bug signature: type downgraded to table, series + group_by gone.
-    assert built.get("group_by") in (None, [], "")
-    assert not built.get("series")
-    assert built.get("type") == "table"
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: planner emits group_by as a string, which DataModel "
-    "(List[str]) rejects; the breakdown is dropped. Remove this marker when "
-    "create_data normalizes group_by before/while building the DataModel.",
-)
-def test_planner_string_group_by_survives():
-    """Desired behavior (currently failing): the dimension the planner chose
-    must survive into the final data model so the chart can render one line
-    per category."""
+def test_create_data_construction_preserves_breakdown():
+    """The construction the tool performs must keep the chart type, the
+    series, and the breakdown dimension — i.e. one line per category."""
     built = _build_candidate_like_create_data(PLANNER_CANDIDATE)
     assert built.get("type") == "line_chart"
-    assert built.get("series"), "series should be preserved"
+    assert built.get("series"), "series must be preserved"
     gb = built.get("group_by")
     assert gb, "group_by must survive"
-    # Normalized to the column name regardless of str/list representation.
-    flat = gb[0] if isinstance(gb, list) else gb
-    assert flat == "genre"
+    assert normalize_group_by(gb) == "genre"
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("genre", "genre"),
+        (["genre"], "genre"),
+        (["genre", "country"], "genre"),  # charts render a single dimension
+        ([], None),
+        ("", None),
+        (None, None),
+        (123, None),
+    ],
+)
+def test_normalize_group_by(value, expected):
+    assert normalize_group_by(value) == expected

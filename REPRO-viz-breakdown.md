@@ -1,91 +1,106 @@
-# Repro & feedback loop — "metric broken down by a dimension renders as a single line"
+# Fix & feedback loop — "metric broken down by a dimension renders as a single line"
 
-Sandbox-ready reproduction harness for the bug reported in `#bow-joom`:
+Reproduction + fix for the bug reported in `#bow-joom`:
 
 > When we ask BoW to build a metric in dynamics broken down by any dimension
 > (e.g. *gmv by categories*), it ignores the breakdown and builds just **one
 > line for the total**. At the same time, on the SQL level we see grouping by
 > category.
 
-This doc gives you a two-tier feedback loop to reproduce, diagnose, and (later)
-verify a fix — entirely inside the sandbox, no Docker required.
+Status: **fixed**. Both feedback loops below are green.
 
 ---
 
-## Root cause (one paragraph)
+## Root cause
 
-The breakdown is lost in `create_data`'s post-execution **visualization
-inference**, not in SQL generation. The viz-inference LLM is prompted to emit
-`group_by` as a **string** (`backend/app/ai/tools/implementations/create_data.py`
-— every example and the OUTPUT FORMAT use `"group_by": "column_name_or_null"`).
-That candidate is fed into `DataModel(**candidate_json)`, but
-`DataModel.group_by` is typed `Optional[List[str]]`
-(`backend/app/ai/tools/schemas/create_data_model.py:158`). Pydantic v2 does
-**not** coerce a bare `str` into `List[str]` — it raises — and the surrounding
-`except` resets the whole candidate to `{"type": "table", "series": []}`,
-discarding `group_by` **and** the series. Downstream, `build_view_from_data_model`
-gets no series, returns `None`, and the view falls back to a bare
-`{"type": "line_chart"}` — which the frontend renders as a single total line.
+The breakdown was lost in `create_data`'s post-execution **visualization
+inference** (`backend/app/ai/tools/implementations/create_data.py`), not in SQL
+generation. The SQL was always correct (the result is granular: many rows per
+x-axis value, one per category). Two layered defects threw the breakdown away:
 
-There's also a type disagreement across the stack worth noting when fixing:
+1. **Brittle JSON parse (the one that actually bit in practice).** The
+   inference asks the model for "only valid JSON", but models routinely wrap it
+   in ```` ```json ```` fences and append a prose *Rationale*. The code did a
+   bare `json.loads(raw)`, which throws on that, and the `except` set
+   `candidate_json = None` → the candidate fell back to
+   `{"type": "table", "series": []}`. Observed verbatim with Haiku: a perfect
+   `{"type":"line_chart","series":[…],"group_by":"GenreName"}` payload, discarded
+   because of the surrounding fence + rationale.
 
-| Layer | File | Treats `group_by` as |
-|---|---|---|
-| Inference prompt | `implementations/create_data.py` | string |
-| `DataModel` schema | `schemas/create_data_model.py:158` | `List[str]` |
-| View schema `groupBy` | `schemas/view_schema.py:140` | `str` |
-| Chart codegen | `services/artifact_codegen.py:45,77,86` | string |
+2. **Schema type drop (latent, behind #1).** Even with clean JSON, the inference
+   prompt emits `group_by` as a **string**, but `DataModel.group_by` was typed
+   `Optional[List[str]]`. Pydantic v2 rejects a bare `str`, and the same
+   `except` collapsed the candidate to a table — dropping `group_by` and the
+   series.
+
+With series + `group_by` gone, `build_view_from_data_model` returned `None`, the
+view degraded to a bare `{"type": "line_chart"}` (no `x`/`y`/`groupBy`), and the
+frontend rendered a single total line.
+
+There was also a stack-wide disagreement on `group_by`'s shape (the inference
+prompt and the ECharts codegen treat it as a single string; `DataModel` and
+`create_widget` use a list; `view.groupBy` is a single string).
+
+## The fix
+
+`backend/app/ai/tools/implementations/create_data.py`
+- `_extract_json_object()` — tolerant extraction: direct parse → strip code
+  fences → scan for the first balanced `{…}` object (drops trailing prose).
+  Used in place of `json.loads(raw)` in the viz-inference pass.
+- `build_view_from_data_model()` — normalize `group_by` to a single column name
+  before constructing the view.
+
+`backend/app/ai/tools/schemas/create_data_model.py`
+- `group_by` is now `Optional[Union[str, List[str]]]` so the planner's string
+  validates instead of nuking the candidate.
+- `normalize_group_by()` — shared helper that flattens str/list/empty → a single
+  column name (charts render one breakdown dimension).
+
+`backend/app/services/artifact_codegen.py`
+- Normalize `group_by` before embedding it as a JS key, so a list can never
+  reach `_js_str` (it would have crashed).
 
 ---
 
-## One-time environment setup
+## Environment setup (sandbox)
 
-The codebase needs **Python 3.12+** (3.11 trips an f-string-with-backslash
-`SyntaxError` in `app/ai/agents/planner/planner.py`). `psycopg2` won't build
-without `libpq`, but tests default to **sqlite**, so we use `psycopg2-binary`.
+Needs **Python 3.12+** (3.11 trips an f-string `SyntaxError` in
+`planner.py`). `psycopg2` won't build without `libpq`, but tests default to
+**sqlite**, so use `psycopg2-binary`.
 
 ```bash
 cd backend
 python3.12 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
-
-# Install everything except the source psycopg2, then the prebuilt binary.
 grep -iv '^psycopg2==' requirements_versioned.txt > /tmp/reqs_nopsy.txt
 pip install -r /tmp/reqs_nopsy.txt
 pip install psycopg2-binary
 ```
 
-### Required environment variables
-
-Run the e2e test exactly like CI does (`ENVIRONMENT=production TESTING=true`,
-which loads `bow-config.yaml` with `auth.mode: hybrid` so local password
-registration works):
+Env vars (the e2e test mirrors CI: `ENVIRONMENT=production TESTING=true` loads
+`bow-config.yaml` with `auth.mode: hybrid` so password registration works):
 
 ```bash
 export ENVIRONMENT=production
 export TESTING=true
-# Any valid Fernet key — used to encrypt the stored provider credential.
 export BOW_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
-# Your Anthropic key. NEVER commit this.
-export ANTHROPIC_API_KEY_TEST="sk-ant-..."
+export ANTHROPIC_API_KEY_TEST="sk-ant-..."   # NEVER commit this
 ```
 
-> The test installs an Anthropic provider with **Haiku**
-> (`claude-haiku-4-5-20251001`) as the org default — the bug is
-> model-independent (it's a schema/validation mismatch, not a planning
-> failure), so Haiku keeps the loop cheap and fast (~40s/run). Override with
-> `BOW_REPRO_MODEL=<model_id>`.
+The e2e test installs an Anthropic provider with **Haiku**
+(`claude-haiku-4-5-20251001`) as the org default — the bug was
+model-independent. Override with `BOW_REPRO_MODEL=<model_id>`.
 
 ---
 
 ## The feedback loop
 
-### Inner loop — fast, deterministic, no API key (~30s)
+### Inner loop — fast, deterministic, no API key
 
-`backend/tests/unit/test_repro_group_by_dropped.py` pins the exact mechanism
-with no LLM and no network: a string `group_by` (what the planner emits) is
-rejected by `DataModel`, collapsing the candidate to a bare table.
+`backend/tests/unit/test_repro_group_by_dropped.py` pins both mechanisms with no
+LLM and no network: tolerant JSON extraction (fences + prose), the schema
+accepting a string `group_by`, and `normalize_group_by`.
 
 ```bash
 cd backend && source venv/bin/activate
@@ -93,25 +108,13 @@ export BOW_DATABASE_URL="sqlite:///db/app.db"   # any string; harness overrides 
 python -m pytest tests/unit/test_repro_group_by_dropped.py -v
 ```
 
-Expected on current `main` (bug present):
+### Outer loop — end-to-end against Chinook + real model
 
-```
-test_datamodel_rejects_string_group_by ............... PASSED
-test_create_data_construction_drops_the_breakdown ... PASSED
-test_planner_string_group_by_survives ............... XFAIL   <-- desired behavior, currently failing
-====== 2 passed, 1 xfailed ======
-```
-
-`test_planner_string_group_by_survives` is the canary: it's `xfail(strict=True)`,
-so **once the bug is fixed it flips to XPASS and the suite fails**, prompting you
-to delete the marker. Use this loop while iterating on the fix.
-
-### Outer loop — end-to-end against Chinook + real model (~40s)
-
-`backend/tests/e2e/test_repro_viz_breakdown.py` drives the **real agent**
-through the HTTP API against the committed `demo-datasources/chinook.sqlite`,
-then inspects the chart that was actually persisted on the widget
-(`last_step.data_model` + `last_step.view`).
+`backend/tests/e2e/test_repro_viz_breakdown.py` drives the **real agent** through
+the HTTP API against the committed `demo-datasources/chinook.sqlite`, with the
+prompt "total sales over time broken down by music genre, one line per genre",
+then asserts the breakdown survived to **both** the persisted `data_model` and
+the rendered `Visualization.view` (the layer the customer sees).
 
 ```bash
 cd backend && source venv/bin/activate
@@ -119,60 +122,30 @@ cd backend && source venv/bin/activate
 python -m pytest tests/e2e/test_repro_viz_breakdown.py -s -m e2e
 ```
 
-The prompt mirrors the customer's "metric broken down by category":
-
-> *Plot total sales over time broken down by music genre, as a LINE chart with
-> one line per genre … Join Invoice → InvoiceLine → Track → Genre …*
-
 ---
 
-## Reproduced output (current `main`, Haiku)
+## Before / after (Chinook, Haiku)
+
+**Before** — SQL grouped by genre (`351 rows`), but the chart dropped it:
 
 ```
-========== REPRO DIAGNOSTIC: viz breakdown ==========
-widgets produced: 1
-{
-  "title": "Sales by Genre Over Time (Monthly)",
-  "type": "line_chart",
-  "columns": ["Month", "GenreName", "TotalSales"],   <-- SQL DID group by genre
-  "total_rows": 351,                                  <-- tall: many rows per month
-  "x_key": null,
-  "value_keys": [],
-  "series_count": 0,                                  <-- series dropped
-  "group_by": null,                                   <-- THE BUG: breakdown lost
-  "view_group_by": null,
-  "breakdown_dim_present": true,
-  "breakdown_applied": false
-}
-=====================================================
-
-AssertionError: Metric breakdown was lost on the chart — the data is granular
-along a category dimension, but the chart applies no group_by / multi-series,
-so it renders a single total line.
-
-WARNING app.project_manager update_visualization_view failed: 2 validation
-errors for ViewSchema
-  view.line_chart.x  Field required ... input_value={'type': 'line_chart'}
-  view.line_chart.y  Field required ...
+"columns": ["Month", "GenreName", "TotalSales"], "total_rows": 351
+"series_count": 0, "group_by": null, "breakdown_applied": false
+WARNING update_visualization_view failed: view.line_chart.x/y Field required
 ```
 
-The trailing `ViewSchema` warning is the tail of the same chain: with series
-dropped, the view degrades to a bare `{"type": "line_chart"}` (no `x`/`y`),
-and the frontend auto-renders a single line.
+**After** — the breakdown reaches the rendered visualization view:
 
----
+```
+"series_count": 1, "group_by": "GenreName", "x_key": "Month", "breakdown_applied": true
 
-## What "fixed" looks like
+VIZ VIEWS: [{"version":"v2","view":{"type":"line_chart","x":"YearMonth",
+  "y":"TotalSales","groupBy":"GenreName","legend":{"show":true,...},
+  "seriesStyles":[{"key":"TotalSales","label":"Total Sales","aggregation":"sum"}]}}]
+```
 
-After the fix (normalize `group_by` so the planner's choice survives into the
-data model and the view), re-run both loops:
-
-- **Inner:** `test_planner_string_group_by_survives` goes from `xfail` →
-  `xpass`; remove the `@pytest.mark.xfail` marker so it's a plain green
-  regression guard.
-- **Outer:** the e2e diagnostic shows `group_by` (or `view_group_by`) set to
-  the category column, `breakdown_applied: true`, and the test passes —
-  i.e. the chart renders one line per genre.
+`groupBy: "GenreName"` → one line per genre. The `update_visualization_view`
+warning is gone.
 
 ---
 
@@ -180,6 +153,9 @@ data model and the view), re-run both loops:
 
 | File | Role |
 |---|---|
-| `backend/tests/unit/test_repro_group_by_dropped.py` | Fast, key-free root-cause check (inner loop) |
-| `backend/tests/e2e/test_repro_viz_breakdown.py` | End-to-end Chinook + real-model repro (outer loop) |
+| `backend/app/ai/tools/implementations/create_data.py` | Fix: tolerant JSON parse + group_by normalization in the view builder |
+| `backend/app/ai/tools/schemas/create_data_model.py` | Fix: `group_by` accepts str-or-list + `normalize_group_by` helper |
+| `backend/app/services/artifact_codegen.py` | Fix: normalize `group_by` before JS embedding |
+| `backend/tests/unit/test_repro_group_by_dropped.py` | Inner-loop regression guard (no key) |
+| `backend/tests/e2e/test_repro_viz_breakdown.py` | Outer-loop end-to-end repro (Chinook + real model) |
 | `REPRO-viz-breakdown.md` | This guide |

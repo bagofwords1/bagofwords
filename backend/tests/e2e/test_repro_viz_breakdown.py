@@ -248,3 +248,45 @@ def test_metric_breakdown_survives_to_chart(
         "No chart applied a breakdown (group_by / multi-series). Charts:\n"
         + json.dumps(charts, indent=2, default=str)
     )
+
+    # The frontend renders from the Visualization.view (not Step.view), so
+    # assert the breakdown actually reached the rendered view: a valid
+    # CartesianView with x/y and a groupBy. This is the layer the customer sees.
+    import asyncio as _asyncio
+    from sqlalchemy import select as _select
+    from app.dependencies import async_session_maker as _sm
+    from app.models.visualization import Visualization as _Viz
+
+    async def _viz_views():
+        async with _sm() as s:
+            rows = (await s.execute(
+                _select(_Viz.view).where(_Viz.report_id == str(report["id"]))
+            )).all()
+            return [r[0] for r in rows if isinstance(r[0], dict)]
+
+    viz_views = _asyncio.run(_viz_views())
+    print("VIZ VIEWS:", json.dumps(viz_views, default=str), flush=True)
+
+    def _view_group_by(v: dict):
+        inner = v.get("view") if isinstance(v.get("view"), dict) else v
+        if not isinstance(inner, dict):
+            return None
+        gb = inner.get("groupBy")
+        if gb:
+            return gb
+        enc = inner.get("encoding") if isinstance(inner.get("encoding"), dict) else None
+        if enc and (enc.get("groupBy") or enc.get("series")):
+            return enc.get("groupBy") or "multi-series"
+        return None
+
+    cartesian_views = [
+        v for v in viz_views
+        if isinstance((v.get("view") or v), dict)
+        and ((v.get("view") or v).get("type") in CARTESIAN_TYPES)
+    ]
+    assert cartesian_views, f"No cartesian visualization view persisted: {viz_views}"
+    assert any(_view_group_by(v) for v in cartesian_views), (
+        "Rendered visualization view has no breakdown (groupBy/multi-series); "
+        "the chart would draw a single line. Views:\n"
+        + json.dumps(viz_views, indent=2, default=str)
+    )

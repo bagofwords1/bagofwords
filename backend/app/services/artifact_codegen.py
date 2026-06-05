@@ -8,6 +8,8 @@ that the LLM would produce, but instantly.
 import re
 from typing import List, Optional
 
+from app.ai.tools.schemas.create_data_model import normalize_group_by
+
 
 # ---------------------------------------------------------------------------
 # Chart-type → ECharts option JS builders
@@ -42,7 +44,9 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
     if not category_key:
         return "{}"
 
-    group_by = data_model.get("group_by") or ""
+    # group_by may be a string (planner) or a list (other tools); the codegen
+    # embeds it as a single JS string key, so normalize to one column name.
+    group_by = normalize_group_by(data_model.get("group_by")) or ""
     is_horizontal = data_model.get("horizontal", False)
     chart_type = "line" if dm_type in ("line_chart", "area_chart") else "bar"
     is_area = dm_type == "area_chart"

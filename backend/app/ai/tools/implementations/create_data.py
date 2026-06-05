@@ -1,6 +1,7 @@
 import json
 import asyncio
 import logging
+import re
 import time as _time
 from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
@@ -28,6 +29,7 @@ from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
 from app.ai.tools.schemas import DataModel
+from app.ai.tools.schemas.create_data_model import normalize_group_by
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
 from app.schemas.view_schema import (
@@ -53,6 +55,65 @@ ALLOWED_VIZ_TYPES = {
     "table","bar_chart","line_chart","pie_chart","area_chart","count","metric_card",
     "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
 }
+
+
+def _extract_json_object(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Best-effort extraction of a single JSON object from an LLM response.
+
+    The visualization-inference prompt asks for "only valid JSON", but models
+    routinely wrap it in ```json fences and/or append a prose rationale. A bare
+    ``json.loads`` then throws, and the caller's ``except`` discards the whole
+    candidate — dropping the series and the breakdown ``group_by``. This tries,
+    in order: a direct parse, a parse after stripping markdown code fences, and
+    finally the first balanced ``{...}`` object found in the text.
+    """
+    if not text:
+        return None
+
+    def _as_dict(s: str) -> Optional[Dict[str, Any]]:
+        try:
+            obj = json.loads(s)
+        except Exception:
+            return None
+        return obj if isinstance(obj, dict) else None
+
+    # 1) Direct parse.
+    obj = _as_dict(text)
+    if obj is not None:
+        return obj
+
+    # 2) Strip a leading ```json / ``` fence and any closing fence, then retry.
+    stripped = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', text.strip())
+    stripped = re.sub(r'(?m)^\s*```\s*$', '', stripped)
+    obj = _as_dict(stripped)
+    if obj is not None:
+        return obj
+
+    # 3) Scan for the first balanced top-level object (drops trailing prose).
+    start = stripped.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(stripped)):
+        c = stripped[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == '\\':
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return _as_dict(stripped[start:i + 1])
+    return None
 
 
 def _infer_palette_theme(runtime_ctx: Dict[str, Any]) -> Optional[str]:
@@ -153,8 +214,11 @@ def build_view_from_data_model(
         # Use list when multiple measures exist
         y_value: Union[str, List[str]] = value_cols[0] if len(value_cols) == 1 else value_cols
         series_styles = _build_series_styles(series)
+        # group_by may arrive as a string (planner) or a list (other tools);
+        # the view expects a single column name.
+        group_by = normalize_group_by(data_model.get("group_by"))
         # Show legend if multiple series or groupBy is used
-        has_multiple_series = len(series) > 1 or data_model.get("group_by")
+        has_multiple_series = len(series) > 1 or bool(group_by)
         view_cls = {
             "bar_chart": BarChartView,
             "line_chart": LineChartView,
@@ -164,7 +228,7 @@ def build_view_from_data_model(
             title=title,
             x=str(x_key),
             y=y_value,
-            groupBy=data_model.get("group_by"),
+            groupBy=group_by,
             palette=palette,
             seriesStyles=series_styles,
             legend=LegendOptions(show=bool(has_multiple_series)),
@@ -588,10 +652,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
         candidate = {"type": "table", "series": []}
         view_options: Dict[str, Any] | None = None
         if raw:
-            try:
-                candidate_json = json.loads(raw)
-            except Exception:
-                candidate_json = None
+            # Models routinely wrap the JSON in ```json fences and append a prose
+            # "Rationale" section despite the "return only JSON" instruction, so a
+            # bare json.loads(raw) throws and the breakdown is silently lost.
+            # Extract the first balanced JSON object instead.
+            candidate_json = _extract_json_object(raw)
             if isinstance(candidate_json, dict):
                 try:
                     dm = DataModel(**{k: v for k, v in candidate_json.items() if k in {"type", "series", "group_by", "sort", "limit", "filters"}})
