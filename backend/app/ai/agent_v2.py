@@ -111,6 +111,14 @@ from app.core.otel import get_tracer
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 tracer = get_tracer(__name__)
 
+# Per-worker cap on concurrent short-lived "background write" sessions opened
+# via _writes_session() (streaming-event state writes, context snapshots,
+# instruction usage, tool-output finalization). These fan out per agent and
+# were the dominant remaining source of QueuePool exhaustion once the main
+# agent session was released between steps. Bounding them keeps
+# (BOW_MAX_CONCURRENT_AGENTS main conns + this) under pool_size+max_overflow.
+_BG_DB_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BOW_MAX_BG_DB_SESSIONS", "16")))
+
 
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
@@ -1405,8 +1413,13 @@ class AgentV2:
         if self._use_single_write_session() and self._writes is not None:
             yield self._writes
         else:
-            async with self._session_maker() as db:
-                yield db
+            # Bound concurrent fresh background sessions so the per-event /
+            # per-snapshot fan-out can't collectively exhaust the pool. These
+            # callers do pure DB writes (no LLM calls held inside), so holding a
+            # slot for the session's lifetime is safe and non-nesting.
+            async with _BG_DB_SEMAPHORE:
+                async with self._session_maker() as db:
+                    yield db
 
     async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
         """Wait for all scheduled background writes to complete.
@@ -3559,6 +3572,24 @@ class AgentV2:
             return
 
         stage = payload.get("stage")
+
+        # Skip the DB session entirely for events that don't write. This method
+        # fires on *every* tool.progress event, but only a handful of stages
+        # actually persist state. Opening a fresh pooled session + 3 .get()
+        # queries for the (frequent) non-writing events was the dominant source
+        # of QueuePool exhaustion under concurrency (30 of ~59 timeouts in the
+        # 50-concurrent load test). Bail out before touching the pool.
+        _DATA_TOOLS = ("create_widget", "create_data", "describe_entity", "write_csv")
+        _DATA_WRITE_STAGES = (
+            "data_model_type_determined", "column_added", "series_configured",
+            "validating_code", "widget_creation_needed", "generated_code", "executing_code",
+        )
+        _writes_for_event = (
+            (tool_name in _DATA_TOOLS and stage in _DATA_WRITE_STAGES)
+            or (tool_name == "create_dashboard" and stage in ("init", "block.completed"))
+        )
+        if not _writes_for_event:
+            return
 
         # IDs read from any pre-existing ORM references attached to a now-stale
         # session. They're plain strings/UUIDs, so this read can't trigger
