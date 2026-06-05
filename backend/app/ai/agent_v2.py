@@ -1382,12 +1382,35 @@ class AgentV2:
         dedicated `self._writes` session (the single-writer architecture
         from docs/design/single-writer-agent-refactor.md).
 
-        Off by default — opt in with BOW_AGENT_SINGLE_WRITE_SESSION=true.
-        Enable in CI/eval first, then production once soak passes.
+        Always on for SQLite: SQLite permits only one write transaction at a
+        time, so running the agent with multiple concurrent write sessions
+        produces "database is locked" and dropped writes — e.g. the create_data
+        step finalize (UPDATE steps SET code/data/status) times out against the
+        busy_timeout and the step is left an empty draft ("No data to display").
+        Single-writer serializes all writes through one connection, which is the
+        only correct mode for SQLite. On other backends (Postgres) it remains
+        opt-in via BOW_AGENT_SINGLE_WRITE_SESSION.
         """
+        if self._is_sqlite_backend():
+            return True
         return os.environ.get(
             "BOW_AGENT_SINGLE_WRITE_SESSION", ""
         ).lower() in ("1", "true", "yes")
+
+    def _is_sqlite_backend(self) -> bool:
+        """True when the agent's DB sessions are bound to a SQLite engine."""
+        try:
+            bind = getattr(self._session_maker, "kw", {}).get("bind")
+            name = getattr(getattr(bind, "dialect", None), "name", "") or ""
+            if name:
+                return name == "sqlite"
+        except Exception:
+            pass
+        try:
+            from app.settings.config import settings as _settings
+            return "sqlite" in (_settings.bow_config.database.get_url() or "").lower()
+        except Exception:
+            return False
 
     @asynccontextmanager
     async def _writes_session(self):
