@@ -302,12 +302,21 @@ def test_view_and_view_schema_not_explicit_resource_perms():
 @pytest.mark.e2e
 def test_org_perm_implies_resource_uses_known_org_perms():
     """Every org-level perm that triggers a resource implication must be registered."""
+    # Resource permissions whitelisted as legitimately not in
+    # RESOURCE_PERMISSIONS because they belong to resource types the registry
+    # intentionally doesn't expose as explicit grants (e.g. connection — see
+    # permissions_registry RESOURCE_PERMISSIONS, data_source only). Mirrors the
+    # whitelist in test_check_resource_permissions_uses_known_resource_perms.
+    WHITELIST_PER_RESOURCE = {
+        "connection": {"manage_data_sources"},
+    }
     for org_perm, mapping in resolver.ORG_PERM_IMPLIES_RESOURCE.items():
         assert org_perm in registry.ALL_PERMISSIONS or org_perm == FULL_ADMIN, (
             f"ORG_PERM_IMPLIES_RESOURCE key {org_perm!r} is not in ALL_PERMISSIONS"
         )
         for resource_type, implied in mapping.items():
             valid = set(registry.RESOURCE_PERMISSIONS.get(resource_type, []))
+            valid |= WHITELIST_PER_RESOURCE.get(resource_type, set())
             unknown = set(implied) - valid
             assert not unknown, (
                 f"ORG_PERM_IMPLIES_RESOURCE[{org_perm!r}][{resource_type!r}] implies "
