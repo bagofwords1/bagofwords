@@ -1915,8 +1915,12 @@ class AgentV2:
                         planner_input,
                         model_context_window=getattr(self.model, "context_window_tokens", None),
                     )
-                    # Kick off early scoring in background without blocking the loop (isolated DB session)
-                    asyncio.create_task(self._run_early_scoring_background(planner_input))
+                    # Kick off early scoring in background without blocking the loop (isolated DB session).
+                    # Only on the first planner step: this scores the *initial* instructions/context
+                    # effectiveness for the turn. It previously fired every iteration, doing N redundant
+                    # Judge LLM calls + DB sessions that all overwrote the same completion.
+                    if loop_index == 0:
+                        asyncio.create_task(self._run_early_scoring_background(planner_input))
                 except ValidationError as ve:
                     if invalid_retry_count >= max_invalid_retries:
                         # Too many retries, exit loop
