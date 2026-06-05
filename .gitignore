@@ -51,3 +51,10 @@ backend/sandbox_state.json
 backend/sandbox_main.py
 configs/bow-config.dev.entra.yaml
 
+
+# load-test sandbox secrets / generated output
+backend/.sandbox_env
+backend/loadtest/*.json
+backend/loadtest/*.csv
+backend/loadtest/smoke.json
+backend/loadtest/smoke*.json

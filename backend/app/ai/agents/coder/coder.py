@@ -12,6 +12,9 @@ import json
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from app.ai.schemas.codegen import CodeGenContext
 from app.services.usage_policy_service import UsageLimitContext
+from app.core.otel import get_tracer
+
+tracer = get_tracer(__name__)
 
 class Coder:
     def __init__(
@@ -540,11 +543,18 @@ class Coder:
             """
 
             chunks: list[str] = []
-            async for evt in self.llm.inference_stream_v2(
-                messages=[Message(role="user", content=text)],
-            ):
-                if isinstance(evt, TextDeltaEvent):
-                    chunks.append(evt.text)
+            with tracer.start_as_current_span("coder.generate_code_stream") as span:
+                span.set_attribute("coder.retry", retries)
+                span.set_attribute("coder.prompt_chars", len(text))
+                span.set_attribute("coder.has_typed_context", context is not None)
+                span.set_attribute("coder.allow_llm_see_data", bool(self.enable_llm_see_data))
+                async for evt in self.llm.inference_stream_v2(
+                    messages=[Message(role="user", content=text)],
+                ):
+                    if isinstance(evt, TextDeltaEvent):
+                        chunks.append(evt.text)
+                span.set_attribute("coder.chunks", len(chunks))
+                span.set_attribute("coder.output_chars", sum(len(chunk) for chunk in chunks))
             result = "".join(chunks)
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)

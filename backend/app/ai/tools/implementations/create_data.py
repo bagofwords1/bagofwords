@@ -1342,8 +1342,31 @@ Do not use generic placeholders like "value" unless that is the actual column na
         if not view_payload and final_dm.get("type"):
             view_payload = {"version": "v2", "view": {"type": final_dm.get("type")}}
 
+        row_count = info.get("total_rows", len(formatted.get("rows", [])))
+        column_names = [
+            str(c.get("field") or c.get("headerName"))
+            for c in formatted.get("columns", [])
+            if isinstance(c, dict) and (c.get("field") or c.get("headerName"))
+        ]
+        summary_parts = [
+            f"Created data '{data.title}' successfully",
+            f"{row_count} rows x {len(column_names)} cols",
+        ]
+        if column_names:
+            shown_cols = ", ".join(column_names[:10])
+            if len(column_names) > 10:
+                shown_cols += f" (+{len(column_names) - 10} more)"
+            summary_parts.append(f"cols: {shown_cols}")
+        try:
+            dm_type = str(final_dm.get("type") or "").strip()
+            if dm_type and dm_type != "table":
+                summary_parts.append(f"chart: {dm_type}")
+        except Exception:
+            pass
+        result_summary = "; ".join(summary_parts) + "."
+
         observation = {
-            "summary": f"Created data '{data.title}' successfully.",
+            "summary": result_summary,
             "data_preview": data_preview,
             "stats": info,
             "analysis_complete": False,
@@ -1377,4 +1400,3 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 "observation": observation,
             },
         )
-

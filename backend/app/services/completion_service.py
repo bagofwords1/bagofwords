@@ -1,4 +1,5 @@
 import asyncio
+import os
 from fastapi.responses import StreamingResponse
 import json
 import logging
@@ -43,6 +44,16 @@ from app.services.data_source_service import DataSourceService
 
 from app.websocket_manager import websocket_manager
 from app.settings.database import create_async_session_factory
+
+# Per-worker cap on concurrently *executing* agent runs. Excess streaming
+# completions park on this semaphore (after their SSE response has already been
+# returned to the client, and before opening a DB session so they hold no pool
+# connection while queued) instead of all piling in at once and exhausting the
+# DB connection pool -> 30s QueuePool timeouts surfaced to users as a mid-stream
+# "network error". Size so MAX_CONCURRENT_AGENTS * (peak conns per agent) stays
+# under pool_size + max_overflow. Per uvicorn worker; effective global limit is
+# this * num_workers.
+_AGENT_RUN_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BOW_MAX_CONCURRENT_AGENTS", "12")))
 
 from sqlalchemy import select, update, func, delete
 from sqlalchemy.orm import selectinload
@@ -137,6 +148,17 @@ async def _get_instruction_suggestions_for_completion(
 import re
 
 tracer = get_tracer(__name__)
+
+
+def _format_sse_event_traced(event: SSEEvent) -> str:
+    with tracer.start_as_current_span("sse.format_event") as span:
+        span.set_attribute("sse.event", event.event)
+        span.set_attribute("sse.has_data", event.data is not None)
+        started = time.monotonic()
+        payload = format_sse_event(event)
+        span.set_attribute("sse.format_ms", round((time.monotonic() - started) * 1000.0, 3))
+        span.set_attribute("sse.bytes", len(payload.encode("utf-8")))
+        return payload
 
 
 logger = logging.getLogger(__name__)
@@ -1968,7 +1990,14 @@ class CompletionService:
                     agent_span.set_attribute("llm.model_id", model.model_id)
                     async_session = create_async_session_factory()
                     async with async_session() as session:
+                        # Acquire an agent-run slot here: the session context is
+                        # open but lazy (no pool connection checked out until the
+                        # first query below), so agents queued on a full semaphore
+                        # hold no DB connection while they wait.
+                        _agent_slot = False
                         try:
+                            await _AGENT_RUN_SEMAPHORE.acquire()
+                            _agent_slot = True
                             _alog("session_opened")
 
                             # Re-fetch all database-dependent objects using the new session
@@ -2121,6 +2150,8 @@ class CompletionService:
                             except Exception:
                                 pass
                         finally:
+                            if _agent_slot:
+                                _AGENT_RUN_SEMAPHORE.release()
                             # Mark queue as finished
                             event_queue.finish()
 
@@ -2156,11 +2187,11 @@ class CompletionService:
                         "user_prompt": completion_data.prompt.content,
                     }
                 )
-                yield format_sse_event(start_event)
+                yield _format_sse_event_traced(start_event)
                 
                 # Stream agent events
                 async for event in event_queue.get_events():
-                    yield format_sse_event(event)
+                    yield _format_sse_event_traced(event)
                 
                 # Send completion event
                 finish_event = SSEEvent(
@@ -2170,7 +2201,7 @@ class CompletionService:
                         "system_completion_id": str(system_completion.id),
                     }
                 )
-                yield format_sse_event(finish_event)
+                yield _format_sse_event_traced(finish_event)
                 yield "data: [DONE]\n\n"
 
             # Return streaming response

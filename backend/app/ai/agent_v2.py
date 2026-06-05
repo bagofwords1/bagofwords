@@ -2,10 +2,12 @@ import asyncio
 import json
 import logging
 import os
+import time as _time
 import uuid as _uuid_mod
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
 from pydantic import ValidationError
+from opentelemetry.trace import StatusCode
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +106,10 @@ from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.services.usage_policy_service import UsageLimitContext
+from app.core.otel import get_tracer
 
 INDEX_LIMIT = 1000  # Number of tables to include in the index
+tracer = get_tracer(__name__)
 
 
 class AgentV2:
@@ -569,70 +573,75 @@ class AgentV2:
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
-        import asyncio as _asyncio
-        from sqlalchemy.exc import OperationalError as _SAOperationalError
-        _max_attempts = 4
-        for _attempt in range(_max_attempts):
-            try:
-                SessionLocal = self._session_maker
-                async with SessionLocal() as session:
-                    try:
-                        # Use a new Judge instance (stateless) and score from the same planner input
-                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                            instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
-                        else:
-                            instructions_score = 3
-                            context_score = 3
-                        # Re-fetch completion to avoid using objects from another session
-                        completion = await session.get(Completion, str(self.head_completion.id))
-                        if completion is not None:
-                            await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
-                        return  # success
-                    except (_SAOperationalError, Exception) as e:
-                        _is_locked = "database is locked" in str(e).lower()
-                        if _is_locked and _attempt < _max_attempts - 1:
-                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
-                            logger.warning(f"SQLite locked in early scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
-                            await _asyncio.sleep(_backoff)
-                            continue
-                        logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
-                        return
-            except Exception as e:
-                logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
-                return
+        try:
+            # Score once, up-front. The Judge LLM call is expensive and must NOT
+            # sit inside the DB retry loop below — a locked-SQLite write should
+            # only retry the write, never re-run the model.
+            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+            else:
+                instructions_score = 3
+                context_score = 3
+        except Exception as e:
+            logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
+            return
+
+        await self._persist_completion_score_with_retry(
+            label="early scoring",
+            persist=lambda session, completion: self.project_manager.update_completion_scores(
+                session, completion, instructions_score, context_score
+            ),
+        )
 
     async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
         """Run response scoring in a fresh DB session to avoid concurrency conflicts."""
+        try:
+            # Score once, up-front — keep the Judge LLM call out of the DB retry
+            # loop so a locked-SQLite write never triggers a redundant model call.
+            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
+                response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+            else:
+                response_score = 3
+        except Exception as e:
+            logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
+            return
+
+        await self._persist_completion_score_with_retry(
+            label="late scoring",
+            persist=lambda session, completion: self.project_manager.update_completion_response_score(
+                session, completion, response_score
+            ),
+        )
+
+    async def _persist_completion_score_with_retry(self, label: str, persist):
+        """Persist a score to the head completion, retrying only on SQLite lock.
+
+        The LLM scoring is done by the caller before this runs; this helper owns
+        the fresh DB session and the locked-database backoff so a contended write
+        never re-runs the model. `persist(session, completion)` performs the write.
+        """
         import asyncio as _asyncio
-        from sqlalchemy.exc import OperationalError as _SAOperationalError
         _max_attempts = 4
         for _attempt in range(_max_attempts):
             try:
                 SessionLocal = self._session_maker
                 async with SessionLocal() as session:
-                    try:
-                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                            original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
-                            response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
-                        else:
-                            response_score = 3
-                        completion = await session.get(Completion, str(self.head_completion.id))
-                        if completion is not None:
-                            await self.project_manager.update_completion_response_score(session, completion, response_score)
-                        return  # success
-                    except (_SAOperationalError, Exception) as e:
-                        _is_locked = "database is locked" in str(e).lower()
-                        if _is_locked and _attempt < _max_attempts - 1:
-                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
-                            logger.warning(f"SQLite locked in late scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
-                            await _asyncio.sleep(_backoff)
-                            continue
-                        logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
-                        return
+                    # Re-fetch completion to avoid using objects from another session
+                    completion = await session.get(Completion, str(self.head_completion.id))
+                    if completion is not None:
+                        await persist(session, completion)
+                return  # success (also returns when completion is gone)
             except Exception as e:
-                logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
+                _is_locked = "database is locked" in str(e).lower()
+                if _is_locked and _attempt < _max_attempts - 1:
+                    _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                    logger.warning(f"SQLite locked in {label} (attempt {_attempt + 1}), retrying in {_backoff}s")
+                    await _asyncio.sleep(_backoff)
+                    continue
+                logger.warning(f"Failed to persist {label} result in background: {e}", exc_info=True)
                 return
 
     async def _run_knowledge_harness(self, conditions: list):
@@ -1373,12 +1382,35 @@ class AgentV2:
         dedicated `self._writes` session (the single-writer architecture
         from docs/design/single-writer-agent-refactor.md).
 
-        Off by default — opt in with BOW_AGENT_SINGLE_WRITE_SESSION=true.
-        Enable in CI/eval first, then production once soak passes.
+        Always on for SQLite: SQLite permits only one write transaction at a
+        time, so running the agent with multiple concurrent write sessions
+        produces "database is locked" and dropped writes — e.g. the create_data
+        step finalize (UPDATE steps SET code/data/status) times out against the
+        busy_timeout and the step is left an empty draft ("No data to display").
+        Single-writer serializes all writes through one connection, which is the
+        only correct mode for SQLite. On other backends (Postgres) it remains
+        opt-in via BOW_AGENT_SINGLE_WRITE_SESSION.
         """
+        if self._is_sqlite_backend():
+            return True
         return os.environ.get(
             "BOW_AGENT_SINGLE_WRITE_SESSION", ""
         ).lower() in ("1", "true", "yes")
+
+    def _is_sqlite_backend(self) -> bool:
+        """True when the agent's DB sessions are bound to a SQLite engine."""
+        try:
+            bind = getattr(self._session_maker, "kw", {}).get("bind")
+            name = getattr(getattr(bind, "dialect", None), "name", "") or ""
+            if name:
+                return name == "sqlite"
+        except Exception:
+            pass
+        try:
+            from app.settings.config import settings as _settings
+            return "sqlite" in (_settings.bow_config.database.get_url() or "").lower()
+        except Exception:
+            return False
 
     @asynccontextmanager
     async def _writes_session(self):
@@ -1525,6 +1557,23 @@ class AgentV2:
             logger.warning(f"[agent.single_writer] rebuild failed: {_e!r}")
         return True
 
+    async def _release_db_between_steps(self) -> None:
+        """Commit the agent's main session so its pooled DB connection is returned
+        to the pool during the upcoming long awaits (planner LLM call, tool /
+        code execution). Without this the connection sits 'idle in transaction'
+        for the whole iteration, and concurrent completions exhaust the pool
+        (QueuePool timeout -> 500 / mid-stream 'network error'). The session uses
+        expire_on_commit=False so already-loaded ORM objects stay usable, and the
+        single-writer model is preserved (still one writer, just committing
+        between steps — which on SQLite also releases the WAL writer lock).
+        Toggle with BOW_AGENT_RELEASE_DB_BETWEEN_STEPS (default on)."""
+        if os.getenv("BOW_AGENT_RELEASE_DB_BETWEEN_STEPS", "1") != "1":
+            return
+        try:
+            await self.db.commit()
+        except Exception as e:
+            logger.warning(f"[agent] _release_db_between_steps commit failed: {e!r}")
+
     async def main_execution(self):
         # Single-writer mode: route all migrated writers through self.db
         # (the agent's existing main session) via self._writes_session().
@@ -1606,10 +1655,14 @@ class AgentV2:
 
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
-            await asyncio.gather(
-                self.context_hub.prime_static(query=prompt_text),
-                self.context_hub.refresh_warm(),
-            )
+            with tracer.start_as_current_span("agent.context_initial_load") as span:
+                span.set_attribute("agent.context.phase", "initial_prime_and_refresh")
+                if self.report is not None:
+                    span.set_attribute("report.id", str(self.report.id))
+                await asyncio.gather(
+                    self.context_hub.prime_static(query=prompt_text),
+                    self.context_hub.refresh_warm(),
+                )
             _mlog("context_primed")
             view = self.context_hub.get_view()
             # Token metadata update in background (non-blocking)
@@ -1772,10 +1825,14 @@ class AgentV2:
                 if self.sigkill_event.is_set():
                     break
 
+                # Release the pooled DB connection before this iteration's long
+                # planner LLM call + tool execution so concurrent completions
+                # don't starve the connection pool (idle-in-transaction).
+                await self._release_db_between_steps()
+
                 # Refresh warm context (skip on first loop - already done above)
                 if loop_index > 0:
-                    await self.context_hub.refresh_warm()
-                    view = self.context_hub.get_view()
+                    view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
                     await self._update_context_token_metadata(view)
                 
                 # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
@@ -1873,8 +1930,12 @@ class AgentV2:
                         planner_input,
                         model_context_window=getattr(self.model, "context_window_tokens", None),
                     )
-                    # Kick off early scoring in background without blocking the loop (isolated DB session)
-                    asyncio.create_task(self._run_early_scoring_background(planner_input))
+                    # Kick off early scoring in background without blocking the loop (isolated DB session).
+                    # Only on the first planner step: this scores the *initial* instructions/context
+                    # effectiveness for the turn. It previously fired every iteration, doing N redundant
+                    # Judge LLM calls + DB sessions that all overwrote the same completion.
+                    if loop_index == 0:
+                        asyncio.create_task(self._run_early_scoring_background(planner_input))
                 except ValidationError as ve:
                     if invalid_retry_count >= max_invalid_retries:
                         # Too many retries, exit loop
@@ -1992,11 +2053,7 @@ class AgentV2:
                     except Exception as _cexc:
                         logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
 
-                async for evt in self.planner.execute(
-                    planner_input,
-                    self.sigkill_event,
-                    thinking=self._thinking_config,
-                ):
+                async for evt in self._iter_planner_events_with_span(planner_input, loop_index):
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
                         break
@@ -2012,10 +2069,11 @@ class AgentV2:
                         # Store latest decision in memory for final persist (NO DB writes during streaming)
                         current_plan_decision_data = decision
 
-                        # Get sequence for SSE ordering (in-memory, no DB)
-                        event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        # Capture a stable sequence for the eventual persisted decision.
+                        # Text streaming uses PlanningTextStreamer below; avoid assigning
+                        # an SSE sequence for every text-only planner partial.
                         if decision_seq is None:
-                            decision_seq = event_seq
+                            decision_seq = await self.project_manager.next_seq(self.db, self.current_execution)
 
                         # Emit incremental, throttled token deltas for reasoning/content.
                         # final_answer and assistant_message are mutually exclusive by prompt contract:
@@ -2030,16 +2088,13 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Emit decision.partial when there's any new decision content:
-                        # text (reasoning / assistant / final_answer) OR an action block.
-                        # The action path matters because v3 may emit tool_use with no
-                        # narration — frontend uses action.name to paint the tool widget
-                        # ~1s before tool.started fires.
-                        reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
-                        assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
-                        final_answer_text = (getattr(decision, "final_answer", None) or "").strip()
+                        # Emit decision.partial only for action metadata. Text already
+                        # streams through block.delta.token/block.delta.text; repeating
+                        # cumulative reasoning/assistant/final_answer here can dominate
+                        # SSE bandwidth for long answers.
                         action_present = decision.action is not None
-                        if reasoning_text or assistant_text or final_answer_text or action_present:
+                        if action_present:
+                            event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.partial",
                                 completion_id=str(self.system_completion.id),
@@ -2047,9 +2102,9 @@ class AgentV2:
                                 seq=event_seq,
                                 data={
                                     "plan_type": decision.plan_type,
-                                    "reasoning": decision.reasoning_message,
-                                    "assistant": decision.assistant_message,
-                                    "final_answer": decision.final_answer,
+                                    "reasoning": None,
+                                    "assistant": None,
+                                    "final_answer": None,
                                     "action": decision.action.model_dump() if decision.action else None,
                                 }
                             ))
@@ -2477,14 +2532,18 @@ class AgentV2:
                         
                             # Refresh warm context to include the latest planner decision blocks in messages
                             try:
-                                await self.context_hub.refresh_warm()
-                                view = self.context_hub.get_view()
+                                view = await self._refresh_warm_traced("pre_tool_decision_blocks", loop_index=loop_index)
                             except Exception:
                                 pass
                             try:
-                                schemas_ctx = await self.context_hub.schema_builder.build(
-                                    with_stats=True,
-                                )
+                                with tracer.start_as_current_span("agent.schema_context_build") as span:
+                                    span.set_attribute("agent.context.phase", "pre_tool")
+                                    span.set_attribute("agent.loop_index", loop_index)
+                                    if self.report is not None:
+                                        span.set_attribute("report.id", str(self.report.id))
+                                    schemas_ctx = await self.context_hub.schema_builder.build(
+                                        with_stats=True,
+                                    )
                                 schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
                             except Exception:
                                 schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
@@ -2547,7 +2606,19 @@ class AgentV2:
                                         }
                                     ))
 
-                            tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                            # Release the pooled connection before the (often
+                            # multi-second) tool / code execution so it isn't held
+                            # idle-in-transaction while the pool starves.
+                            await self._release_db_between_steps()
+                            with tracer.start_as_current_span("agent.tool_run") as span:
+                                span.set_attribute("tool.name", tool_name)
+                                span.set_attribute("agent.loop_index", loop_index)
+                                if self.report is not None:
+                                    span.set_attribute("report.id", str(self.report.id))
+                                if tool_execution is not None:
+                                    span.set_attribute("tool_execution.id", str(tool_execution.id))
+                                tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                                span.set_attribute("tool.result_type", type(tool_result).__name__)
 
                             # Capture training_build_id if set by create_instruction tool
                             if runtime_ctx.get("training_build_id") and not self.training_build_id:
@@ -2679,9 +2750,9 @@ class AgentV2:
                                 created_step_id = self.current_step_id
 
                             # Refresh context (needed for next planner iteration — in-memory, no DB write here)
-                            await self.context_hub.refresh_warm()
+                            post_view = await self._refresh_warm_traced("post_tool_before_block_update", loop_index=loop_index)
                             try:
-                                await self.context_hub.build_context()
+                                await self._build_context_traced("post_tool_before_block_update", loop_index=loop_index)
                             except Exception:
                                 pass
                             post_view = self.context_hub.get_view()
@@ -2981,8 +3052,7 @@ class AgentV2:
                             invalid_retry_count = 0
 
                             # Refresh for next iteration
-                            await self.context_hub.refresh_warm()
-                            view = self.context_hub.get_view()
+                            view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
                             schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
                             history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -3016,9 +3086,9 @@ class AgentV2:
                     logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
 
             # Save final context snapshot (recompute metadata so counts/tokens are up to date)
-            await self.context_hub.refresh_warm()
+            view = await self._refresh_warm_traced("final_snapshot")
             try:
-                await self.context_hub.build_context()
+                await self._build_context_traced("final_snapshot")
             except Exception:
                 pass
             view = self.context_hub.get_view()
@@ -3334,15 +3404,76 @@ class AgentV2:
         except Exception:
             pass
 
+    async def _refresh_warm_traced(self, phase: str, *, loop_index: int | None = None):
+        with tracer.start_as_current_span("agent.context_refresh") as span:
+            span.set_attribute("agent.context.phase", phase)
+            if loop_index is not None:
+                span.set_attribute("agent.loop_index", loop_index)
+            if self.report is not None:
+                span.set_attribute("report.id", str(self.report.id))
+            await self.context_hub.refresh_warm()
+            return self.context_hub.get_view()
+
+    async def _build_context_traced(self, phase: str, *, loop_index: int | None = None):
+        with tracer.start_as_current_span("agent.context_build") as span:
+            span.set_attribute("agent.context.phase", phase)
+            if loop_index is not None:
+                span.set_attribute("agent.loop_index", loop_index)
+            if self.report is not None:
+                span.set_attribute("report.id", str(self.report.id))
+            return await self.context_hub.build_context()
+
+    async def _iter_planner_events_with_span(self, planner_input: PlannerInput, loop_index: int):
+        # Do not use start_as_current_span here: this async generator yields
+        # back to the caller many times, and contextvars-backed "current span"
+        # tokens can be detached from a different async context on generator
+        # close. A plain span still captures duration/counts without adding
+        # OpenTelemetry detach noise.
+        span = tracer.start_span("agent.planner_stream")
+        span.set_attribute("agent.loop_index", loop_index)
+        span.set_attribute("agent.mode", self.mode or "")
+        span.set_attribute("agent.tool_catalog.size", len(self.planner.tool_catalog or []))
+        if self.report is not None:
+            span.set_attribute("report.id", str(self.report.id))
+        if self.model is not None:
+            span.set_attribute("llm.model_id", getattr(self.model, "model_id", "") or "")
+        counts: dict[str, int] = {}
+        try:
+            async for evt in self.planner.execute(
+                planner_input,
+                self.sigkill_event,
+                thinking=self._thinking_config,
+            ):
+                event_type = getattr(evt, "type", "unknown")
+                counts[event_type] = counts.get(event_type, 0) + 1
+                yield evt
+        except Exception as exc:
+            span.set_status(StatusCode.ERROR, str(exc))
+            span.record_exception(exc)
+            raise
+        finally:
+            span.set_attribute("planner.events.total", sum(counts.values()))
+            for event_type, count in counts.items():
+                span.set_attribute(f"planner.events.{event_type}", count)
+            span.end()
+
     async def _emit_sse_event(self, event: SSEEvent):
         """Emit SSE event via event queue and optionally websocket."""
-        try:
-            # Add to streaming queue for new streaming API
-            if self.event_queue:
-                await self.event_queue.put(event)
-            
-        except Exception as e:
-            print(f"Error emitting SSE event: {e}")
+        with tracer.start_as_current_span("agent.sse_enqueue") as span:
+            span.set_attribute("sse.event", event.event)
+            span.set_attribute("sse.queue_present", bool(self.event_queue))
+            if event.seq is not None:
+                span.set_attribute("sse.seq", event.seq)
+            started = _time.monotonic()
+            try:
+                # Add to streaming queue for new streaming API
+                if self.event_queue:
+                    await self.event_queue.put(event)
+                span.set_attribute("sse.enqueue_ms", round((_time.monotonic() - started) * 1000.0, 3))
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                print(f"Error emitting SSE event: {e}")
 
     async def _finalize_training_build(self):
         """Leave the training build in draft for the user to review and approve.
@@ -3460,6 +3591,24 @@ class AgentV2:
             return
 
         stage = payload.get("stage")
+
+        # Skip the DB session entirely for events that don't write. This method
+        # fires on *every* tool.progress event, but only a handful of stages
+        # actually persist state. Opening a fresh pooled session + 3 .get()
+        # queries for the (frequent) non-writing events was the dominant source
+        # of QueuePool exhaustion under concurrency (30 of ~59 timeouts in the
+        # 50-concurrent load test). Bail out before touching the pool.
+        _DATA_TOOLS = ("create_widget", "create_data", "describe_entity", "write_csv")
+        _DATA_WRITE_STAGES = (
+            "data_model_type_determined", "column_added", "series_configured",
+            "validating_code", "widget_creation_needed", "generated_code", "executing_code",
+        )
+        _writes_for_event = (
+            (tool_name in _DATA_TOOLS and stage in _DATA_WRITE_STAGES)
+            or (tool_name == "create_dashboard" and stage in ("init", "block.completed"))
+        )
+        if not _writes_for_event:
+            return
 
         # IDs read from any pre-existing ORM references attached to a now-stale
         # session. They're plain strings/UUIDs, so this read can't trigger

@@ -26,7 +26,11 @@ class Organization(BaseSchema):
     llm_models = relationship("LLMModel", back_populates="organization")
     git_repositories = relationship("GitRepository", back_populates="organization")
     prompts = relationship("Prompt", back_populates="organization")
-    settings = relationship("OrganizationSettings", uselist=False, back_populates="organization", cascade="all, delete-orphan", lazy='selectin')
+    # to-one: 'joined' folds settings into the Organization query instead of a
+    # separate selectin round-trip. Org objects get pulled through many graphs
+    # per request (report.user, query.organization, ...), each of which was
+    # firing its own settings selectin (~7 per report GET); joined removes them.
+    settings = relationship("OrganizationSettings", uselist=False, back_populates="organization", cascade="all, delete-orphan", lazy='joined')
     completion_feedbacks = relationship("CompletionFeedback", back_populates="organization", cascade="all, delete-orphan", lazy='select')
     
     # External platform relationships   

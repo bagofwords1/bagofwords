@@ -117,13 +117,32 @@ class ProjectManager:
                 raise
 
     async def _refresh_with_timeout(self, db, obj, label: str = "refresh") -> None:
+        # Best-effort. The post-insert/update refresh is redundant on our models:
+        # id + created_at/updated_at are client-side defaults (set at flush) and
+        # sessions use expire_on_commit=False, so `obj` already carries every
+        # column value after commit — there is nothing new to reload. Under
+        # concurrent write contention (e.g. the background rebuild task racing
+        # the main loop on Postgres, or SQLite lock waits) this refresh SELECT
+        # can raise InvalidRequestError ("Could not refresh instance") or be
+        # cancelled by the timeout; previously that aborted the entire agent run
+        # and left empty/orphaned blocks & plan_decisions, and the cancelled op
+        # poisoned the session so the rebuild then stalled on held locks. Since
+        # the object is already complete, log and continue instead of raising.
+        from sqlalchemy.exc import InvalidRequestError
         try:
             await asyncio.wait_for(db.refresh(obj), timeout=_DB_COMMIT_TIMEOUT_S)
         except asyncio.TimeoutError:
-            self.logger.error(
-                f"DB refresh timed out after {_DB_COMMIT_TIMEOUT_S}s in [{label}]"
+            self.logger.warning(
+                f"DB refresh timed out in [{label}]; continuing (refresh is redundant)"
             )
-            raise DBCommitTimeoutError(label)
+        except InvalidRequestError as e:
+            self.logger.warning(
+                f"DB refresh skipped in [{label}] ({e}); continuing with committed object"
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"DB refresh failed in [{label}] ({type(e).__name__}: {e}); continuing"
+            )
 
     async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str | None = None):
         try:

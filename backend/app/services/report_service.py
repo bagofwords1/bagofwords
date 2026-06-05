@@ -484,11 +484,9 @@ class ReportService:
         if hasattr(report_data, 'mode') and report_data.mode is not None:
             # Block training mode if enable_training_mode or allow_llm_see_data is disabled
             if report_data.mode == 'training':
-                from app.models.organization_settings import OrganizationSettings
-                settings_result = await db.execute(
-                    select(OrganizationSettings).filter(OrganizationSettings.organization_id == organization.id)
-                )
-                org_settings = settings_result.scalar_one_or_none()
+                # Reuse the settings already eager-loaded on the request-scoped
+                # organization instead of issuing another query.
+                org_settings = organization.settings
                 if org_settings:
                     # Check enable_training_mode flag
                     enable_training_mode = org_settings.get_config("enable_training_mode")

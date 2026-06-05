@@ -27,10 +27,10 @@ class Query(BaseSchema):
     default_step = relationship("Step", foreign_keys=[default_step_id], lazy="selectin")
 
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=True, index=True)
-    organization = relationship("Organization", back_populates="queries", lazy="selectin")
+    organization = relationship("Organization", back_populates="queries", lazy="joined")  # to-one: fold into parent query
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True, index=True)
-    user = relationship("User", back_populates="queries", lazy="selectin")
+    user = relationship("User", back_populates="queries", lazy="joined")  # to-one: fold into parent query
 
     # Visualizations owned by this query
     visualizations = relationship("Visualization", back_populates="query", lazy="selectin")
