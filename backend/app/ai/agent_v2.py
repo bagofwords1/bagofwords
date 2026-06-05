@@ -111,14 +111,6 @@ from app.core.otel import get_tracer
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 tracer = get_tracer(__name__)
 
-# Per-worker cap on concurrent short-lived "background write" sessions opened
-# via _writes_session() (streaming-event state writes, context snapshots,
-# instruction usage, tool-output finalization). These fan out per agent and
-# were the dominant remaining source of QueuePool exhaustion once the main
-# agent session was released between steps. Bounding them keeps
-# (BOW_MAX_CONCURRENT_AGENTS main conns + this) under pool_size+max_overflow.
-_BG_DB_SEMAPHORE = asyncio.Semaphore(int(os.getenv("BOW_MAX_BG_DB_SESSIONS", "16")))
-
 
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
@@ -1418,13 +1410,8 @@ class AgentV2:
         if self._use_single_write_session() and self._writes is not None:
             yield self._writes
         else:
-            # Bound concurrent fresh background sessions so the per-event /
-            # per-snapshot fan-out can't collectively exhaust the pool. These
-            # callers do pure DB writes (no LLM calls held inside), so holding a
-            # slot for the session's lifetime is safe and non-nesting.
-            async with _BG_DB_SEMAPHORE:
-                async with self._session_maker() as db:
-                    yield db
+            async with self._session_maker() as db:
+                yield db
 
     async def _drain_bg_writes(self, *, timeout_s: float = 10.0):
         """Wait for all scheduled background writes to complete.
