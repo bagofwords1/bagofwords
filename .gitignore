@@ -57,3 +57,4 @@ backend/.sandbox_env
 backend/loadtest/results*.json
 backend/loadtest/metrics*.csv
 backend/loadtest/smoke.json
+backend/loadtest/smoke*.json
