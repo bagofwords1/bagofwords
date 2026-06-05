@@ -126,6 +126,25 @@ SeriesItem = Union[
 ]
 
 
+def normalize_group_by(value: Any) -> Optional[str]:
+    """Normalize a ``group_by`` value to a single column name (or None).
+
+    Charts render exactly one breakdown dimension, and every consumer
+    (``view.groupBy`` is ``Optional[str]``, the ECharts codegen embeds it as a
+    string) expects a single column. The planner emits a string; other tools
+    emit a list. Accept both and return the first usable column.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            if isinstance(item, str) and item:
+                return item
+    return None
+
+
 class SortSpec(BaseModel):
     field: str
     direction: Literal["asc", "desc"] = "asc"
@@ -155,7 +174,13 @@ class DataModel(BaseModel):
             "Used when raw data is granular and should open in a filtered state."
         ),
     )
-    group_by: Optional[List[str]] = Field(default=None, description="Group-by fields")
+    # Accept both the planner's single-column string (what the create_data
+    # visualization-inference prompt emits, e.g. "category") and a list. A
+    # bare List[str] here used to reject the string and — because the caller
+    # swallows the ValidationError — silently drop the breakdown (and series)
+    # entirely, collapsing "metric by category" into a single total line.
+    # Charts render a single breakdown dimension; see ``normalize_group_by``.
+    group_by: Optional[Union[str, List[str]]] = Field(default=None, description="Group-by field(s)")
     #sort: Optional[List[SortSpec]] = Field(default=None, description="Sorting specifications")
     #limit: Optional[int] = Field(default=100, description="Row limit")
     series: Optional[List[SeriesItem]] = Field(default=None, description="Chart series configuration if applicable")
