@@ -31,10 +31,15 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     git_repositories = relationship("GitRepository", back_populates="user")
     queries = relationship("Query", back_populates="user")
     
+    # external_user_mappings stays selectin: it's serialized in UserSchema.
     external_user_mappings = relationship("ExternalUserMapping", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
-    user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
-    user_connection_credentials = relationship("UserConnectionCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
-    api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
+    # These 3 credential collections are only read via explicit select() in the
+    # credential services, never via the relationship and never serialized. They
+    # were firing on every User materialization (~3 selectins × 100+ User loads
+    # per completion). Make them lazy so they load only when explicitly needed.
+    user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="user", cascade="all, delete-orphan", lazy="select")
+    user_connection_credentials = relationship("UserConnectionCredentials", back_populates="user", cascade="all, delete-orphan", lazy="select")
+    api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="select")
     group_memberships = relationship("GroupMembership", back_populates="user", cascade="all, delete-orphan")
 
 

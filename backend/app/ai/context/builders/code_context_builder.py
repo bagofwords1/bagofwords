@@ -15,12 +15,30 @@ from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
 from app.ai.context.sections.code_section import CodeSection
 
+# Cap the candidate set pulled for code-reuse ranking. Without it, the query
+# pulled EVERY step that ever used the current query's tables (O(usage history))
+# plus its full code blob, ranked in Python, kept top_k=2. We now fetch at most
+# this many recent candidates (id + data_model + stats, no code) and load code
+# only for the final picks.
+_CODE_CANDIDATE_CAP = 50
+
 
 class CodeContextBuilder:
     def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
+
+    async def _attach_code(self, items: List[Dict], *, max_len: int, key: str = "code") -> None:
+        """Fetch Step.code only for the final selected steps and attach it
+        (trimmed), so code blobs aren't transferred for the whole candidate set."""
+        ids = [it["step_id"] for it in items if it.get("step_id")]
+        if not ids:
+            return
+        rows = (await self.db.execute(select(Step.id, Step.code).where(Step.id.in_(ids)))).all()
+        code_map = {str(sid): code for sid, code in rows}
+        for it in items:
+            it[key] = self._trim_code(code_map.get(it["step_id"]), max_len)
 
     async def build(
         self,
@@ -86,7 +104,6 @@ class CodeContextBuilder:
                 select(
                     Step.id,
                     Step.data_model,
-                    Step.code,
                     usage_agg.c.last_used_at,
                     usage_agg.c.succ,
                     usage_agg.c.fail,
@@ -94,6 +111,9 @@ class CodeContextBuilder:
                 )
                 .join(usage_agg, usage_agg.c.step_id == Step.id)
                 .where(func.lower(Step.status) == "success")
+                # Bound by recency; code is fetched for top_k only (see below).
+                .order_by(usage_agg.c.last_used_at.desc())
+                .limit(_CODE_CANDIDATE_CAP)
             )
         ).all()
         if not step_rows:
@@ -101,7 +121,7 @@ class CodeContextBuilder:
 
         fb_map = await self._load_feedback_map(allowed_ds_ids, since_ts)
         ranked: List[Tuple[float, Dict]] = []
-        for step_id, step_dm, step_code, last_used_at, succ, fail, attempts in step_rows:
+        for step_id, step_dm, last_used_at, succ, fail, attempts in step_rows:
             sid = str(step_id)
             step_cols = self._extract_generated_columns(step_dm or {})
             col_sim = self._jaccard_similarity(target_cols, step_cols)
@@ -113,7 +133,6 @@ class CodeContextBuilder:
 
             score = 0.55 * col_sim + 0.20 * success_rate + 0.20 * feedback_score + 0.05 * recency
 
-            code_str = self._trim_code(step_code, 3000)
             ranked.append((
                 score,
                 {
@@ -124,11 +143,12 @@ class CodeContextBuilder:
                     "usage": {"success": int(succ or 0), "failure": int(fail or 0), "attempts": int(attempts or 0), "success_rate": round(success_rate, 4)},
                     "last_used_at": last_used_str,
                     "matched_columns": sorted(list(target_cols.intersection(step_cols))),
-                    "code": code_str,
                 },
             ))
         ranked.sort(key=lambda x: x[0], reverse=True)
-        return [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
+        top = [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
+        await self._attach_code(top, max_len=3000)
+        return top
 
     async def get_top_failed_snippets_for_data_model(
         self,
@@ -154,7 +174,6 @@ class CodeContextBuilder:
             select(
                 Step.id,
                 Step.data_model,
-                Step.code,
                 Step.status,
                 Step.status_reason,
                 usage_agg.c.last_used_at,
@@ -167,6 +186,9 @@ class CodeContextBuilder:
             .where(
                 (func.lower(Step.status) != "success") | (usage_agg.c.had_failure_usage == 1)
             )
+            # Bound by recency; code_excerpt is fetched for top_k only (below).
+            .order_by(usage_agg.c.last_used_at.desc())
+            .limit(_CODE_CANDIDATE_CAP)
         )
         step_rows = (await self.db.execute(step_stmt)).all()
         if not step_rows:
@@ -176,14 +198,12 @@ class CodeContextBuilder:
         fb_map = await self._load_feedback_map(allowed_ds_ids, since_ts)
 
         tmp_holder: List[Tuple[str, Dict]] = []
-        for step_id, step_dm, step_code, status, status_reason, last_used_at, had_failure_usage, succ, fail, attempts in step_rows:
+        for step_id, step_dm, status, status_reason, last_used_at, had_failure_usage, succ, fail, attempts in step_rows:
             sid = str(step_id)
             step_cols = self._extract_generated_columns(step_dm or {})
             col_sim = self._jaccard_similarity(target_cols, step_cols)
 
             error_text = (status_reason or "").strip()
-
-            code_str = self._trim_code(step_code, 1000)
 
             # Recency
             if last_used_at is None:
@@ -211,7 +231,6 @@ class CodeContextBuilder:
                         "recency": recency,
                         "last_used_at": last_used_str,
                         "matched_columns": sorted(list(target_cols.intersection(step_cols))),
-                        "code_excerpt": code_str,
                         "neg_feedback": neg_fb,
                         "pos_feedback": pos_fb,
                         "usage": {"success": int(succ or 0), "failure": int(fail or 0), "attempts": int(attempts or 0), "failure_rate": round(failure_rate, 4)},
@@ -238,7 +257,6 @@ class CodeContextBuilder:
                         "status_reason": data["status_reason"],
                         "last_used_at": data["last_used_at"],
                         "matched_columns": data["matched_columns"],
-                        "code_excerpt": data["code_excerpt"],
                         "feedback": {"positive": int(data.get("pos_feedback", 0)), "negative": int(data["neg_feedback"])},
                         "usage": data["usage"],
                     },
@@ -246,7 +264,9 @@ class CodeContextBuilder:
             )
 
         ranked.sort(key=lambda x: x[0], reverse=True)
-        return [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
+        top = [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
+        await self._attach_code(top, max_len=1000, key="code_excerpt")
+        return top
 
     async def get_top_successful_snippets_for_tables(
         self,
@@ -318,7 +338,6 @@ class CodeContextBuilder:
             await self.db.execute(
                 select(
                     Step.id,
-                    Step.code,
                     usage_subq.c.last_used_at,
                     usage_subq.c.succ,
                     usage_subq.c.fail,
@@ -326,6 +345,9 @@ class CodeContextBuilder:
                 )
                 .join(usage_subq, usage_subq.c.step_id == Step.id)
                 .where(func.lower(Step.status) == "success")
+                # Bound by recency; code fetched for top_k only (below).
+                .order_by(usage_subq.c.last_used_at.desc())
+                .limit(_CODE_CANDIDATE_CAP)
             )
         ).all()
         if not step_rows:
@@ -335,7 +357,7 @@ class CodeContextBuilder:
         fb_map = await self._load_feedback_map(allowed_ds_ids, since_ts)
 
         ranked: List[Tuple[float, Dict]] = []
-        for step_id, step_code, last_used_at, succ, fail, attempts in step_rows:
+        for step_id, last_used_at, succ, fail, attempts in step_rows:
             sid = str(step_id)
             pos, neg = fb_map.get(sid, (0, 0))
             attempts_n = float(attempts or 0)
@@ -346,7 +368,6 @@ class CodeContextBuilder:
             # Composite score tuned for table targeting (no column similarity here)
             score = 0.55 * success_rate + 0.35 * recency + 0.10 * feedback_score
 
-            code_str = self._trim_code(step_code, 3000)
             ranked.append((
                 score,
                 {
@@ -355,12 +376,13 @@ class CodeContextBuilder:
                     "success_rate": round(success_rate, 4),
                     "feedback": {"positive": int(pos or 0), "negative": int(neg or 0)},
                     "last_used_at": last_used_str,
-                    "code": code_str,
                 },
             ))
 
         ranked.sort(key=lambda x: x[0], reverse=True)
-        return [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
+        top = [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
+        await self._attach_code(top, max_len=3000)
+        return top
 
 
     def _extract_generated_columns(self, data_model: Dict) -> Set[str]:

@@ -111,7 +111,11 @@ class DataSource(BaseSchema):
         "Entity",
         secondary="entity_data_source_association",
         back_populates="data_sources",
-        lazy="selectin"
+        # Never read via this relationship (entity context uses explicit
+        # select(Entity) queries) and not serialized — but as selectin it fired
+        # on every DataSource materialization (~148x/completion via the agent's
+        # repeated re-fetches), returning all entities for the DS (O(catalog)).
+        lazy="select",
     )
     
     # M:N relationship to Connection

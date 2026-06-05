@@ -382,14 +382,17 @@ class MessageContextBuilder:
             except:
                 allow_llm_see_data = False  # Default to True if settings unavailable
                     
-        # Get all completions for this report ordered by creation time
-        report_completions = await self.db.execute(
+        # Fetch only the most recent window instead of ALL completions then
+        # slicing [-max_messages:] in Python (was O(conversation length) every
+        # iteration). +1 covers dropping a trailing in-progress user completion.
+        report_completions = (await self.db.execute(
             select(Completion)
             .filter(Completion.report_id == self.report.id)
-            .order_by(Completion.created_at.asc())
-        )
-        report_completions = report_completions.scalars().all()
-        
+            .order_by(Completion.created_at.desc())
+            .limit(max_messages + 1)
+        )).scalars().all()
+        report_completions = list(reversed(report_completions))  # restore chronological order
+
         # Skip the last completion if it's from a user (current incomplete conversation)
         completions_to_process = (
             report_completions[:-1] 
@@ -774,24 +777,24 @@ class MessageContextBuilder:
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.created_widget_id:
-                                    # Get widget details for other tools
-                                    widget_result = await self.db.execute(
-                                        select(Widget).filter(Widget.id == tool_execution.created_widget_id)
-                                    )
-                                    widget = widget_result.scalars().first()
-                                    if widget:
-                                        tool_info += f" - Widget: '{widget.title}'"
+                                    # Only the title is used — project it instead of
+                                    # loading the full Widget row.
+                                    widget_title = (await self.db.execute(
+                                        select(Widget.title).filter(Widget.id == tool_execution.created_widget_id)
+                                    )).scalar_one_or_none()
+                                    if widget_title is not None:
+                                        tool_info += f" - Widget: '{widget_title}'"
                                     else:
                                         tool_info += f" - Widget #{tool_execution.created_widget_id}"
 
                                 elif tool_execution.created_step_id:
-                                    # Get step details for other tools
-                                    step_result = await self.db.execute(
-                                        select(Step).filter(Step.id == tool_execution.created_step_id)
-                                    )
-                                    step = step_result.scalars().first()
-                                    if step:
-                                        tool_info += f" - Step: '{step.title}'"
+                                    # Only the title is used — project it instead of
+                                    # loading the full Step row (code + data blobs).
+                                    step_title = (await self.db.execute(
+                                        select(Step.title).filter(Step.id == tool_execution.created_step_id)
+                                    )).scalar_one_or_none()
+                                    if step_title is not None:
+                                        tool_info += f" - Step: '{step_title}'"
                                     else:
                                         tool_info += f" - Step #{tool_execution.created_step_id}"
                                 
@@ -857,12 +860,14 @@ class MessageContextBuilder:
             except Exception:
                 allow_llm_see_data = False
 
-        report_completions = await self.db.execute(
+        # Most-recent window only (was fetch-all + slice in Python).
+        report_completions = (await self.db.execute(
             select(Completion)
             .filter(Completion.report_id == self.report.id)
-            .order_by(Completion.created_at.asc())
-        )
-        report_completions = report_completions.scalars().all()
+            .order_by(Completion.created_at.desc())
+            .limit(max_messages + 1)
+        )).scalars().all()
+        report_completions = list(reversed(report_completions))
 
         completions_to_process = (
             report_completions[:-1]
