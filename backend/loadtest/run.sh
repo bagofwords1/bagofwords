@@ -16,7 +16,7 @@ SAMPLER=$!
 sleep 2  # capture a little idle baseline
 
 python loadtest/harness.py --concurrency "$LEVELS" --prompt "$PROMPT" \
-    --timeout 180 --settle 10 --out "$RES"
+    --timeout 180 --settle 20 --out "$RES"
 
 sleep 2
 kill "$SAMPLER" 2>/dev/null || true

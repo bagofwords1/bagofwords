@@ -46,10 +46,18 @@ class RunResult:
 
 
 async def create_report(client, base, headers, ds_id) -> str:
+    """Create a report, retrying on 5xx (clients retry; we want to measure the
+    completion path, not transient report-creation contention)."""
     body = {"title": f"loadtest-{int(time.time()*1000)}", "data_sources": [ds_id]}
-    r = await client.post(f"{base}/api/reports", headers=headers, json=body)
-    r.raise_for_status()
-    return r.json()["id"]
+    last = None
+    for attempt in range(5):
+        r = await client.post(f"{base}/api/reports", headers=headers, json=body)
+        if r.status_code < 500:
+            r.raise_for_status()
+            return r.json()["id"]
+        last = r.status_code
+        await asyncio.sleep(0.5 * (attempt + 1))
+    raise RuntimeError(f"create_report failed after retries (last={last})")
 
 
 async def one_completion(client, base, headers, report_id, prompt, timeout, idx) -> RunResult:
@@ -114,22 +122,30 @@ def pct(xs, p):
 
 async def run_level(client, base, headers, ds_id, prompt, n, timeout, reuse_reports):
     # one report per concurrent client (closer to real usage: distinct chats)
-    reports = await asyncio.gather(*[create_report(client, base, headers, ds_id) for _ in range(n)])
+    created = await asyncio.gather(
+        *[create_report(client, base, headers, ds_id) for _ in range(n)],
+        return_exceptions=True,
+    )
+    reports = [r for r in created if isinstance(r, str)]
+    report_failures = n - len(reports)
     t0 = time.perf_counter()
     results = await asyncio.gather(*[
         one_completion(client, base, headers, reports[i], prompt, timeout, i)
-        for i in range(n)
+        for i in range(len(reports))
     ])
     wall = time.perf_counter() - t0
     ok = [r for r in results if r.ok]
     by_outcome = {}
     for r in results:
         by_outcome[r.outcome] = by_outcome.get(r.outcome, 0) + 1
+    if report_failures:
+        by_outcome["report_create_failed"] = report_failures
     summary = {
         "concurrency": n,
         "wall_seconds": round(wall, 2),
         "success": len(ok),
         "success_rate": round(len(ok) / n, 3),
+        "report_failures": report_failures,
         "outcomes": by_outcome,
         "t_connect_p50": pct([r.t_connect for r in results], 50),
         "t_connect_p95": pct([r.t_connect for r in results], 95),
