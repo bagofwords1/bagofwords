@@ -271,8 +271,157 @@ class ExternalPlatformService:
             return {"success": False, "error": str(e)}
     
     async def _test_email_connection(self, platform: ExternalPlatform) -> dict:
-        """Test Email connection (placeholder)"""
-        return {"success": False, "error": "Email integration not yet implemented"}
+        """Test Email connection: verify SMTP, and IMAP if inbound is configured."""
+        creds = platform.decrypt_credentials()
+        cfg = platform.platform_config or {}
+        return await self._test_email_credentials(creds, cfg)
+
+    async def _test_email_credentials(self, creds: dict, cfg: dict) -> dict:
+        """Validate SMTP (always) and IMAP (if present) connectivity."""
+        from app.services.email.sender import SmtpConfig
+        from app.services.email.mailbox_reader import ImapConfig
+
+        result = {"success": True, "smtp": None, "imap": None}
+
+        # SMTP: connect + (optionally) authenticate, then quit. We don't send.
+        try:
+            import aiosmtplib
+
+            smtp = SmtpConfig.from_credentials(creds, cfg).resolved()
+            client = aiosmtplib.SMTP(
+                hostname=smtp.host,
+                port=smtp.port,
+                use_tls=(smtp.security == "ssl"),
+                timeout=15,
+            )
+            await client.connect()
+            if smtp.security == "starttls":
+                try:
+                    await client.starttls()
+                except Exception:
+                    pass
+            if smtp.auth_type == "password" and smtp.username and smtp.password:
+                await client.login(smtp.username, smtp.password)
+            await client.quit()
+            result["smtp"] = "ok"
+        except Exception as e:
+            return {"success": False, "smtp": f"failed: {e}", "imap": None}
+
+        # IMAP: only if inbound configured.
+        imap = ImapConfig.from_credentials(creds, cfg)
+        if imap.host:
+            try:
+                import asyncio
+
+                def _probe():
+                    import imaplib
+
+                    conn = (
+                        imaplib.IMAP4_SSL(imap.host, imap.port)
+                        if imap.use_ssl
+                        else imaplib.IMAP4(imap.host, imap.port)
+                    )
+                    conn.login(imap.username, imap.password)
+                    conn.select(imap.mailbox)
+                    conn.logout()
+
+                await asyncio.to_thread(_probe)
+                result["imap"] = "ok"
+            except Exception as e:
+                return {"success": False, "smtp": "ok", "imap": f"failed: {e}"}
+
+        return result
+
+    async def create_email_platform(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        data,
+        current_user: User,
+    ) -> ExternalPlatformSchema:
+        """Create an Email integration.
+
+        SMTP-only -> outbound transport (SEND). Adding IMAP -> conversational
+        channel (SEND + RECEIVE). Connectivity is validated before saving.
+        """
+        existing_platform = await self.get_platform_by_type(db, organization.id, "email")
+        if existing_platform:
+            raise HTTPException(
+                status_code=400,
+                detail="Email integration already exists for this organization",
+            )
+
+        inbound_enabled = bool(data.imap_host and data.imap_username)
+        from_address = data.from_address or data.smtp_username
+
+        # Non-secret config (drives capability + channel behavior).
+        platform_config = {
+            "from_address": from_address,
+            "from_name": data.from_name,
+            "smtp_host": data.smtp_host,
+            "smtp_port": data.smtp_port,
+            "smtp_security": data.smtp_security,
+            "imap_host": data.imap_host,
+            "imap_port": data.imap_port,
+            "imap_use_ssl": data.imap_use_ssl,
+            "imap_mailbox": data.imap_mailbox,
+            "inbound_enabled": inbound_enabled,
+            "allowed_domains": data.allowed_domains,
+            "auto_link_by_email": data.auto_link_by_email,
+            "require_auth_pass": data.require_auth_pass,
+            "auth_type": data.auth_type,
+            "capabilities": ["send", "receive"] if inbound_enabled else ["send"],
+        }
+
+        # Secrets (encrypted at rest).
+        credentials = {
+            "smtp_host": data.smtp_host,
+            "smtp_port": data.smtp_port,
+            "smtp_username": data.smtp_username,
+            "smtp_password": data.smtp_password,
+            "smtp_security": data.smtp_security,
+            "from_address": from_address,
+            "auth_type": data.auth_type,
+            "imap_host": data.imap_host,
+            "imap_port": data.imap_port,
+            "imap_username": data.imap_username,
+            "imap_password": data.imap_password,
+        }
+
+        # Validate connectivity before persisting.
+        test = await self._test_email_credentials(credentials, platform_config)
+        if not test.get("success"):
+            detail = test.get("smtp") if test.get("smtp") not in (None, "ok") else test.get("imap")
+            raise HTTPException(status_code=400, detail=f"Email connection failed: {detail}")
+
+        platform = ExternalPlatform(
+            organization_id=organization.id,
+            platform_type="email",
+            platform_config=platform_config,
+            is_active=True,
+        )
+        platform.encrypt_credentials(credentials)
+
+        db.add(platform)
+        await db.commit()
+        await db.refresh(platform)
+
+        try:
+            await telemetry.capture(
+                "external_platform_created",
+                {
+                    "platform_id": str(platform.id),
+                    "platform_type": "email",
+                    "is_active": True,
+                    "inbound_enabled": inbound_enabled,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
+        return ExternalPlatformSchema.from_orm(platform)
 
     async def create_slack_platform(
         self,

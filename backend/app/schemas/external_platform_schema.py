@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
 
@@ -54,8 +54,35 @@ class WhatsAppConfig(BaseModel):
     webhook_url: Optional[str] = None
 
 class EmailConfig(BaseModel):
+    """Email integration config.
+
+    SMTP fields are required (outbound transport). IMAP fields are optional —
+    when provided, the integration also becomes a conversational channel (the
+    analyst can be emailed). One integration, capability derived from fields.
+    """
+
+    # --- Outbound (required) ---
     smtp_host: str
-    smtp_port: int
+    smtp_port: int = 587
     smtp_username: str
     smtp_password: str
+    smtp_security: str = "starttls"  # "starttls" | "ssl" | "none"
+    from_address: Optional[str] = None  # defaults to smtp_username
+    from_name: Optional[str] = "Bag of words Analyst"
+
+    # --- Inbound (optional -> turns it into a channel) ---
+    imap_host: Optional[str] = None
+    imap_port: int = 993
+    imap_username: Optional[str] = None
+    imap_password: Optional[str] = None
+    imap_use_ssl: bool = True
+    imap_mailbox: str = "INBOX"
+
+    # --- Channel behavior / security ---
+    allowed_domains: List[str] = Field(default_factory=list)
+    auto_link_by_email: bool = True
+    require_auth_pass: bool = True
+
+    # "password" | "xoauth2" (v1 ships password)
+    auth_type: str = "password"
     webhook_endpoint: Optional[str] = None

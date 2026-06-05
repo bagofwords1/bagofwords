@@ -99,6 +99,82 @@ class NotificationService:
         }
         return handlers.get(channel)
 
+    # ---- outbound resolution (org mailbox overrides global SMTP) ----
+
+    async def _resolved_send(
+        self,
+        recipients: List[str],
+        subject: str,
+        body: str,
+        *,
+        subtype: str = "html",
+        attachments: Optional[list] = None,
+        db=None,
+        organization_id: Optional[str] = None,
+    ) -> bool:
+        """Send mail, preferring the org's Email integration mailbox.
+
+        When the org has an active Email integration with SMTP configured, that
+        mailbox is the authoritative transport (and From identity) for all of
+        the org's outbound mail — overriding the global ``settings.email_client``.
+        Falls back to the global client when no integration is configured or no
+        org context is available.
+        """
+        resolved = None
+        if db is not None and organization_id:
+            try:
+                from app.services.email_client_resolver import resolve_outbound
+
+                resolved = await resolve_outbound(db, organization_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Email resolution failed, using global client: %s", e)
+                resolved = None
+
+        if resolved and resolved.uses_integration:
+            from app.services.email.message_builder import build_email
+            from app.services.email.sender import send_message
+
+            built_attachments = []
+            for att in attachments or []:
+                try:
+                    path = att.get("file")
+                    with open(path, "rb") as f:
+                        built_attachments.append(
+                            (att.get("filename") or "attachment", f.read(),
+                             f"{att.get('type', 'application')}/{att.get('subtype', 'octet-stream')}")
+                        )
+                except Exception:  # noqa: BLE001
+                    continue
+
+            all_ok = True
+            for rcpt in recipients:
+                msg = build_email(
+                    from_address=resolved.from_address,
+                    from_name=resolved.from_name,
+                    to_address=rcpt,
+                    subject=subject,
+                    body=body,
+                    body_subtype=subtype,
+                    attachments=built_attachments or None,
+                )
+                ok = await send_message(resolved.smtp_config, msg)
+                all_ok = all_ok and ok
+            return all_ok
+
+        # Fallback: global fastapi-mail client.
+        fm = settings.email_client
+        if not fm:
+            return False
+        message = MessageSchema(
+            subject=subject,
+            recipients=recipients,
+            body=body,
+            subtype=subtype,
+            attachments=attachments or [],
+        )
+        await fm.send_message(message)
+        return True
+
     # ---- email channel ----
 
     async def _send_email(self, recipients: List[str], context: dict) -> ChannelResult:
@@ -181,15 +257,22 @@ class NotificationService:
         subject: str,
         body: str,
         subtype: str = "plain",
+        db=None,
+        organization_id: Optional[str] = None,
     ) -> ChannelResult:
         """Send a free-form email with arbitrary subject/body.
 
         Unlike ``dispatch`` (template-driven), this sends exactly the subject
         and body provided. The send is awaited so the returned status reflects
         actual delivery to the SMTP server, not just enqueueing.
+
+        When ``db`` + ``organization_id`` are supplied and the org has an Email
+        integration, that mailbox is used (overriding the global SMTP client).
         """
-        fm = settings.email_client
-        if not fm:
+        if subtype not in ("plain", "html"):
+            subtype = "plain"
+
+        if settings.email_client is None and not (db is not None and organization_id):
             return ChannelResult(
                 channel="email",
                 status="failed",
@@ -197,18 +280,22 @@ class NotificationService:
                 error="SMTP is not configured",
             )
 
-        if subtype not in ("plain", "html"):
-            subtype = "plain"
-
-        message = MessageSchema(
-            subject=subject,
-            recipients=recipients,
-            body=body,
-            subtype=subtype,
-        )
-
         try:
-            await fm.send_message(message)
+            ok = await self._resolved_send(
+                recipients,
+                subject,
+                body,
+                subtype=subtype,
+                db=db,
+                organization_id=organization_id,
+            )
+            if not ok:
+                return ChannelResult(
+                    channel="email",
+                    status="failed",
+                    recipients=recipients,
+                    error="SMTP send failed or not configured",
+                )
             logger.info("Custom email sent to %s", recipients)
             return ChannelResult(
                 channel="email",

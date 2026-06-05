@@ -112,7 +112,14 @@ class ExternalPlatformManager:
         auto_linked_name = None
         block_message = None
 
-        if auto_link_enabled and platform.platform_type in ("slack", "teams"):
+        # Email is intentionally conservative: the inbound address is only as
+        # trustworthy as the DMARC/DKIM verdict the poller already enforced, so
+        # we auto-link to an *existing* member but never auto-provision a new
+        # account from an inbound email (unlike Slack/Teams, whose identity is
+        # vouched by the workspace IdP).
+        allow_auto_provision = platform.platform_type in ("slack", "teams")
+
+        if auto_link_enabled and platform.platform_type in ("slack", "teams", "email"):
             try:
                 user_info = await adapter.get_user_info(
                     external_user_id,
@@ -132,7 +139,7 @@ class ExternalPlatformManager:
                     )
                     if matched:
                         auto_linked_user = matched
-                    else:
+                    elif allow_auto_provision:
                         provisioned = await auto_provision_user_for_org(
                             db, platform.organization_id, email, name=display_name
                         )
@@ -144,6 +151,12 @@ class ExternalPlatformManager:
                                 f"in this workspace. Ask your admin to invite you, "
                                 f"then try again."
                             )
+                    else:
+                        block_message = (
+                            f"Your email {email} isn't linked to a Bag of words "
+                            f"account in this workspace. Ask your admin to invite "
+                            f"you, then email again."
+                        )
                     if auto_linked_user:
                         auto_linked_email = email
                         auto_linked_name = display_name
@@ -408,13 +421,18 @@ class ExternalPlatformManager:
                 # For channel mentions, respond in the channel; for DMs, open a DM
                 # Slack DMs: None (adapter opens DM by user_id)
                 # Teams: always use conversation ID (required for all Teams messages)
-                if processed_data.get("platform_type") == "teams":
+                if processed_data.get("platform_type") in ("teams", "email"):
+                    # Teams requires the conversation id; email routes by the
+                    # sender address (which is the channel_id for email).
                     response_channel = channel_id
                 else:
                     response_channel = channel_id if channel_type == "channel" else None
-                # Format link based on platform (Slack uses <url|text>, Teams uses markdown)
+                # Format link based on platform (Slack uses <url|text>, Teams uses
+                # markdown, email is plain text).
                 if processed_data.get("platform_type") == "teams":
                     report_link = f"[{report.title}]({report_url})"
+                elif processed_data.get("platform_type") == "email":
+                    report_link = f"{report.title} ({report_url})"
                 else:
                     report_link = f"<{report_url}|{report.title}>"
 
