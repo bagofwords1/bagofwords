@@ -150,6 +150,17 @@ import re
 tracer = get_tracer(__name__)
 
 
+def _format_sse_event_traced(event: SSEEvent) -> str:
+    with tracer.start_as_current_span("sse.format_event") as span:
+        span.set_attribute("sse.event", event.event)
+        span.set_attribute("sse.has_data", event.data is not None)
+        started = time.monotonic()
+        payload = format_sse_event(event)
+        span.set_attribute("sse.format_ms", round((time.monotonic() - started) * 1000.0, 3))
+        span.set_attribute("sse.bytes", len(payload.encode("utf-8")))
+        return payload
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -2176,11 +2187,11 @@ class CompletionService:
                         "user_prompt": completion_data.prompt.content,
                     }
                 )
-                yield format_sse_event(start_event)
+                yield _format_sse_event_traced(start_event)
                 
                 # Stream agent events
                 async for event in event_queue.get_events():
-                    yield format_sse_event(event)
+                    yield _format_sse_event_traced(event)
                 
                 # Send completion event
                 finish_event = SSEEvent(
@@ -2190,7 +2201,7 @@ class CompletionService:
                         "system_completion_id": str(system_completion.id),
                     }
                 )
-                yield format_sse_event(finish_event)
+                yield _format_sse_event_traced(finish_event)
                 yield "data: [DONE]\n\n"
 
             # Return streaming response
