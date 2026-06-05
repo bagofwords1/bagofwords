@@ -47,10 +47,17 @@ class DataSource(BaseSchema):
     organization = relationship("Organization", back_populates="data_sources")
     owner = relationship("User", foreign_keys=[owner_user_id])
     reports = relationship(
-        "Report", 
-        secondary="report_data_source_association", 
+        "Report",
+        secondary="report_data_source_association",
         back_populates="data_sources",
-        lazy="selectin"
+        # NOT selectin: a data source is shared by every report that uses it, so
+        # eagerly loading this backref turned `report.data_sources` into an
+        # avalanche — loading ALL reports on the data source, then (via their own
+        # selectin relationships) all their widgets/steps/queries. That made
+        # `SELECT steps WHERE widget_id IN (...)` ~98% of DB time and grew O(reports
+        # per data source). Nothing reads this relationship; keep it lazy so it
+        # only loads if explicitly requested.
+        lazy="select",
     )
     tables = relationship(
         "DataSourceTable",
