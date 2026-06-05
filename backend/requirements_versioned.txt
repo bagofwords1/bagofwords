@@ -13,7 +13,6 @@ asn1crypto==1.5.1
 asttokens==2.4.1
 asyncpg==0.29.0
 attrs==24.2.0
-autoevals==0.0.109
 awswrangler==3.11.0
 azure-kusto-data==4.6.2
 azure-identity==1.19.0
@@ -25,7 +24,6 @@ cachetools==5.5.0
 certifi==2024.7.4
 cffi==2.0.0
 charset-normalizer==3.4.0
-chevron==0.14.0
 click==8.1.7
 clickhouse-connect==0.8.7
 contourpy==1.3.2
@@ -81,7 +79,6 @@ jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
 kiwisolver==1.4.8
 ldap3==2.9.1
-Levenshtein==0.26.1
 lkml==1.3.7
 lxml==6.1.0
 lz4==4.3.3
