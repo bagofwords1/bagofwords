@@ -581,70 +581,75 @@ class AgentV2:
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
-        import asyncio as _asyncio
-        from sqlalchemy.exc import OperationalError as _SAOperationalError
-        _max_attempts = 4
-        for _attempt in range(_max_attempts):
-            try:
-                SessionLocal = self._session_maker
-                async with SessionLocal() as session:
-                    try:
-                        # Use a new Judge instance (stateless) and score from the same planner input
-                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                            instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
-                        else:
-                            instructions_score = 3
-                            context_score = 3
-                        # Re-fetch completion to avoid using objects from another session
-                        completion = await session.get(Completion, str(self.head_completion.id))
-                        if completion is not None:
-                            await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
-                        return  # success
-                    except (_SAOperationalError, Exception) as e:
-                        _is_locked = "database is locked" in str(e).lower()
-                        if _is_locked and _attempt < _max_attempts - 1:
-                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
-                            logger.warning(f"SQLite locked in early scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
-                            await _asyncio.sleep(_backoff)
-                            continue
-                        logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
-                        return
-            except Exception as e:
-                logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
-                return
+        try:
+            # Score once, up-front. The Judge LLM call is expensive and must NOT
+            # sit inside the DB retry loop below — a locked-SQLite write should
+            # only retry the write, never re-run the model.
+            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+            else:
+                instructions_score = 3
+                context_score = 3
+        except Exception as e:
+            logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
+            return
+
+        await self._persist_completion_score_with_retry(
+            label="early scoring",
+            persist=lambda session, completion: self.project_manager.update_completion_scores(
+                session, completion, instructions_score, context_score
+            ),
+        )
 
     async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
         """Run response scoring in a fresh DB session to avoid concurrency conflicts."""
+        try:
+            # Score once, up-front — keep the Judge LLM call out of the DB retry
+            # loop so a locked-SQLite write never triggers a redundant model call.
+            if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
+                response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+            else:
+                response_score = 3
+        except Exception as e:
+            logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
+            return
+
+        await self._persist_completion_score_with_retry(
+            label="late scoring",
+            persist=lambda session, completion: self.project_manager.update_completion_response_score(
+                session, completion, response_score
+            ),
+        )
+
+    async def _persist_completion_score_with_retry(self, label: str, persist):
+        """Persist a score to the head completion, retrying only on SQLite lock.
+
+        The LLM scoring is done by the caller before this runs; this helper owns
+        the fresh DB session and the locked-database backoff so a contended write
+        never re-runs the model. `persist(session, completion)` performs the write.
+        """
         import asyncio as _asyncio
-        from sqlalchemy.exc import OperationalError as _SAOperationalError
         _max_attempts = 4
         for _attempt in range(_max_attempts):
             try:
                 SessionLocal = self._session_maker
                 async with SessionLocal() as session:
-                    try:
-                        if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                            judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                            original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
-                            response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
-                        else:
-                            response_score = 3
-                        completion = await session.get(Completion, str(self.head_completion.id))
-                        if completion is not None:
-                            await self.project_manager.update_completion_response_score(session, completion, response_score)
-                        return  # success
-                    except (_SAOperationalError, Exception) as e:
-                        _is_locked = "database is locked" in str(e).lower()
-                        if _is_locked and _attempt < _max_attempts - 1:
-                            _backoff = 2 ** _attempt  # 1s, 2s, 4s
-                            logger.warning(f"SQLite locked in late scoring (attempt {_attempt + 1}), retrying in {_backoff}s")
-                            await _asyncio.sleep(_backoff)
-                            continue
-                        logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
-                        return
+                    # Re-fetch completion to avoid using objects from another session
+                    completion = await session.get(Completion, str(self.head_completion.id))
+                    if completion is not None:
+                        await persist(session, completion)
+                return  # success (also returns when completion is gone)
             except Exception as e:
-                logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
+                _is_locked = "database is locked" in str(e).lower()
+                if _is_locked and _attempt < _max_attempts - 1:
+                    _backoff = 2 ** _attempt  # 1s, 2s, 4s
+                    logger.warning(f"SQLite locked in {label} (attempt {_attempt + 1}), retrying in {_backoff}s")
+                    await _asyncio.sleep(_backoff)
+                    continue
+                logger.warning(f"Failed to persist {label} result in background: {e}", exc_info=True)
                 return
 
     async def _run_knowledge_harness(self, conditions: list):
