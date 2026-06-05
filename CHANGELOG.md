@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.392 (June 5, 2026)
+- Major performance & concurrency-reliability improvements (faster completions, fewer stalls under load)
+
 ## Version 0.0.391 (June 3, 2026)
 - Email sending tool in reports when SMTP is enabled
 - Postgres support for materialized views
