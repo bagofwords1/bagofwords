@@ -691,7 +691,14 @@ class ContextHub:
         # Build observations synchronously (it's fast, no DB calls)
         observations = self.observation_builder.build()
         _safe_setattr_list(observations, "items", DEFAULT_CONTEXT_LIMITS["observations_max"])
-        
+
+        # Scheduled tasks for this report (warm: changes when created/cancelled mid-session)
+        try:
+            scheduled_tasks = await self._build_scheduled_tasks_section()
+        except Exception as e:
+            _hub_logger.warning(f"[context_hub:refresh_warm] scheduled_tasks failed: {e}")
+            scheduled_tasks = None
+
         self._warm_cache.update({
             "messages": messages if not isinstance(messages, Exception) else None,
             "widgets": None,  # Deprecated
@@ -699,7 +706,62 @@ class ContextHub:
             "observations": observations,
             "mentions": mentions if not isinstance(mentions, Exception) else None,
             "entities": entities if not isinstance(entities, Exception) else None,
+            "scheduled_tasks": scheduled_tasks,
         })
+
+    async def _build_scheduled_tasks_section(self):
+        """Build the <scheduled_tasks> section for the current report.
+
+        Lists active (non-deleted) recurring tasks so the agent can avoid
+        duplicates and has task ids available for cancellation.
+        """
+        from app.ai.context.sections.scheduled_tasks_section import (
+            ScheduledTasksSection,
+            ScheduledTaskItem,
+        )
+        if not self.report:
+            return ScheduledTasksSection(items=[])
+
+        from sqlalchemy import select
+        from app.models.scheduled_prompt import ScheduledPrompt
+
+        cron_labels = {
+            "0 * * * *": "Hourly",
+            "0 8 * * *": "Daily at 8am",
+            "0 9 * * *": "Daily at 9am",
+            "0 0 * * *": "Daily at midnight",
+            "0 9 * * 1": "Weekly on Monday at 9am",
+            "0 8 * * 1": "Weekly on Monday at 8am",
+            "0 0 * * 1": "Weekly on Monday at midnight",
+        }
+
+        result = await self.db.execute(
+            select(ScheduledPrompt)
+            .filter(ScheduledPrompt.report_id == self.report.id)
+            .filter(ScheduledPrompt.is_active == True)  # noqa: E712
+            .filter(ScheduledPrompt.deleted_at == None)  # noqa: E711
+            .order_by(ScheduledPrompt.created_at.asc())
+        )
+        rows = list(result.scalars().all())
+
+        items: list = []
+        for sp in rows:
+            content = ""
+            try:
+                content = (sp.prompt or {}).get("content", "") if isinstance(sp.prompt, dict) else ""
+            except Exception:
+                content = ""
+            snippet = content.strip()
+            if len(snippet) > 200:
+                snippet = snippet[:200] + "…"
+            items.append(ScheduledTaskItem(
+                id=str(sp.id),
+                cron_schedule=sp.cron_schedule,
+                cron_label=cron_labels.get(sp.cron_schedule),
+                prompt_snippet=snippet or None,
+                last_run_at=sp.last_run_at.isoformat() if sp.last_run_at else None,
+            ))
+        return ScheduledTasksSection(items=items)
 
     def get_view(self) -> ContextView:
         """Return a read-only grouped view over current static + warm context."""
@@ -717,6 +779,7 @@ class ContextHub:
             queries=self._warm_cache.get("queries", None),
             mentions=self._warm_cache.get("mentions", None),
             entities=self._warm_cache.get("entities", None),
+            scheduled_tasks=self._warm_cache.get("scheduled_tasks", None),
         )
         meta = self.metadata.model_dump()
         return ContextView(static=static, warm=warm, meta=meta)

@@ -83,6 +83,8 @@ class PlannerInput(BaseModel):
     mentions_context: Optional[str] = None
     # Entities context rendered from catalog search
     entities_context: Optional[str] = None
+    # Active recurring scheduled tasks for this report (rendered <scheduled_tasks> block)
+    scheduled_tasks_context: Optional[str] = None
     # A compact dictionary describing the most recent tool observation (if any)
     last_observation: Optional[Dict[str, Any]] = None
     # Full list of recorded tool observations in execution order

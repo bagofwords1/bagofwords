@@ -1,0 +1,82 @@
+name: Sanity · Scheduled Tasks
+description: >
+  Verifies the agent schedules recurring work with create_scheduled_task
+  (instead of sending a one-off email) when the user asks for something on a
+  repeating cadence, emits a valid hourly-or-slower cron, and can cancel an
+  existing task it sees in the <scheduled_tasks> context block. Runs against the
+  Chinook demo so there is a real report/data-source context.
+
+tags: [scheduled]
+
+data_source_slugs:
+  - Music Store
+
+cases:
+  # NOTE: prompts here are intentionally concrete. A vague recurring ask like
+  # "email me weekly about weird activity" can legitimately make the agent
+  # clarify what "weird" means before scheduling — correct behaviour, but not
+  # what we want to assert here. These cases pin the scheduling path itself.
+  - name: weekly_invoice_digest_email
+    prompt:
+      content: "Every Monday at 9am, count the invoices from the last 7 days and email me the total."
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # Recurring request -> schedule it, don't just send one email now.
+        - type: tool.calls
+          tool: create_scheduled_task
+          min_calls: 1
+        # Human-readable label should reflect the weekly cadence.
+        - type: field
+          target:
+            category: "tool:create_scheduled_task"
+            field: schedule_description
+          matcher:
+            type: text.regex
+            pattern: "(?i)(week|monday)"
+        # Cron must start with a single-number minute (the 1-hour floor).
+        - type: field
+          target:
+            category: "tool:create_scheduled_task"
+            field: cron_schedule
+          matcher:
+            type: text.regex
+            pattern: "^[0-9]{1,2}\\s"
+
+  - name: daily_morning_summary
+    prompt:
+      content: "Every morning at 8am, check yesterday's sales and email me a short summary."
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_scheduled_task
+          min_calls: 1
+        - type: field
+          target:
+            category: "tool:create_scheduled_task"
+            field: schedule_description
+          matcher:
+            type: text.regex
+            pattern: "(?i)(daily|every day|morning|8)"
+
+  - name: create_then_cancel
+    turns:
+      - prompt:
+          content: "Every Monday at 9am, email me the total number of customers."
+      - prompt:
+          content: "Actually, cancel that scheduled task you just set up."
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        - type: tool.calls
+          tool: create_scheduled_task
+          min_calls: 1
+        # Turn 2: the task is listed in <scheduled_tasks> context, so the agent
+        # has its id and can cancel it.
+        - type: tool.calls
+          tool: cancel_scheduled_task
+          min_calls: 1
