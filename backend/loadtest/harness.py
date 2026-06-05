@@ -120,6 +120,18 @@ def pct(xs, p):
     return round(xs[k], 3)
 
 
+def _stat(xs, which):
+    xs = [x for x in xs if x is not None]
+    if not xs:
+        return None
+    if which == "min":
+        return round(min(xs), 3)
+    if which == "max":
+        return round(max(xs), 3)
+    if which == "mean":
+        return round(sum(xs) / len(xs), 3)
+
+
 async def run_level(client, base, headers, ds_id, prompt, n, timeout, reuse_reports):
     # one report per concurrent client (closer to real usage: distinct chats)
     created = await asyncio.gather(
@@ -151,9 +163,13 @@ async def run_level(client, base, headers, ds_id, prompt, n, timeout, reuse_repo
         "t_connect_p95": pct([r.t_connect for r in results], 95),
         "t_first_event_p50": pct([r.t_first_event for r in results], 50),
         "t_first_event_p95": pct([r.t_first_event for r in results], 95),
+        # Completion DURATION (end-to-end, successful runs): full distribution.
+        "duration_min": _stat([r.t_total for r in ok], "min"),
+        "duration_mean": _stat([r.t_total for r in ok], "mean"),
         "t_total_p50": pct([r.t_total for r in ok], 50),
         "t_total_p95": pct([r.t_total for r in ok], 95),
         "t_total_p99": pct([r.t_total for r in ok], 99),
+        "duration_max": _stat([r.t_total for r in ok], "max"),
         "raw": [asdict(r) for r in results],
     }
     return summary
