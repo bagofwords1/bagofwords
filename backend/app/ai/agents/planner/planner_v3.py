@@ -38,6 +38,8 @@ from app.ai.llm.types import (
     ToolUseInputDeltaEvent,
     ToolUseStartEvent,
     UsageEvent,
+    WebSearchResultEvent,
+    WebSearchStartEvent,
 )
 from app.ai.utils.token_counter import estimate_tokens_fast
 from app.schemas.ai.planner import (
@@ -144,6 +146,7 @@ class PlannerV3:
                 tools=tools,
                 images=v3_input.images,
                 thinking=thinking,
+                web_search=planner_input.web_search_enabled,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,
@@ -220,6 +223,33 @@ class PlannerV3:
                         state.reasoning_end_time = time.monotonic()
                     continue
 
+                if isinstance(evt, WebSearchStartEvent):
+                    # Provider-executed search. Surface it live in the thinking
+                    # box so the user sees the agent reaching out to the web
+                    # (transparency + the data-egress audit trail).
+                    if state.first_token_time is None:
+                        state.first_token_time = time.monotonic()
+                    state.web_search_count += 1
+                    label = (
+                        f"🔍 Searching the web: {evt.query}"
+                        if evt.query else "🔍 Searching the web…"
+                    )
+                    sep = "\n\n" if (state.thinking_buffer and not state.thinking_buffer.endswith("\n")) else ""
+                    state.thinking_buffer += f"{sep}{label}\n"
+                    yield PlannerDecisionEvent(
+                        type="planner.decision.partial",
+                        data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
+                    )
+                    continue
+
+                if isinstance(evt, WebSearchResultEvent):
+                    # Collect citations (deduped by URL, order preserved). The
+                    # model also inlines these as markdown links in its answer;
+                    # we keep a copy to render a Sources footer for the audit.
+                    if evt.url and not any(u == evt.url for _, u in state.web_search_citations):
+                        state.web_search_citations.append((evt.title or evt.url, evt.url))
+                    continue
+
                 if isinstance(evt, ToolUseCompleteEvent):
                     finished = Action(
                         type="tool_call",
@@ -278,6 +308,15 @@ class PlannerV3:
         # If reasoning never ended (no tool call), close it now
         if state.reasoning_start_time and state.reasoning_end_time is None:
             state.reasoning_end_time = time.monotonic()
+
+        # Append a compact Sources footer for web-search citations so the
+        # thinking box records exactly which pages were used this turn.
+        if state.web_search_citations:
+            lines = "\n".join(
+                f"- [{title}]({url})" for title, url in state.web_search_citations
+            )
+            sep = "\n\n" if (state.thinking_buffer and not state.thinking_buffer.endswith("\n")) else ""
+            state.thinking_buffer += f"{sep}**Sources**\n{lines}\n"
 
         # Emit final decision with metrics
         final_decision = self._build_decision(

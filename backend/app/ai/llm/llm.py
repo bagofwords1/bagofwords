@@ -344,6 +344,7 @@ class LLM:
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        web_search: Optional[bool] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
@@ -379,6 +380,13 @@ class LLM:
             stream_start = time.monotonic()
             ttft_recorded = False
 
+            # `web_search` (native, provider-executed) is only honored by the
+            # OpenAI Responses client. Forward it just to that client so the
+            # other clients' signatures stay untouched.
+            client_kwargs: dict = {}
+            if web_search is not None and isinstance(self.client, OpenAIResponsesClient):
+                client_kwargs["web_search"] = web_search
+
             try:
                 async for evt in self.client.inference_stream_v2(
                     model_id=target_model_id,
@@ -388,6 +396,7 @@ class LLM:
                     images=images,
                     thinking=thinking,
                     disable_parallel_tools=disable_parallel_tools,
+                    **client_kwargs,
                 ):
                     if not ttft_recorded and getattr(evt, "type", None) in (
                         "text_delta",

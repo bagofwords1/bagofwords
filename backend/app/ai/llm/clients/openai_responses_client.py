@@ -195,8 +195,14 @@ class OpenAIResponsesClient(LLMClient):
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        web_search: Optional[bool] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         input_items = self._translate_messages(messages, images=images)
+        # Effective web-search gate: caller must request it (per-call, e.g. the
+        # org+provider gate the planner computes) AND the client must have been
+        # constructed web-search-capable. Default (None) = off, so non-planner
+        # call sites never trigger it.
+        use_web_search = bool(web_search) and self.enable_web_search
 
         request_kwargs: dict[str, Any] = {
             "model": model_id,
@@ -206,7 +212,7 @@ class OpenAIResponsesClient(LLMClient):
         if system:
             request_kwargs["instructions"] = system
         request_tools: list[dict] = self._translate_tools(tools) if tools else []
-        if self.enable_web_search:
+        if use_web_search:
             # Provider-executed server tool. Runs inside the Responses API and
             # streams web_search_call items + url_citation annotations inline.
             request_tools.append({"type": "web_search"})

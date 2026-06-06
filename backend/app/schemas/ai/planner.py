@@ -112,6 +112,11 @@ class PlannerInput(BaseModel):
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False
+    # Native, provider-executed web search (OpenAI/Azure-OpenAI Responses tool).
+    # Gated by the org `enable_web_fetch` master switch AND a per-provider
+    # `enable_web_search` opt-in. Distinct from `web_fetch_enabled` (which is the
+    # registry tool that fetches a specific URL we hand it).
+    web_search_enabled: bool = False
 
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None

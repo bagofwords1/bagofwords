@@ -1920,6 +1920,7 @@ class AgentV2:
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                         web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+                        web_search_enabled=self._web_search_enabled(),
                         scheduled_context=await self._build_scheduled_context(),
                         user_name=user_name,
                         user_note=user_note,
@@ -3347,6 +3348,7 @@ class AgentV2:
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+            web_search_enabled=self._web_search_enabled(),
             scheduled_context=await self._build_scheduled_context(),
             user_name=user_name,
             user_note=user_note,
@@ -3552,6 +3554,45 @@ class AgentV2:
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
             return {"decision": False, "conditions": []}
+
+    def _web_search_enabled(self) -> bool:
+        """Effective gate for native, provider-executed web search.
+
+        Two layers must agree (per the agreed design):
+          1) Org master switch — reuse the existing `enable_web_fetch` setting,
+             which governs all outbound web egress for the org.
+          2) Per-provider opt-in — `additional_config.enable_web_search`, set by
+             an admin only on a provider whose endpoint actually supports the
+             Responses `web_search` tool.
+
+        Plus a capability guard: the tool only exists on the OpenAI Responses
+        path. That's OpenAI (no custom base_url → Responses client) or Azure
+        (routed to the Responses client when enable_web_search is set). Any other
+        provider — or an OpenAI provider pinned to a Chat Completions base_url —
+        cannot serve it, so we report it disabled to keep the planner directive
+        honest.
+        """
+        try:
+            settings = self.organization_settings
+            if not settings:
+                return False
+            org_cfg = settings.get_config("enable_web_fetch")
+            if not bool(getattr(org_cfg, "value", False)):
+                return False
+            provider = getattr(self.model, "provider", None)
+            if not provider:
+                return False
+            add = getattr(provider, "additional_config", None) or {}
+            if not bool(add.get("enable_web_search", False)):
+                return False
+            ptype = getattr(provider, "provider_type", None)
+            if ptype == "azure":
+                return True
+            if ptype == "openai":
+                return not bool(add.get("base_url"))
+            return False
+        except Exception:
+            return False
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

@@ -134,6 +134,20 @@ class PromptBuilderV3:
                 "  - `create_data` / `inspect_data` accept URL-only tasks (no `tables_by_source`, no uploaded file required) when web fetch is enabled."
             )
 
+        # Native web search runs inside the provider (OpenAI/Azure Responses) and
+        # is model-decided. Scope it tightly so it doesn't fire on questions that
+        # the connected data should answer — that's the main failure mode for a
+        # data tool, and each search incurs cost + sends the query outside the
+        # provider's data boundary.
+        web_search_directives_text = ""
+        if getattr(planner_input, "web_search_enabled", False):
+            web_search_directives_text = (
+                "- **Web search (native, enabled for this org):** you can search the public web for facts that are NOT in the connected data sources — current events, recent prices, external company/market facts, documentation, or anything time-sensitive. Cite sources inline.\n"
+                "  - Do NOT use web search for questions the connected data answers (metrics, KPIs, anything in the schemas) — query the data instead.\n"
+                "  - Do NOT use it to define business terms — follow the clarify protocol.\n"
+                "  - Prefer it only when the answer genuinely requires up-to-date or external knowledge; it runs automatically as you compose your answer, so just write the answer and let citations attach."
+            )
+
         platform_directives = PromptBuilderV3._platform_system_directives(planner_input)
         platform_directives_text = f"{platform_directives}\n\n" if platform_directives else ""
 
@@ -188,6 +202,7 @@ PLAN TYPE GUIDANCE
 - If the user attached a screenshot or an image — describe it briefly in message text — don't use inspect_data for images.
 - When working with data files (excel, csv, etc), ALWAYS use inspect_data to verify the file content and structure before creating data widgets.
 {web_fetch_directives_text}
+{web_search_directives_text}
 
 {platform_directives_text}clarify protocol (read this every time)
 
