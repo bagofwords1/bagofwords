@@ -345,6 +345,7 @@ class LLM:
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
         web_search: Optional[bool] = None,
+        web_search_domains: Optional[list] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
@@ -386,6 +387,8 @@ class LLM:
             client_kwargs: dict = {}
             if web_search is not None and isinstance(self.client, OpenAIResponsesClient):
                 client_kwargs["web_search"] = web_search
+                if web_search_domains:
+                    client_kwargs["web_search_domains"] = web_search_domains
 
             try:
                 async for evt in self.client.inference_stream_v2(

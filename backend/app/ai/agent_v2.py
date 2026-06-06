@@ -1921,6 +1921,7 @@ class AgentV2:
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                         web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
                         web_search_enabled=self._web_search_enabled(),
+                        web_search_domains=self._web_search_domains(),
                         scheduled_context=await self._build_scheduled_context(),
                         user_name=user_name,
                         user_note=user_note,
@@ -3438,6 +3439,7 @@ class AgentV2:
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
             web_search_enabled=self._web_search_enabled(),
+            web_search_domains=self._web_search_domains(),
             scheduled_context=await self._build_scheduled_context(),
             user_name=user_name,
             user_note=user_note,
@@ -3682,6 +3684,25 @@ class AgentV2:
             return False
         except Exception:
             return False
+
+    def _web_search_domains(self) -> list:
+        """Domains parsed from URLs in the current user turn, passed to web
+        search as filters.allowed_domains so it opens/reads those pages directly
+        (open_page) instead of relying on snippet search. Empty when no URL."""
+        try:
+            head = getattr(self, "head_completion", None)
+            msg = (getattr(head, "prompt", None) or {}).get("content", "") if head else ""
+            if not msg or "http" not in msg:
+                return []
+            import re as _re
+            hosts = []
+            for m in _re.findall(r"https?://([^/\s\"'>]+)", msg):
+                h = m.strip().lower()
+                if h and h not in hosts:
+                    hosts.append(h)
+            return hosts[:20]
+        except Exception:
+            return []
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

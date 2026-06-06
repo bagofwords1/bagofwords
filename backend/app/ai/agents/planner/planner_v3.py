@@ -149,6 +149,7 @@ class PlannerV3:
                 images=v3_input.images,
                 thinking=thinking,
                 web_search=planner_input.web_search_enabled,
+                web_search_domains=planner_input.web_search_domains or None,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,

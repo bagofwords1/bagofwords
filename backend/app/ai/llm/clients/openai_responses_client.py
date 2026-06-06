@@ -197,6 +197,7 @@ class OpenAIResponsesClient(LLMClient):
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
         web_search: Optional[bool] = None,
+        web_search_domains: Optional[list] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         input_items = self._translate_messages(messages, images=images)
         # Effective web-search gate: caller must request it (per-call, e.g. the
@@ -218,7 +219,12 @@ class OpenAIResponsesClient(LLMClient):
             # streams web_search_call items + url_citation annotations inline.
             # search_context_size="high" makes it search more thoroughly and
             # open more results — measurably better recall on harder pages.
-            request_tools.append({"type": "web_search", "search_context_size": "high"})
+            web_tool: dict[str, Any] = {"type": "web_search", "search_context_size": "high"}
+            if web_search_domains:
+                # Hard-scope to the user's domains. This makes the tool open/read
+                # those pages (open_page action) instead of snippet search.
+                web_tool["filters"] = {"allowed_domains": list(web_search_domains)[:20]}
+            request_tools.append(web_tool)
         if request_tools:
             request_kwargs["tools"] = request_tools
             # Only constrain parallelism for our function tools; the server-side
@@ -301,11 +307,15 @@ class OpenAIResponsesClient(LLMClient):
                     reasoning_active = False
                     yield ReasoningCompleteEvent(text="")
                 elif itype == "web_search_call":
-                    # Completed search — the actual query/queries are populated now.
+                    # Completed call — populated now. The action is one of
+                    # search (query/queries), open_page (url), or find (url).
                     item_id = getattr(item, "id", "") or ""
                     action = getattr(item, "action", None)
-                    query = getattr(action, "query", None) if action else None
-                    queries = getattr(action, "queries", None) if action else None
+                    a_url = getattr(action, "url", None) if action else None
+                    query = (getattr(action, "query", None) if action else None) or a_url
+                    queries = (getattr(action, "queries", None) if action else None)
+                    if not queries and a_url:
+                        queries = [a_url]
                     status = getattr(item, "status", None)
                     yield WebSearchCompleteEvent(id=item_id, query=query, queries=queries, status=status)
 
