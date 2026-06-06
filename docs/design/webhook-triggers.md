@@ -153,25 +153,39 @@ pattern** (template: the dedup classifier in
 `completion_feedback_service.py:1106` and `suggest_instructions`).
 
 The decision quality depends entirely on **what the classifier sees**. It must
-get the **conversation history**, built the same way the planner builds it — not
-just the bare event. We reuse the existing
-`MessageContextBuilder.build_context()`
-(`backend/app/ai/context/builders/message_context_builder.py`), which is the same
-code path that produces the planner's `messages_context` block consumed by
-`PromptBuilderV3._build_user_message` (see `prompt_builder_v3.py:451`). This
-gives us user prompts + assistant responses + tool digests, already token-capped
-(`max_messages`, 8k char cap), for free — and keeps the classifier's view of the
-report consistent with the agent's.
+get both the **conversation history** and the **organization instructions**,
+built the same way the planner builds them. We reuse the same builders the
+planner uses, so the classifier's view of the report stays consistent with the
+agent's and inherits any future improvements for free.
+
+**Conversation history** — reuse `MessageContextBuilder.build_context()`
+(`backend/app/ai/context/builders/message_context_builder.py`), the same code
+path that produces the planner's `messages_context` block consumed by
+`PromptBuilderV3._build_user_message` (see `prompt_builder_v3.py:451`). Gives
+user prompts + assistant responses + tool digests, already token-capped
+(`max_messages`, 8k char cap).
+
+**Instruction context** — reuse `InstructionContextBuilder.build()`
+(`backend/app/ai/context/builders/instruction_context_builder.py`), the same
+builder behind the planner's `instructions` block. It loads all `always`
+instructions + keyword-matched `intelligent` ones (respecting the org's
+`max_instructions_in_context`, data-source scoping, and per-user table
+accessibility), then `InstructionsSection.render()` turns it into the prompt
+string. This is essential: instructions encode the org's business rules and may
+directly say what to do (or ignore) for an event like a new PR. We pass the
+**event summary as the `query`** so intelligent instructions are matched against
+the event text — the same scoring the planner applies to the user prompt.
 
 **Inputs gathered (mirroring the planner's context, scoped down):**
 
 | Input | Source | Why |
 |-------|--------|-----|
 | `messages_context` | `MessageContextBuilder(db, org, report, user).build_context(max_messages=…, role_filter=['user','system'])` | prior conversation — the main signal |
+| `instructions` | `InstructionContextBuilder(db, org, user, org_settings, data_source_ids).build(query=event_summary)` → `.render()` | org business rules; may dictate act/ignore |
 | `report_title` / purpose | `report.title` (+ first user completion as fallback) | what the report is *for* |
 | `event_summary` | `github_adapter.normalize()` | the new event (PR opened…) |
 | `recent_events` | last N `role='external'` completions | so repeated/duplicate events aren't re-acted |
-| `organization_settings` | `organization.settings` | language directive, data-visibility flags — reuse `build_language_directive` |
+| `organization_settings` | `organization.settings` | language directive, data-visibility, max-instructions |
 
 > Note the event entry is written as a `role='external'` completion *before* the
 > classifier runs, so `build_context` naturally includes it as the latest turn —
@@ -182,6 +196,7 @@ report consistent with the agent's.
 class WebhookClassifierInput(BaseModel):
     report_title: str
     messages_context: str          # from MessageContextBuilder.build_context()
+    instructions: str              # from InstructionContextBuilder.build().render()
     event_summary: str             # normalized, untrusted
     organization_settings: Any | None = None
 
@@ -191,9 +206,13 @@ class WebhookClassifier:
     async def classify(self, inp: WebhookClassifierInput) -> Decision:
         prompt = f"""You decide whether an automated analytics assistant should
 act on an inbound event for this report. Act only if a response would be useful
-given what this report is about and the conversation so far.
+given what this report is about, the organization's instructions, and the
+conversation so far.
 
 Report: {inp.report_title}
+
+Organization instructions (business rules — may state whether to act on events):
+{inp.instructions}
 
 Conversation so far:
 {inp.messages_context}
@@ -215,10 +234,14 @@ Reply with ONLY a JSON object on one line:
   `llm_service.get_default_model(db, org, user, is_small=True)` (uses the
   `is_small_default` flag → Haiku/mini/flash).
 - **Structured, binary output** — keeps cost low and contains injection.
-- **History via the shared builder** — no bespoke message formatting; if the
-  planner's context format improves, the classifier inherits it. Cap
-  `max_messages` lower than the planner (e.g. 10) since this is a gate, not the
-  full reasoning step.
+- **Context via the shared builders** — no bespoke message/instruction
+  formatting; if the planner's context format improves, the classifier inherits
+  it. Cap `max_messages` lower than the planner (e.g. 10) since this is a gate,
+  not the full reasoning step.
+- **Instructions matched to the event** — the event summary is the `query` for
+  intelligent-instruction scoring, and `always` instructions are always loaded,
+  so org rules like "open a triage analysis on every new PR" or "ignore bot PRs"
+  steer the gate directly.
 - **Report purpose** — `report.title` is the cheap default; the
   `MessageContextBuilder` history already carries the conversational intent, so a
   dedicated `Report.purpose` field is optional (left as Open Question #1).
@@ -228,8 +251,9 @@ Reply with ONLY a JSON object on one line:
 
 1. create visible **event** completion (`role='external'`, `is_hidden=False`).
 2. if `classify_enabled`: create **hidden trigger** completion; build history via
-   `MessageContextBuilder.build_context()` (same path as the planner); run
-   classifier with that context + the normalized event.
+   `MessageContextBuilder.build_context()` and instructions via
+   `InstructionContextBuilder.build(query=event_summary).render()` (same paths as
+   the planner); run classifier with that context + the normalized event.
 3. `act=false` → set event status to `success` (renders ✅, "nothing to do"),
    store `reason` on the hidden completion. Done.
 4. `act=true` → mark event status `in_progress` (renders 👀), build a prompt from
