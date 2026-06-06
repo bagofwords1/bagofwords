@@ -1570,8 +1570,10 @@ class DataSourceService:
         import inspect
         from typing import Dict, Any
 
+        # A connectionless agent contributes no data clients — return empty so
+        # the completion can still run (tools-only / context-only agent).
         if not data_source.connections:
-            raise HTTPException(status_code=400, detail="Data source has no associated connections")
+            return {}
 
         clients: Dict[str, Any] = {}
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}

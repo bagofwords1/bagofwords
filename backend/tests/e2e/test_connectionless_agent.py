@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 
@@ -118,6 +120,47 @@ def test_llm_sync_skipped_for_connectionless_agent(
     assert body.get("skipped") is True
     # No generated onboarding artifacts.
     assert "onboarding_instruction" not in body
+
+
+@pytest.mark.e2e
+def test_construct_clients_empty_for_connectionless_agent(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """construct_clients returns {} (no raise) for a connectionless agent, so a
+    completion can still run with a tools-only / context-only agent."""
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.data_source import DataSource
+    from app.services.data_source_service import DataSourceService
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "X-Organization-Id": str(org_id),
+    }
+
+    create = test_client.post(
+        "/api/data_sources",
+        json={"name": "Tools Only Agent", "is_public": True},
+        headers=headers,
+    )
+    assert create.status_code == 200, create.json()
+    ds_id = create.json()["id"]
+
+    async def _check():
+        async with async_session_maker() as db:
+            ds = (
+                await db.execute(select(DataSource).where(DataSource.id == ds_id))
+            ).scalar_one()
+            return await DataSourceService().construct_clients(db, ds, None)
+
+    clients = asyncio.run(_check())
+    assert clients == {}
 
 
 @pytest.mark.e2e
