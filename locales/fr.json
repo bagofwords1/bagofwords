@@ -241,6 +241,8 @@
       "instructions": "instructions"
     },
     "tooltips": {
+      "star": "Mettre en favori",
+      "unstar": "Retirer des favoris",
       "hasPage": "Contient un artefact Page",
       "hasSlides": "Contient un artefact Diapositives",
       "chat": "Conversation",
@@ -252,6 +254,7 @@
       "showing": "Affichage de {from} à {to} sur {total} rapports"
     },
     "toasts": {
+      "starFailed": "Échec de la mise à jour du favori",
       "failedFetch": "Échec du chargement des rapports",
       "archived": "Rapport archivé",
       "archivedDesc": "Rapport archivé avec succès",

@@ -241,6 +241,8 @@
       "instructions": "instruções"
     },
     "tooltips": {
+      "star": "Marcar com estrela",
+      "unstar": "Remover estrela",
       "hasPage": "Contém artefato Página",
       "hasSlides": "Contém artefato Slides",
       "chat": "Chat",
@@ -252,6 +254,7 @@
       "showing": "Mostrando de {from} a {to} de {total} relatórios"
     },
     "toasts": {
+      "starFailed": "Falha ao atualizar a estrela",
       "failedFetch": "Falha ao carregar relatórios",
       "archived": "Relatório arquivado",
       "archivedDesc": "Relatório arquivado com sucesso",

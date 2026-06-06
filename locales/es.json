@@ -248,6 +248,8 @@
       "instructions": "instrucciones"
     },
     "tooltips": {
+      "star": "Destacar",
+      "unstar": "Quitar destacado",
       "hasPage": "Tiene artefacto de página",
       "hasSlides": "Tiene artefacto de diapositivas",
       "chat": "Chat",
@@ -259,6 +261,7 @@
       "showing": "Mostrando {from} a {to} de {total} informes"
     },
     "toasts": {
+      "starFailed": "No se pudo actualizar el destacado",
       "failedFetch": "No se pudieron obtener los informes",
       "archived": "Informe archivado",
       "archivedDesc": "Informe archivado correctamente",

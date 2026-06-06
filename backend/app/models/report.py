@@ -7,6 +7,7 @@ from app.models.base import BaseSchema
 from app.models.report_data_source_association import report_data_source_association
 from app.models.dashboard_layout_version import DashboardLayoutVersion  # noqa: F401
 from app.models.report_share import ReportShare  # noqa: F401
+from app.models.report_star import ReportStar  # noqa: F401
 
 class Report(BaseSchema):
     __tablename__ = 'reports'
@@ -64,3 +65,4 @@ class Report(BaseSchema):
     artifacts = relationship("Artifact", back_populates="report", lazy="selectin")
     scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
     shares = relationship("ReportShare", back_populates="report", lazy="selectin")
+    stars = relationship("ReportStar", back_populates="report", lazy="selectin")

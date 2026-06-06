@@ -158,6 +158,7 @@
                                             @change="toggleAllVisible"
                                         />
                                     </th>
+                                    <th class="ps-2 pe-0 py-3 w-6"></th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         {{ $t('reports.table.title') }}
                                     </th>
@@ -178,7 +179,7 @@
                             <tbody class="bg-white divide-y divide-gray-200">
                                 <!-- Loading state -->
                                 <tr v-if="isLoading">
-                                    <td colspan="6" class="px-6 py-12 text-center">
+                                    <td colspan="7" class="px-6 py-12 text-center">
                                         <div class="flex items-center justify-center text-gray-500">
                                             <Spinner class="w-4 h-4 me-2" />
                                             <span class="text-sm">{{ $t('common.loading') }}</span>
@@ -198,6 +199,20 @@
                                                 :checked="selectedIds.has(report.id)"
                                                 @change="toggleOne(report.id)"
                                             />
+                                        </td>
+                                        <td class="ps-2 pe-0 py-2 w-6 text-center">
+                                            <UTooltip :text="report.is_starred ? $t('reports.tooltips.unstar') : $t('reports.tooltips.star')">
+                                                <button
+                                                    @click="toggleStar(report)"
+                                                    class="inline-flex items-center justify-center focus:outline-none"
+                                                >
+                                                    <UIcon
+                                                        :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
+                                                        class="h-[18px] w-[18px] transition-colors"
+                                                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-yellow-400'"
+                                                    />
+                                                </button>
+                                            </UTooltip>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <UTooltip v-if="report.artifact_modes?.includes('page')" :text="$t('reports.tooltips.hasPage')">
@@ -324,7 +339,7 @@
                                     </tr>
                                     <tr v-if="visibleReports.length === 0">
                                         <td
-                                            colspan="6"
+                                            colspan="7"
                                             class="px-6 py-12 text-center text-gray-500 text-sm"
                                         >
                                             <div class="flex flex-col items-center">
@@ -673,6 +688,31 @@ async function confirmDelete(reportId: string) {
     if (confirm(t('reports.archiveConfirm'))) {
         await deleteReport(reportId)
         await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
+    }
+}
+
+async function toggleStar(report: any) {
+    const next = !report.is_starred
+    // Optimistic update
+    report.is_starred = next
+    try {
+        const response: any = await useMyFetch(`/reports/${report.id}/star`, {
+            method: next ? 'POST' : 'DELETE',
+        })
+        if (response?.error?.value) {
+            throw response.error.value
+        }
+        // Server controls ordering (starred first), so refetch the page
+        await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
+    } catch (error: any) {
+        // Revert on failure
+        report.is_starred = !next
+        console.error('Error toggling star', error)
+        toast.add({
+            title: t('reports.toasts.starFailed'),
+            description: String(error?.data?.detail || error?.message || ''),
+            color: 'red',
+        })
     }
 }
 

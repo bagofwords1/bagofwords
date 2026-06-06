@@ -87,6 +87,7 @@ from app.models.group_membership import GroupMembership
 from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.report_share import ReportShare
+from app.models.report_star import ReportStar
 from app.models.usage_policy import (
     UsagePolicy,
     UsagePolicyAssignment,

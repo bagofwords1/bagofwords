@@ -241,6 +241,8 @@
       "instructions": "istruzioni"
     },
     "tooltips": {
+      "star": "Aggiungi a preferiti",
+      "unstar": "Rimuovi dai preferiti",
       "hasPage": "Contiene un artefatto Pagina",
       "hasSlides": "Contiene un artefatto Diapositive",
       "chat": "Chat",
@@ -252,6 +254,7 @@
       "showing": "Visualizzati da {from} a {to} di {total} report"
     },
     "toasts": {
+      "starFailed": "Impossibile aggiornare il preferito",
       "failedFetch": "Impossibile caricare i report",
       "archived": "Report archiviato",
       "archivedDesc": "Report archiviato con successo",

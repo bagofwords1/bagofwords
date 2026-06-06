@@ -248,6 +248,8 @@
       "instructions": "הנחיות"
     },
     "tooltips": {
+      "star": "סמן בכוכב",
+      "unstar": "הסר כוכב",
       "hasPage": "מכיל תוצר עמוד",
       "hasSlides": "מכיל תוצר מצגת",
       "chat": "צ׳אט",
@@ -259,6 +261,7 @@
       "showing": "מציג {from} עד {to} מתוך {total} דוחות"
     },
     "toasts": {
+      "starFailed": "עדכון הכוכב נכשל",
       "failedFetch": "נכשלה שליפת הדוחות",
       "archived": "הדוח הועבר לארכיון",
       "archivedDesc": "הדוח הועבר לארכיון בהצלחה",
