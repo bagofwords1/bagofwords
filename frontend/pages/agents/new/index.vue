@@ -182,7 +182,8 @@ async function createAgentFromExistingConnection() {
     const payload = {
       name: agentName.value.trim(),
       connection_ids: selectedConnections.value.map(c => c.id),
-      use_llm_sync: useLlmSync.value,
+      // No connections -> nothing to learn from, never use LLM onboarding.
+      use_llm_sync: selectedConnections.value.length > 0 ? useLlmSync.value : false,
       is_public: true,
       generate_summary: false,
       generate_conversation_starters: false,

@@ -1,10 +1,13 @@
 <template>
     <UIcon v-if="props.type === 'custom_api'" name="heroicons-cog-6-tooth" :class="[computedClass, 'text-gray-500']" />
+    <!-- No type (e.g. a connectionless agent) -> show the agent (bot) glyph -->
+    <AgentIcon v-else-if="!props.type" :class="[computedClass, 'w-auto']" />
     <img v-else :src="imgSrc" :class="computedClass" class="w-auto" alt="" @error="handleError" />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import AgentIcon from '~/components/icons/AgentIcon.vue';
 
 // Props to accept the type of data source and class
 const props = defineProps<{

@@ -422,6 +422,8 @@ class DataSourceService:
             ds_type = None
             data_source_dict.pop("type", None)
             data_source_dict.pop("allowed_user_auth_modes", None)
+            # Nothing to learn from -> never run LLM onboarding for it.
+            use_llm_sync = False
 
         # Create base data source dict (without connection-related fields)
         ds_create_dict = {
@@ -633,6 +635,11 @@ class DataSourceService:
         data_source = ds_q.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
+
+        # A connectionless agent has no schema/data to learn from — never run
+        # LLM onboarding for it, even if use_llm_sync is marked.
+        if not data_source.connections:
+            return {"skipped": True, "reason": "Agent has no connections; LLM onboarding skipped"}
 
         # Respect the use_llm_sync flag - if disabled, skip all LLM generation
         if not getattr(data_source, "use_llm_sync", True):

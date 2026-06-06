@@ -11,13 +11,15 @@ class DataSourceMention(BaseModel):
     id: str
     type: Literal['data_source'] = 'data_source'
     name: str
-    data_source_type: str  # From DataSource.type (postgres, snowflake, etc.)
-    
+    # None for connectionless agents (no connection -> no type)
+    data_source_type: Optional[str] = None  # From DataSource.type (postgres, snowflake, etc.)
+
     # Real fields from DataSource model
     description: Optional[str] = None  # DataSource.description
     is_active: bool
     is_public: Optional[bool] = None
-    auth_policy: str  # system_only, user_required
+    # None for connectionless agents (no connection -> no auth policy)
+    auth_policy: Optional[str] = None  # system_only, user_required
     
     class Config:
         from_attributes = True
