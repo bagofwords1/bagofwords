@@ -106,7 +106,12 @@ class LLM:
                     enable_web_search=enable_web_search,
                 )
             else:
-                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
+                # Chat Completions needs the bare resource root — normalize in
+                # case the endpoint was saved as the /openai/v1 (Responses) URL.
+                self.client = AzureClient(
+                    api_key=self.api_key,
+                    endpoint_url=self._azure_resource_root(endpoint_url),
+                )
         elif self.provider == "custom":
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:
@@ -139,6 +144,22 @@ class LLM:
             self.client = BedrockClient(**bedrock_kwargs)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
+
+    @staticmethod
+    def _azure_resource_root(endpoint_url: str) -> str:
+        """Resource root for the AzureOpenAI (Chat Completions) client.
+
+        AzureOpenAI builds ``{root}/openai/deployments/{model}/chat/completions``
+        itself, so it needs the bare resource root. Admins may paste the
+        Responses-style ``https://<resource>.openai.azure.com/openai/v1`` URL —
+        strip any ``/openai...`` path so Chat Completions doesn't 404 with
+        "Resource not found". ("openai" in the hostname is unaffected: it appears
+        as ``.openai`` there, never ``/openai``.)
+        """
+        base = (endpoint_url or "").rstrip("/")
+        if "/openai" in base:
+            base = base.split("/openai")[0]
+        return base.rstrip("/")
 
     @staticmethod
     def _azure_v1_base_url(endpoint_url: str) -> str:
