@@ -191,6 +191,12 @@ class DataSourceListItemSchema(BaseModel):
     auth_policy: Optional[str] = None
     user_status: Optional[DataSourceUserStatus] = None
 
+    # True only when this private data source is visible solely because the
+    # caller used the admin "show all" view (full_admin_access /
+    # manage_connections) — i.e. it's not public and they hold no explicit
+    # membership. Lets the UI flag it as an admin-only/governance entry.
+    admin_only: bool = False
+
     class Config:
         from_attributes = True
 

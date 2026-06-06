@@ -264,6 +264,50 @@ def test_admin_does_not_auto_see_other_admins_data_source(
     assert detail.status_code == 200, detail.json()
 
 
+@pytest.mark.e2e
+def test_admin_show_all_reveals_private_data_source(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """show_all=true lets a full admin see a private DS they neither created
+    nor joined, flagged admin_only=true. A plain member's show_all is ignored
+    (no org-wide governance capability), and the admin's default list is
+    still scoped (admin_only never set without the toggle).
+    """
+    creator = bootstrap_admin("creator")
+    org_id = creator["org_id"]
+
+    ds = sqlite_data_source(name="creator_ds", user_token=creator["token"], org_id=org_id)
+    ds_id = ds["id"]
+
+    second_admin = invite_user_to_org(
+        org_id=org_id, admin_token=creator["token"], role="admin"
+    )
+    member = invite_user_to_org(org_id=org_id, admin_token=creator["token"])
+
+    # Default list (no toggle) still hides it from the second admin.
+    default_resp = test_client.get(
+        "/api/data_sources", headers=_hdr(second_admin["token"], org_id)
+    )
+    assert default_resp.status_code == 200, default_resp.json()
+    assert ds_id not in {d["id"] for d in default_resp.json()}
+
+    # show_all=true reveals it for the admin, flagged admin_only.
+    show_all_resp = test_client.get(
+        "/api/data_sources?show_all=true", headers=_hdr(second_admin["token"], org_id)
+    )
+    assert show_all_resp.status_code == 200, show_all_resp.json()
+    revealed = {d["id"]: d for d in show_all_resp.json()}
+    assert ds_id in revealed, f"show_all should reveal {ds_id}; got {revealed.keys()}"
+    assert revealed[ds_id]["admin_only"] is True
+
+    # A plain member without governance capability gets the toggle ignored.
+    member_resp = test_client.get(
+        "/api/data_sources?show_all=true", headers=_hdr(member["token"], org_id)
+    )
+    assert member_resp.status_code == 200, member_resp.json()
+    assert ds_id not in {d["id"] for d in member_resp.json()}
+
+
 # ────────────────────────────────────────────────────────────────────
 # Public DS visibility
 # ────────────────────────────────────────────────────────────────────

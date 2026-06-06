@@ -875,18 +875,34 @@ class DataSourceService:
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return list_available_data_sources()
     
-    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceListItemSchema]:
+    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization, show_all: bool = False) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
         # Table count is fetched separately via COUNT query in _build_connections_list
-        # NOTE: scope this to *explicit* memberships even for admins so the
-        # default list isn't flooded with every DS in the org. Admins keep
-        # capability bypass and can still open any DS via direct URL.
-        from app.core.permission_resolver import get_member_data_source_ids
+        # NOTE: by default we scope this to *explicit* memberships even for
+        # admins so the list isn't flooded with every DS in the org. Admins
+        # keep capability bypass and can still open any DS via direct URL.
+        #
+        # When ``show_all`` is requested AND the caller holds org-wide
+        # data-source governance (full_admin_access / manage_connections), we
+        # drop the membership filter and return every DS in the org. This is
+        # the admin "show all" view on the agents page. Per-DS ``manage`` does
+        # NOT unlock this (see can_view_all_data_sources).
+        from app.core.permission_resolver import (
+            get_member_data_source_ids,
+            can_view_all_data_sources,
+        )
         member_ids = await get_member_data_source_ids(
             db, str(current_user.id), str(organization.id)
         )
+        member_id_set = {str(m) for m in member_ids}
+
+        show_all_effective = False
+        if show_all:
+            show_all_effective = await can_view_all_data_sources(
+                db, str(current_user.id), str(organization.id)
+            )
 
         # lazyload("*") suppresses the model-level lazy="selectin" cascade
         # (reports, instructions, entities, files, …); without it, listing
@@ -902,10 +918,11 @@ class DataSourceService:
             )
             .filter(DataSource.organization_id == organization.id)
         )
-        clauses = [DataSource.is_public == True]
-        if member_ids:
-            clauses.append(DataSource.id.in_(member_ids))
-        query = query.filter(or_(*clauses))
+        if not show_all_effective:
+            clauses = [DataSource.is_public == True]
+            if member_ids:
+                clauses.append(DataSource.id.in_(member_ids))
+            query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Build list with connection info (no live test for list to keep it fast)
@@ -932,6 +949,13 @@ class DataSourceService:
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
                 user_status=connections_list[0].user_status if connections_list else None,
+                # Flag entries surfaced only by the admin "show all" view:
+                # private and not an explicit membership of the caller.
+                admin_only=(
+                    show_all_effective
+                    and not bool(d.is_public)
+                    and str(d.id) not in member_id_set
+                ),
             )
             schemas.append(s)
         return schemas
