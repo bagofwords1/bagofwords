@@ -50,7 +50,7 @@ GitHub repo webhook  ──HTTPS POST──▶  POST /webhooks/{webhook_token}
                                                ▼
                                   1. HMAC verify (X-Hub-Signature-256)
                                   2. Dedup on X-GitHub-Delivery
-                                  3. Hard filter (event=pull_request, action=opened)
+                                  3. Drop protocol handshakes (e.g. ping)
                                   4. Adapter normalizes → summary_line + details + raw
                                                │
                                                ▼
@@ -82,8 +82,8 @@ external system), and **BOW** (verifies + acts). HMAC is used for every source.
 
 1. Open a report → **Summary** tab → **+ Configure webhook**.
 2. In the modal: enter a **Name**, pick a **Source** (GitHub / Generic — sets the
-   icon + signature scheme), optionally set **event filters** and the **AI
-   classifier** toggle. Save.
+   icon + signature scheme), toggle the **AI classifier**, and optionally write a
+   **Guidance** hint (what to act on, in plain words). Save.
 3. BOW generates and shows, once:
    - **Target URL** — `https://<host>/webhooks/whk_<token>` (copy)
    - **Signing key** — the per-webhook HMAC secret (copy; masked afterwards, ↻ to
@@ -105,8 +105,8 @@ external system), and **BOW** (verifies + acts). HMAC is used for every source.
 ### 3. Event arrives (every time, automatic)
 
 1. Sender POSTs the event → BOW verifies the HMAC signature (rejects `401` if it
-   fails or the timestamp is stale), dedups on the delivery id, applies the event
-   filters.
+   fails or the timestamp is stale), enforces the org rate limit, dedups on the
+   delivery id, and drops protocol handshakes (e.g. `ping`).
 2. A clean **event entry** appears in the report chat (source icon + summary).
 3. If the classifier is on, it reads the report's instructions + history + event
    and decides: **no** → entry just shows ✅ "nothing to do"; **yes** → entry
@@ -136,9 +136,7 @@ any time; rotating invalidates the old key immediately.
 | `user_id` | FK | owner / attribution for triggered completions |
 | `token` | String, unique, indexed | the public path segment; `whk_...` |
 | `secret_encrypted` | String | Fernet-encrypted HMAC secret (reuse existing crypto) |
-| `source` | String | `github` (adapter key); extensible |
-| `event_filters` | JSON, nullable | selected event keys to keep, e.g. `{"events": ["pull_request.opened"]}`. Empty/null → accept all. Populated by ticking learned keys, never hand-typed |
-| `seen_event_keys` | JSON | event keys observed from real deliveries (drives the filter checkboxes); auto-grows as new types arrive |
+| `source` | String | `github` / `generic` (adapter key); extensible |
 | `classify_enabled` | Boolean | if false → alert-only, never run agent |
 | `classifier_prompt` | Text, nullable | optional user-written hint that steers the classifier, e.g. "only respond to PRs touching billing; ignore dependabot" |
 | `is_active` | Boolean | |
@@ -148,24 +146,62 @@ Mirrors the existing `ScheduledPrompt` model shape (owner-scoped, per-report,
 JSON config). Token + encrypted secret follow the `ExternalPlatform` /
 `ApiKey` precedents already in the codebase.
 
+> **No event filters.** We dropped the structured `event_filters` / learned
+> `seen_event_keys` entirely — every accepted delivery becomes an event entry and
+> the **classifier + `classifier_prompt` are the only gate**. Simpler model, no
+> taxonomy, no checkboxes. The cost trade-off (a small-model call per delivery) is
+> bounded by the org webhook limit + rate limit below; a `classifier_prompt` like
+> "ignore pushes and bot PRs" handles the noise. (Protocol handshakes like
+> GitHub's `ping` are still dropped at the adapter — that's protocol, not a user
+> filter.)
+
+### New org settings (`organization.settings` config)
+
+Follows the existing keyed-config pattern (e.g. `max_instructions_in_context`,
+`allow_llm_see_data`):
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `max_webhooks` | e.g. 20 | hard cap on active webhooks per org; CRUD create returns `409` when exceeded |
+| `webhook_rate_limit_per_min` | e.g. 60 | per-org delivery throttle; excess deliveries get `429` (and are not classified) — the backstop now that there's no pre-filter |
+
+Read via `organization_settings.get_config(...)` exactly like the instruction
+limit. Surfaced in org settings UI alongside the other limits.
+
 ### Changes to `Completion` (`backend/app/models/completion.py`)
 
-Two small additions:
+Additions:
 
-- **`is_hidden` (Boolean, default `False`)** — when true, excluded from the main
-  timeline query but returned to the TraceModal. Mirrors how
-  `phase == 'knowledge_harness'` blocks are filtered in the frontend today.
+- **`webhook_id` (FK → Webhook, nullable)** — set on **every** completion that
+  originates from a webhook (the visible event entry, the hidden trigger, and the
+  agent's reply). Two jobs in one column:
+  1. **Provenance / link** — a real FK back to the webhook, so we can join "show
+     this webhook's activity," badge the source, and power the TraceModal.
+  2. **Hiding** — replaces the earlier `is_hidden` boolean. Hiding is now
+     *derived*, not a separate flag.
 - Reuse the existing **`external_platform` / `external_message_id`** fields:
-  set `external_platform='github'`, `external_message_id=<X-GitHub-Delivery>`
-  for **idempotency** (a redelivered webhook with the same id is a no-op).
+  set `external_platform=<source>`, `external_message_id=<delivery id>` for
+  **idempotency** (a redelivered webhook with the same id is a no-op).
 
-New `role` value: **`external`** (alongside `user`/`system`/`ai_agent`) for the
-visible event entry. The hidden trigger completion uses the normal
-`role='user'`/`system` lifecycle so the existing agent path works unchanged.
+**Two completions (unchanged), hidden-ness derived from `webhook_id` + role:**
 
-> Classifier decision (`act`, `reason`, `confidence`, model used) is stored on the
-> hidden trigger completion's metadata / completion block so the TraceModal can
-> render "why" without cluttering chat.
+| Completion | role | webhook_id | shown in chat? |
+|------------|------|-----------|----------------|
+| Event entry | `external` | set | **yes** — compact (icon + summary + status glyph) |
+| Trigger (the synthetic prompt the agent answers; holds `task` + event_details) | `user` | set | **no** — hidden |
+| Agent reply | `system` | set | **yes** — threaded under the event |
+
+The timeline query hides exactly the internal trigger: **`webhook_id IS NOT NULL
+AND role = 'user'`**. The `external` event entry and the `system` reply also carry
+`webhook_id` (so everything links back to the webhook and renders with the source
+badge), but they're not hidden. No `is_hidden` column needed.
+
+> The classifier `decision` (`act`, `confidence`, `reason`, `task`, model) and the
+> raw payload are stored on the hidden trigger completion's meta JSON, surfaced in
+> the TraceModal — same as before, just identified via `webhook_id` instead of a
+> bool.
+
+New `role` value: **`external`** (alongside `user`/`system`/`ai_agent`).
 
 ---
 
@@ -177,11 +213,12 @@ visible event entry. The hidden trigger completion uses the normal
 `slack_webhook.py` / `teams_webhook.py` pattern.
 
 - **No session auth.** Auth = valid `token` path + HMAC of raw body.
-- Steps: load `Webhook` by token → verify `X-Hub-Signature-256` against decrypted
-  secret on **raw bytes** (constant-time compare) → dedup on `external_message_id`
-  → apply `event_filters` → hand to adapter. Return `200` fast (GitHub retries on
-  non-2xx); do classification + agent run in the background via
-  `asyncio.create_task` (same mechanism `completion_service` already uses).
+- Steps: load `Webhook` by token → verify signature against decrypted secret on
+  **raw bytes** (constant-time compare) → org rate-limit check (`429` if exceeded)
+  → dedup on `external_message_id` → drop protocol handshakes (e.g. `ping`) → hand
+  to adapter. Return `200` fast (GitHub retries on non-2xx); do classification +
+  agent run in the background via `asyncio.create_task` (same mechanism
+  `completion_service` already uses).
 - `ping` event → `200` no-op.
 
 ### 2. Source adapters — `backend/app/services/webhook_adapters/`
@@ -191,42 +228,19 @@ Slack/Teams/WhatsApp.
 
 ```
 webhook_adapters/
-  base.py            # WebhookAdapter ABC: verify(), event_key(), normalize()
+  base.py            # WebhookAdapter ABC: verify(), normalize()
   github_adapter.py  # knows X-Hub-Signature-256, pull_request payload shape
   generic_adapter.py # X-BOW-Signature-256 HMAC, passes payload through
   factory.py
 ```
 
-**Filters without an exhaustive catalog.** We do **not** enumerate every event
-type a service can emit (GitHub alone has 30+ event types × many actions — an
-unmaintainable list). Instead each adapter implements one small rule:
-`event_key(headers, payload) -> str` that says *where the event identity lives*.
-That's ~one line per source, not a taxonomy:
-
-```python
-# github_adapter.event_key(headers, payload):
-#   f"{headers['X-GitHub-Event']}.{payload.get('action','')}"  → "pull_request.opened"
-# generic_adapter.event_key(headers, payload):
-#   payload.get("type") or payload.get("event") or "event"      → whatever the sender sends
-```
-
-The filter list is then **learned from real traffic**, not pre-declared:
-
-- Every delivery's `event_key` is recorded (a small `seen_event_keys` set on the
-  `Webhook`, or derived from recent deliveries).
-- The modal shows **"Event types seen so far"** as checkboxes — populated by what
-  has actually arrived. The user fires a test (or waits for the first real
-  events), then ticks the ones to keep.
-- **Default = accept all.** Filtering is an opt-in cost optimization, not a
-  prerequisite. With no filter, everything flows to the classifier, which + the
-  `classifier_prompt` does the nuanced gating.
-- Optional nicety: a short, hand-curated `common_events()` list **only** for the
-  top few per popular source (GitHub: PR opened/merged, issue opened) for a
-  friendly first-run — but it's hints, not the source of truth, and the long tail
-  is covered by the learned list. New services need zero catalog work to function.
-
-So a tester's loop is: configure → fire the mock once → the event type shows up in
-the modal → tick it (or leave accept-all). No taxonomy lookup required.
+**No filter taxonomy.** Adapters do not enumerate event types — there are no
+catalogs to maintain. Every accepted delivery becomes an event entry and the
+**classifier + `classifier_prompt` decide** whether to act (see "No event
+filters" above). The only adapter responsibilities are `verify()` (signature) and
+`normalize()` (turn the payload into the three tiers below). The lone exception is
+**protocol handshakes** — e.g. GitHub's `ping` — which the adapter drops outright
+(`200` no-op); that's protocol, not a user-facing filter.
 
 `github_adapter.normalize(payload)` produces three tiers (so the same payload
 serves the timeline, the classifier, and the agent without dumping raw JSON
@@ -287,8 +301,10 @@ the event text — the same scoring the planner applies to the user prompt.
 
 > Note the event entry is written as a `role='external'` completion *before* the
 > classifier runs, so `build_context` naturally includes it as the latest turn —
-> we pass it explicitly too for emphasis. The hidden trigger completion is
-> excluded from the history (it's `is_hidden` and not role user/system).
+> we pass it explicitly too for emphasis. The hidden trigger completion (role
+> `user`, `webhook_id` set) must be **excluded** from history too, so
+> `build_context` gets the same `webhook_id IS NOT NULL AND role='user'` exclusion
+> as the timeline — otherwise the agent would see its own synthetic prompt twice.
 
 The classifier doesn't just gate — when it decides to act, it also **authors the
 task for the agent**. It's the only step that has read the instructions + history
@@ -399,7 +415,7 @@ combined prompt is the `prompt` of the hidden trigger completion passed to
 
 ### 4. Orchestration — `backend/app/services/webhook_service.py`
 
-1. create visible **event** completion (`role='external'`, `is_hidden=False`).
+1. create visible **event** completion (`role='external'`, `webhook_id` set).
 2. if `classify_enabled`: build history via `MessageContextBuilder.build_context()`
    and instructions via `InstructionContextBuilder.build(query=event_summary).render()`
    (same paths as the planner); run classifier with that context + the event
@@ -439,9 +455,11 @@ once on creation (ApiKey precedent). UI shows the GitHub-ready payload URL.
 
 ### Hiding the trigger completion
 
-- Backend `get_completions()` adds `where(Completion.is_hidden == False)` so the
-  internal trigger completion never enters the main list — exactly analogous to
-  the frontend `filter(b => b.phase !== 'knowledge_harness')` today.
+- Backend `get_completions()` excludes the internal trigger with
+  `where(~(and_(Completion.webhook_id.isnot(None), Completion.role == 'user')))`
+  — i.e. hide webhook-originated synthetic prompts only. The `external` event
+  entry and `system` reply still come through. Analogous to today's
+  `filter(b => b.phase !== 'knowledge_harness')`, but keyed off `webhook_id`.
 
 ### TraceModal — `frontend/components/console/TraceModal.vue`
 
@@ -475,24 +493,19 @@ data-driven so new sources don't need UI changes):
 │              [ copy ]   (read-only, generated)         │
 │  Signing key ••••••••••••  [ copy ] [ ↻ refresh ]     │
 │                                                        │
-│  Trigger on   ◉ Any event   ○ Only selected           │
-│    event types seen so far (tick to filter):           │
-│      [x] pull_request.opened   [ ] push                │
-│      [ ] issues.opened         …  (grows with traffic) │
-│                                                        │
 │  [x] Let AI decide whether to respond                  │
 │  Guidance (optional)                                   │
 │    [ Only respond to PRs touching billing;        ]    │
-│    [ ignore dependabot.                            ]    │
+│    [ ignore dependabot and pushes.                 ]    │
 │                                                        │
 │              [ Cancel ]               [ Save ]          │
 └────────────────────────────────────────────────────────┘
 ```
 
-The **event-type checkboxes are populated from `seen_event_keys`** (what has
-actually arrived) — default is "Any event", so a brand-new webhook works before
-any taxonomy is known. The **Guidance** box maps to `classifier_prompt` and only
-shows when the classifier toggle is on.
+No event-type filter UI — the classifier + **Guidance** box (which maps to
+`classifier_prompt`, shown only when the classifier toggle is on) decide what to
+act on. The user describes intent in their own words instead of ticking a
+taxonomy.
 
 **On your "key" question — recommendation: a per-webhook signing key, not the
 org API key.** Reasoning:
@@ -530,7 +543,7 @@ verification scheme. No dependency on the org API key.
 |---------|------------|
 | Guessable endpoint / spoofed events | Per-webhook signing key, **HMAC-SHA256** for every source, constant-time compare, reject `401` on mismatch. GitHub → `X-Hub-Signature-256` (raw body). Generic → `X-BOW-Signature-256` over `{timestamp}.{body}` + `X-BOW-Timestamp` skew check (replay guard) |
 | Replay / retries | Dedup on `X-GitHub-Delivery` via `external_message_id` |
-| External party drives LLM spend | `classify_enabled` gate + small model + `event_filters` pre-filter + concurrency semaphore + per-org rate limit |
+| External party drives LLM spend | `classify_enabled` gate + small model + concurrency semaphore + **per-org `webhook_rate_limit_per_min`** + **`max_webhooks`** cap (the backstops now that there's no pre-filter) |
 | **Prompt injection** (PR title/body) | All webhook text wrapped as delimited **data, never instructions**; classifier output constrained to binary JSON; same untrusted-data discipline carried into the agent prompt |
 | Secret at rest | Fernet-encrypted (existing crypto used by `ExternalPlatform`) |
 | Attribution / audit | Triggered completions attributed to `webhook.user_id` + org |
@@ -553,8 +566,11 @@ Repo → **Settings → Webhooks → Add webhook**:
 - **Content type**: `application/json`
 - **Secret**: the secret BOW generated for this webhook
 - **Events**: "Let me select individual events" → **Pull requests**
-- Note: there is no "new PR" event — filter `action == "opened"` on our side
-  (this is the `event_filters` pre-filter).
+- Note: there is no "new PR" event — GitHub sends `pull_request` with
+  `action: opened`. We don't filter that server-side; the **classifier** (guided
+  by the webhook's `classifier_prompt`, e.g. "only new PRs") decides what to act
+  on. To cut classifier calls on a noisy repo, narrow what GitHub sends by
+  selecting fewer events in GitHub's own webhook UI.
 - GitHub sends a `ping` first; **Recent Deliveries** + Redeliver is the debug loop.
 
 (A GitHub App is the future path for multi-tenant self-serve; out of scope here.)
@@ -576,7 +592,7 @@ the API and Playwright for the UI.
 4. Run the mock script below against that URL/key.
 5. Watch the event entry appear in chat (👀 → ✅) and inspect the decision in the
    TraceModal. Validate with Playwright screenshots; inspect DB state with
-   `sqlite3 backend/db/app.db "select role,status,is_hidden from completions …"`.
+   `sqlite3 backend/db/app.db "select role,status,webhook_id from completions …"`.
 
 **Mock trigger script — `backend/scripts/mock_webhook.py`** (ships with the
 feature). Simulates an external source (GitHub-style or generic) hitting the
@@ -637,30 +653,35 @@ if __name__ == "__main__":
 ```
 
 This gives a deterministic harness: re-running with the same `--delivery` proves
-idempotency/dedup; flipping `--action` proves the `event_filters` pre-filter;
+idempotency/dedup; flipping `--action` exercises different events through the
+classifier;
 tampering the body without re-signing proves HMAC rejection (`401`). For M2, the
 classifier path can be asserted by seeding a report instruction (e.g. "open a
 triage analysis on every new PR") via curl, firing the mock, then checking that a
 hidden trigger completion + agent run appears.
 
 **Automated tests:** an e2e test (`TESTING=true pytest -s -m e2e --db=sqlite`)
-posts a signed body to the receiver and asserts the `role='external'` completion,
-the `is_hidden` trigger completion, and the dedup behavior — reusing the existing
+posts a signed body to the receiver and asserts the `role='external'` event
+completion, the hidden trigger completion (`webhook_id` set, `role='user'`,
+absent from `get_completions`), and the dedup behavior — reusing the existing
 e2e fixtures.
 
 ---
 
 ## Phasing
 
-1. **M1 — Alert-only + config UI + harness**: `Webhook` model + CRUD, receiver +
-   HMAC/bearer + dedup, GitHub **and** generic adapters, the **Configure Webhook
-   modal** in the Summary tab, the visible `role='external'` event entry, and the
-   `mock_webhook.py` harness. No classifier, no agent. (`classify_enabled=false`.)
+1. **M1 — Alert-only + config UI + harness**: `Webhook` model + CRUD (+ org
+   `max_webhooks` / `webhook_rate_limit_per_min` settings), receiver + HMAC +
+   dedup + rate limit, GitHub **and** generic adapters, the **Configure Webhook
+   modal** in the Summary tab, the visible `role='external'` event entry
+   (`webhook_id` set), and the `mock_webhook.py` harness. No classifier, no agent.
+   (`classify_enabled=false`.)
 2. **M2 — Classifier gate**: `WebhookClassifier` under `/ai` (instructions +
-   history context, authors `task`), hidden trigger completion, 👀/✅ status,
-   agent run on `act=true`, TraceModal section.
-3. **M3 — Polish**: human override, per-org rate limits, key rotation UI,
-   confidence threshold, more adapters (GitLab, Stripe…).
+   history + `classifier_prompt` context, authors `task`), hidden trigger
+   completion (`webhook_id`, `role='user'`), 👀/✅ status, agent run on `act=true`,
+   TraceModal section.
+3. **M3 — Polish**: human override, key rotation UI, confidence threshold, more
+   adapters (GitLab, Stripe…).
 
 ---
 
@@ -673,6 +694,10 @@ e2e fixtures.
 2. **Threading** — sub-thread per event vs. flat timeline when a busy repo fires
    many events? (Lean: thread under the event.)
 3. Should `act=false` events be **collapsible/grouped** to avoid timeline noise
-   on high-volume repos?
+   on high-volume repos? (More pressing now that there's no server-side filter —
+   every delivery becomes a visible entry.)
 4. Reuse `external_platform='github'` on `Completion`, or introduce a distinct
    `webhook` source enum?
+5. With no pre-filter, is a per-delivery small-model call acceptable cost on busy
+   repos, or do we want a cheap heuristic skip (e.g. dedupe identical event types
+   within a short window) before the classifier?
