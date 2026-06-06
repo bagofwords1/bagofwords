@@ -3683,7 +3683,8 @@ class AgentV2:
                 return False
             ptype = getattr(provider, "provider_type", None)
             if ptype == "azure":
-                return True
+                # Web search needs the Responses API, which the admin opts into.
+                return bool(add.get("use_responses_api"))
             if ptype == "openai":
                 return not bool(add.get("base_url"))
             return False

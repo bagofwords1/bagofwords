@@ -94,18 +94,16 @@ class LLM:
             endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
-            if enable_web_search:
-                # Native web search is a Responses-API tool that does NOT exist on
-                # Azure Chat Completions. Azure serves the Responses API (with the
-                # web_search tool, backed by Grounding-with-Bing) on its /openai/v1
-                # surface, which is reachable with the plain OpenAI client + base_url.
-                # This is opt-in per provider and assumes an Azure *OpenAI* (GPT)
-                # deployment — Claude-on-Azure uses a different (Messages) surface
-                # and keeps the AzureClient path.
+            # Default to Chat Completions (AzureClient) — works in every region.
+            # Admins opt into the Responses API explicitly (use_responses_api),
+            # which is required for native web search and only available in some
+            # Azure regions. Web search is honored only on the Responses path.
+            use_responses_api = bool(additional_config.get("use_responses_api", False))
+            if use_responses_api:
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     base_url=self._azure_v1_base_url(endpoint_url),
-                    enable_web_search=True,
+                    enable_web_search=enable_web_search,
                 )
             else:
                 self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
