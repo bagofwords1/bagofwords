@@ -164,6 +164,7 @@ Follows the existing keyed-config pattern (e.g. `max_instructions_in_context`,
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
+| `allow_report_webhooks` | **true** | org-wide master switch. When false: CRUD is blocked (`403`) and the receiver rejects all deliveries (`404`/`403`) — the whole feature is off for the org |
 | `max_webhooks` | e.g. 20 | hard cap on active webhooks per org; CRUD create returns `409` when exceeded |
 | `webhook_rate_limit_per_min` | e.g. 60 | per-org delivery throttle; excess deliveries get `429` (and are not classified) — the backstop now that there's no pre-filter |
 
