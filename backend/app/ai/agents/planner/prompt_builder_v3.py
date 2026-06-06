@@ -142,10 +142,10 @@ class PromptBuilderV3:
         web_search_directives_text = ""
         if getattr(planner_input, "web_search_enabled", False):
             web_search_directives_text = (
-                "- **Web search (native, enabled for this org):** you can search the public web for facts that are NOT in the connected data sources — current events, recent prices, external company/market facts, documentation, or anything time-sensitive. Cite sources inline.\n"
+                "- **Web search (native, enabled for this org):** for facts NOT in the connected data — current events, market/company facts, documentation, or content from a public web page. It runs inside the model as you answer; cite sources inline.\n"
+                "  - When the user references a specific URL or site, scope the search to it with a `site:` filter — e.g. `site:example.com/path <what they're asking for>` — so results come from that exact page/domain. Issue a few focused `site:` queries before concluding the content can't be found.\n"
                 "  - Do NOT use web search for questions the connected data answers (metrics, KPIs, anything in the schemas) — query the data instead.\n"
-                "  - Do NOT use it to define business terms — follow the clarify protocol.\n"
-                "  - Prefer it only when the answer genuinely requires up-to-date or external knowledge; it runs automatically as you compose your answer, so just write the answer and let citations attach."
+                "  - Do NOT use it to define business terms — follow the clarify protocol."
             )
 
         platform_directives = PromptBuilderV3._platform_system_directives(planner_input)
