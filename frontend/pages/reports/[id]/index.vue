@@ -286,6 +286,7 @@
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
 													@openInstruction="openInstructionById"
+													@openScheduledTask="openScheduledTaskById"
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
@@ -726,6 +727,8 @@ import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
+import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.vue'
+import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
@@ -1274,6 +1277,18 @@ function editScheduledPrompt(sp: any) {
     showEditScheduledPromptModal.value = true
 }
 
+// Open the edit modal for a task created/cancelled from a chat tool result.
+// The task may not be in the loaded list yet (just created), so refresh first.
+async function openScheduledTaskById(taskId: string) {
+    if (!taskId) return
+    let sp = scheduledPrompts.value.find((s: any) => s.id === taskId)
+    if (!sp) {
+        await loadScheduledPrompts()
+        sp = scheduledPrompts.value.find((s: any) => s.id === taskId)
+    }
+    if (sp) editScheduledPrompt(sp)
+}
+
 // Fork state — extract forked queries and artifact ref from the fork summary completion
 const forkedQueries = ref<any[]>([])
 
@@ -1479,6 +1494,10 @@ function getToolComponent(toolName: string) {
 			return EditInstructionTool
 		case 'send_email':
 			return SendEmailTool
+		case 'create_scheduled_task':
+			return CreateScheduledTaskTool
+		case 'cancel_scheduled_task':
+			return CancelScheduledTaskTool
 		case 'list_agent_executions':
 			return ListAgentExecutionsTool
 		case 'search_instructions':

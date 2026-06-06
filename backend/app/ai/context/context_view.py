@@ -17,6 +17,7 @@ from app.ai.context.sections.resources_section import ResourcesSection
 from app.ai.context.sections.code_section import CodeSection
 from app.ai.context.sections.mentions_section import MentionsSection
 from app.ai.context.sections.entities_section import EntitiesSection
+from app.ai.context.sections.scheduled_tasks_section import ScheduledTasksSection
 
 
 class StaticSections(BaseModel):
@@ -34,6 +35,7 @@ class WarmSections(BaseModel):
     queries: Optional[QueriesSection] = None
     mentions: Optional[MentionsSection] = None
     entities: Optional[EntitiesSection] = None
+    scheduled_tasks: Optional[ScheduledTasksSection] = None
 
 
 class ContextView(BaseModel):

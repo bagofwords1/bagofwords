@@ -261,6 +261,57 @@ def _digest_excel_tool(tool_execution) -> str:
     return ""
 
 
+def _digest_scheduled_tool(tool_execution) -> str:
+    """One-line digest for scheduled-task tools.
+
+    Records in the conversation history what was scheduled / cancelled (task id
+    + cron), so the planner can dedupe new schedules and cancel the right task
+    on a follow-up turn. Returns an empty string for other tools so callers can
+    fall through to the next elif. The active tasks themselves are listed in the
+    <scheduled_tasks> context section.
+    """
+    name = tool_execution.tool_name
+    rj = tool_execution.result_json or {}
+    if name == 'create_scheduled_task':
+        parts = []
+        if rj.get('task_id'):
+            parts.append(f"task_id: {rj.get('task_id')}")
+        if rj.get('cron_schedule'):
+            parts.append(f"cron: {rj.get('cron_schedule')}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts)
+    if name == 'cancel_scheduled_task':
+        parts = []
+        if rj.get('task_id'):
+            parts.append(f"task_id: {rj.get('task_id')}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts) if parts else "cancelled"
+    return ""
+
+
+def _digest_notification_tool(tool_execution) -> str:
+    """One-line digest for notification tools (send_email today; Slack/Teams
+    later) so the conversation history records that the user was notified, with
+    recipient + subject. Returns an empty string for other tools so callers can
+    fall through to the next elif.
+    """
+    name = tool_execution.tool_name
+    rj = tool_execution.result_json or {}
+    if name == 'send_email':
+        parts = []
+        if rj.get('recipient'):
+            parts.append(f"to: {rj.get('recipient')}")
+        if rj.get('subject'):
+            subj = str(rj.get('subject'))
+            parts.append(f"subject: {subj[:80]}{'…' if len(subj) > 80 else ''}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts)
+    return ""
+
+
 class MessageContextBuilder:
     """
     Builds conversation message context for agent execution.
@@ -711,6 +762,14 @@ class MessageContextBuilder:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
                                     digest = _digest_excel_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task') and tool_execution.result_json:
+                                    digest = _digest_scheduled_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                                    digest = _digest_notification_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
@@ -1309,6 +1368,14 @@ class MessageContextBuilder:
                                     tool_info += " - " + digest
                             elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
                                 digest = _digest_excel_tool(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task') and tool_execution.result_json:
+                                digest = _digest_scheduled_tool(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                                digest = _digest_notification_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
