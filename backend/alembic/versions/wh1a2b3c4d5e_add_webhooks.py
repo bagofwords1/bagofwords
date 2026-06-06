@@ -1,7 +1,7 @@
 """add webhooks table and completions.webhook_id
 
 Revision ID: wh1a2b3c4d5e
-Revises: overlay_fk_ondelete
+Revises: f3a4b5c6d7e8
 Create Date: 2026-06-06 20:00:00.000000
 
 Adds inbound webhook support:
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'wh1a2b3c4d5e'
-down_revision: Union[str, None] = 'overlay_fk_ondelete'
+down_revision: Union[str, None] = 'f3a4b5c6d7e8'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
