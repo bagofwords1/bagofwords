@@ -158,7 +158,7 @@
                                             @change="toggleAllVisible"
                                         />
                                     </th>
-                                    <th class="px-2 py-3 w-8"></th>
+                                    <th class="ps-2 pe-0 py-3 w-6"></th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         {{ $t('reports.table.title') }}
                                     </th>
@@ -200,7 +200,7 @@
                                                 @change="toggleOne(report.id)"
                                             />
                                         </td>
-                                        <td class="px-2 py-4 w-8 text-center">
+                                        <td class="ps-2 pe-0 py-2 w-6 text-center">
                                             <UTooltip :text="report.is_starred ? $t('reports.tooltips.unstar') : $t('reports.tooltips.star')">
                                                 <button
                                                     @click="toggleStar(report)"
@@ -208,7 +208,7 @@
                                                 >
                                                     <UIcon
                                                         :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
-                                                        class="h-4 w-4 transition-colors"
+                                                        class="h-[18px] w-[18px] transition-colors"
                                                         :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-yellow-400'"
                                                     />
                                                 </button>
