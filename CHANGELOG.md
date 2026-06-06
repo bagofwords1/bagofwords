@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.393 (June 6, 2026)
+- Native web search for OpenAI and Azure OpenAI (provider-executed, via the Responses API) — opt-in per provider and gated by the org Web Fetch setting, with a live "Searching the web" step and source citations
+
 ## Version 0.0.392 (June 5, 2026)
 - Major performance & concurrency-reliability improvements (faster completions, fewer stalls under load)
 
