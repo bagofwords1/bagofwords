@@ -731,6 +731,7 @@ import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.
 import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
@@ -1513,6 +1514,8 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'web_fetch':
 			return WebFetchTool
+		case 'web_search':
+			return WebSearchTool
 		case 'clarify':
 			return ClarifyTool
 		default:

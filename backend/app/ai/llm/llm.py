@@ -73,25 +73,42 @@ class LLM:
                 raise
         self._usage_session_maker = usage_session_maker
         self._usage_limit_context = usage_context
+        additional_config = self.model.provider.additional_config or {}
+        enable_web_search = bool(additional_config.get("enable_web_search", False))
         if self.provider == "openai":
-            base_url = None
-            if self.model.provider.additional_config:
-                base_url = self.model.provider.additional_config.get("base_url")
+            base_url = additional_config.get("base_url")
             if base_url:
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
                 self.client = OpenAi(api_key=self.api_key, base_url=base_url)
             else:
                 # Default OpenAI → Responses API (supports reasoning content)
-                self.client = OpenAIResponsesClient(api_key=self.api_key)
+                self.client = OpenAIResponsesClient(
+                    api_key=self.api_key,
+                    enable_web_search=enable_web_search,
+                )
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key)
         elif self.provider == "google":
             self.client = Google(api_key=self.api_key)
         elif self.provider == "azure":
-            endpoint_url = self.model.provider.additional_config.get("endpoint_url") if self.model.provider.additional_config else None
+            endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
-            self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
+            if enable_web_search:
+                # Native web search is a Responses-API tool that does NOT exist on
+                # Azure Chat Completions. Azure serves the Responses API (with the
+                # web_search tool, backed by Grounding-with-Bing) on its /openai/v1
+                # surface, which is reachable with the plain OpenAI client + base_url.
+                # This is opt-in per provider and assumes an Azure *OpenAI* (GPT)
+                # deployment — Claude-on-Azure uses a different (Messages) surface
+                # and keeps the AzureClient path.
+                self.client = OpenAIResponsesClient(
+                    api_key=self.api_key,
+                    base_url=self._azure_v1_base_url(endpoint_url),
+                    enable_web_search=True,
+                )
+            else:
+                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
         elif self.provider == "custom":
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:
@@ -124,6 +141,23 @@ class LLM:
             self.client = BedrockClient(**bedrock_kwargs)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
+
+    @staticmethod
+    def _azure_v1_base_url(endpoint_url: str) -> str:
+        """Derive the Azure OpenAI v1 Responses base_url from a provider endpoint.
+
+        The AzureClient (Chat Completions) takes the resource root
+        (``https://<resource>.openai.azure.com``). The Responses API lives under
+        ``/openai/v1/`` on that same host. Accept either form so admins can paste
+        whichever they have, and normalize to the v1 base the OpenAI client wants.
+        """
+        base = (endpoint_url or "").rstrip("/")
+        if "/openai/v1" in base:
+            # Already a v1 base (possibly without trailing slash).
+            return base.split("/openai/v1")[0] + "/openai/v1/"
+        if base.endswith("/openai"):
+            return base + "/v1/"
+        return base + "/openai/v1/"
 
     def _validate_vision_support(self, images: Optional[list[ImageInput]]) -> None:
         """Validate that the model supports vision if images are provided."""
@@ -310,6 +344,8 @@ class LLM:
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        web_search: Optional[bool] = None,
+        web_search_domains: Optional[list] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
@@ -345,6 +381,15 @@ class LLM:
             stream_start = time.monotonic()
             ttft_recorded = False
 
+            # `web_search` (native, provider-executed) is only honored by the
+            # OpenAI Responses client. Forward it just to that client so the
+            # other clients' signatures stay untouched.
+            client_kwargs: dict = {}
+            if web_search is not None and isinstance(self.client, OpenAIResponsesClient):
+                client_kwargs["web_search"] = web_search
+                if web_search_domains:
+                    client_kwargs["web_search_domains"] = web_search_domains
+
             try:
                 async for evt in self.client.inference_stream_v2(
                     model_id=target_model_id,
@@ -354,6 +399,7 @@ class LLM:
                     images=images,
                     thinking=thinking,
                     disable_parallel_tools=disable_parallel_tools,
+                    **client_kwargs,
                 ):
                     if not ttft_recorded and getattr(evt, "type", None) in (
                         "text_delta",

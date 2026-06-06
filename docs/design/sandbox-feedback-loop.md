@@ -403,6 +403,62 @@ with sync_playwright() as p:
 
 Claude reads the screenshot to evaluate: Does it look right? Any errors? Data showing?
 
+### Authenticated UI Inspection (logged-in pages)
+
+Most pages (reports, settings, the chat thread) require auth, so the ad-hoc
+snippet above lands on the sign-in screen. To screenshot a real logged-in view
+— great for inspecting how a change actually renders (tool cards, blocks,
+modals) — log in through the UI first. This needs the **local auth** provider
+mounted, which the dev config gates behind `auth.mode`.
+
+1. **Enable local auth** in `configs/bow-config.dev.yaml` (sandbox-only — keep
+   it uncommitted, restore to `sso_only` when done):
+
+   ```yaml
+   features:
+     allow_uninvited_signups: true
+   auth:
+     mode: "local_only"
+   ```
+
+   The backend reads this at startup, so touch a `.py` file (or restart) to make
+   `uvicorn --reload` pick it up. Verify: `curl -s localhost:8000/api/settings`
+   should show `"auth": {"mode": "local_only"}`. The sign-in form lives at
+   `/users/sign-in` (fields: `input[type=text]` email, `input[type=password]`,
+   `button[type=submit]`).
+
+2. **Install the Chromium browser** for Playwright (the npm package ships
+   without it):
+
+   ```bash
+   cd frontend && npx playwright install chromium
+   ```
+
+3. **Log in, navigate, screenshot.** The `playwright` package is CommonJS, so
+   from an ESM script import the default export, not a named one:
+
+   ```js
+   // /tmp/shot.mjs  →  run with:  node /tmp/shot.mjs
+   import pkg from '/home/user/bagofwords/frontend/node_modules/playwright/index.js';
+   const { chromium } = pkg;
+   const b = await chromium.launch();
+   const pg = await b.newPage({ viewport: { width: 1100, height: 1500 } });
+   await pg.goto('http://localhost:3000/users/sign-in', { waitUntil: 'networkidle' });
+   await pg.fill('input[type=text]', 'sandbox@bow.dev');
+   await pg.fill('input[type=password]', 'Sandbox123!');
+   await pg.click('button[type=submit]');
+   await pg.waitForTimeout(4000);                       // let the session settle
+   await pg.goto('http://localhost:3000/reports/' + process.env.RID, { waitUntil: 'networkidle' });
+   await pg.waitForTimeout(6000);                       // let blocks stream/render
+   await pg.screenshot({ path: '/tmp/render.png', fullPage: true });
+   await b.close();
+   ```
+
+   Auth is a `Bearer` cookie named `auth_token` (sidebase nuxt-auth, see
+   `nuxt.config.ts`); logging in via the form sets it plus the org state, which
+   is simpler than injecting it. Reports keep their persisted blocks, so you can
+   screenshot an existing completion without re-running the agent.
+
 ### Artifact Visual Validation
 
 For LLM-generated UI (non-deterministic — can't assert, must look):

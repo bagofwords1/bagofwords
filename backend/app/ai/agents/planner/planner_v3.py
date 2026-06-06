@@ -38,6 +38,9 @@ from app.ai.llm.types import (
     ToolUseInputDeltaEvent,
     ToolUseStartEvent,
     UsageEvent,
+    WebSearchCompleteEvent,
+    WebSearchResultEvent,
+    WebSearchStartEvent,
 )
 from app.ai.utils.token_counter import estimate_tokens_fast
 from app.schemas.ai.planner import (
@@ -53,6 +56,7 @@ from app.schemas.ai.planner_events import (
     PlannerDecisionEvent,
     PlannerEvent,
     PlannerTokenEvent,
+    PlannerWebSearchEvent,
 )
 from app.services.usage_policy_service import UsageLimitContext
 
@@ -144,6 +148,8 @@ class PlannerV3:
                 tools=tools,
                 images=v3_input.images,
                 thinking=thinking,
+                web_search=planner_input.web_search_enabled,
+                web_search_domains=planner_input.web_search_domains or None,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,
@@ -220,6 +226,35 @@ class PlannerV3:
                         state.reasoning_end_time = time.monotonic()
                     continue
 
+                if isinstance(evt, WebSearchStartEvent):
+                    # Provider-executed search begins. We record the tool on
+                    # completion (when the query is available), so just keep
+                    # timing here — no thinking-box text (it renders as a tool).
+                    if state.first_token_time is None:
+                        state.first_token_time = time.monotonic()
+                    state.web_search_count += 1
+                    continue
+
+                if isinstance(evt, WebSearchCompleteEvent):
+                    # Surface the finished search to the agent so it creates a
+                    # tool-execution record + block (renders like other tools).
+                    yield PlannerWebSearchEvent(
+                        type="planner.web_search",
+                        id=evt.id or f"ws_{state.web_search_count}",
+                        query=evt.query,
+                        queries=list(evt.queries) if evt.queries else None,
+                        status=evt.status,
+                    )
+                    continue
+
+                if isinstance(evt, WebSearchResultEvent):
+                    # Collect citations (deduped by URL, order preserved). The
+                    # model also inlines these as markdown links in its answer;
+                    # we keep a copy to render a Sources footer for the audit.
+                    if evt.url and not any(u == evt.url for _, u in state.web_search_citations):
+                        state.web_search_citations.append((evt.title or evt.url, evt.url))
+                    continue
+
                 if isinstance(evt, ToolUseCompleteEvent):
                     finished = Action(
                         type="tool_call",
@@ -278,6 +313,7 @@ class PlannerV3:
         # If reasoning never ended (no tool call), close it now
         if state.reasoning_start_time and state.reasoning_end_time is None:
             state.reasoning_end_time = time.monotonic()
+
 
         # Emit final decision with metrics
         final_decision = self._build_decision(
@@ -367,6 +403,10 @@ class PlannerV3:
                 final_answer=None,             # v3: collapsed into assistant_message
                 streaming_complete=is_final,
                 metrics=metrics,
+                web_search_citations=(
+                    [{"title": t, "url": u} for t, u in state.web_search_citations]
+                    if is_final else []
+                ),
             )
         except Exception as exc:
             logger.warning(

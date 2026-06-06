@@ -158,6 +158,42 @@ def _digest_eval_tool(tool_execution) -> str:
     return ""
 
 
+def _digest_web_search(tool_execution) -> str:
+    """Digest for native (provider-executed) web search.
+
+    Summarizes what was searched and what came back so later turns have the
+    context. arguments_json carries the query/queries; result_json carries the
+    turn's cited sources (attached to the last search of the turn) or none.
+    Returns "" for other tools so callers fall through.
+    """
+    if getattr(tool_execution, 'tool_name', None) != 'web_search':
+        return ""
+    # Some callers (e.g. token estimation) pass lightweight projections that may
+    # not carry every column — read defensively.
+    args = getattr(tool_execution, 'arguments_json', None) or {}
+    rj = getattr(tool_execution, 'result_json', None) or {}
+    if not isinstance(args, dict):
+        args = {}
+    if not isinstance(rj, dict):
+        rj = {}
+    queries = args.get('queries') or ([args.get('query')] if args.get('query') else [])
+    queries = [q for q in queries if q]
+    parts = []
+    if queries:
+        head = f'"{str(queries[0])[:80]}"'
+        if len(queries) > 1:
+            head += f" (+{len(queries)-1} more)"
+        parts.append(head)
+    sources = rj.get('sources') or []
+    if isinstance(sources, list) and sources:
+        titles = "; ".join((s.get('title') or s.get('url') or '')[:50] for s in sources[:3] if isinstance(s, dict))
+        more = f" (+{len(sources)-3} more)" if len(sources) > 3 else ""
+        parts.append(f"{len(sources)} sources: {titles}{more}")
+    elif getattr(tool_execution, 'status', None) not in ('success', 'completed'):
+        parts.append("failed")
+    return "web search " + " — ".join(parts) if parts else ""
+
+
 def _digest_excel_tool(tool_execution) -> str:
     """Digest for Excel bridge tools.
 
@@ -835,6 +871,10 @@ class MessageContextBuilder:
                                         digest_parts.append(summary)
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'web_search':
+                                    digest = _digest_web_search(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
                                 elif tool_execution.created_widget_id:
                                     # Only the title is used — project it instead of
                                     # loading the full Widget row.
@@ -1441,6 +1481,10 @@ class MessageContextBuilder:
                                     digest_parts.append(summary)
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'web_search':
+                                digest = _digest_web_search(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
                             elif tool_execution.status == 'error' and tool_execution.error_message:
                                 error = tool_execution.error_message
                                 if len(error) > 50:

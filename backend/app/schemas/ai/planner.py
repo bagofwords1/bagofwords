@@ -58,6 +58,9 @@ class PlannerDecision(BaseModel):
     streaming_complete: bool = False
     metrics: Optional[PlannerMetrics] = None
     error: Optional[PlannerError] = None
+    # Sources cited by native web search this turn (turn-level; the provider
+    # surfaces citations on the answer, not per search call). [{title, url}]
+    web_search_citations: List[Dict[str, str]] = []
 
 
 class PlannerInput(BaseModel):
@@ -114,6 +117,15 @@ class PlannerInput(BaseModel):
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False
+    # Native, provider-executed web search (OpenAI/Azure-OpenAI Responses tool).
+    # Gated by the org `enable_web_fetch` master switch AND a per-provider
+    # `enable_web_search` opt-in. Distinct from `web_fetch_enabled` (which is the
+    # registry tool that fetches a specific URL we hand it).
+    web_search_enabled: bool = False
+    # Domains parsed from URLs in the current user turn. Passed to web search as
+    # filters.allowed_domains so the tool opens/reads those pages directly
+    # instead of relying on snippet search.
+    web_search_domains: List[str] = []
 
     # Scheduled execution context
     scheduled_context: Optional[Dict[str, Any]] = None

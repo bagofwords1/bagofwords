@@ -73,6 +73,10 @@ class AnthropicConfig(BaseModel):
 class OpenAICredentials(BaseModel):
     api_key: str
     base_url: Optional[str] = None
+    # Per-provider opt-in for native web search (Responses API tool). Persisted
+    # to additional_config, not encrypted. Only meaningful without a custom
+    # base_url (custom base_url → Chat Completions, which has no web_search).
+    enable_web_search: Optional[bool] = None
 
 class BowCredentials(BaseModel):
     api_key: str
@@ -93,6 +97,10 @@ class GoogleConfig(BaseModel):
 class AzureCredentials(BaseModel):
     api_key: str
     endpoint_url: str
+    # Per-provider opt-in for native web search. When set, the Azure provider is
+    # routed to the Responses API (/openai/v1) so the web_search tool is
+    # available. Persisted to additional_config, not encrypted.
+    enable_web_search: Optional[bool] = None
 
 class AzureConfig(BaseModel):
     max_tokens: Optional[int] = 2048
