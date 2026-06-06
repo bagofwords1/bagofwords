@@ -294,7 +294,18 @@ class ReportService:
         report = result.unique().scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-        
+
+        # Per-user starred state (same source of truth as the list view)
+        from app.models.report_star import ReportStar
+        star_result = await db.execute(
+            select(ReportStar.id).where(
+                ReportStar.report_id == report.id,
+                ReportStar.user_id == current_user.id,
+                ReportStar.deleted_at.is_(None),
+            )
+        )
+        is_starred = star_result.scalar_one_or_none() is not None
+
         user_schema = UserSchema.from_orm(report.user)
 
         # Detect app version for routing
@@ -332,6 +343,8 @@ class ReportService:
             ],
             # Scheduled rerun notification subscribers
             notification_subscribers=getattr(report, "notification_subscribers", None),
+            # Per-user starred state
+            is_starred=is_starred,
         )
         # Summary counts (for auto-opening sidebar)
         report_schema.query_count = len(report.queries or [])

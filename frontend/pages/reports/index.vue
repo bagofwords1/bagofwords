@@ -158,6 +158,7 @@
                                             @change="toggleAllVisible"
                                         />
                                     </th>
+                                    <th class="px-2 py-3 w-8"></th>
                                     <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         {{ $t('reports.table.title') }}
                                     </th>
@@ -178,7 +179,7 @@
                             <tbody class="bg-white divide-y divide-gray-200">
                                 <!-- Loading state -->
                                 <tr v-if="isLoading">
-                                    <td colspan="6" class="px-6 py-12 text-center">
+                                    <td colspan="7" class="px-6 py-12 text-center">
                                         <div class="flex items-center justify-center text-gray-500">
                                             <Spinner class="w-4 h-4 me-2" />
                                             <span class="text-sm">{{ $t('common.loading') }}</span>
@@ -199,19 +200,21 @@
                                                 @change="toggleOne(report.id)"
                                             />
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
+                                        <td class="px-2 py-4 w-8 text-center">
                                             <UTooltip :text="report.is_starred ? $t('reports.tooltips.unstar') : $t('reports.tooltips.star')">
                                                 <button
                                                     @click="toggleStar(report)"
-                                                    class="inline me-1.5 align-middle focus:outline-none"
+                                                    class="inline-flex items-center justify-center focus:outline-none"
                                                 >
-                                                    <Icon
-                                                        :name="report.is_starred ? 'heroicons:star-solid' : 'heroicons:star'"
-                                                        class="h-4 w-4 inline transition-colors"
-                                                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-gray-400'"
+                                                    <UIcon
+                                                        :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
+                                                        class="h-4 w-4 transition-colors"
+                                                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-yellow-400'"
                                                     />
                                                 </button>
                                             </UTooltip>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
                                             <UTooltip v-if="report.artifact_modes?.includes('page')" :text="$t('reports.tooltips.hasPage')">
                                                 <Icon name="heroicons:chart-bar-square" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
@@ -336,7 +339,7 @@
                                     </tr>
                                     <tr v-if="visibleReports.length === 0">
                                         <td
-                                            colspan="6"
+                                            colspan="7"
                                             class="px-6 py-12 text-center text-gray-500 text-sm"
                                         >
                                             <div class="flex flex-col items-center">
