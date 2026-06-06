@@ -17,6 +17,41 @@ scheduler = AsyncIOScheduler(
 )
 
 
+_CRON_DOW_NUM_TO_NAME = {
+    '0': 'sun', '1': 'mon', '2': 'tue', '3': 'wed',
+    '4': 'thu', '5': 'fri', '6': 'sat', '7': 'sun',
+}
+
+
+def cron_dow_to_apscheduler(dow: str) -> str:
+    """Translate a standard-cron day-of-week field into APScheduler's naming.
+
+    Standard cron numbers weekdays 0=Sun..6=Sat (7=Sun too). APScheduler's
+    numeric ``day_of_week`` instead uses 0=Mon..6=Sun, so feeding a standard
+    cron number straight in shifts every weekday by one (e.g. Sunday '0' would
+    fire Monday). We map numbers to APScheduler's unambiguous weekday NAMES
+    (sun..sat) so the schedule means the same day in both conventions.
+
+    Handles '*', comma lists ('0,6'), ranges ('1-5'); leaves names and step
+    expressions ('*/2') untouched. The stored cron string is unchanged — this
+    only adjusts the value handed to APScheduler at registration time.
+    """
+    if not dow or dow == '*' or '/' in dow:
+        return dow
+
+    def _map(token: str) -> str:
+        t = token.strip().lower()
+        return _CRON_DOW_NUM_TO_NAME.get(t, t)
+
+    def _part(token: str) -> str:
+        if '-' in token:
+            a, _, b = token.partition('-')
+            return f"{_map(a)}-{_map(b)}"
+        return _map(token)
+
+    return ','.join(_part(t) for t in dow.split(','))
+
+
 _LEADER_LOCK_FD = None
 
 

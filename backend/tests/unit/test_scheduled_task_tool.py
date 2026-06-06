@@ -195,6 +195,31 @@ async def test_cancel_rejects_other_report_task():
     assert out["success"] is False
 
 
+# --- conversation-history digest -------------------------------------------
+
+
+def test_digest_scheduled_tool():
+    from types import SimpleNamespace
+    from app.ai.context.builders.message_context_builder import _digest_scheduled_tool
+
+    created = SimpleNamespace(
+        tool_name="create_scheduled_task",
+        result_json={"success": True, "task_id": "sp-1", "cron_schedule": "0 9 * * 0"},
+    )
+    d = _digest_scheduled_tool(created)
+    assert "task_id: sp-1" in d and "cron: 0 9 * * 0" in d
+
+    cancelled = SimpleNamespace(
+        tool_name="cancel_scheduled_task",
+        result_json={"success": True, "task_id": "sp-1"},
+    )
+    assert "task_id: sp-1" in _digest_scheduled_tool(cancelled)
+
+    # Non-scheduled tool falls through (empty -> caller tries next digest).
+    other = SimpleNamespace(tool_name="create_data", result_json={"x": 1})
+    assert _digest_scheduled_tool(other) == ""
+
+
 @pytest.mark.asyncio
 async def test_cancel_happy_path():
     tool = CancelScheduledTaskTool()

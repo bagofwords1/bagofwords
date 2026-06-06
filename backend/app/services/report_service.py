@@ -26,7 +26,7 @@ from apscheduler.jobstores.base import JobLookupError
 from logging import getLogger
 import asyncio
 
-from app.core.scheduler import scheduler
+from app.core.scheduler import scheduler, cron_dow_to_apscheduler
 from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.ee.audit.service import audit_service
@@ -1359,7 +1359,7 @@ class ReportService:
                 'hour': hour,
                 'day': day,
                 'month': month,
-                'day_of_week': day_of_week
+                'day_of_week': cron_dow_to_apscheduler(day_of_week)
             }
         elif len(parts) == 5:
             minute, hour, day, month, day_of_week = parts
@@ -1368,7 +1368,7 @@ class ReportService:
                 'hour': hour,
                 'day': day,
                 'month': month,
-                'day_of_week': day_of_week
+                'day_of_week': cron_dow_to_apscheduler(day_of_week)
             }
         else:
             raise ValueError("Invalid cron expression format")
