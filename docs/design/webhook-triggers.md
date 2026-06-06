@@ -73,6 +73,57 @@ GitHub repo webhook  ──HTTPS POST──▶  POST /webhooks/{webhook_token}
 
 ---
 
+## User Flow
+
+Three actors: the **configurer** (sets it up in BOW), the **sender** (the
+external system), and **BOW** (verifies + acts). HMAC is used for every source.
+
+### 1. Configure (in BOW, one time per webhook)
+
+1. Open a report → **Summary** tab → **+ Configure webhook**.
+2. In the modal: enter a **Name**, pick a **Source** (GitHub / Generic — sets the
+   icon + signature scheme), optionally set **event filters** and the **AI
+   classifier** toggle. Save.
+3. BOW generates and shows, once:
+   - **Target URL** — `https://<host>/webhooks/whk_<token>` (copy)
+   - **Signing key** — the per-webhook HMAC secret (copy; masked afterwards, ↻ to
+     rotate)
+   - a **source-specific "how to send" snippet** (GitHub: where to paste URL +
+     secret; Generic: the exact header recipe + a curl/code example).
+
+### 2. Connect the sender (one time)
+
+- **GitHub:** repo → Settings → Webhooks → paste the Target URL + Signing key,
+  content-type `application/json`, select **Pull requests**. GitHub signs every
+  delivery with `X-Hub-Signature-256` automatically.
+- **Generic (cron / curl / Zapier / your service):** the sender computes the HMAC
+  itself per the snippet —
+  `X-BOW-Signature-256: sha256=hmac_sha256(key, "{timestamp}.{body}")`,
+  `X-BOW-Timestamp: <unix>`, optional `X-BOW-Delivery: <unique id>`. The shipped
+  `mock_webhook.py` is the reference implementation.
+
+### 3. Event arrives (every time, automatic)
+
+1. Sender POSTs the event → BOW verifies the HMAC signature (rejects `401` if it
+   fails or the timestamp is stale), dedups on the delivery id, applies the event
+   filters.
+2. A clean **event entry** appears in the report chat (source icon + summary).
+3. If the classifier is on, it reads the report's instructions + history + event
+   and decides: **no** → entry just shows ✅ "nothing to do"; **yes** → entry
+   shows 👀, the agent runs the authored task in the background, then ✅ with its
+   reply threaded under the event.
+4. The configurer can open the **TraceModal** on any event to see the raw
+   payload, the classifier's decision + reason + task, and the agent run — or hit
+   **"Respond anyway"** on a skipped event to run it manually.
+
+### 4. Manage
+
+Webhooks are listed in the Summary tab (active toggle, last delivery). The
+configurer can **rotate** the signing key (↻), disable, or delete a webhook at
+any time; rotating invalidates the old key immediately.
+
+---
+
 ## Data Model
 
 ### New: `Webhook` (`backend/app/models/webhook.py`)
@@ -403,10 +454,13 @@ org API key.** Reasoning:
   precedent).
 - **Target URL** is generated (contains the opaque `token`), read-only, copyable.
   The user pastes URL + signing key into GitHub (or any source).
-- **Generic sources**: GitHub verifies via `X-Hub-Signature-256` HMAC; a
-  "Generic" source verifies a simpler shared-secret header
-  (`Authorization: Bearer <signing key>`) so non-HMAC callers (cron jobs, curl,
-  Zapier) work too. The adapter declares which scheme it uses.
+- **Generic sources also use HMAC.** GitHub verifies via its native
+  `X-Hub-Signature-256`. A "Generic" source uses BOW's own HMAC scheme:
+  `X-BOW-Signature-256: sha256=<hmac_sha256(key, "{timestamp}.{raw_body}")>`
+  plus `X-BOW-Timestamp` (rejected if skew > 5 min → replay guard) and an
+  optional `X-BOW-Delivery` id for dedup. The adapter declares which scheme it
+  uses; the modal shows the exact recipe + a copy-paste snippet for the chosen
+  source.
 
 So: **two values the user copies** — the *target URL* (where to send) and the
 *signing key* (how we trust it) — plus a source preset that picks the icon +
@@ -418,7 +472,7 @@ verification scheme. No dependency on the org API key.
 
 | Concern | Mitigation |
 |---------|------------|
-| Guessable endpoint / spoofed events | Per-webhook signing key. GitHub source → **HMAC-SHA256 on raw body** (`X-Hub-Signature-256`), constant-time compare. Generic source → shared-secret `Authorization: Bearer`. Reject `401` on mismatch |
+| Guessable endpoint / spoofed events | Per-webhook signing key, **HMAC-SHA256** for every source, constant-time compare, reject `401` on mismatch. GitHub → `X-Hub-Signature-256` (raw body). Generic → `X-BOW-Signature-256` over `{timestamp}.{body}` + `X-BOW-Timestamp` skew check (replay guard) |
 | Replay / retries | Dedup on `X-GitHub-Delivery` via `external_message_id` |
 | External party drives LLM spend | `classify_enabled` gate + small model + `event_filters` pre-filter + concurrency semaphore + per-org rate limit |
 | **Prompt injection** (PR title/body) | All webhook text wrapped as delimited **data, never instructions**; classifier output constrained to binary JSON; same untrusted-data discipline carried into the agent prompt |
@@ -478,7 +532,7 @@ real repo:
 #   python backend/scripts/mock_webhook.py \
 #       --url http://localhost:8000/webhooks/whk_xxx \
 #       --secret <signing-key> [--source github|generic] [--action opened]
-import argparse, hashlib, hmac, json, sys, urllib.request
+import argparse, hashlib, hmac, json, sys, time, urllib.request
 
 def build_pr_payload(action: str) -> dict:
     return {
@@ -510,9 +564,13 @@ def main():
         headers["X-Hub-Signature-256"] = f"sha256={sig}"
         headers["X-GitHub-Event"] = "pull_request"
         headers["X-GitHub-Delivery"] = args.delivery
-    else:  # generic: shared-secret bearer
-        headers["Authorization"] = f"Bearer {args.secret}"
-        headers["X-Webhook-Id"] = args.delivery
+    else:  # generic: BOW HMAC over "{timestamp}.{body}"
+        ts = str(int(time.time()))
+        signed = f"{ts}.".encode() + body
+        sig = hmac.new(args.secret.encode(), signed, hashlib.sha256).hexdigest()
+        headers["X-BOW-Signature-256"] = f"sha256={sig}"
+        headers["X-BOW-Timestamp"] = ts
+        headers["X-BOW-Delivery"] = args.delivery
 
     req = urllib.request.Request(args.url, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req) as resp:
