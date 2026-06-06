@@ -166,10 +166,16 @@ def _digest_web_search(tool_execution) -> str:
     turn's cited sources (attached to the last search of the turn) or none.
     Returns "" for other tools so callers fall through.
     """
-    if tool_execution.tool_name != 'web_search':
+    if getattr(tool_execution, 'tool_name', None) != 'web_search':
         return ""
-    args = tool_execution.arguments_json or {}
-    rj = tool_execution.result_json or {}
+    # Some callers (e.g. token estimation) pass lightweight projections that may
+    # not carry every column — read defensively.
+    args = getattr(tool_execution, 'arguments_json', None) or {}
+    rj = getattr(tool_execution, 'result_json', None) or {}
+    if not isinstance(args, dict):
+        args = {}
+    if not isinstance(rj, dict):
+        rj = {}
     queries = args.get('queries') or ([args.get('query')] if args.get('query') else [])
     queries = [q for q in queries if q]
     parts = []
@@ -183,7 +189,7 @@ def _digest_web_search(tool_execution) -> str:
         titles = "; ".join((s.get('title') or s.get('url') or '')[:50] for s in sources[:3] if isinstance(s, dict))
         more = f" (+{len(sources)-3} more)" if len(sources) > 3 else ""
         parts.append(f"{len(sources)} sources: {titles}{more}")
-    elif tool_execution.status not in ('success', 'completed'):
+    elif getattr(tool_execution, 'status', None) not in ('success', 'completed'):
         parts.append("failed")
     return "web search " + " — ".join(parts) if parts else ""
 
