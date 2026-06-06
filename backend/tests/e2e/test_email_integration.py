@@ -11,6 +11,10 @@ import uuid
 
 import pytest
 
+# aiosmtpd is a test-only dependency (pinned in requirements_versioned.txt).
+# Guard the import so a missing dep skips these tests rather than erroring at
+# collection time.
+pytest.importorskip("aiosmtpd")
 from aiosmtpd.controller import Controller
 
 
