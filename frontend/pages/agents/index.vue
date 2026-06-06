@@ -46,7 +46,7 @@
                                 </label>
                             </UTooltip>
                             <UButton
-                                v-if="canCreateDataSource && connections.length > 0"
+                                v-if="canCreateDataSource"
                                 color="blue"
                                 variant="solid"
                                 size="xs"
@@ -101,6 +101,8 @@
                                         <DataSourceIcon class="h-3.5" :type="conn.type" />
                                     </UTooltip>
                                     <span v-if="(ds.connections || []).length > 3" class="text-gray-400">+{{ (ds.connections || []).length - 3 }}</span>
+                                    <!-- Connectionless agent: fall back to the agent (bot) glyph -->
+                                    <AgentIcon v-if="(ds.connections || []).length === 0" class="h-3.5 w-3.5 text-gray-400" />
                                     <span v-if="userHasAccess(ds) && catalogFor(ds).shouldShow">{{ catalogFor(ds).label }}</span>
                                 </div>
 
@@ -213,6 +215,7 @@ import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
+import AgentIcon from '~/components/icons/AgentIcon.vue'
 import DataSourceGrid from '~/components/datasources/DataSourceGrid.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'

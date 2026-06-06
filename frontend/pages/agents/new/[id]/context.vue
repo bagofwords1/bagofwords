@@ -397,9 +397,12 @@ async function handleSave() {
   }
 }
 
-onMounted(() => {
-  fetchIntegration()
-  loadDraftInstruction()
+onMounted(async () => {
+  await fetchIntegration()
+  // Connectionless agents have nothing to learn from — skip LLM onboarding.
+  if ((integration.value?.connections || []).length > 0) {
+    loadDraftInstruction()
+  }
   fetchAllMentionItems()
   fetchMentionItems()
 })
