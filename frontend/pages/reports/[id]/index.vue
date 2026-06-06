@@ -2605,6 +2605,29 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 	}
 }
 
+// Live refresh for inbound webhook events: when a webhook-tagged completion is
+// inserted/updated server-side (event entry created, 👀 → ✅), refresh the
+// timeline. Guarded on `webhook_id` so a user's own messages never trigger it.
+const _rtConfig = useRuntimeConfig()
+let _webhookWs: WebSocket | null = null
+let _webhookReloadTimer: any = null
+function connectWebhookSocket() {
+	try {
+		const wsURL = (_rtConfig.public as any)?.wsURL
+		if (!wsURL || !report_id) return
+		_webhookWs = new WebSocket(`${wsURL}/reports/${report_id}`)
+		_webhookWs.onmessage = (event: MessageEvent) => {
+			try {
+				const data = JSON.parse(event.data)
+				if ((data.event === 'insert_completion' || data.event === 'update_completion') && data.webhook_id) {
+					if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+					_webhookReloadTimer = setTimeout(() => loadCompletions({ skipEstimate: true }), 400)
+				}
+			} catch {}
+		}
+	} catch {}
+}
+
 async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
 		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
@@ -3005,6 +3028,8 @@ function stopResize() {
 }
 
 onUnmounted(() => {
+	try { _webhookWs?.close() } catch {}
+	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 	if (import.meta.client) {
 		window.removeEventListener('resize', checkMobile)
 	}
@@ -3500,6 +3525,7 @@ onMounted(async () => {
 		loadReportInstructions()
 	])
 	const slowLoads = loadCompletions()
+	connectWebhookSocket()
 
 	await fastLoads
 

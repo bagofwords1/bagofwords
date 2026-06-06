@@ -228,7 +228,10 @@ class WebhookService:
                     turn_index=turn,
                     message_type="webhook_event",
                     role="external",
-                    status="success",
+                    # Eyes (👀) from the start when the classifier/agent will run;
+                    # only flips to success (✅) once that work is complete. Alert-only
+                    # webhooks have no follow-on work, so they're success immediately.
+                    status="in_progress" if wh.classify_enabled else "success",
                     user_id=wh.user_id,
                     webhook_id=wh.id,
                     external_platform=wh.source,
@@ -243,10 +246,7 @@ class WebhookService:
                     logger.info("Webhook %s: classifier disabled — alert only", webhook_id)
                     return
 
-                # 2) Classify
-                event.status = "in_progress"  # renders 👀
-                await db.commit()
-
+                # 2) Classify (event already shows 👀)
                 from app.ai.classifiers.webhook_classifier import WebhookClassifier
                 from app.services.llm_service import LLMService
                 llm_service = LLMService()
