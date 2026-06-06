@@ -10,7 +10,6 @@ from sqlalchemy.future import select
 from sqlalchemy import and_
 
 from app.models.data_source import DataSource
-from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.demo_data_source_schema import (
@@ -212,14 +211,17 @@ class DemoDataSourceService:
             f"for org={organization.id}"
         )
 
-        # Add the creator as a member
-        membership = DataSourceMembership(
-            data_source_id=data_source.id,
-            principal_type=PRINCIPAL_TYPE_USER,
-            principal_id=current_user.id,
+        # Add the creator as a member with full manage rights. Mirror the
+        # real create paths (DataSourceService.create_data_source) via the
+        # shared helper so the creator gets BOTH the legacy membership and
+        # the RBAC `manage` grant. Hand-rolling only the legacy membership
+        # (as this did before) left a non-admin installer able to see the
+        # demo in their list yet failing every `manage` resource check on
+        # it. _create_memberships commits internally.
+        from app.services.data_source_service import DataSourceService
+        await DataSourceService()._create_memberships(
+            db, data_source, [current_user.id], permissions=["manage"]
         )
-        db.add(membership)
-        await db.commit()
 
         # Load and save tables from the data source
         await self._load_tables(db, data_source, organization, current_user)
