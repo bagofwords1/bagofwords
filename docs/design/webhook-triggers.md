@@ -137,8 +137,10 @@ any time; rotating invalidates the old key immediately.
 | `token` | String, unique, indexed | the public path segment; `whk_...` |
 | `secret_encrypted` | String | Fernet-encrypted HMAC secret (reuse existing crypto) |
 | `source` | String | `github` (adapter key); extensible |
-| `event_filters` | JSON | cheap pre-classifier allowlist, e.g. `{"actions": ["opened"]}` |
+| `event_filters` | JSON, nullable | selected event keys to keep, e.g. `{"events": ["pull_request.opened"]}`. Empty/null → accept all. Populated by ticking learned keys, never hand-typed |
+| `seen_event_keys` | JSON | event keys observed from real deliveries (drives the filter checkboxes); auto-grows as new types arrive |
 | `classify_enabled` | Boolean | if false → alert-only, never run agent |
+| `classifier_prompt` | Text, nullable | optional user-written hint that steers the classifier, e.g. "only respond to PRs touching billing; ignore dependabot" |
 | `is_active` | Boolean | |
 | `last_delivery_at` | DateTime | |
 
@@ -189,10 +191,42 @@ Slack/Teams/WhatsApp.
 
 ```
 webhook_adapters/
-  base.py            # WebhookAdapter ABC: verify(), should_process(), normalize()
+  base.py            # WebhookAdapter ABC: verify(), event_key(), normalize()
   github_adapter.py  # knows X-Hub-Signature-256, pull_request payload shape
+  generic_adapter.py # X-BOW-Signature-256 HMAC, passes payload through
   factory.py
 ```
+
+**Filters without an exhaustive catalog.** We do **not** enumerate every event
+type a service can emit (GitHub alone has 30+ event types × many actions — an
+unmaintainable list). Instead each adapter implements one small rule:
+`event_key(headers, payload) -> str` that says *where the event identity lives*.
+That's ~one line per source, not a taxonomy:
+
+```python
+# github_adapter.event_key(headers, payload):
+#   f"{headers['X-GitHub-Event']}.{payload.get('action','')}"  → "pull_request.opened"
+# generic_adapter.event_key(headers, payload):
+#   payload.get("type") or payload.get("event") or "event"      → whatever the sender sends
+```
+
+The filter list is then **learned from real traffic**, not pre-declared:
+
+- Every delivery's `event_key` is recorded (a small `seen_event_keys` set on the
+  `Webhook`, or derived from recent deliveries).
+- The modal shows **"Event types seen so far"** as checkboxes — populated by what
+  has actually arrived. The user fires a test (or waits for the first real
+  events), then ticks the ones to keep.
+- **Default = accept all.** Filtering is an opt-in cost optimization, not a
+  prerequisite. With no filter, everything flows to the classifier, which + the
+  `classifier_prompt` does the nuanced gating.
+- Optional nicety: a short, hand-curated `common_events()` list **only** for the
+  top few per popular source (GitHub: PR opened/merged, issue opened) for a
+  friendly first-run — but it's hints, not the source of truth, and the long tail
+  is covered by the learned list. New services need zero catalog work to function.
+
+So a tester's loop is: configure → fire the mock once → the event type shows up in
+the modal → tick it (or leave accept-all). No taxonomy lookup required.
 
 `github_adapter.normalize(payload)` produces three tiers (so the same payload
 serves the timeline, the classifier, and the agent without dumping raw JSON
@@ -247,6 +281,7 @@ the event text — the same scoring the planner applies to the user prompt.
 | `instructions` | `InstructionContextBuilder(db, org, user, org_settings, data_source_ids).build(query=event_summary)` → `.render()` | org business rules; may dictate act/ignore |
 | `report_title` / purpose | `report.title` (+ first user completion as fallback) | what the report is *for* |
 | `event_summary` / `event_details` | `github_adapter.normalize()` | the new event — one-liner for the gate, curated full event for authoring the task |
+| `webhook_prompt` | `webhook.classifier_prompt` | optional, **trusted** per-webhook hint set by the configurer (e.g. "only billing PRs") |
 | `recent_events` | last N `role='external'` completions | so repeated/duplicate events aren't re-acted |
 | `organization_settings` | `organization.settings` | language directive, data-visibility, max-instructions |
 
@@ -275,6 +310,7 @@ class WebhookClassifierInput(BaseModel):
     instructions: str              # from InstructionContextBuilder.build().render()
     event_summary: str             # normalized one-liner, untrusted
     event_details: str             # curated full event (adapter.details), untrusted
+    webhook_prompt: str | None = None   # trusted, configurer-set (webhook.classifier_prompt)
     organization_settings: Any | None = None
 
 class WebhookClassifier:
@@ -287,6 +323,9 @@ if a response would be useful given what this report is about, the organization'
 instructions, and the conversation so far.
 
 Report: {inp.report_title}
+
+Webhook owner's guidance for this hook (TRUSTED — follow it; it sets what to act on):
+{inp.webhook_prompt or "(none — use your judgment)"}
 
 Organization instructions (business rules — may state whether/how to act on events):
 {inp.instructions}
@@ -331,6 +370,10 @@ Reply with ONLY a JSON object on one line:
   generated by *our* model from trusted context, so it (not the raw event text)
   is what drives the agent — the event stays attached as data. `reason` + `task`
   are persisted on the hidden trigger completion and shown in the TraceModal.
+- **Trust boundary**: the `webhook_prompt` is **trusted** (the report owner wrote
+  it in BOW) and is followed as guidance; the event text is **untrusted** and is
+  only ever data. Keeping them in clearly separate blocks is what lets the prompt
+  steer the gate without the event being able to.
 - Usage auto-recorded to `LLMUsage` like every other LLM call.
 
 #### Agent prompt construction (when `act=true`)
@@ -424,19 +467,32 @@ The modal is **generic** (GitHub is just the first preset — the source list is
 data-driven so new sources don't need UI changes):
 
 ```
-┌─ Configure webhook ─────────────────────────────┐
-│  Name        [ PR triage              ]          │
-│  Source      [ ⬡ GitHub ▾ ]  ← icon + preset;    │
-│                                "Generic" option   │
-│  Target URL  https://host/webhooks/whk_a1b2c3…   │
-│              [ copy ]   (read-only, generated)    │
-│  Signing key ••••••••••••  [ copy ] [ ↻ refresh ]│
-│  Events      [x] only act on: opened  (filters)   │
-│  [x] AI classifier decides whether to respond     │
-│                                                   │
-│              [ Cancel ]            [ Save ]        │
-└───────────────────────────────────────────────────┘
+┌─ Configure webhook ──────────────────────────────────┐
+│  Name        [ PR triage                 ]            │
+│  Source      [ ⬡ GitHub ▾ ]  ← icon + preset;         │
+│                                 "Generic" option       │
+│  Target URL  https://host/webhooks/whk_a1b2c3…        │
+│              [ copy ]   (read-only, generated)         │
+│  Signing key ••••••••••••  [ copy ] [ ↻ refresh ]     │
+│                                                        │
+│  Trigger on   ◉ Any event   ○ Only selected           │
+│    event types seen so far (tick to filter):           │
+│      [x] pull_request.opened   [ ] push                │
+│      [ ] issues.opened         …  (grows with traffic) │
+│                                                        │
+│  [x] Let AI decide whether to respond                  │
+│  Guidance (optional)                                   │
+│    [ Only respond to PRs touching billing;        ]    │
+│    [ ignore dependabot.                            ]    │
+│                                                        │
+│              [ Cancel ]               [ Save ]          │
+└────────────────────────────────────────────────────────┘
 ```
+
+The **event-type checkboxes are populated from `seen_event_keys`** (what has
+actually arrived) — default is "Any event", so a brand-new webhook works before
+any taxonomy is known. The **Guidance** box maps to `classifier_prompt` and only
+shows when the classifier toggle is on.
 
 **On your "key" question — recommendation: a per-webhook signing key, not the
 org API key.** Reasoning:
