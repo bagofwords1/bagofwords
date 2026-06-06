@@ -446,6 +446,8 @@ Examples of good behavior:
         parts.append(
             f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
         )
+        if getattr(planner_input, "scheduled_tasks_context", None):
+            parts.append(f"  {planner_input.scheduled_tasks_context}")
         parts.append(
             f"  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}"
         )

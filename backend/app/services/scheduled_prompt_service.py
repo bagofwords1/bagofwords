@@ -12,7 +12,7 @@ from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.scheduled_prompt_schema import ScheduledPromptCreate, ScheduledPromptUpdate
-from app.core.scheduler import scheduler
+from app.core.scheduler import scheduler, cron_dow_to_apscheduler
 from app.services.notification_service import notification_service
 from app.settings.config import settings
 
@@ -31,10 +31,10 @@ def _parse_cron_expression(cron_expression: str) -> Optional[dict]:
     parts = cron_expression.split()
     if len(parts) == 6:
         second, minute, hour, day, month, day_of_week = parts
-        return {'second': second, 'minute': minute, 'hour': hour, 'day': day, 'month': month, 'day_of_week': day_of_week}
+        return {'second': second, 'minute': minute, 'hour': hour, 'day': day, 'month': month, 'day_of_week': cron_dow_to_apscheduler(day_of_week)}
     elif len(parts) == 5:
         minute, hour, day, month, day_of_week = parts
-        return {'minute': minute, 'hour': hour, 'day': day, 'month': month, 'day_of_week': day_of_week}
+        return {'minute': minute, 'hour': hour, 'day': day, 'month': month, 'day_of_week': cron_dow_to_apscheduler(day_of_week)}
     else:
         return None
 

@@ -1,7 +1,14 @@
 # Release Notes
 
+## Version 0.0.395 (June 6, 2026)
+- Native web search for OpenAI and Azure OpenAI (provider-executed, via the Responses API) — opt-in per provider and gated by the org Web Fetch setting, with a live "Searching the web" step (rendered as a tool with the query + cited sources) and source citations
+
+## Version 0.0.394 (June 6, 2026)
+- Fix scheduled tasks running one weekday late (cron day-of-week off-by-one vs the scheduler), and the schedule editor showing the wrong day
+- Conversation history now records scheduled-task and email actions (so the assistant can dedupe schedules, cancel the right task, and recall what it emailed)
+
 ## Version 0.0.393 (June 6, 2026)
-- Native web search for OpenAI and Azure OpenAI (provider-executed, via the Responses API) — opt-in per provider and gated by the org Web Fetch setting, with a live "Searching the web" step and source citations
+- Scheduled tasks: ask the agent to run something on a recurring schedule (e.g. "email me once a week about ...") — new create/cancel scheduled-task tools, reusing the existing scheduled-prompt UI
 
 ## Version 0.0.392 (June 5, 2026)
 - Major performance & concurrency-reliability improvements (faster completions, fewer stalls under load)

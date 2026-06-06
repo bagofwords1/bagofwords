@@ -1872,6 +1872,8 @@ class AgentV2:
                     mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
                     # Entities context (catalog entities relevant to this turn)
                     entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
+                    # Active scheduled tasks for this report (for dedupe + cancellation)
+                    scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
 
                     # Load user-uploaded images for vision models (only on first loop iteration)
                     user_images = await self._load_images_as_input() if loop_index == 0 else []
@@ -1905,6 +1907,7 @@ class AgentV2:
                         files_context=files_context,
                         mentions_context=mentions_context,
                         entities_context=entities_context,
+                        scheduled_tasks_context=scheduled_tasks_context,
                         history_summary=history_summary,
                         messages_context=messages_context,
                         resources_context=resources_context,
@@ -3408,6 +3411,7 @@ class AgentV2:
         files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
         mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
+        scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
 
         user_message = (self.head_completion.prompt or {}).get("content", "")
 
@@ -3425,6 +3429,7 @@ class AgentV2:
             files_context=files_context,
             mentions_context=mentions_context,
             entities_context=entities_context,
+            scheduled_tasks_context=scheduled_tasks_context,
             history_summary=history_summary,
             messages_context=messages_context,
             resources_context=resources_context,

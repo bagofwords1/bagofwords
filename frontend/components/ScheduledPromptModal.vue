@@ -215,7 +215,10 @@ function parseCronToStructured(cron: string) {
     } else if (dow !== '*') {
         recurInterval.value = 'week'
         recurHour.value = parseInt(hour) || 0
-        recurDay.value = parseInt(dow) || 1
+        // Use the first day in a list ("0,6" -> 0) and guard NaN — but keep 0
+        // (Sunday), which `|| 1` would wrongly turn into Monday.
+        const parsedDow = parseInt(dow)
+        recurDay.value = Number.isNaN(parsedDow) ? 1 : parsedDow
     } else {
         recurInterval.value = 'day'
         recurHour.value = parseInt(hour) || 0

@@ -403,6 +403,11 @@ class TestEvaluationService:
             await _latest_tool_args("search_instructions"),
             ("query",),
         )
+        _publish(
+            "create_scheduled_task",
+            await _latest_tool_args("create_scheduled_task"),
+            ("task_prompt", "cron_schedule"),
+        )
 
         return snapshot
 
@@ -788,6 +793,20 @@ class TestEvaluationService:
                             values = []
                         ok, msg = self._apply_list_matcher(values, rule.matcher)
                         push(ok, None if ok else msg, actual=values)
+                        continue
+                    push_skipped(f"{cat}.{field} not available")
+                    continue
+
+                # tool:create_scheduled_task.* (schedule + prompt argument checks)
+                if cat == "tool:create_scheduled_task":
+                    info = snapshot.get("create_scheduled_task") or {}
+                    if not info:
+                        push_skipped("create_scheduled_task not called")
+                        continue
+                    if field in ("task_prompt", "cron_schedule"):
+                        value = info.get(field) or ""
+                        ok, msg = self._apply_matcher(str(value), rule.matcher)
+                        push(ok, None if ok else msg, actual=value)
                         continue
                     push_skipped(f"{cat}.{field} not available")
                     continue
