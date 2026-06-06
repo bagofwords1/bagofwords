@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.393 (June 6, 2026)
+- Scheduled tasks: ask the agent to run something on a recurring schedule (e.g. "email me once a week about ...") — new create/cancel scheduled-task tools, reusing the existing scheduled-prompt UI
+
 ## Version 0.0.392 (June 5, 2026)
 - Major performance & concurrency-reliability improvements (faster completions, fewer stalls under load)
 
