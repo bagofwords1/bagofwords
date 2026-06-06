@@ -138,10 +138,7 @@
                             <p class="text-xs text-gray-500 mt-1">
                                 Lets the agent run native, provider-executed web searches (via the Responses API) for facts not in your connected data. Requires the org-level Web Fetch setting to also be on.
                             </p>
-                            <p v-if="selectedProvider.credentials.enable_web_search" class="text-xs text-amber-600 mt-1">
-                                ⚠️ Web search sends query text outside your provider's data/compliance boundary (e.g. to Bing for Azure) under separate terms.
-                            </p>
-                            <p v-if="(selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai') && selectedProvider.credentials.base_url" class="text-xs text-amber-600 mt-1">
+                            <p v-if="(selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai') && selectedProvider.credentials.base_url" class="text-xs text-gray-500 mt-1">
                                 Note: a custom base URL uses the Chat Completions API, which does not support web search. Clear it to use web search.
                             </p>
                         </div>
@@ -312,7 +309,6 @@
                                     <label class="text-sm text-gray-700">Enable web search</label>
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
-                                <p v-if="providerForm.credentials.enable_web_search" class="text-xs text-amber-600 mt-1">⚠️ Sends query text outside your provider's data/compliance boundary (e.g. to Bing for Azure).</p>
                             </div>
                         </div>
                     </div>
@@ -513,7 +509,7 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     const providerType = providerForm.value.provider_type;
     const all = fieldsForProvider(providerType);
     // Exclude fields that have dedicated UI controls
-    let filtered = all.filter(f => f.key !== 'verify_ssl');
+    let filtered = all.filter(f => f.key !== 'verify_ssl' && f.key !== 'enable_web_search');
     if (providerType === 'openai') {
         filtered = filtered.filter(f => f.key !== 'base_url');
     }
