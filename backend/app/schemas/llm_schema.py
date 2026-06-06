@@ -97,9 +97,12 @@ class GoogleConfig(BaseModel):
 class AzureCredentials(BaseModel):
     api_key: str
     endpoint_url: str
-    # Per-provider opt-in for native web search. When set, the Azure provider is
-    # routed to the Responses API (/openai/v1) so the web_search tool is
-    # available. Persisted to additional_config, not encrypted.
+    # Opt-in to Azure OpenAI's Responses API (/openai/v1) instead of Chat
+    # Completions. Off by default — only some Azure regions serve Responses.
+    # Persisted to additional_config, not encrypted.
+    use_responses_api: Optional[bool] = None
+    # Per-provider opt-in for native web search. Only effective when
+    # use_responses_api is on (web search is a Responses-API tool).
     enable_web_search: Optional[bool] = None
 
 class AzureConfig(BaseModel):
