@@ -307,6 +307,9 @@ class DataSourceService:
 
         # Track connections for linking
         connections_to_link: List[Connection] = []
+        # New connection created in Mode 1 (None for Mode 2 and the
+        # connectionless mode).
+        new_connection: Optional[Connection] = None
 
         if existing_connection_ids:
             # === Mode 2: Link to existing connection(s) ===
@@ -359,7 +362,7 @@ class DataSourceService:
             # Extract remaining connection fields that won't be used
             data_source_dict.pop("type", None)
             data_source_dict.pop("allowed_user_auth_modes", None)
-        else:
+        elif data_source_dict.get("type"):
             # === Mode 1: Create new connection ===
             # Validate connection and schema access BEFORE saving (for system_only auth)
             if auth_policy == "system_only":
@@ -412,7 +415,14 @@ class DataSourceService:
             
             db.add(new_connection)
             await db.flush()  # Get the connection ID
-        
+        else:
+            # === Mode 3: Connectionless agent ===
+            # No existing connections linked and no new connection requested.
+            # Create the agent with no data connections (instruction/context-only).
+            ds_type = None
+            data_source_dict.pop("type", None)
+            data_source_dict.pop("allowed_user_auth_modes", None)
+
         # Create base data source dict (without connection-related fields)
         ds_create_dict = {
             "name": data_source_dict["name"],
@@ -430,9 +440,10 @@ class DataSourceService:
             # Mode 2: Link to existing connections
             for conn in connections_to_link:
                 new_data_source.connections.append(conn)
-        else:
+        elif new_connection is not None:
             # Mode 1: New connection created above
             new_data_source.connections.append(new_connection)
+        # Mode 3 (connectionless): leave connections empty
         
         db.add(new_data_source)
         try:
@@ -460,7 +471,7 @@ class DataSourceService:
                     "auth_policy": auth_policy,
                     "use_llm_sync": bool(use_llm_sync),
                     "from_existing_connection": bool(existing_connection_ids),
-                    "connection_count": len(connections_to_link) if connections_to_link else 1,
+                    "connection_count": len(connections_to_link) if connections_to_link else (1 if new_connection is not None else 0),
                 },
                 user_id=current_user.id,
                 org_id=organization.id,
@@ -511,7 +522,7 @@ class DataSourceService:
                 )
             await db.commit()
             await db.refresh(new_data_source)
-        elif auth_policy == "system_only":
+        elif new_connection is not None and auth_policy == "system_only":
             # Mode 1: New connection - schema discovery runs in the
             # background. The indexing runner populates ConnectionTable
             # and then syncs DataSourceTable for this data source

@@ -37,7 +37,7 @@
 
                         <div class="flex items-center justify-end gap-2 w-full md:w-auto">
                             <UButton
-                                v-if="canCreateDataSource && connections.length > 0"
+                                v-if="canCreateDataSource"
                                 color="blue"
                                 variant="solid"
                                 size="xs"

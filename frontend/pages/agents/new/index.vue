@@ -31,7 +31,7 @@
         <!-- Connection selector (multi-select for existing connections) -->
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 mb-1">
-            Connections <span class="text-red-500">*</span>
+            Connections <span class="text-gray-400 font-normal">(optional)</span>
           </label>
           <USelectMenu
             v-model="selectedConnections"
@@ -80,9 +80,10 @@
           </button>
         </div>
 
-        <!-- Existing connection flow (main form) -->
-        <div v-if="selectedConnections.length > 0">
-          <div class="flex items-center gap-2 mb-4">
+        <!-- Agent form. Connections are optional — an agent with no
+             connections can still be created for instruction/context-only use. -->
+        <div>
+          <div v-if="selectedConnections.length > 0" class="flex items-center gap-2 mb-4">
             <UToggle v-model="useLlmSync" :disabled="creatingFromConnection" size="xs" color="blue" />
             <span class="text-xs text-gray-700">Use LLM to learn agent</span>
           </div>
@@ -105,13 +106,6 @@
               Save & Continue
             </UButton>
           </div>
-        </div>
-
-        <!-- No selection yet (just show cancel) -->
-        <div v-else class="flex justify-start pt-4 border-t border-gray-100">
-          <NuxtLink to="/agents" class="text-sm text-gray-500 hover:text-gray-700">
-            ← Cancel
-          </NuxtLink>
         </div>
       </div>
 
@@ -160,8 +154,8 @@ async function handleNewConnectionCreated(connectionData: any) {
 }
 
 const canSubmitExisting = computed(() => {
+  // Connections are optional — only a non-empty name is required.
   return (
-    selectedConnections.value.length > 0 &&
     agentName.value.trim().length > 0 &&
     !creatingFromConnection.value
   )
@@ -180,7 +174,7 @@ async function loadConnections() {
 }
 
 async function createAgentFromExistingConnection() {
-  if (selectedConnections.value.length === 0 || !agentName.value.trim()) return
+  if (!agentName.value.trim()) return
   creatingFromConnection.value = true
   errorMessage.value = ''
 
@@ -208,7 +202,13 @@ async function createAgentFromExistingConnection() {
 
     const result = response.data.value as any
     if (result?.id) {
-      navigateTo(`/agents/new/${result.id}/schema`)
+      // Connectionless agents have no tables to select — skip the schema step
+      // and go straight to the context step.
+      if (selectedConnections.value.length === 0) {
+        navigateTo(`/agents/new/${result.id}/context`)
+      } else {
+        navigateTo(`/agents/new/${result.id}/schema`)
+      }
     } else {
       navigateTo('/agents')
     }
@@ -231,8 +231,10 @@ onMounted(async () => {
     if (matchingConn) {
       selectedConnections.value = [matchingConn]
     }
-  } else if (forcedNew || connections.value.length === 0) {
-    // Open Add Connection modal if no connections exist or forced
+  } else if (forcedNew) {
+    // Open Add Connection modal only when explicitly requested. When no
+    // connections exist we no longer force it — the user can create a
+    // connectionless agent by just naming it.
     showAddConnectionModal.value = true
   } else if (connections.value.length === 1) {
     // Single connection - auto-select it

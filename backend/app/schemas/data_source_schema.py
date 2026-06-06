@@ -243,7 +243,17 @@ class DataSourceCreate(DataSourceBase):
 
     @validator('connection_ids', always=True)
     def validate_connection_ids_or_type(cls, v, values):
-        """Ensure either connection_id, connection_ids, OR (type, config, credentials) is provided."""
+        """Validate the connection-mode combination.
+
+        Three modes are supported:
+        1. Link to existing connection(s): connection_ids or connection_id provided.
+        2. Create new connection: type + config provided.
+        3. Connectionless agent: nothing provided (an agent with no data
+           connections, e.g. for instruction-only / context-only use).
+
+        Only the half-configured "new connection" case (type without config) is
+        rejected — every other combination is a valid intent.
+        """
         # If connection_ids is provided, use it
         if v and len(v) > 0:
             return v
@@ -252,12 +262,13 @@ class DataSourceCreate(DataSourceBase):
         if values.get('connection_id'):
             return v
 
-        # Creating new connection - require type and config
-        if not values.get('type'):
-            raise ValueError('Either connection_id, connection_ids, or type must be provided')
-        if values.get('config') is None:
-            raise ValueError('Config is required when creating a new connection')
+        # Creating a new connection - type and config must come together
+        if values.get('type'):
+            if values.get('config') is None:
+                raise ValueError('Config is required when creating a new connection')
+            return v
 
+        # Connectionless agent: no connection_id(s) and no type -> allowed.
         return v
 
 
