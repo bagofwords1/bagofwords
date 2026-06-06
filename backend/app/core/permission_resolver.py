@@ -269,6 +269,29 @@ async def get_member_data_source_ids(
     return await _resolved_member_ds_ids(db, user_id, resolved)
 
 
+async def can_view_all_data_sources(
+    db: AsyncSession, user_id: str, org_id: str,
+) -> bool:
+    """Org-wide data-source governance capability.
+
+    True for full admins (``full_admin_access``) and connection admins
+    (``manage_connections``) — the principals responsible for data sources
+    across the whole org. This gates the admin "show all" view on the data
+    sources list.
+
+    Deliberately does NOT consider per-data-source ``manage`` grants: that
+    permission is scoped to a single data source and confers no authority to
+    discover or browse other users' private data sources. A per-DS admin
+    already sees the data sources they manage in their normal list via their
+    explicit grant.
+    """
+    resolved = await resolve_permissions(db, str(user_id), str(org_id))
+    return (
+        FULL_ADMIN in resolved.org_permissions
+        or resolved.has_org_permission("manage_connections")
+    )
+
+
 async def _resolved_member_ds_ids(
     db: AsyncSession, user_id: str, resolved: ResolvedPermissions,
 ) -> list[str]:

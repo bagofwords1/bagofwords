@@ -35,7 +35,16 @@
                             </div>
                         </div>
 
-                        <div class="flex items-center justify-end gap-2 w-full md:w-auto">
+                        <div class="flex items-center justify-end gap-3 w-full md:w-auto">
+                            <UTooltip
+                                v-if="canViewAllAgents"
+                                :text="$t('data.showAllAgentsHint')"
+                            >
+                                <label class="inline-flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+                                    <UToggle v-model="showAllAgents" size="2xs" />
+                                    {{ $t('data.showAllAgents') }}
+                                </label>
+                            </UTooltip>
                             <UButton
                                 v-if="canCreateDataSource && connections.length > 0"
                                 color="blue"
@@ -79,7 +88,12 @@
                         >
                             <component :is="userHasAccess(ds) ? NuxtLink : 'div'" :to="userHasAccess(ds) ? `/agents/${ds.id}` : undefined" class="block">
                                 <!-- Card header -->
-                                <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
+                                <div class="flex items-center gap-1.5 mb-1">
+                                    <span class="font-medium text-gray-900 text-sm leading-tight">{{ ds.name }}</span>
+                                    <UTooltip v-if="ds.admin_only" :text="$t('data.adminOnlyHint')">
+                                        <span class="text-[9px] font-medium uppercase tracking-wide text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">{{ $t('data.adminOnlyTag') }}</span>
+                                    </UTooltip>
+                                </div>
 
                                 <!-- Metadata -->
                                 <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
@@ -425,7 +439,11 @@ function handleDemoInstalled(result: any) {
 async function getConnectedDataSources() {
     loadingConnected.value = true
     try {
-        const response = await useMyFetch('/data_sources', { method: 'GET' })
+        // Admins (full_admin_access / manage_connections) can toggle a
+        // governance "show all" view that reveals private data sources they
+        // aren't a member of. The backend ignores show_all for everyone else.
+        const url = showAllAgents.value ? '/data_sources?show_all=true' : '/data_sources'
+        const response = await useMyFetch(url, { method: 'GET' })
         if (response.data.value) {
             connected_ds.value = response.data.value as any[]
         }
@@ -524,6 +542,18 @@ function stopPolling() {
 onBeforeUnmount(() => stopPolling())
 
 const canCreateDataSource = computed(() => useCan('create_data_source'))
+
+// Org-wide data-source governance: full admins and connection admins. Gates
+// the "show all" toggle. useCan already treats full_admin_access as a bypass,
+// so this is true for both. Per-DS `manage` does NOT grant it.
+const canViewAllAgents = computed(() => useCan('manage_connections'))
+
+// Admin "show all" toggle state — when on, the list includes private data
+// sources the admin isn't a member of (flagged with an Admin badge).
+const showAllAgents = ref(false)
+watch(showAllAgents, () => {
+    getConnectedDataSources()
+})
 
 onMounted(async () => {
     nextTick(async () => {

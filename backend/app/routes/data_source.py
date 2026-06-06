@@ -34,11 +34,12 @@ async def get_available_data_sources(
 
 @router.get("/data_sources", response_model=list[DataSourceListItemSchema])
 async def get_data_sources(
+    show_all: bool = Query(False, description="Admin 'show all' view: include every data source in the org (private ones too). Only honored for callers with org-wide data-source governance (full_admin_access / manage_connections); ignored otherwise."),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.get_data_sources(db, current_user, organization)
+    return await data_source_service.get_data_sources(db, current_user, organization, show_all=show_all)
 
 @router.get("/data_sources/active", response_model=list[DataSourceListItemSchema])
 async def get_active_data_sources(
