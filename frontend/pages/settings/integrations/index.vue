@@ -100,6 +100,40 @@
       </button>
     </div>
 
+    <!-- Email Integration Row -->
+    <div
+      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+      @click="showEmailModal = true"
+    >
+      <div class="flex items-center">
+        <div class="w-8 h-8 me-4 flex items-center justify-center rounded bg-gray-100">
+          <UIcon name="i-heroicons-envelope" class="w-5 h-5 text-gray-700" />
+        </div>
+        <div>
+          <div class="font-medium">Email</div>
+          <div class="text-sm text-gray-500">
+            <span v-if="emailIntegrated">
+              <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
+            </span>
+            <span v-else>
+              <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
+            </span>
+            <span class="ms-2">— send org email from a mailbox, and optionally email the analyst</span>
+          </div>
+          <div v-if="emailConfig && emailIntegrated" class="text-xs text-gray-400 mt-1">
+            <span>{{ emailConfig.from_address }}</span>
+            <span class="ms-2">{{ emailConfig.inbound_enabled ? 'send + receive' : 'send only' }}</span>
+          </div>
+        </div>
+      </div>
+      <button
+        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+        @click.stop="showEmailModal = true"
+      >
+        {{ emailIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
+      </button>
+    </div>
+
     <!-- Excel Add-in Integration Row -->
     <div
       v-if="excelAddinEnabled"
@@ -205,6 +239,16 @@
       />
     </UModal>
 
+    <!-- Email Integration Modal -->
+    <UModal v-model="showEmailModal" :ui="{ width: 'max-w-lg' }">
+      <EmailIntegrationModal
+        :integrated="emailIntegrated"
+        :integration-data="emailIntegrationData"
+        @close="showEmailModal = false"
+        @updated="fetchIntegrations"
+      />
+    </UModal>
+
     <!-- Excel Add-in Modal -->
     <UModal v-model="showExcelModal" :ui="{ width: 'sm:max-w-3xl' }">
       <ExcelAddinModal
@@ -228,6 +272,7 @@ import { ref, onMounted } from 'vue'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
+import EmailIntegrationModal from '~/components/EmailIntegrationModal.vue'
 import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
 import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -251,6 +296,11 @@ const showWhatsAppModal = ref(false)
 const whatsappIntegrated = ref(false)
 const whatsappConfig = ref<{ phone_number_id?: string; display_phone_number?: string; verified_name?: string; waba_id?: string } | null>(null)
 const whatsappIntegrationData = ref<any>(null)
+
+const showEmailModal = ref(false)
+const emailIntegrated = ref(false)
+const emailConfig = ref<{ from_address?: string; inbound_enabled?: boolean; capabilities?: string[] } | null>(null)
+const emailIntegrationData = ref<any>(null)
 
 // MCP state
 const mcpEnabled = ref(false)
@@ -280,6 +330,11 @@ async function fetchIntegrations() {
   whatsappIntegrated.value = !!whatsapp
   whatsappConfig.value = whatsapp?.platform_config || null
   whatsappIntegrationData.value = whatsapp || null
+
+  const email = integrations.find((i: any) => i.platform_type === 'email' && i.is_active)
+  emailIntegrated.value = !!email
+  emailConfig.value = email?.platform_config || null
+  emailIntegrationData.value = email || null
 }
 
 async function loadMcpState() {

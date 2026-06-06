@@ -124,7 +124,9 @@ client is used (unchanged behavior).
 | API route | `app/routes/external_platform.py` (`POST /settings/integrations/email`) |
 | Notification override | `app/services/notification_service.py` |
 | Poller startup | `main.py` (leader-gated) |
-| Sandbox feedback loop | `backend/email_sandbox/` |
+| Integrations UI card | `frontend/components/EmailIntegrationModal.vue` + `frontend/pages/settings/integrations/index.vue` |
+| Sandbox feedback loop | `backend/email_sandbox/` (30 tests, no DB) |
+| DB-backed e2e | `backend/tests/e2e/test_email_integration.py` (real app + manager) |
 
 ## v1 / v2 sequencing
 
@@ -136,9 +138,11 @@ client is used (unchanged behavior).
   replies and notifications; IMAP IDLE for near-real-time inbound. The connect
   UI becomes "Sign in with Microsoft/Google"; the transport stays IMAP/SMTP.
 
-## Frontend (follow-up)
+## Frontend
 
-The backend exposes `POST /settings/integrations/email`. The integrations page
-needs an Email card with two progressive sections — **Outbound (SMTP, required)**
-and **Receive as a channel (IMAP, optional)** with an allowed-domains field —
-mirroring the Slack/Teams cards. Tracked as a follow-up; not in this change.
+The integrations page has an **Email** card (mirroring Slack/Teams) with a
+two-section progressive form in `EmailIntegrationModal.vue`: **Outbound (SMTP,
+required)** and a **"Receive email as a channel" (IMAP, optional)** toggle that
+reveals IMAP fields, an allowed-domains field, and the auto-link / require-auth
+switches. The connected view shows capabilities (send vs send+receive) and a
+**Test connection** button (`POST /settings/integrations/{id}/test`).
