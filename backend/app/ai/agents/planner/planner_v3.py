@@ -38,6 +38,7 @@ from app.ai.llm.types import (
     ToolUseInputDeltaEvent,
     ToolUseStartEvent,
     UsageEvent,
+    WebSearchCompleteEvent,
     WebSearchResultEvent,
     WebSearchStartEvent,
 )
@@ -55,6 +56,7 @@ from app.schemas.ai.planner_events import (
     PlannerDecisionEvent,
     PlannerEvent,
     PlannerTokenEvent,
+    PlannerWebSearchEvent,
 )
 from app.services.usage_policy_service import UsageLimitContext
 
@@ -224,21 +226,23 @@ class PlannerV3:
                     continue
 
                 if isinstance(evt, WebSearchStartEvent):
-                    # Provider-executed search. Surface it live in the thinking
-                    # box so the user sees the agent reaching out to the web
-                    # (transparency + the data-egress audit trail).
+                    # Provider-executed search begins. We record the tool on
+                    # completion (when the query is available), so just keep
+                    # timing here — no thinking-box text (it renders as a tool).
                     if state.first_token_time is None:
                         state.first_token_time = time.monotonic()
                     state.web_search_count += 1
-                    label = (
-                        f"🔍 Searching the web: {evt.query}"
-                        if evt.query else "🔍 Searching the web…"
-                    )
-                    sep = "\n\n" if (state.thinking_buffer and not state.thinking_buffer.endswith("\n")) else ""
-                    state.thinking_buffer += f"{sep}{label}\n"
-                    yield PlannerDecisionEvent(
-                        type="planner.decision.partial",
-                        data=self._build_decision(state, completed_actions, stop_reason, is_final=False),
+                    continue
+
+                if isinstance(evt, WebSearchCompleteEvent):
+                    # Surface the finished search to the agent so it creates a
+                    # tool-execution record + block (renders like other tools).
+                    yield PlannerWebSearchEvent(
+                        type="planner.web_search",
+                        id=evt.id or f"ws_{state.web_search_count}",
+                        query=evt.query,
+                        queries=list(evt.queries) if evt.queries else None,
+                        status=evt.status,
                     )
                     continue
 

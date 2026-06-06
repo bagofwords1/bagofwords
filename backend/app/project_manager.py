@@ -1113,6 +1113,40 @@ class ProjectManager:
             await self._refresh_with_timeout(db, block, "commit_tool_and_attach_block.block")
         return block
 
+    async def insert_standalone_tool_block(self, db, completion, agent_execution, tool_execution,
+                                           loop_index: int, title: str, icon: str = "🔧",
+                                           block_index: int | None = None):
+        """Insert a CompletionBlock that renders a tool execution on its own
+        (source_type='tool_execution', no plan_decision). Used for provider-
+        executed tools like native web search that aren't planner tool_calls.
+
+        block_index: explicit ordering key. When omitted, derived from a fresh
+        seq. Callers that want the block to sort relative to a sibling decision
+        block (e.g. web searches just before the answer) pass it directly."""
+        if block_index is None:
+            seq = await self.next_seq(db, agent_execution)
+            block_index = int((seq or 0) * 100)
+        block = CompletionBlock(
+            completion_id=str(completion.id),
+            agent_execution_id=str(agent_execution.id),
+            source_type='tool_execution',
+            plan_decision_id=None,
+            tool_execution_id=str(tool_execution.id),
+            block_index=int(block_index),
+            loop_index=loop_index,
+            title=title,
+            status='completed' if getattr(tool_execution, 'success', False) else 'error',
+            icon=icon,
+            content=None,
+            reasoning=None,
+            started_at=getattr(tool_execution, 'started_at', None),
+            completed_at=getattr(tool_execution, 'completed_at', None),
+        )
+        db.add(block)
+        await self._commit_with_timeout(db, "insert_standalone_tool_block")
+        await self._refresh_with_timeout(db, block, "insert_standalone_tool_block")
+        return block
+
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
                                    result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,
                                    error_message=None, token_usage_json=None, context_snapshot_id=None,

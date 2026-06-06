@@ -115,12 +115,24 @@ class WebSearchStartEvent:
     """A provider-executed (server-side) web search has begun.
 
     Unlike function tools, native web search runs *inside* the provider and
-    its results never reach our ToolRunner — they stream back inline. This
-    event lets the UI render a live "Searching the web…" step. `query` is the
-    search string when the provider exposes it (OpenAI Responses surfaces it
-    on the web_search_call item; some providers only signal in-progress)."""
+    its results never reach our ToolRunner — they stream back inline. `id`
+    correlates the start with its completion; `query` is usually absent at
+    start (the provider populates it on the completed item)."""
+    id: str = ""
     query: Optional[str] = None
     type: Literal["web_search_start"] = "web_search_start"
+
+
+@dataclass
+class WebSearchCompleteEvent:
+    """A provider-executed web search call finished. The completed item carries
+    the actual query/queries (the start event does not), so this is what we use
+    to record a tool-execution row for the search."""
+    id: str = ""
+    query: Optional[str] = None
+    queries: Optional[list] = None
+    status: Optional[str] = None
+    type: Literal["web_search_complete"] = "web_search_complete"
 
 
 @dataclass
@@ -183,6 +195,7 @@ LLMStreamEvent = Union[
     ToolUseInputDeltaEvent,
     ToolUseCompleteEvent,
     WebSearchStartEvent,
+    WebSearchCompleteEvent,
     WebSearchResultEvent,
     MessageStopEvent,
     UsageEvent,

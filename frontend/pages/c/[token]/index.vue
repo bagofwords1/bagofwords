@@ -223,6 +223,7 @@ import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
 import ListFilesTool from '~/components/tools/ListFilesTool.vue'
 import ReadFileTool from '~/components/tools/ReadFileTool.vue'
@@ -370,6 +371,8 @@ function getToolComponent(toolName: string) {
             return ExecuteCodeTool
         case 'web_fetch':
             return WebFetchTool
+        case 'web_search':
+            return WebSearchTool
         default:
             return null
     }

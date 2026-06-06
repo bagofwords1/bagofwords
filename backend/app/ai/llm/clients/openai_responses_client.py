@@ -20,6 +20,7 @@ from app.ai.llm.types import (
     ToolUseInputDeltaEvent,
     ToolUseStartEvent,
     UsageEvent,
+    WebSearchCompleteEvent,
     WebSearchResultEvent,
     WebSearchStartEvent,
 )
@@ -268,17 +269,12 @@ class OpenAIResponsesClient(LLMClient):
                     reasoning_active = True
                     yield ReasoningStartEvent()
                 elif itype == "web_search_call":
-                    # Provider-executed search. The query may live on item.action
-                    # (OpenAI Responses) — surface it for the live UI step.
+                    # Provider-executed search begins. The query is not populated
+                    # yet here — it arrives on the completed item (see done).
+                    item_id = getattr(item, "id", "") or ""
                     action = getattr(item, "action", None)
                     query = getattr(action, "query", None) if action else None
-                    yield WebSearchStartEvent(query=query)
-
-            elif etype == "response.web_search_call.searching":
-                # Some payloads only expose the query here rather than on the
-                # output_item. We already emitted a start on output_item.added,
-                # so skip to avoid duplicate "searching" steps.
-                pass
+                    yield WebSearchStartEvent(id=item_id, query=query)
 
             elif etype == "response.output_text.annotation.added":
                 annotation = getattr(event, "annotation", None)
@@ -302,6 +298,14 @@ class OpenAIResponsesClient(LLMClient):
                 if itype == "reasoning" and reasoning_active:
                     reasoning_active = False
                     yield ReasoningCompleteEvent(text="")
+                elif itype == "web_search_call":
+                    # Completed search — the actual query/queries are populated now.
+                    item_id = getattr(item, "id", "") or ""
+                    action = getattr(item, "action", None)
+                    query = getattr(action, "query", None) if action else None
+                    queries = getattr(action, "queries", None) if action else None
+                    status = getattr(item, "status", None)
+                    yield WebSearchCompleteEvent(id=item_id, query=query, queries=queries, status=status)
 
             elif etype == "response.output_text.delta":
                 text = getattr(event, "delta", "") or ""

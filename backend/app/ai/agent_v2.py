@@ -2054,6 +2054,7 @@ class AgentV2:
                     except Exception as _cexc:
                         logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
 
+                _ws_block_count = 0  # native web-search tool blocks emitted this turn
                 async for evt in self._iter_planner_events_with_span(planner_input, loop_index):
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
@@ -2063,7 +2064,58 @@ class AgentV2:
                     if evt.type == "planner.tokens":
                         # Do not forward raw JSON tokens; deltas will be emitted from decision partials
                         continue
-                        
+
+                    elif evt.type == "planner.web_search":
+                        # Native (provider-executed) web search finished during
+                        # planning. Record it as a real tool execution + block so
+                        # it renders like other tools (query in arguments_json).
+                        try:
+                            _q = evt.query or (", ".join(evt.queries) if evt.queries else "")
+                            _queries = evt.queries or ([evt.query] if evt.query else [])
+                            _te = await self.project_manager.start_tool_execution(
+                                self.db,
+                                agent_execution=self.current_execution,
+                                plan_decision_id=None,
+                                tool_name="web_search",
+                                tool_action="search",
+                                arguments_json={"query": _q, "queries": _queries},
+                            )
+                            await self.project_manager.finish_tool_execution(
+                                self.db,
+                                tool_execution=_te,
+                                status="success",
+                                success=True,
+                                result_summary=(f"Searched: {_q}" if _q else "Web search"),
+                                result_json={"query": _q, "queries": _queries, "status": evt.status},
+                            )
+                            # Order just before the planning/answer block of this
+                            # turn (decision block sits at decision_seq*100).
+                            _base_seq = decision_seq if decision_seq is not None else 1
+                            _ws_bi = int(_base_seq) * 100 - 1 - _ws_block_count
+                            _ws_block_count += 1
+                            _ws_block = await self.project_manager.insert_standalone_tool_block(
+                                self.db,
+                                completion=self.system_completion,
+                                agent_execution=self.current_execution,
+                                tool_execution=_te,
+                                loop_index=loop_index,
+                                title="Web search",
+                                icon="🔍",
+                                block_index=_ws_bi,
+                            )
+                            _ws_schema = await serialize_block_v2(self.db, _ws_block)
+                            _ws_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="block.upsert",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=_ws_seq,
+                                data={"block": _ws_schema.model_dump()},
+                            ))
+                        except Exception as _ws_exc:
+                            logger.warning(f"[agent] web_search tool block failed: {_ws_exc!r}")
+                        continue
+
                     elif evt.type == "planner.decision.partial":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
 
