@@ -216,7 +216,9 @@ class OpenAIResponsesClient(LLMClient):
         if use_web_search:
             # Provider-executed server tool. Runs inside the Responses API and
             # streams web_search_call items + url_citation annotations inline.
-            request_tools.append({"type": "web_search"})
+            # search_context_size="high" makes it search more thoroughly and
+            # open more results — measurably better recall on harder pages.
+            request_tools.append({"type": "web_search", "search_context_size": "high"})
         if request_tools:
             request_kwargs["tools"] = request_tools
             # Only constrain parallelism for our function tools; the server-side
