@@ -34,12 +34,36 @@ kept separate from **auth** so the OAuth story slots in later without a rewrite:
 ```
 EmailAdapter — IMAP read + SMTP send  (one codebase, all providers)
   auth_type:
-    "password"   -> self-hosted / app-password mailboxes        (v1, shipped)
-    "xoauth2"    -> Microsoft 365 / Google via OAuth token       (v2, roadmap)
+    "password"   -> on-prem Exchange / app-password mailboxes
+    "microsoft"  -> Microsoft 365 app-only OAuth (XOAUTH2)
+    "google"     -> Google Workspace service account + DWD (XOAUTH2)
 ```
 
-`auth_type` is stored on the integration; v1 ships `password`. The `xoauth2`
-paths are stubbed and clearly marked in `sender.py` / `mailbox_reader.py`.
+`auth_type` is stored on the integration. The transport stays IMAP/SMTP for all
+three; only the **credential on the socket** changes — a password, or an OAuth
+access token applied via the XOAUTH2 SASL mechanism. Token minting lives in
+`app/services/email/oauth.py`:
+
+- **`microsoft`** — OAuth2 client-credentials (app-only). The admin registers an
+  Entra app with `IMAP.AccessAsApp` + `SMTP.SendAsApp` application permissions,
+  grants it access to the one mailbox (`Add-MailboxPermission`), and BOW stores
+  `ms_tenant_id` / `ms_client_id` / `ms_client_secret`. Token scope
+  `https://outlook.office365.com/.default`. Hosts default to Office 365.
+- **`google`** — service account + domain-wide delegation impersonating the
+  mailbox. BOW stores the service-account JSON; token scope
+  `https://mail.google.com/`. Hosts default to Gmail.
+
+Both are **app-level / outbound-only** (no per-user interactive OAuth), which is
+the right model for a single shared org mailbox: BOW dials out to the mailbox,
+so it works for an internal-only BOW against cloud mail and exposes no inbound
+port. Why outbound-only and not "route mail to BOW": a cloud mail service can't
+reach an internal host, so the connection must be initiated by BOW.
+
+Note (Basic Auth is dead, OAuth-over-IMAP/SMTP is not): Microsoft retired Basic
+Auth for IMAP/POP in 2022 and SMTP AUTH is disabled-by-default end of 2026, but
+**OAuth client-credentials for IMAP/SMTP is supported** (`IMAP.AccessAsApp` /
+`SMTP.SendAsApp`). Google killed Basic Auth for IMAP/SMTP in March 2025 but
+supports XOAUTH2. So the IMAP/SMTP transport survives via OAuth tokens.
 
 ## Inbound transport: polling (IMAP)
 
@@ -110,6 +134,7 @@ client is used (unchanged behavior).
 
 | Concern | File |
 |---|---|
+| OAuth token + XOAUTH2 SASL | `app/services/email/oauth.py` |
 | Inbound security gate | `app/services/email/security.py` |
 | Message construction (threading) | `app/services/email/message_builder.py` |
 | SMTP send | `app/services/email/sender.py` |
@@ -125,24 +150,28 @@ client is used (unchanged behavior).
 | Notification override | `app/services/notification_service.py` |
 | Poller startup | `main.py` (leader-gated) |
 | Integrations UI card | `frontend/components/EmailIntegrationModal.vue` + `frontend/pages/settings/integrations/index.vue` |
-| Sandbox feedback loop | `backend/email_sandbox/` (30 tests, no DB) |
+| Sandbox feedback loop | `backend/email_sandbox/` (no DB; incl. XOAUTH2 tests) |
 | DB-backed e2e | `backend/tests/e2e/test_email_integration.py` (real app + manager) |
 
-## v1 / v2 sequencing
+## Status / roadmap
 
-- **v1 (this change):** IMAP/SMTP with `password` auth; one Email card with
-  progressive SMTP→channel capability; per-org outbound override; full security
-  + threading + reattachment; sandbox feedback loop.
-- **v2 (roadmap):** `xoauth2` auth strategy → Microsoft 365 (Entra app
-  registration) + Google (OAuth client) connect flows reused by both analyst
-  replies and notifications; IMAP IDLE for near-real-time inbound. The connect
-  UI becomes "Sign in with Microsoft/Google"; the transport stays IMAP/SMTP.
+- **Done:** IMAP/SMTP transport with `password` + `microsoft` + `google`
+  (XOAUTH2) auth; one Email card with auth-method selector + provider-adaptive
+  form + admin-setup steps; capability tiers (send / send+receive); per-org
+  outbound override; full security + threading + reattachment; sandbox + e2e.
+- **Roadmap:** Graph / Gmail-API transports for **push inbound** (Graph change
+  notifications / Gmail Pub/Sub) behind the same adapter; IMAP IDLE; an OAuth
+  **callback** "Connect Microsoft/Google" button (the form path works today);
+  a "Continue in BOW" deep link in outbound mail. These can't be end-to-end
+  tested without a live tenant, so they're staged separately.
 
 ## Frontend
 
-The integrations page has an **Email** card (mirroring Slack/Teams) with a
-two-section progressive form in `EmailIntegrationModal.vue`: **Outbound (SMTP,
-required)** and a **"Receive email as a channel" (IMAP, optional)** toggle that
-reveals IMAP fields, an allowed-domains field, and the auto-link / require-auth
-switches. The connected view shows capabilities (send vs send+receive) and a
-**Test connection** button (`POST /settings/integrations/{id}/test`).
+The integrations page has an **Email** card (mirroring Slack/Teams). The modal
+(`EmailIntegrationModal.vue`) has an **auth-method selector** — Password /
+Microsoft 365 / Google Workspace — that swaps the fields (SMTP creds vs Entra
+app creds vs service-account JSON), a **"Receive email as a channel"** toggle,
+an allowed-domains field, and a collapsible **admin-setup steps** panel per
+provider. The connected view shows the auth type + capabilities and a **Test
+connection** button (`POST /settings/integrations/{id}/test`, which for OAuth
+mints a real token and authenticates via XOAUTH2).

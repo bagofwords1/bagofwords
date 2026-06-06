@@ -56,33 +56,53 @@ class WhatsAppConfig(BaseModel):
 class EmailConfig(BaseModel):
     """Email integration config.
 
-    SMTP fields are required (outbound transport). IMAP fields are optional —
-    when provided, the integration also becomes a conversational channel (the
-    analyst can be emailed). One integration, capability derived from fields.
+    The mailbox model: the analyst owns a mailbox and BOW connects to it
+    outbound-only (send via SMTP, receive via IMAP). ``auth_type`` selects how
+    BOW authenticates to that mailbox:
+
+    - ``password``  — host/port/username/password (on-prem Exchange, app password)
+    - ``microsoft`` — Microsoft 365 app-only OAuth (XOAUTH2); needs an Entra app
+      (tenant_id/client_id/client_secret) with IMAP.AccessAsApp + SMTP.SendAsApp
+      granted access to the mailbox. Hosts default to Office 365.
+    - ``google``    — Google Workspace service account + domain-wide delegation
+      (XOAUTH2). Needs the service-account JSON; hosts default to Gmail.
+
+    For OAuth auth types, host/port are optional (provider defaults are applied)
+    and passwords are not used.
     """
 
-    # --- Outbound (required) ---
-    smtp_host: str
-    smtp_port: int = 587
-    smtp_username: str
-    smtp_password: str
-    smtp_security: str = "starttls"  # "starttls" | "ssl" | "none"
-    from_address: Optional[str] = None  # defaults to smtp_username
+    # "password" | "microsoft" | "google"
+    auth_type: str = "password"
+
+    # --- Outbound / mailbox identity ---
+    from_address: Optional[str] = None  # the mailbox; defaults to smtp_username
     from_name: Optional[str] = "Bag of words Analyst"
+    smtp_host: Optional[str] = None  # required for password; defaulted for OAuth
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_security: str = "starttls"  # "starttls" | "ssl" | "none"
 
     # --- Inbound (optional -> turns it into a channel) ---
     imap_host: Optional[str] = None
-    imap_port: int = 993
+    imap_port: Optional[int] = None
     imap_username: Optional[str] = None
     imap_password: Optional[str] = None
     imap_use_ssl: bool = True
     imap_mailbox: str = "INBOX"
+    inbound_enabled: bool = False  # explicit toggle; also inferred from imap creds
+
+    # --- Microsoft 365 app-only OAuth ---
+    ms_tenant_id: Optional[str] = None
+    ms_client_id: Optional[str] = None
+    ms_client_secret: Optional[str] = None
+
+    # --- Google Workspace service account (DWD) ---
+    # The full service-account JSON, as an object or a JSON string.
+    google_service_account_json: Optional[Any] = None
 
     # --- Channel behavior / security ---
     allowed_domains: List[str] = Field(default_factory=list)
     auto_link_by_email: bool = True
     require_auth_pass: bool = True
-
-    # "password" | "xoauth2" (v1 ships password)
-    auth_type: str = "password"
     webhook_endpoint: Optional[str] = None

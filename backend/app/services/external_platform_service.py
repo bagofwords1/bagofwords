@@ -270,6 +270,21 @@ class ExternalPlatformService:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
+    @staticmethod
+    def _email_provider_defaults(auth_type: str) -> dict:
+        """Default SMTP/IMAP hosts for the OAuth providers."""
+        if auth_type == "microsoft":
+            return {
+                "smtp_host": "smtp.office365.com", "smtp_port": 587, "smtp_security": "starttls",
+                "imap_host": "outlook.office365.com", "imap_port": 993, "imap_use_ssl": True,
+            }
+        if auth_type == "google":
+            return {
+                "smtp_host": "smtp.gmail.com", "smtp_port": 587, "smtp_security": "starttls",
+                "imap_host": "imap.gmail.com", "imap_port": 993, "imap_use_ssl": True,
+            }
+        return {}
+
     async def _test_email_connection(self, platform: ExternalPlatform) -> dict:
         """Test Email connection: verify SMTP, and IMAP if inbound is configured."""
         creds = platform.decrypt_credentials()
@@ -277,22 +292,35 @@ class ExternalPlatformService:
         return await self._test_email_credentials(creds, cfg)
 
     async def _test_email_credentials(self, creds: dict, cfg: dict) -> dict:
-        """Validate SMTP (always) and IMAP (if present) connectivity."""
+        """Validate SMTP (always) and IMAP (if inbound) connectivity.
+
+        For OAuth auth types this mints a real token and authenticates with
+        XOAUTH2 (SMTP AUTH XOAUTH2 / IMAP AUTHENTICATE XOAUTH2) without sending.
+        """
+        import asyncio
+        import aiosmtplib
         from app.services.email.sender import SmtpConfig
         from app.services.email.mailbox_reader import ImapConfig
+        from app.services.email.oauth import OAuthSettings, get_xoauth2_string
 
         result = {"success": True, "smtp": None, "imap": None}
+        auth_type = creds.get("auth_type") or cfg.get("auth_type") or "password"
+        oauth = OAuthSettings.from_credentials(creds, cfg)
 
-        # SMTP: connect + (optionally) authenticate, then quit. We don't send.
+        # Mint the token once (reused for SMTP + IMAP) for OAuth auth types.
+        sasl = None
+        if auth_type in ("microsoft", "google"):
+            try:
+                sasl = await get_xoauth2_string(oauth)
+            except Exception as e:
+                return {"success": False, "smtp": f"oauth token failed: {e}", "imap": None}
+
+        # SMTP probe.
         try:
-            import aiosmtplib
-
             smtp = SmtpConfig.from_credentials(creds, cfg).resolved()
             client = aiosmtplib.SMTP(
-                hostname=smtp.host,
-                port=smtp.port,
-                use_tls=(smtp.security == "ssl"),
-                timeout=15,
+                hostname=smtp.host, port=smtp.port,
+                use_tls=(smtp.security == "ssl"), timeout=15,
             )
             await client.connect()
             if smtp.security == "starttls":
@@ -300,28 +328,31 @@ class ExternalPlatformService:
                     await client.starttls()
                 except Exception:
                     pass
-            if smtp.auth_type == "password" and smtp.username and smtp.password:
+            if sasl is not None:
+                code, msg = await client.execute_command(b"AUTH", b"XOAUTH2", sasl.encode("ascii"))
+                if code != 235:
+                    return {"success": False, "smtp": f"xoauth2 rejected ({code})", "imap": None}
+            elif smtp.auth_type == "password" and smtp.username and smtp.password:
                 await client.login(smtp.username, smtp.password)
             await client.quit()
             result["smtp"] = "ok"
         except Exception as e:
             return {"success": False, "smtp": f"failed: {e}", "imap": None}
 
-        # IMAP: only if inbound configured.
+        # IMAP probe (only if inbound configured).
         imap = ImapConfig.from_credentials(creds, cfg)
-        if imap.host:
+        if imap.host and (cfg.get("inbound_enabled") or auth_type == "password"):
             try:
-                import asyncio
-
                 def _probe():
                     import imaplib
-
                     conn = (
                         imaplib.IMAP4_SSL(imap.host, imap.port)
-                        if imap.use_ssl
-                        else imaplib.IMAP4(imap.host, imap.port)
+                        if imap.use_ssl else imaplib.IMAP4(imap.host, imap.port)
                     )
-                    conn.login(imap.username, imap.password)
+                    if sasl is not None:
+                        conn.authenticate("XOAUTH2", lambda _c: sasl.encode("ascii"))
+                    else:
+                        conn.login(imap.username, imap.password)
                     conn.select(imap.mailbox)
                     conn.logout()
 
@@ -351,41 +382,77 @@ class ExternalPlatformService:
                 detail="Email integration already exists for this organization",
             )
 
-        inbound_enabled = bool(data.imap_host and data.imap_username)
-        from_address = data.from_address or data.smtp_username
+        auth_type = data.auth_type or "password"
+        defaults = self._email_provider_defaults(auth_type)
+        from_address = data.from_address or data.smtp_username or data.imap_username
+
+        # Resolve effective hosts/ports (provider defaults for OAuth types).
+        smtp_host = data.smtp_host or defaults.get("smtp_host")
+        smtp_port = data.smtp_port or defaults.get("smtp_port") or 587
+        smtp_security = data.smtp_security or defaults.get("smtp_security") or "starttls"
+        imap_host = data.imap_host or defaults.get("imap_host")
+        imap_port = data.imap_port or defaults.get("imap_port") or 993
+        imap_use_ssl = data.imap_use_ssl if data.imap_use_ssl is not None else True
+
+        # For OAuth the mailbox address is the SMTP/IMAP "user"; default it.
+        smtp_username = data.smtp_username or (from_address if auth_type != "password" else None)
+        imap_username = data.imap_username or (from_address if auth_type != "password" else None)
+
+        # Inbound: for OAuth, hosts are defaulted so the explicit toggle decides;
+        # for password it's inferred from IMAP creds (or the toggle).
+        if auth_type == "password":
+            inbound_enabled = bool(imap_host and imap_username) or bool(data.inbound_enabled)
+        else:
+            inbound_enabled = bool(data.inbound_enabled)
+
+        # Parse the Google service-account JSON (accept a dict or a JSON string).
+        google_sa = data.google_service_account_json
+        if isinstance(google_sa, str) and google_sa.strip():
+            try:
+                google_sa = json.loads(google_sa)
+            except Exception:
+                raise HTTPException(status_code=400, detail="google_service_account_json is not valid JSON")
 
         # Non-secret config (drives capability + channel behavior).
         platform_config = {
             "from_address": from_address,
             "from_name": data.from_name,
-            "smtp_host": data.smtp_host,
-            "smtp_port": data.smtp_port,
-            "smtp_security": data.smtp_security,
-            "imap_host": data.imap_host,
-            "imap_port": data.imap_port,
-            "imap_use_ssl": data.imap_use_ssl,
+            "auth_type": auth_type,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_security": smtp_security,
+            "imap_host": imap_host if inbound_enabled else None,
+            "imap_port": imap_port,
+            "imap_use_ssl": imap_use_ssl,
             "imap_mailbox": data.imap_mailbox,
             "inbound_enabled": inbound_enabled,
             "allowed_domains": data.allowed_domains,
             "auto_link_by_email": data.auto_link_by_email,
             "require_auth_pass": data.require_auth_pass,
-            "auth_type": data.auth_type,
+            # Non-secret OAuth identifiers (kept in config for display/refresh).
+            "ms_tenant_id": data.ms_tenant_id,
+            "ms_client_id": data.ms_client_id,
             "capabilities": ["send", "receive"] if inbound_enabled else ["send"],
         }
 
         # Secrets (encrypted at rest).
         credentials = {
-            "smtp_host": data.smtp_host,
-            "smtp_port": data.smtp_port,
-            "smtp_username": data.smtp_username,
-            "smtp_password": data.smtp_password,
-            "smtp_security": data.smtp_security,
+            "auth_type": auth_type,
             "from_address": from_address,
-            "auth_type": data.auth_type,
-            "imap_host": data.imap_host,
-            "imap_port": data.imap_port,
-            "imap_username": data.imap_username,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_security": smtp_security,
+            "smtp_username": smtp_username,
+            "smtp_password": data.smtp_password,
+            "imap_host": imap_host,
+            "imap_port": imap_port,
+            "imap_username": imap_username,
             "imap_password": data.imap_password,
+            # OAuth secrets
+            "ms_tenant_id": data.ms_tenant_id,
+            "ms_client_id": data.ms_client_id,
+            "ms_client_secret": data.ms_client_secret,
+            "google_service_account_info": google_sa,
         }
 
         # Validate connectivity before persisting.

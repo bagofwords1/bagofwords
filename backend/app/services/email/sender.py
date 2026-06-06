@@ -20,6 +20,8 @@ from typing import Optional
 
 import aiosmtplib
 
+from app.services.email.oauth import OAuthSettings, get_xoauth2_string
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,23 +33,27 @@ class SmtpConfig:
     password: Optional[str] = None
     # "starttls" | "ssl" | "none"
     security: str = "starttls"
-    # "password" | "xoauth2"  (v1 ships "password"; xoauth2 is a future strategy)
+    # "password" | "microsoft" | "google"
     auth_type: str = "password"
     validate_certs: bool = True
+    # Present when auth_type is an OAuth provider; carries the token-minting creds.
+    oauth: Optional[OAuthSettings] = None
 
     @classmethod
     def from_credentials(cls, creds: dict, config: Optional[dict] = None) -> "SmtpConfig":
         """Build from a platform's decrypted credentials + non-secret config."""
         creds = creds or {}
         config = config or {}
+        auth_type = creds.get("auth_type") or config.get("auth_type") or "password"
         return cls(
             host=creds.get("smtp_host") or config.get("smtp_host"),
             port=int(creds.get("smtp_port") or config.get("smtp_port") or 587),
             username=creds.get("smtp_username") or creds.get("username"),
             password=creds.get("smtp_password") or creds.get("password"),
             security=(creds.get("smtp_security") or config.get("smtp_security") or "starttls"),
-            auth_type=(creds.get("auth_type") or config.get("auth_type") or "password"),
+            auth_type=auth_type,
             validate_certs=bool(config.get("validate_certs", True)),
+            oauth=OAuthSettings.from_credentials(creds, config),
         )
 
     def resolved(self) -> "SmtpConfig":
@@ -65,7 +71,58 @@ class SmtpConfig:
             security="none",
             auth_type=self.auth_type,
             validate_certs=False,
+            oauth=self.oauth,
         )
+
+
+def _tls_context(cfg: SmtpConfig):
+    if cfg.validate_certs:
+        return None
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+async def _send_xoauth2(cfg: SmtpConfig, msg: EmailMessage) -> bool:
+    """Send using an OAuth access token via the XOAUTH2 SASL mechanism.
+
+    Used for Microsoft 365 (app-only) and Google Workspace (service account)
+    where Basic Auth is unavailable. We drive the aiosmtplib client manually
+    because ``aiosmtplib.send`` only does password AUTH.
+    """
+    sasl = await get_xoauth2_string(cfg.oauth)
+    client = aiosmtplib.SMTP(
+        hostname=cfg.host,
+        port=cfg.port,
+        use_tls=(cfg.security == "ssl"),
+        tls_context=_tls_context(cfg),
+        timeout=30,
+    )
+    await client.connect()
+    try:
+        if cfg.security == "starttls":
+            await client.starttls(tls_context=_tls_context(cfg))
+        # AUTH XOAUTH2 <base64 initial response>
+        code, message = await client.execute_command(
+            b"AUTH", b"XOAUTH2", sasl.encode("ascii")
+        )
+        if code != 235:
+            # On failure servers send a 334 base64 error; send an empty line to
+            # surface it, then bail.
+            try:
+                await client.execute_command(b"")
+            except Exception:  # noqa: BLE001
+                pass
+            logger.warning("EMAIL_SENDER: XOAUTH2 auth failed (%s): %s", code, message)
+            return False
+        await client.send_message(msg)
+        return True
+    finally:
+        try:
+            await client.quit()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def send_message(cfg: SmtpConfig, msg: EmailMessage) -> bool:
@@ -75,29 +132,25 @@ async def send_message(cfg: SmtpConfig, msg: EmailMessage) -> bool:
         logger.warning("EMAIL_SENDER: no SMTP host configured")
         return False
 
-    use_tls = cfg.security == "ssl"
-    start_tls = cfg.security == "starttls"
-
-    tls_context = None
-    if (use_tls or start_tls) and not cfg.validate_certs:
-        tls_context = ssl.create_default_context()
-        tls_context.check_hostname = False
-        tls_context.verify_mode = ssl.CERT_NONE
-
-    kwargs = dict(
-        hostname=cfg.host,
-        port=cfg.port,
-        use_tls=use_tls,
-        start_tls=start_tls if start_tls else None,
-        timeout=30,
-    )
-    if tls_context is not None:
-        kwargs["tls_context"] = tls_context
-    if cfg.auth_type == "password" and cfg.username and cfg.password:
-        kwargs["username"] = cfg.username
-        kwargs["password"] = cfg.password
-
     try:
+        if cfg.auth_type in ("microsoft", "google") and cfg.oauth:
+            return await _send_xoauth2(cfg, msg)
+
+        use_tls = cfg.security == "ssl"
+        start_tls = cfg.security == "starttls"
+        kwargs = dict(
+            hostname=cfg.host,
+            port=cfg.port,
+            use_tls=use_tls,
+            start_tls=start_tls if start_tls else None,
+            timeout=30,
+        )
+        tls_context = _tls_context(cfg)
+        if tls_context is not None:
+            kwargs["tls_context"] = tls_context
+        if cfg.auth_type == "password" and cfg.username and cfg.password:
+            kwargs["username"] = cfg.username
+            kwargs["password"] = cfg.password
         await aiosmtplib.send(msg, **kwargs)
         return True
     except Exception as e:  # noqa: BLE001 — transport errors must not crash the agent

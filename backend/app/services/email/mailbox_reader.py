@@ -32,9 +32,12 @@ class ImapConfig:
     use_ssl: bool = True
     mailbox: str = "INBOX"
     auth_type: str = "password"
+    oauth: object = None  # OAuthSettings when auth_type is microsoft/google
 
     @classmethod
     def from_credentials(cls, creds: dict, config: Optional[dict] = None) -> "ImapConfig":
+        from app.services.email.oauth import OAuthSettings
+
         creds = creds or {}
         config = config or {}
         return cls(
@@ -45,6 +48,7 @@ class ImapConfig:
             use_ssl=bool(config.get("imap_use_ssl", True)),
             mailbox=config.get("imap_mailbox", "INBOX"),
             auth_type=(creds.get("auth_type") or config.get("auth_type") or "password"),
+            oauth=OAuthSettings.from_credentials(creds, config),
         )
 
 
@@ -95,20 +99,31 @@ class ImapMailboxReader(MailboxReader):
     def __init__(self, config: ImapConfig) -> None:
         self.config = config
 
-    def _connect(self) -> imaplib.IMAP4:
+    def _connect(self, xoauth2: Optional[str] = None) -> imaplib.IMAP4:
         cfg = self.config
         if cfg.use_ssl:
             conn = imaplib.IMAP4_SSL(cfg.host, cfg.port)
         else:
             conn = imaplib.IMAP4(cfg.host, cfg.port)
-        if cfg.auth_type == "xoauth2":
-            # Future: SASL XOAUTH2. Placeholder so the path is explicit.
-            raise NotImplementedError("xoauth2 IMAP auth is a future strategy")
-        conn.login(cfg.username, cfg.password)
+        if cfg.auth_type in ("microsoft", "google"):
+            # SASL XOAUTH2: the token string is minted in the async layer and
+            # passed in; imaplib hands the server our initial response.
+            if not xoauth2:
+                raise ValueError("xoauth2 token required for OAuth IMAP auth")
+            conn.authenticate("XOAUTH2", lambda _challenge: xoauth2.encode("ascii"))
+        else:
+            conn.login(cfg.username, cfg.password)
         return conn
 
-    def _fetch_unseen_blocking(self) -> List[Tuple[str, bytes]]:
-        conn = self._connect()
+    async def _xoauth2_string(self) -> Optional[str]:
+        if self.config.auth_type in ("microsoft", "google") and self.config.oauth:
+            from app.services.email.oauth import get_xoauth2_string
+
+            return await get_xoauth2_string(self.config.oauth)
+        return None
+
+    def _fetch_unseen_blocking(self, xoauth2: Optional[str] = None) -> List[Tuple[str, bytes]]:
+        conn = self._connect(xoauth2)
         out: List[Tuple[str, bytes]] = []
         try:
             conn.select(self.config.mailbox)
@@ -129,8 +144,8 @@ class ImapMailboxReader(MailboxReader):
                 pass
         return out
 
-    def _mark_seen_blocking(self, uid: str) -> None:
-        conn = self._connect()
+    def _mark_seen_blocking(self, uid: str, xoauth2: Optional[str] = None) -> None:
+        conn = self._connect(xoauth2)
         try:
             conn.select(self.config.mailbox)
             conn.store(uid, "+FLAGS", "\\Seen")
@@ -142,13 +157,15 @@ class ImapMailboxReader(MailboxReader):
 
     async def fetch_unseen(self) -> List[Tuple[str, bytes]]:
         try:
-            return await asyncio.to_thread(self._fetch_unseen_blocking)
+            token = await self._xoauth2_string()
+            return await asyncio.to_thread(self._fetch_unseen_blocking, token)
         except Exception as e:  # noqa: BLE001
             logger.warning("IMAP fetch failed for %s: %s", self.config.host, e)
             return []
 
     async def mark_seen(self, uid: str) -> None:
         try:
-            await asyncio.to_thread(self._mark_seen_blocking, uid)
+            token = await self._xoauth2_string()
+            await asyncio.to_thread(self._mark_seen_blocking, uid, token)
         except Exception as e:  # noqa: BLE001
             logger.warning("IMAP mark_seen failed for uid %s: %s", uid, e)

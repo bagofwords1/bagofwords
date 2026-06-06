@@ -19,7 +19,7 @@ cd backend/email_sandbox
 python -m pytest            # asyncio_mode=auto via pytest.ini
 ```
 
-Expected: **30 passed**.
+Expected: **40 passed**.
 
 ## What each file proves
 
@@ -29,6 +29,7 @@ Expected: **30 passed**.
 | `test_email_resolver.py` | Org Email integration **overrides global SMTP**; SMTP-only still overrides; fallback to global; capability tiers (`send` vs `send+receive`). |
 | `test_email_poller.py` | Authentic mail routed to the agent; spoof/off-allowlist blocked; duplicate `Message-ID` skipped — all with a `FakeMailboxReader`, no IMAP server. |
 | `test_email_adapter.py` | Inbound parse; new-thread vs reply (`References` root); quoted-history + signature stripping; sender-as-identity. |
+| `test_email_oauth.py` | XOAUTH2 SASL formatting; Microsoft client-credentials token (mocked HTTP); Google service-account dispatch (mocked); `SmtpConfig`/`ImapConfig` carry the OAuth settings; provider dispatch. |
 | `test_email_sandbox_loop.py` | **End-to-end against a live SMTP server:** (1) SMTP-only sends + overrides global; (2) full integration: inbound → poller → adapter → threaded reply chained via `In-Reply-To`/`References`; (3) agent-initiated email → user reply re-attaches to the same report via the thread root; (4) spoofed reply blocked at the boundary. |
 
 ## How it maps to the requirements
