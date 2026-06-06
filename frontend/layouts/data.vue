@@ -76,7 +76,10 @@
                                         +{{ integration.connections.length - 4 }}
                                     </span>
                                 </template>
-                                <span v-else class="text-xs text-gray-400 italic">No connections</span>
+                                <span v-else class="flex items-center gap-1.5 text-xs text-gray-400">
+                                    <AgentIcon class="h-3.5 w-3.5" />
+                                    <span class="italic">No connections</span>
+                                </span>
 
                                 <template v-if="(catalog.shouldShow && catalog.count > 0) || connectionCount > 0">
                                     <template v-if="catalog.shouldShow">
@@ -166,6 +169,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import AgentIcon from '~/components/icons/AgentIcon.vue'
 import {
     getEffectiveStatus,
     hasAnyActiveIndexing,
