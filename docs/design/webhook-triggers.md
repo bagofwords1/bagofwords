@@ -354,8 +354,63 @@ once on creation (ApiKey precedent). UI shows the GitHub-ready payload URL.
 - The TraceModal endpoint (`GET /console/agent_executions/by-completion/...`)
   includes hidden completions. Add an **"Inbound trigger"** section showing:
   raw (truncated) payload, normalized summary, the classifier decision
-  (`act`, `confidence`, `reason`, model id), and the resulting agent execution
-  link. This is the existing "internal steps" treatment extended to webhooks.
+  (`act`, `confidence`, `reason`, `task`, model id), and the resulting agent
+  execution link. This is the existing "internal steps" treatment extended to
+  webhooks.
+
+### Configure Webhook modal — `frontend/components/report/ChatSummary.vue` + new `WebhookConfigModal.vue`
+
+The Summary tab (`ChatSummary.vue`) already lists per-report config (Scheduled
+Tasks, Artifacts, Queries, Instructions). Webhooks belong there. Add:
+
+1. A **"Webhooks"** section (same `<section>` + uppercase-label styling as the
+   others) listing existing webhooks for the report — each row shows the source
+   **icon**, name, active toggle, and `last_delivery_at`.
+2. A subtle **"+ Configure webhook"** button pinned at the **bottom** of the
+   Summary tab (below the sections), opening `WebhookConfigModal.vue`.
+
+The modal is **generic** (GitHub is just the first preset — the source list is
+data-driven so new sources don't need UI changes):
+
+```
+┌─ Configure webhook ─────────────────────────────┐
+│  Name        [ PR triage              ]          │
+│  Source      [ ⬡ GitHub ▾ ]  ← icon + preset;    │
+│                                "Generic" option   │
+│  Target URL  https://host/webhooks/whk_a1b2c3…   │
+│              [ copy ]   (read-only, generated)    │
+│  Signing key ••••••••••••  [ copy ] [ ↻ refresh ]│
+│  Events      [x] only act on: opened  (filters)   │
+│  [x] AI classifier decides whether to respond     │
+│                                                   │
+│              [ Cancel ]            [ Save ]        │
+└───────────────────────────────────────────────────┘
+```
+
+**On your "key" question — recommendation: a per-webhook signing key, not the
+org API key.** Reasoning:
+
+- The existing `ApiKey` (`bow_…`) authenticates the *whole* BOW API as a
+  user/org. Pasting that into GitHub's webhook config would hand an external
+  system full API access — too broad, and not revocable per source.
+- Instead, each webhook gets its **own** generated **signing key** (the
+  `secret_encrypted` field) — scoped to one report, one source, independently
+  revocable. This is the standard webhook model (GitHub/Stripe/Slack all do per-
+  hook secrets).
+- **"Add new" / "refresh"** → the modal generates the key on create and offers
+  **↻ refresh** to rotate it (re-encrypts `secret_encrypted`, invalidates the old
+  one). Shown once in full on create/rotate, masked afterwards (ApiKey UX
+  precedent).
+- **Target URL** is generated (contains the opaque `token`), read-only, copyable.
+  The user pastes URL + signing key into GitHub (or any source).
+- **Generic sources**: GitHub verifies via `X-Hub-Signature-256` HMAC; a
+  "Generic" source verifies a simpler shared-secret header
+  (`Authorization: Bearer <signing key>`) so non-HMAC callers (cron jobs, curl,
+  Zapier) work too. The adapter declares which scheme it uses.
+
+So: **two values the user copies** — the *target URL* (where to send) and the
+*signing key* (how we trust it) — plus a source preset that picks the icon +
+verification scheme. No dependency on the org API key.
 
 ---
 
@@ -363,7 +418,7 @@ once on creation (ApiKey precedent). UI shows the GitHub-ready payload URL.
 
 | Concern | Mitigation |
 |---------|------------|
-| Guessable endpoint / spoofed events | Per-webhook secret + **HMAC-SHA256 on raw body** (`X-Hub-Signature-256`), constant-time compare, reject `401` on mismatch |
+| Guessable endpoint / spoofed events | Per-webhook signing key. GitHub source → **HMAC-SHA256 on raw body** (`X-Hub-Signature-256`), constant-time compare. Generic source → shared-secret `Authorization: Bearer`. Reject `401` on mismatch |
 | Replay / retries | Dedup on `X-GitHub-Delivery` via `external_message_id` |
 | External party drives LLM spend | `classify_enabled` gate + small model + `event_filters` pre-filter + concurrency semaphore + per-org rate limit |
 | **Prompt injection** (PR title/body) | All webhook text wrapped as delimited **data, never instructions**; classifier output constrained to binary JSON; same untrusted-data discipline carried into the agent prompt |
@@ -396,14 +451,102 @@ Repo → **Settings → Webhooks → Add webhook**:
 
 ---
 
+## Testing (sandbox-feedback-loop)
+
+We dogfood the local dev loop documented in
+`docs/design/sandbox-feedback-loop.md`: `python main.py` + `yarn dev`, SQLite at
+`backend/db/app.db`, JWT + org id in `backend/sandbox_state.json`, curl to drive
+the API and Playwright for the UI.
+
+**UI setup path (what a tester clicks):**
+
+1. Log into the sandbox (`sandbox@bow.dev`), open/create a report.
+2. Summary tab → **+ Configure webhook** → pick **Generic** source → Save.
+3. Copy the **Target URL** + **signing key** from the modal.
+4. Run the mock script below against that URL/key.
+5. Watch the event entry appear in chat (👀 → ✅) and inspect the decision in the
+   TraceModal. Validate with Playwright screenshots; inspect DB state with
+   `sqlite3 backend/db/app.db "select role,status,is_hidden from completions …"`.
+
+**Mock trigger script — `backend/scripts/mock_webhook.py`** (ships with the
+feature). Simulates an external source (GitHub-style or generic) hitting the
+receiver with a correctly-signed body, so we can exercise the full path without a
+real repo:
+
+```python
+# Usage:
+#   python backend/scripts/mock_webhook.py \
+#       --url http://localhost:8000/webhooks/whk_xxx \
+#       --secret <signing-key> [--source github|generic] [--action opened]
+import argparse, hashlib, hmac, json, sys, urllib.request
+
+def build_pr_payload(action: str) -> dict:
+    return {
+        "action": action,
+        "pull_request": {
+            "title": "Fix auth timeout on token refresh",
+            "html_url": "https://github.com/acme/app/pull/42",
+            "user": {"login": "alice"},
+            "body": "Refresh tokens were expiring early. This patches the clock skew.",
+            "base": {"ref": "main"},
+        },
+        "repository": {"full_name": "acme/app"},
+    }
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", required=True)
+    ap.add_argument("--secret", required=True)
+    ap.add_argument("--source", default="github", choices=["github", "generic"])
+    ap.add_argument("--action", default="opened")
+    ap.add_argument("--delivery", default="mock-delivery-0001")  # dedup key
+    args = ap.parse_args()
+
+    body = json.dumps(build_pr_payload(args.action)).encode()
+    headers = {"Content-Type": "application/json"}
+
+    if args.source == "github":
+        sig = hmac.new(args.secret.encode(), body, hashlib.sha256).hexdigest()
+        headers["X-Hub-Signature-256"] = f"sha256={sig}"
+        headers["X-GitHub-Event"] = "pull_request"
+        headers["X-GitHub-Delivery"] = args.delivery
+    else:  # generic: shared-secret bearer
+        headers["Authorization"] = f"Bearer {args.secret}"
+        headers["X-Webhook-Id"] = args.delivery
+
+    req = urllib.request.Request(args.url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req) as resp:
+        print(resp.status, resp.read().decode())
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+This gives a deterministic harness: re-running with the same `--delivery` proves
+idempotency/dedup; flipping `--action` proves the `event_filters` pre-filter;
+tampering the body without re-signing proves HMAC rejection (`401`). For M2, the
+classifier path can be asserted by seeding a report instruction (e.g. "open a
+triage analysis on every new PR") via curl, firing the mock, then checking that a
+hidden trigger completion + agent run appears.
+
+**Automated tests:** an e2e test (`TESTING=true pytest -s -m e2e --db=sqlite`)
+posts a signed body to the receiver and asserts the `role='external'` completion,
+the `is_hidden` trigger completion, and the dedup behavior — reusing the existing
+e2e fixtures.
+
+---
+
 ## Phasing
 
-1. **M1 — Alert-only**: `Webhook` model, receiver + HMAC + dedup, GitHub adapter,
-   visible event entry. No classifier, no agent. (`classify_enabled=false`.)
-2. **M2 — Classifier gate**: `WebhookClassifier` under `/ai`, hidden trigger
-   completion, 👀/✅ status, agent run on `act=true`, TraceModal section.
-3. **M3 — Polish**: human override, per-org rate limits, secret rotation UI,
-   more adapters (generic JSON, GitLab…).
+1. **M1 — Alert-only + config UI + harness**: `Webhook` model + CRUD, receiver +
+   HMAC/bearer + dedup, GitHub **and** generic adapters, the **Configure Webhook
+   modal** in the Summary tab, the visible `role='external'` event entry, and the
+   `mock_webhook.py` harness. No classifier, no agent. (`classify_enabled=false`.)
+2. **M2 — Classifier gate**: `WebhookClassifier` under `/ai` (instructions +
+   history context, authors `task`), hidden trigger completion, 👀/✅ status,
+   agent run on `act=true`, TraceModal section.
+3. **M3 — Polish**: human override, per-org rate limits, key rotation UI,
+   confidence threshold, more adapters (GitLab, Stripe…).
 
 ---
 
