@@ -111,6 +111,31 @@ class ToolUseCompleteEvent:
 
 
 @dataclass
+class WebSearchStartEvent:
+    """A provider-executed (server-side) web search has begun.
+
+    Unlike function tools, native web search runs *inside* the provider and
+    its results never reach our ToolRunner — they stream back inline. This
+    event lets the UI render a live "Searching the web…" step. `query` is the
+    search string when the provider exposes it (OpenAI Responses surfaces it
+    on the web_search_call item; some providers only signal in-progress)."""
+    query: Optional[str] = None
+    type: Literal["web_search_start"] = "web_search_start"
+
+
+@dataclass
+class WebSearchResultEvent:
+    """A citation surfaced by a provider-executed web search.
+
+    Emitted per source the model cites in its answer. OpenAI Responses sends
+    these as `url_citation` annotations on the output text; Anthropic as
+    citations on text blocks. Carries enough to render a footnote/link."""
+    url: str = ""
+    title: Optional[str] = None
+    type: Literal["web_search_result"] = "web_search_result"
+
+
+@dataclass
 class MessageStopEvent:
     """End of the message. stop_reason normalized across providers."""
     stop_reason: Literal["end_turn", "tool_use", "max_tokens", "stop_sequence", "other"] = "other"
@@ -157,6 +182,8 @@ LLMStreamEvent = Union[
     ToolUseStartEvent,
     ToolUseInputDeltaEvent,
     ToolUseCompleteEvent,
+    WebSearchStartEvent,
+    WebSearchResultEvent,
     MessageStopEvent,
     UsageEvent,
     ReasoningStartEvent,
