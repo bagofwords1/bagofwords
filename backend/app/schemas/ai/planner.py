@@ -58,6 +58,9 @@ class PlannerDecision(BaseModel):
     streaming_complete: bool = False
     metrics: Optional[PlannerMetrics] = None
     error: Optional[PlannerError] = None
+    # Sources cited by native web search this turn (turn-level; the provider
+    # surfaces citations on the answer, not per search call). [{title, url}]
+    web_search_citations: List[Dict[str, str]] = []
 
 
 class PlannerInput(BaseModel):

@@ -24,6 +24,21 @@
     <div v-if="extraQueries.length" class="mt-1 ms-4 text-[11px] text-gray-400 space-y-0.5">
       <div v-for="(q, i) in extraQueries" :key="i" class="truncate max-w-[360px]">“{{ q }}”</div>
     </div>
+
+    <!-- Sources found this turn (turn-level citations from the provider) -->
+    <div v-if="sources.length" class="mt-1.5 ms-4 space-y-0.5">
+      <a
+        v-for="(s, i) in sources"
+        :key="i"
+        :href="s.url"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="block text-[11px] text-blue-600 hover:underline truncate max-w-[360px]"
+      >{{ s.title || s.url }}</a>
+    </div>
+    <div v-else-if="isSuccess && hasSourcesField" class="mt-1 ms-4 text-[11px] text-gray-400">
+      No results found
+    </div>
   </div>
 </template>
 
@@ -59,6 +74,13 @@ const queries = computed<string[]>(() => {
 
 const displayQuery = computed<string>(() => queries.value[0] || '')
 const extraQueries = computed<string[]>(() => queries.value.slice(1))
+
+// Sources are attached (turn-level) only to the last search of a turn.
+const hasSourcesField = computed<boolean>(() => Array.isArray(result.value?.sources))
+const sources = computed<Array<{ title?: string; url: string }>>(() => {
+  const s = result.value?.sources
+  return Array.isArray(s) ? s.filter((x: any) => x && x.url) : []
+})
 </script>
 
 <style scoped>

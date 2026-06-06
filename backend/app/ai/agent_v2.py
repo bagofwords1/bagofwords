@@ -2055,6 +2055,7 @@ class AgentV2:
                         logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
 
                 _ws_block_count = 0  # native web-search tool blocks emitted this turn
+                _ws_tool_execs = []  # (tool_execution, block) per web search, for citation backfill
                 async for evt in self._iter_planner_events_with_span(planner_input, loop_index):
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
@@ -2080,18 +2081,24 @@ class AgentV2:
                                 tool_action="search",
                                 arguments_json={"query": _q, "queries": _queries},
                             )
+                            # The provider reports per-call status; treat anything
+                            # other than 'completed' (e.g. 'failed', 'incomplete')
+                            # as an error so it doesn't render as a silent success.
+                            _ws_ok = (evt.status or "completed") == "completed"
                             await self.project_manager.finish_tool_execution(
                                 self.db,
                                 tool_execution=_te,
-                                status="success",
-                                success=True,
-                                result_summary=(f"Searched: {_q}" if _q else "Web search"),
+                                status="success" if _ws_ok else "error",
+                                success=_ws_ok,
+                                result_summary=(f"Searched: {_q}" if _q else "Web search") if _ws_ok else f"Web search {evt.status or 'failed'}",
+                                error_message=None if _ws_ok else f"web search {evt.status or 'failed'}",
                                 result_json={"query": _q, "queries": _queries, "status": evt.status},
                             )
-                            # Order just before the planning/answer block of this
-                            # turn (decision block sits at decision_seq*100).
+                            # Order the searches just before the planning/answer
+                            # block of this turn (which sits at decision_seq*100),
+                            # in execution order (first search on top).
                             _base_seq = decision_seq if decision_seq is not None else 1
-                            _ws_bi = int(_base_seq) * 100 - 1 - _ws_block_count
+                            _ws_bi = int(_base_seq) * 100 - 50 + _ws_block_count
                             _ws_block_count += 1
                             _ws_block = await self.project_manager.insert_standalone_tool_block(
                                 self.db,
@@ -2112,6 +2119,7 @@ class AgentV2:
                                 seq=_ws_seq,
                                 data={"block": _ws_schema.model_dump()},
                             ))
+                            _ws_tool_execs.append((_te, _ws_block))
                         except Exception as _ws_exc:
                             logger.warning(f"[agent] web_search tool block failed: {_ws_exc!r}")
                         continue
@@ -2365,6 +2373,35 @@ class AgentV2:
                                     exc_info=True,
                                 )
                                 block = None
+
+                            # Backfill web-search results: native web search only
+                            # surfaces the cited sources at the END of the turn
+                            # (annotations on the answer), so attach them to the
+                            # last search record now that the turn is complete.
+                            try:
+                                if _ws_tool_execs:
+                                    _cites = getattr(decision, "web_search_citations", None) or []
+                                    _last_te, _last_blk = _ws_tool_execs[-1]
+                                    _last_te.result_json = {
+                                        **(_last_te.result_json or {}),
+                                        "sources": _cites,
+                                    }
+                                    _last_te.result_summary = (
+                                        f"{len(_cites)} source(s) found" if _cites else "No results found"
+                                    )
+                                    self.db.add(_last_te)
+                                    await self.db.commit()
+                                    _bs = await serialize_block_v2(self.db, _last_blk)
+                                    _bseq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.upsert",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=_bseq,
+                                        data={"block": _bs.model_dump()},
+                                    ))
+                            except Exception as _ws_cite_exc:
+                                logger.warning(f"[agent] web_search citation backfill failed: {_ws_cite_exc!r}")
 
                             # Rebuild transcript. Single-writer mode runs sync
                             # on self._writes; legacy mode schedules a bg task

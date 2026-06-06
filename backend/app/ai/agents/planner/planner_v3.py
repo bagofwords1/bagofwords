@@ -313,14 +313,6 @@ class PlannerV3:
         if state.reasoning_start_time and state.reasoning_end_time is None:
             state.reasoning_end_time = time.monotonic()
 
-        # Append a compact Sources footer for web-search citations so the
-        # thinking box records exactly which pages were used this turn.
-        if state.web_search_citations:
-            lines = "\n".join(
-                f"- [{title}]({url})" for title, url in state.web_search_citations
-            )
-            sep = "\n\n" if (state.thinking_buffer and not state.thinking_buffer.endswith("\n")) else ""
-            state.thinking_buffer += f"{sep}**Sources**\n{lines}\n"
 
         # Emit final decision with metrics
         final_decision = self._build_decision(
@@ -410,6 +402,10 @@ class PlannerV3:
                 final_answer=None,             # v3: collapsed into assistant_message
                 streaming_complete=is_final,
                 metrics=metrics,
+                web_search_citations=(
+                    [{"title": t, "url": u} for t, u in state.web_search_citations]
+                    if is_final else []
+                ),
             )
         except Exception as exc:
             logger.warning(
