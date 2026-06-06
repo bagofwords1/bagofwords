@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.396 (June 6, 2026)
+- Star (favorite) reports — starred reports are pinned to the top of /reports. Starring is per-user, so each person keeps their own favorites, and you can star reports shared with you read-only
+
 ## Version 0.0.395 (June 6, 2026)
 - Native web search for OpenAI and Azure OpenAI (provider-executed, via the Responses API) — opt-in per provider and gated by the org Web Fetch setting, with a live "Searching the web" step (rendered as a tool with the query + cited sources) and source citations
 

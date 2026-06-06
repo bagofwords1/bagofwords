@@ -61,6 +61,8 @@ class ReportSchema(ReportBase):
     artifact_modes: List[str] = []
     # Thumbnail URL for the main artifact
     thumbnail_url: Optional[str] = None
+    # Whether the current user has starred this report (per-user, list view)
+    is_starred: bool = False
     # Scheduled rerun notification subscribers
     notification_subscribers: Optional[List[dict]] = None
     # Summary counts for list view

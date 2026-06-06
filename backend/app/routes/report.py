@@ -39,6 +39,11 @@ class ForkResponse(BaseModel):
     slug: str
 
 
+class StarResponse(BaseModel):
+    id: str
+    is_starred: bool
+
+
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
 layout_service = DashboardLayoutService()
@@ -157,6 +162,18 @@ async def publish_report(
         request=request,
     )
     return result
+
+@router.post("/reports/{report_id}/star", response_model=StarResponse)
+@requires_permission('view_reports', model=Report)
+async def star_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    """Star (favorite) a report for the current user. Per-user; any viewer may star."""
+    return await report_service.set_report_star(db, report_id, current_user, organization, starred=True)
+
+@router.delete("/reports/{report_id}/star", response_model=StarResponse)
+@requires_permission('view_reports', model=Report)
+async def unstar_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    """Remove the current user's star from a report."""
+    return await report_service.set_report_star(db, report_id, current_user, organization, starred=False)
 
 @router.post("/reports/{report_id}/conversation-share")
 @requires_permission('publish_reports', model=Report, owner_only=True)

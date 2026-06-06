@@ -267,6 +267,80 @@ def get_shares(test_client):
 
 
 @pytest.fixture
+def list_reports(test_client):
+    """List reports with arbitrary query params (filter, page, etc.)."""
+    def _list_reports(user_token=None, org_id=None, expect_status=200, **params):
+        if user_token is None:
+            pytest.fail("User token is required for list_reports")
+        if org_id is None:
+            pytest.fail("Organization ID is required for list_reports")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+
+        response = test_client.get(
+            "/api/reports",
+            params=params,
+            headers=headers
+        )
+        if expect_status:
+            assert response.status_code == expect_status, response.json()
+        return response.json()
+
+    return _list_reports
+
+
+@pytest.fixture
+def star_report(test_client):
+    def _star_report(report_id, user_token=None, org_id=None, expect_status=200):
+        if user_token is None:
+            pytest.fail("User token is required for star_report")
+        if org_id is None:
+            pytest.fail("Organization ID is required for star_report")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+
+        response = test_client.post(
+            f"/api/reports/{report_id}/star",
+            headers=headers
+        )
+        if expect_status:
+            assert response.status_code == expect_status, response.json()
+        return response
+
+    return _star_report
+
+
+@pytest.fixture
+def unstar_report(test_client):
+    def _unstar_report(report_id, user_token=None, org_id=None, expect_status=200):
+        if user_token is None:
+            pytest.fail("User token is required for unstar_report")
+        if org_id is None:
+            pytest.fail("Organization ID is required for unstar_report")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+
+        response = test_client.delete(
+            f"/api/reports/{report_id}/star",
+            headers=headers
+        )
+        if expect_status:
+            assert response.status_code == expect_status, response.json()
+        return response
+
+    return _unstar_report
+
+
+@pytest.fixture
 def fork_report(test_client):
     def _fork_report(report_id, user_token=None, org_id=None, title=None, expect_status=200):
         if user_token is None:

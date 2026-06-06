@@ -4,6 +4,15 @@
         <!-- Top row: back, title, share, dashboard toggle -->
         <div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
             <GoBackChevron />
+            <UTooltip v-if="report" :text="report.is_starred ? t('reports.tooltips.unstar') : t('reports.tooltips.star')">
+                <button @click="toggleStar" class="p-1.5 rounded hover:bg-gray-100 focus:outline-none">
+                    <UIcon
+                        :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
+                        class="w-5 h-5 transition-colors"
+                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-400 hover:text-gray-500'"
+                    />
+                </button>
+            </UTooltip>
             <h1 class="text-sm md:text-start text-center w-[500px]">
                 <span class="font-semibold text-sm">
                     <input
@@ -147,6 +156,30 @@ async function saveReportTitle() {
         })
     }
     isSaving.value = false
+}
+
+async function toggleStar() {
+    if (!props.report) return
+    const next = !props.report.is_starred
+    // Optimistic update
+    props.report.is_starred = next
+    try {
+        const response: any = await useMyFetch(`/reports/${props.report.id}/star`, {
+            method: next ? 'POST' : 'DELETE',
+        })
+        if (response?.error?.value) {
+            throw response.error.value
+        }
+    } catch (error: any) {
+        // Revert on failure
+        props.report.is_starred = !next
+        console.error('Error toggling star', error)
+        toast.add({
+            title: t('reports.toasts.starFailed'),
+            description: String(error?.data?.detail || error?.message || ''),
+            color: 'red',
+        })
+    }
 }
 </script>
 

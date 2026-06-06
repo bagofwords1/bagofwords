@@ -19,7 +19,7 @@ from app.models.report_file_association import report_file_association
 from fastapi import HTTPException
 
 import uuid
-from sqlalchemy import select, or_, func, cast, delete, String as SAString
+from sqlalchemy import select, or_, func, cast, delete, case, String as SAString
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
@@ -294,7 +294,18 @@ class ReportService:
         report = result.unique().scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-        
+
+        # Per-user starred state (same source of truth as the list view)
+        from app.models.report_star import ReportStar
+        star_result = await db.execute(
+            select(ReportStar.id).where(
+                ReportStar.report_id == report.id,
+                ReportStar.user_id == current_user.id,
+                ReportStar.deleted_at.is_(None),
+            )
+        )
+        is_starred = star_result.scalar_one_or_none() is not None
+
         user_schema = UserSchema.from_orm(report.user)
 
         # Detect app version for routing
@@ -332,6 +343,8 @@ class ReportService:
             ],
             # Scheduled rerun notification subscribers
             notification_subscribers=getattr(report, "notification_subscribers", None),
+            # Per-user starred state
+            is_starred=is_starred,
         )
         # Summary counts (for auto-opening sidebar)
         report_schema.query_count = len(report.queries or [])
@@ -714,6 +727,57 @@ class ReportService:
 
         return report
 
+    async def set_report_star(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        organization: Organization,
+        starred: bool,
+    ) -> dict:
+        """Star or unstar a report for the current user.
+
+        Starring is per-user, so each user maintains their own set of starred
+        reports independently. A report can be starred by any user who can view
+        it (including reports shared with them read-only). Returns the resulting
+        starred state.
+        """
+        from app.models.report_star import ReportStar
+
+        result = await db.execute(
+            select(Report).filter(
+                Report.id == report_id,
+                Report.organization_id == organization.id,
+                Report.report_type == 'regular',
+            )
+        )
+        report = result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Look up any existing star row, including soft-deleted ones, so we
+        # reuse it rather than violating the (report_id, user_id) uniqueness.
+        existing_result = await db.execute(
+            select(ReportStar).filter(
+                ReportStar.report_id == report_id,
+                ReportStar.user_id == current_user.id,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+
+        if starred:
+            if existing is None:
+                db.add(ReportStar(report_id=report_id, user_id=current_user.id))
+            elif existing.deleted_at is not None:
+                existing.deleted_at = None
+        else:
+            if existing is not None and existing.deleted_at is None:
+                existing.deleted_at = datetime.utcnow()
+
+        await db.commit()
+
+        return {"id": str(report_id), "is_starred": starred}
+
     async def get_public_report(self, db: AsyncSession, report_id: str, user=None) -> ReportSchema:
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
@@ -1048,6 +1112,18 @@ class ReportService:
                     )
                 )
 
+            # Per-user starred reports: surface starred reports first.
+            # Computed in SQL (not client-side) because the list is paginated.
+            from app.models.report_star import ReportStar
+            starred_report_ids_subq = select(ReportStar.report_id).where(
+                ReportStar.user_id == current_user.id,
+                ReportStar.deleted_at.is_(None),
+            )
+            is_starred_order = case(
+                (Report.id.in_(starred_report_ids_subq), 1),
+                else_=0,
+            )
+
             # Base query for filtering
             base_query = select(Report).where(*base_conditions)
 
@@ -1070,7 +1146,7 @@ class ReportService:
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
                 selectinload(Report.artifacts)
-            ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
+            ).order_by(is_starred_order.desc(), Report.created_at.desc()).offset(offset).limit(limit)
 
             result = await db.execute(query)
             span.add_event("query executed")
@@ -1079,6 +1155,19 @@ class ReportService:
 
             # Batch-fetch instruction counts for training reports
             report_ids = [str(r.id) for r in reports]
+
+            # Batch-fetch which of the loaded reports the user has starred
+            starred_ids: set[str] = set()
+            if report_ids:
+                starred_result = await db.execute(
+                    select(ReportStar.report_id).where(
+                        ReportStar.report_id.in_(report_ids),
+                        ReportStar.user_id == current_user.id,
+                        ReportStar.deleted_at.is_(None),
+                    )
+                )
+                starred_ids = {str(row[0]) for row in starred_result.all()}
+
             instruction_counts: dict[str, int] = {}
             if report_ids:
                 from app.models.instruction import Instruction
@@ -1139,6 +1228,9 @@ class ReportService:
 
                 # Instruction count (from batch query)
                 report_schema.instruction_count = instruction_counts.get(str(report.id), 0)
+
+                # Starred state for the current user
+                report_schema.is_starred = str(report.id) in starred_ids
 
                 # Compute unique artifact modes for this report
                 report_schema.artifact_modes = list(set(
