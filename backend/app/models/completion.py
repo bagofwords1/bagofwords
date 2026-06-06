@@ -72,6 +72,12 @@ class Completion(BaseSchema):
     scheduled_prompt_id = Column(String(36), ForeignKey('scheduled_prompts.id'), nullable=True, index=True)
     scheduled_prompt = relationship("ScheduledPrompt", back_populates="completions", lazy='select')
 
+    # Webhook provenance. Set on every completion originating from an inbound
+    # webhook: the visible event entry (role='external'), the hidden trigger
+    # (role='user'), and the agent reply (role='system'). The internal trigger is
+    # hidden from the timeline via (webhook_id IS NOT NULL AND role='user').
+    webhook_id = Column(String(36), ForeignKey('webhooks.id'), nullable=True, index=True)
+
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID
@@ -172,7 +178,8 @@ def after_insert_completion(mapper, connection, target):
             "external_thread_ts": target.external_thread_ts,
             "external_message_ts": target.external_message_ts,
             "external_channel_id": target.external_channel_id,
-            "external_channel_type": target.external_channel_type
+            "external_channel_type": target.external_channel_type,
+            "webhook_id": str(target.webhook_id) if target.webhook_id else None,
         }
 
 
@@ -209,7 +216,8 @@ def after_update_completion(mapper, connection, target):
             "external_thread_ts": target.external_thread_ts,
             "external_message_ts": target.external_message_ts,
             "external_channel_id": target.external_channel_id,
-            "external_channel_type": target.external_channel_type
+            "external_channel_type": target.external_channel_type,
+            "webhook_id": str(target.webhook_id) if target.webhook_id else None,
         }
 
         if target.widget_id:

@@ -422,6 +422,7 @@ class CompletionService:
         external_channel_id: str = None,
         external_channel_type: str = None,
         scheduled_prompt_id: str = None,
+        webhook_id: str = None,
     ):
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
@@ -432,6 +433,7 @@ class CompletionService:
                     background, external_user_id, external_platform, build_id,
                     external_thread_ts, external_message_ts, external_channel_id, external_channel_type,
                     scheduled_prompt_id=scheduled_prompt_id,
+                    webhook_id=webhook_id,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -455,6 +457,7 @@ class CompletionService:
         external_channel_id: str = None,
         external_channel_type: str = None,
         scheduled_prompt_id: str = None,
+        webhook_id: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -527,6 +530,7 @@ class CompletionService:
                 external_channel_id=external_channel_id,
                 external_channel_type=external_channel_type,
                 scheduled_prompt_id=scheduled_prompt_id,
+                webhook_id=webhook_id,
             )
 
             try:
@@ -582,6 +586,7 @@ class CompletionService:
                 external_channel_id=external_channel_id,
                 external_channel_type=external_channel_type,
                 scheduled_prompt_id=scheduled_prompt_id,
+                webhook_id=webhook_id,
             )
 
             try:
@@ -857,8 +862,14 @@ class CompletionService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        # 1) Fetch last N completions (user + system) with optional cursor
-        completions_stmt = select(Completion).where(Completion.report_id == report_id)
+        # 1) Fetch last N completions (user + system) with optional cursor.
+        # Hide the internal webhook trigger (the synthetic prompt the agent
+        # answers): webhook_id set AND role='user'. The visible event entry
+        # (role='external') and the agent reply (role='system') still show.
+        completions_stmt = select(Completion).where(
+            Completion.report_id == report_id,
+            ~((Completion.webhook_id.isnot(None)) & (Completion.role == 'user')),
+        )
         if before:
             try:
                 from datetime import datetime as _dt
@@ -1271,11 +1282,14 @@ class CompletionService:
                 user_feedback=user_feedback,
                 # Scheduled prompt
                 scheduled_prompt_id=getattr(c, 'scheduled_prompt_id', None),
+                # Webhook provenance
+                webhook_id=getattr(c, 'webhook_id', None),
+                external_platform=getattr(c, 'external_platform', None),
                 # Fork summary fields
                 is_fork_summary=getattr(c, 'is_fork_summary', None),
                 source_report_id=getattr(c, 'source_report_id', None),
                 fork_asset_refs=getattr(c, 'fork_asset_refs', None),
-                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error') else None,
+                completion=completion_data if (getattr(c, 'is_fork_summary', None) or c.status == 'error' or c.role == 'external') else None,
             )
             v2_completions.append(v2)
 
