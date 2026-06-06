@@ -251,6 +251,8 @@
       "instructions": "instructions"
     },
     "tooltips": {
+      "star": "Star",
+      "unstar": "Remove star",
       "hasPage": "Has Page artifact",
       "hasSlides": "Has Slides artifact",
       "chat": "Chat",
@@ -262,6 +264,7 @@
       "showing": "Showing {from} to {to} of {total} reports"
     },
     "toasts": {
+      "starFailed": "Failed to update star",
       "failedFetch": "Failed to fetch reports",
       "archived": "Report archived",
       "archivedDesc": "Report archived successfully",

@@ -241,6 +241,8 @@
       "instructions": "instruktioner"
     },
     "tooltips": {
+      "star": "Stjärnmärk",
+      "unstar": "Ta bort stjärnmärkning",
       "hasPage": "Har sidartefakt",
       "hasSlides": "Har bildspelsartefakt",
       "chat": "Chatt",
@@ -252,6 +254,7 @@
       "showing": "Visar {from} till {to} av {total} rapporter"
     },
     "toasts": {
+      "starFailed": "Det gick inte att uppdatera stjärnmärkningen",
       "failedFetch": "Det gick inte att hämta rapporterna",
       "archived": "Rapport arkiverad",
       "archivedDesc": "Rapporten arkiverades",

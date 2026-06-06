@@ -200,6 +200,18 @@
                                             />
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
+                                            <UTooltip :text="report.is_starred ? $t('reports.tooltips.unstar') : $t('reports.tooltips.star')">
+                                                <button
+                                                    @click="toggleStar(report)"
+                                                    class="inline me-1.5 align-middle focus:outline-none"
+                                                >
+                                                    <Icon
+                                                        :name="report.is_starred ? 'heroicons:star-solid' : 'heroicons:star'"
+                                                        class="h-4 w-4 inline transition-colors"
+                                                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-300 hover:text-gray-400'"
+                                                    />
+                                                </button>
+                                            </UTooltip>
                                             <UTooltip v-if="report.artifact_modes?.includes('page')" :text="$t('reports.tooltips.hasPage')">
                                                 <Icon name="heroicons:chart-bar-square" class="h-4 w-4 text-gray-400 inline me-1.5" />
                                             </UTooltip>
@@ -673,6 +685,31 @@ async function confirmDelete(reportId: string) {
     if (confirm(t('reports.archiveConfirm'))) {
         await deleteReport(reportId)
         await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
+    }
+}
+
+async function toggleStar(report: any) {
+    const next = !report.is_starred
+    // Optimistic update
+    report.is_starred = next
+    try {
+        const response: any = await useMyFetch(`/reports/${report.id}/star`, {
+            method: next ? 'POST' : 'DELETE',
+        })
+        if (response?.error?.value) {
+            throw response.error.value
+        }
+        // Server controls ordering (starred first), so refetch the page
+        await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
+    } catch (error: any) {
+        // Revert on failure
+        report.is_starred = !next
+        console.error('Error toggling star', error)
+        toast.add({
+            title: t('reports.toasts.starFailed'),
+            description: String(error?.data?.detail || error?.message || ''),
+            color: 'red',
+        })
     }
 }
 

@@ -241,6 +241,8 @@
       "instructions": "Anweisungen"
     },
     "tooltips": {
+      "star": "Markieren",
+      "unstar": "Markierung entfernen",
       "hasPage": "Enthält Seiten-Artefakt",
       "hasSlides": "Enthält Folien-Artefakt",
       "chat": "Chat",
@@ -252,6 +254,7 @@
       "showing": "Zeige {from} bis {to} von {total} Berichten"
     },
     "toasts": {
+      "starFailed": "Markierung konnte nicht aktualisiert werden",
       "failedFetch": "Berichte konnten nicht geladen werden",
       "archived": "Bericht archiviert",
       "archivedDesc": "Bericht erfolgreich archiviert",
