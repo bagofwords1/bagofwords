@@ -406,7 +406,7 @@ class TestEvaluationService:
         _publish(
             "create_scheduled_task",
             await _latest_tool_args("create_scheduled_task"),
-            ("task_prompt", "cron_schedule", "schedule_description"),
+            ("task_prompt", "cron_schedule"),
         )
 
         return snapshot
@@ -803,7 +803,7 @@ class TestEvaluationService:
                     if not info:
                         push_skipped("create_scheduled_task not called")
                         continue
-                    if field in ("task_prompt", "cron_schedule", "schedule_description"):
+                    if field in ("task_prompt", "cron_schedule"):
                         value = info.get(field) or ""
                         ok, msg = self._apply_matcher(str(value), rule.matcher)
                         push(ok, None if ok else msg, actual=value)

@@ -27,22 +27,15 @@ cases:
         - type: tool.calls
           tool: create_scheduled_task
           min_calls: 1
-        # Human-readable label should reflect the weekly cadence.
-        - type: field
-          target:
-            category: "tool:create_scheduled_task"
-            field: schedule_description
-          matcher:
-            type: text.regex
-            pattern: "(?i)(week|monday)"
-        # Cron must start with a single-number minute (the 1-hour floor).
+        # Cron must start with a single-number minute (the 1-hour floor) and be
+        # weekly (a day-of-week field set), matching "every Monday".
         - type: field
           target:
             category: "tool:create_scheduled_task"
             field: cron_schedule
           matcher:
             type: text.regex
-            pattern: "^[0-9]{1,2}\\s"
+            pattern: "^[0-9]{1,2}\\s+\\d{1,2}\\s+\\*\\s+\\*\\s+\\S+$"
 
   - name: daily_morning_summary
     prompt:
@@ -54,13 +47,14 @@ cases:
         - type: tool.calls
           tool: create_scheduled_task
           min_calls: 1
+        # Daily at 8am -> minute is a single number and hour is 8.
         - type: field
           target:
             category: "tool:create_scheduled_task"
-            field: schedule_description
+            field: cron_schedule
           matcher:
             type: text.regex
-            pattern: "(?i)(daily|every day|morning|8)"
+            pattern: "^[0-9]{1,2}\\s+8\\s"
 
   - name: create_then_cancel
     turns:

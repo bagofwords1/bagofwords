@@ -286,6 +286,7 @@
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
 													@openInstruction="openInstructionById"
+													@openScheduledTask="openScheduledTaskById"
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
@@ -1274,6 +1275,18 @@ async function toggleScheduledPromptActive(sp: any) {
 function editScheduledPrompt(sp: any) {
     editingScheduledPrompt.value = sp
     showEditScheduledPromptModal.value = true
+}
+
+// Open the edit modal for a task created/cancelled from a chat tool result.
+// The task may not be in the loaded list yet (just created), so refresh first.
+async function openScheduledTaskById(taskId: string) {
+    if (!taskId) return
+    let sp = scheduledPrompts.value.find((s: any) => s.id === taskId)
+    if (!sp) {
+        await loadScheduledPrompts()
+        sp = scheduledPrompts.value.find((s: any) => s.id === taskId)
+    }
+    if (sp) editScheduledPrompt(sp)
 }
 
 // Fork state — extract forked queries and artifact ref from the fork summary completion

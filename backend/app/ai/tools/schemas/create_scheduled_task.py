@@ -32,16 +32,6 @@ class CreateScheduledTaskInput(BaseModel):
             "'30 7 1 * *' = 07:30 on the 1st of every month, '0 * * * *' = hourly."
         ),
     )
-    schedule_description: str = Field(
-        ...,
-        min_length=1,
-        max_length=120,
-        description=(
-            "A short, human-readable label for the schedule, shown in the UI and "
-            "used to confirm back to the user. E.g. 'every Monday at 9am', "
-            "'daily at 8am', 'on the 1st of each month at 7:30am'."
-        ),
-    )
 
 
 class CreateScheduledTaskOutput(BaseModel):
@@ -50,5 +40,4 @@ class CreateScheduledTaskOutput(BaseModel):
     success: bool = Field(..., description="Whether the scheduled task was created.")
     task_id: Optional[str] = Field(default=None, description="ID of the created scheduled task.")
     cron_schedule: Optional[str] = Field(default=None, description="The cron expression that was scheduled.")
-    schedule_description: Optional[str] = Field(default=None, description="Human-readable schedule label.")
     error: Optional[str] = Field(default=None, description="Error message if creation failed.")

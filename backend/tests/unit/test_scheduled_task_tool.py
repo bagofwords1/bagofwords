@@ -98,7 +98,7 @@ async def test_create_requires_report_context():
     tool = CreateScheduledTaskTool()
     events = await _collect(
         tool,
-        {"task_prompt": "do x", "cron_schedule": "0 9 * * 1", "schedule_description": "weekly"},
+        {"task_prompt": "do x", "cron_schedule": "0 9 * * 1"},
         _ctx(report=None),
     )
     out = _end_payload(events)["output"]
@@ -118,7 +118,7 @@ async def test_create_rejects_subhourly_cron():
     ) as mock_create:
         events = await _collect(
             tool,
-            {"task_prompt": "do x", "cron_schedule": "*/5 * * * *", "schedule_description": "often"},
+            {"task_prompt": "do x", "cron_schedule": "*/5 * * * *"},
             _ctx(),
         )
         mock_create.assert_not_called()
@@ -143,7 +143,6 @@ async def test_create_happy_path():
             {
                 "task_prompt": "Check for weird activity and email me a summary.",
                 "cron_schedule": "0 9 * * 1",
-                "schedule_description": "every Monday at 9am",
             },
             _ctx(),
         )
