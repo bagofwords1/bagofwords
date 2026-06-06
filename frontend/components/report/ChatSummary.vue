@@ -106,13 +106,56 @@
         </ul>
       </section>
 
+      <!-- Webhooks -->
+      <section v-if="webhooks.length > 0">
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Webhooks</h3>
+        <ul class="space-y-1.5">
+          <li
+            v-for="w in webhooks"
+            :key="w.id"
+            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow cursor-pointer transition-all"
+            @click="showWebhookModal = true"
+          >
+            <Icon :name="webhookIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-gray-400" />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-gray-700 truncate">{{ w.name }}</div>
+              <div class="flex items-center gap-2 mt-0.5">
+                <span class="text-[11px] text-gray-400">{{ w.source }} · {{ w.auth_mode }}</span>
+                <span v-if="w.classify_enabled" class="inline-flex items-center gap-1 text-[11px] text-blue-500">
+                  <Icon name="heroicons-sparkles" class="w-3 h-3" /> AI
+                </span>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
     </div>
+
+    <!-- Configure webhook (pinned at the bottom) -->
+    <div v-if="reportId" class="max-w-xl mx-auto px-4 pb-6">
+      <button
+        @click="showWebhookModal = true"
+        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-400 hover:text-gray-600 rounded-lg border border-dashed border-gray-200 hover:border-gray-300 transition-colors"
+      >
+        <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
+        Configure webhook
+      </button>
+    </div>
+
+    <WebhookConfigModal
+      v-if="reportId"
+      v-model="showWebhookModal"
+      :report-id="reportId"
+      @changed="loadWebhooks"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import WebhookConfigModal from '~/components/report/WebhookConfigModal.vue'
 
 const props = defineProps<{
   scheduledPrompts: any[]
@@ -128,7 +171,32 @@ const props = defineProps<{
   // The current pending build id, used to mark items as Pending vs Accepted.
   pendingBuildId?: string | null
   showClose?: boolean
+  // Report id — enables the Webhooks section + Configure webhook modal.
+  reportId?: string
 }>()
+
+// ---- Webhooks ----
+const showWebhookModal = ref(false)
+const webhooks = ref<any[]>([])
+
+function webhookIcon(source: string): string {
+  switch ((source || '').toLowerCase()) {
+    case 'github': return 'heroicons-code-bracket-square'
+    case 'jira': return 'heroicons-bug-ant'
+    default: return 'heroicons-bolt'
+  }
+}
+
+async function loadWebhooks() {
+  if (!props.reportId) return
+  try {
+    const { data } = await useMyFetch(`/reports/${props.reportId}/webhooks`)
+    webhooks.value = (data.value as any[]) || []
+  } catch { webhooks.value = [] }
+}
+
+onMounted(loadWebhooks)
+watch(() => props.reportId, loadWebhooks)
 
 const showAllArtifacts = ref(false)
 const visibleArtifacts = computed(() =>

@@ -40,6 +40,7 @@
 					<!-- Summary View -->
 					<div v-if="mobileView === 'summary'" class="h-full overflow-y-auto">
 						<ChatSummary
+							:reportId="report_id"
 							:scheduledPrompts="scheduledPrompts"
 							:artifactList="reportArtifacts"
 							:queryList="queryList"
@@ -156,6 +157,23 @@
 						<template v-else-if="m.scheduled_prompt_id && m.role === 'system' && !isScheduledSystemExpanded(m)">
 							<!-- collapsed -->
 						</template>
+
+						<!-- Inbound webhook event entry (compact) -->
+						<div v-else-if="m.role === 'external'" class="my-2">
+							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 bg-gray-50/50">
+								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+								<span class="text-xs text-gray-600 truncate flex-1">{{ m.prompt?.summary || m.prompt?.content }}</span>
+								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
+									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
+								</span>
+								<Icon v-else-if="m.status === 'success'" name="heroicons-check-circle" class="w-4 h-4 text-green-500" :title="webhookActed(m) ? 'Responded' : 'No action needed'" />
+								<Icon v-else-if="m.status === 'error'" name="heroicons-exclamation-circle" class="w-4 h-4 text-red-400" title="Error" />
+								<span v-if="m.created_at" class="text-[10px] text-gray-400 flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
+							</div>
+							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-[11px] text-gray-400 italic">
+								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
+							</div>
+						</div>
 
 						<!-- Regular message rendering -->
 						<div
@@ -602,6 +620,7 @@
 			<div v-if="rightPanelView === 'summary'" class="h-full flex flex-col">
 				<div class="flex-1 overflow-y-auto">
 					<ChatSummary
+							:reportId="report_id"
 						:scheduledPrompts="scheduledPrompts"
 						:artifactList="reportArtifacts"
 						:queryList="queryList"
@@ -1166,6 +1185,22 @@ function formatMessageDate(date?: string) {
 		month: 'short', day: 'numeric',
 		hour: 'numeric', minute: '2-digit'
 	})
+}
+
+// ---- Inbound webhook event-entry helpers ----
+function webhookSourceIcon(source?: string): string {
+	switch ((source || '').toLowerCase()) {
+		case 'github': return 'heroicons-code-bracket-square'
+		case 'jira': return 'heroicons-bug-ant'
+		default: return 'heroicons-bolt'
+	}
+}
+function webhookDecision(m: any): any {
+	return m?.completion?.decision || null
+}
+function webhookActed(m: any): boolean {
+	const d = webhookDecision(m)
+	return !!(d && d.act)
 }
 
 function copyToClipboard(text?: string, messageId?: string) {
@@ -2637,6 +2672,9 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				fork_asset_refs: c.fork_asset_refs,
 				// Scheduled prompt tag
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
+				// Webhook event entry fields
+				external_platform: c.external_platform || null,
+				webhook_id: c.webhook_id || null,
 			}
 		})
 		// Update cursors
