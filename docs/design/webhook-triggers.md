@@ -135,8 +135,10 @@ any time; rotating invalidates the old key immediately.
 | `organization_id` | FK | scoping / quota |
 | `user_id` | FK | owner / attribution for triggered completions |
 | `token` | String, unique, indexed | the public path segment; `whk_...` |
-| `secret_encrypted` | String | Fernet-encrypted HMAC secret (reuse existing crypto) |
-| `source` | String | `github` / `generic` (adapter key); extensible |
+| `secret_encrypted` | String | Fernet-encrypted signing key — serves as HMAC key, bearer token, or url token depending on `auth_mode` |
+| `source` | String | `github` / `jira` / `generic` (adapter key); extensible |
+| `auth_mode` | String | `hmac` (default) / `token` / `url_token` — how the sender authenticates (see Verification modes) |
+| `auth_header_name` | String, nullable | for `token` mode: the header carrying the secret (default `Authorization`, value `Bearer <key>`); configurable for legacy senders |
 | `classify_enabled` | Boolean | if false → alert-only, never run agent |
 | `classifier_prompt` | Text, nullable | optional user-written hint that steers the classifier, e.g. "only respond to PRs touching billing; ignore dependabot" |
 | `is_active` | Boolean | |
@@ -212,13 +214,29 @@ New `role` value: **`external`** (alongside `user`/`system`/`ai_agent`).
 `POST /webhooks/{token}` mounted at root (not `/api`), matching the existing
 `slack_webhook.py` / `teams_webhook.py` pattern.
 
-- **No session auth.** Auth = valid `token` path + HMAC of raw body.
-- Steps: load `Webhook` by token → verify signature against decrypted secret on
-  **raw bytes** (constant-time compare) → org rate-limit check (`429` if exceeded)
-  → dedup on `external_message_id` → drop protocol handshakes (e.g. `ping`) → hand
-  to adapter. Return `200` fast (GitHub retries on non-2xx); do classification +
-  agent run in the background via `asyncio.create_task` (same mechanism
-  `completion_service` already uses).
+- **No session auth.** Auth = valid `token` path + per-webhook verification
+  (mode-dependent, see below).
+- Steps: load `Webhook` by token → **verify per `auth_mode`** → org rate-limit
+  check (`429` if exceeded) → dedup on `external_message_id` → drop protocol
+  handshakes (e.g. `ping`) → hand to adapter. Return `200` fast (GitHub retries on
+  non-2xx); do classification + agent run in the background via
+  `asyncio.create_task` (same mechanism `completion_service` already uses).
+
+#### Verification modes (not every source can sign)
+
+HMAC is the default and the only secure-against-replay option, but legacy/
+enterprise sources (Jira Server, older tools) can't compute HMAC — so the
+receiver supports three modes, chosen per webhook:
+
+| `auth_mode` | Receiver checks | Sender must be able to | Notes |
+|-------------|-----------------|------------------------|-------|
+| `hmac` *(default)* | signature over **raw body** (GitHub `X-Hub-Signature-256`; generic `X-BOW-Signature-256` over `{timestamp}.{body}` + timestamp skew), constant-time | sign requests | strongest; replay-safe |
+| `token` | shared secret in `auth_header_name` (default `Authorization: Bearer <key>`), constant-time | set a custom header | works for **Jira Cloud**; secret travels each request (TLS-protected), replayable → leans on dedup |
+| `url_token` | the URL `token` is the sole secret (optionally an extra `?k=<key>`) | only POST to a URL | weakest; **Jira Server** / dumb POST-only systems. Relies on HTTPS + unguessable URL |
+
+All three still flow through dedup + rate limit + classifier. The modal **defaults
+to the most secure mode the chosen source supports** and shows a warning when the
+user downgrades. Decrypt `secret_encrypted` once and branch on `auth_mode`.
 - `ping` event → `200` no-op.
 
 ### 2. Source adapters — `backend/app/services/webhook_adapters/`
@@ -487,8 +505,11 @@ data-driven so new sources don't need UI changes):
 ```
 ┌─ Configure webhook ──────────────────────────────────┐
 │  Name        [ PR triage                 ]            │
-│  Source      [ ⬡ GitHub ▾ ]  ← icon + preset;         │
-│                                 "Generic" option       │
+│  Source      [ ⬡ GitHub ▾ ]  ← preset; GitHub /        │
+│                                 Jira / Generic          │
+│  Auth        [ HMAC (recommended) ▾ ]                   │
+│                 HMAC / Token header / URL token         │
+│                 ⚠ shown when downgraded from HMAC       │
 │  Target URL  https://host/webhooks/whk_a1b2c3…        │
 │              [ copy ]   (read-only, generated)         │
 │  Signing key ••••••••••••  [ copy ] [ ↻ refresh ]     │
@@ -541,7 +562,7 @@ verification scheme. No dependency on the org API key.
 
 | Concern | Mitigation |
 |---------|------------|
-| Guessable endpoint / spoofed events | Per-webhook signing key, **HMAC-SHA256** for every source, constant-time compare, reject `401` on mismatch. GitHub → `X-Hub-Signature-256` (raw body). Generic → `X-BOW-Signature-256` over `{timestamp}.{body}` + `X-BOW-Timestamp` skew check (replay guard) |
+| Guessable endpoint / spoofed events | Per-webhook signing key, verified per `auth_mode`, constant-time, `401` on mismatch. `hmac` (default, replay-safe): GitHub `X-Hub-Signature-256` / generic `X-BOW-Signature-256` over `{timestamp}.{body}` + skew check. `token` (Jira Cloud/legacy): shared secret header. `url_token` (last resort): unguessable URL over TLS. Weaker modes warned in UI + leaned on dedup |
 | Replay / retries | Dedup on `X-GitHub-Delivery` via `external_message_id` |
 | External party drives LLM spend | `classify_enabled` gate + small model + concurrency semaphore + **per-org `webhook_rate_limit_per_min`** + **`max_webhooks`** cap (the backstops now that there's no pre-filter) |
 | **Prompt injection** (PR title/body) | All webhook text wrapped as delimited **data, never instructions**; classifier output constrained to binary JSON; same untrusted-data discipline carried into the agent prompt |
@@ -624,25 +645,29 @@ def main():
     ap.add_argument("--url", required=True)
     ap.add_argument("--secret", required=True)
     ap.add_argument("--source", default="github", choices=["github", "generic"])
+    ap.add_argument("--auth-mode", default="hmac", choices=["hmac", "token", "url_token"])
     ap.add_argument("--action", default="opened")
     ap.add_argument("--delivery", default="mock-delivery-0001")  # dedup key
     args = ap.parse_args()
 
     body = json.dumps(build_pr_payload(args.action)).encode()
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "X-BOW-Delivery": args.delivery}
 
-    if args.source == "github":
+    if args.auth_mode == "token":                       # legacy / Jira Cloud
+        headers["Authorization"] = f"Bearer {args.secret}"
+    elif args.auth_mode == "url_token":                 # Jira Server / dumb POST
+        pass  # secret is in the URL; nothing to add
+    elif args.source == "github":                       # hmac, GitHub scheme
         sig = hmac.new(args.secret.encode(), body, hashlib.sha256).hexdigest()
         headers["X-Hub-Signature-256"] = f"sha256={sig}"
         headers["X-GitHub-Event"] = "pull_request"
         headers["X-GitHub-Delivery"] = args.delivery
-    else:  # generic: BOW HMAC over "{timestamp}.{body}"
+    else:                                               # hmac, generic scheme
         ts = str(int(time.time()))
         signed = f"{ts}.".encode() + body
         sig = hmac.new(args.secret.encode(), signed, hashlib.sha256).hexdigest()
         headers["X-BOW-Signature-256"] = f"sha256={sig}"
         headers["X-BOW-Timestamp"] = ts
-        headers["X-BOW-Delivery"] = args.delivery
 
     req = urllib.request.Request(args.url, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req) as resp:
@@ -671,11 +696,11 @@ e2e fixtures.
 ## Phasing
 
 1. **M1 — Alert-only + config UI + harness**: `Webhook` model + CRUD (+ org
-   `max_webhooks` / `webhook_rate_limit_per_min` settings), receiver + HMAC +
-   dedup + rate limit, GitHub **and** generic adapters, the **Configure Webhook
-   modal** in the Summary tab, the visible `role='external'` event entry
-   (`webhook_id` set), and the `mock_webhook.py` harness. No classifier, no agent.
-   (`classify_enabled=false`.)
+   `max_webhooks` / `webhook_rate_limit_per_min` settings), receiver with all
+   three `auth_mode`s (hmac / token / url_token) + dedup + rate limit, GitHub
+   **and** generic adapters, the **Configure Webhook modal** in the Summary tab,
+   the visible `role='external'` event entry (`webhook_id` set), and the
+   `mock_webhook.py` harness. No classifier, no agent. (`classify_enabled=false`.)
 2. **M2 — Classifier gate**: `WebhookClassifier` under `/ai` (instructions +
    history + `classifier_prompt` context, authors `task`), hidden trigger
    completion (`webhook_id`, `role='user'`), 👀/✅ status, agent run on `act=true`,
