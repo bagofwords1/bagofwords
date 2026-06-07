@@ -140,6 +140,21 @@ async def _load(db, model, pk):
 # Pure (no DB)                                                                 #
 # --------------------------------------------------------------------------- #
 
+def test_reuse_directive_detection():
+    from app.ai.agents.coder.coder import Coder
+    ctx = '<available_steps count="1">\n<step id="s1" title="Customer Sales" rows="59">\n</step>\n</available_steps>'
+    # explicit reference by title -> REUSE REQUIRED naming the step
+    d = Coder._build_reuse_directive(ctx, "add a tier column to the Customer Sales step")
+    assert "REUSE REQUIRED" in d and "Customer Sales" in d
+    # generic reuse language -> softer PREFER REUSE
+    d2 = Coder._build_reuse_directive(ctx, "reuse what you built earlier and add a flag")
+    assert "PREFER REUSE" in d2
+    # unrelated prompt -> no directive
+    assert Coder._build_reuse_directive(ctx, "show revenue by country") == ""
+    # no loadables -> no directive
+    assert Coder._build_reuse_directive("", "reuse the Customer Sales step") == ""
+
+
 def test_extract_loadable_refs_literals_only():
     code = (
         "def generate_df(ds_clients, excel_files, load_step, load_entity):\n"

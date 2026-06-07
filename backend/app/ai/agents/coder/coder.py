@@ -332,6 +332,42 @@ class Coder:
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
         return result
     
+    @staticmethod
+    def _build_reuse_directive(loadables_context: str, prompt_text: str) -> str:
+        """Force load_step reuse when the user refers to an available step.
+
+        Detected programmatically (not left to the model) so a weak model can't
+        drift back to writing SQL from scratch. Returns "" when nothing matches.
+        """
+        if not loadables_context:
+            return ""
+        import re as _re
+        titles = _re.findall(r'<step\b[^>]*\btitle="([^"]+)"', loadables_context)
+        if not titles:
+            return ""
+        low = (prompt_text or "").lower()
+        referenced = [t for t in titles if t and t.lower() in low]
+        reuse_words = (
+            "load_step", "reuse", "re-use", "the step", "that step", "you built",
+            "you just", "previous", "earlier", "existing", "already built",
+        )
+        has_reuse_language = any(w in low for w in reuse_words)
+        if referenced:
+            name = referenced[0]
+            return (
+                "**REUSE REQUIRED (do not write SQL from scratch):** The user is referring to the "
+                f'existing step "{name}" listed in <available_steps>. You MUST add `load_step` to your '
+                f'signature and start from `load_step("{name}")`, then transform that DataFrame to '
+                "answer the request. Do NOT re-query the database or fabricate/hardcode data to reconstruct it."
+            )
+        if has_reuse_language:
+            return (
+                "**PREFER REUSE:** The user appears to be referring to data already built in "
+                '<available_steps>. Prefer loading it with `load_step("<name>")` over re-querying or '
+                "rebuilding from scratch. Do NOT fabricate data."
+            )
+        return ""
+
     async def generate_code(
         self,
         data_model,  # kept for signature compatibility; ignored
@@ -369,6 +405,13 @@ class Coder:
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
             data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            # If the user is clearly referring to a step we can load, force reuse
+            # via load_step instead of writing SQL from scratch. Detected here (not
+            # left to the model) so a weak model can't drift back to re-querying.
+            reuse_directive = self._build_reuse_directive(
+                loadables_context,
+                f"{context.user_prompt or ''}\n{context.interpreted_prompt or ''}",
+            )
             # Retrieve top successful snippets based on targeted tables if provided
             similar_successful_code_snippets = ""
             try:
@@ -408,6 +451,7 @@ class Coder:
 
             Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
             that produces a Pandas DataFrame grounded only in the provided schemas and resources.
+            {reuse_directive}
 
             **Organization Instructions** (authored by the user; apply them):
             {instructions_context}

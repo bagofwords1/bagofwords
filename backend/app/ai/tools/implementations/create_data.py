@@ -887,7 +887,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="create_data",
-            description="Generate code from prompt and execute to return data resultas table or chart. Use this when you want to generate a tracked insight, or you have enough information to generate a widget. Call create_data for 1 insight at a time. If you need to generate multiple insights, call create_data multiple times. Queries are subject to a per-connection timeout.",
+            description="Generate code from prompt and execute to return data resultas table or chart. Use this when you want to generate a tracked insight, or you have enough information to generate a widget. Call create_data for 1 insight at a time. If you need to generate multiple insights, call create_data multiple times. Reuse over rebuild: when the data already exists in a prior step from this report (see <available_steps>) or a published entity (see <entities>) — especially when the user refers to it by name or asks to extend/modify a previous result — prefer create_data here, which loads that data via load_step/load_entity instead of writing SQL from scratch. Queries are subject to a per-connection timeout.",
             category="action",
             version="1.0.0",
             input_schema=CreateDataInput.model_json_schema(),
