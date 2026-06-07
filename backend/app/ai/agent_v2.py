@@ -58,6 +58,42 @@ def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
     return any(kw in p for kw in THINKING_TRIGGERS)
 
 
+def _observation_failed(observation) -> bool:
+    """True when a tool observation signals failure.
+
+    Tools report failure in two ways: a truthy ``error`` payload, or an explicit
+    ``success: False`` with no ``error`` key (e.g. execute_mcp on a tool-level
+    MCP error). Checking only ``error`` mislabels the latter as success, which is
+    why failed MCP calls used to show a green ✓ in the trace. Treat either as a
+    failure.
+    """
+    if not observation:
+        return False
+    if observation.get("error"):
+        return True
+    if observation.get("success") is False:
+        return True
+    return False
+
+
+def _observation_error_message(observation) -> Optional[str]:
+    """Best-effort human-readable error string from a failed observation.
+
+    Handles both the structured ``error: {message: ...}`` shape and the flatter
+    ``success: False`` + ``summary`` shape that execute_mcp and friends emit.
+    """
+    if not observation:
+        return None
+    err = observation.get("error")
+    if isinstance(err, dict):
+        return err.get("message") or None
+    if isinstance(err, str) and err.strip():
+        return err
+    if observation.get("success") is False:
+        return observation.get("error_message") or observation.get("summary") or None
+    return None
+
+
 def _resolve_reasoning_effort(
     *,
     per_completion: Optional[str],
@@ -985,8 +1021,8 @@ class AgentV2:
                         tool_execution=tool_execution,
                         result_model=tool_output,
                         summary=observation.get("summary", "") if observation else "",
-                        error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
-                        success=bool(observation and not observation.get("error") and not _is_stopped),
+                        error_message=_observation_error_message(observation),
+                        success=bool(observation and not _observation_failed(observation) and not _is_stopped),
                     )
                 except Exception as _fin_err:
                     logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
@@ -1019,7 +1055,7 @@ class AgentV2:
 
                 try:
                     _is_stopped = bool(observation and observation.get("stopped"))
-                    _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
+                    _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
                     seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
                     safe_result_json = None
                     if tool_output is not None:
@@ -2776,7 +2812,7 @@ class AgentV2:
                             await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
 
                             # Circuit breaker: track repeated tool failures
-                            if observation and observation.get("error"):
+                            if _observation_failed(observation):
                                 failed_tool_count[tool_name] = failed_tool_count.get(tool_name, 0) + 1
                                 if failed_tool_count[tool_name] >= max_tool_failures:
                                     analysis_done = True
@@ -2913,13 +2949,10 @@ class AgentV2:
                             # DB writes and the block.upsert SSE.
                             _success_flag = bool(
                                 observation
-                                and not observation.get("error")
+                                and not _observation_failed(observation)
                                 and not (observation and observation.get("stopped"))
                             )
-                            _error_msg = (
-                                observation.get("error", {}).get("message")
-                                if observation and observation.get("error") else None
-                            )
+                            _error_msg = _observation_error_message(observation)
                             _summary = observation.get("summary", "") if observation else ""
 
                             # Mutate the in-memory tool_execution synchronously so
@@ -2990,7 +3023,7 @@ class AgentV2:
                                     {
                                         "agent_execution_id": str(self.current_execution.id),
                                         "tool_name": tool_name,
-                                        "status": "success" if observation and not observation.get("error") else "error",
+                                        "status": "error" if _observation_failed(observation) else "success",
                                         "duration_ms": getattr(tool_execution, "duration_ms", None),
                                     },
                                     user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
@@ -3107,7 +3140,7 @@ class AgentV2:
 
                             # Emit tool.finished with result
                             _is_stopped = bool(observation and observation.get("stopped"))
-                            _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
+                            _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
                             seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
                             safe_result_json = None
                             if tool_output is not None:
@@ -4129,7 +4162,7 @@ class AgentV2:
         same agent run then died. By scoping this whole block to a fresh
         session, a transport death here can't poison the rest of the run.
         """
-        if not observation or observation.get("error"):
+        if not observation or _observation_failed(observation):
             return  # Don't process failed tool executions
 
         # All ORM references that come into this method (self.current_step,

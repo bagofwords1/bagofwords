@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.401 (June 7, 2026)
+- Agent run activity chart in /monitoring diagnosis — daily agent executions bucketed by status (success/error) with click-to-filter by day, backed by a new diagnosis timeseries endpoint
+- Add a `bagofwords` MCP skill template documenting the core analysis workflow (create report, run tracked queries, build dashboards) for use with the BOW MCP connector
+- MCP error handling: tool-level MCP failures (`isError`) now surface the server's real error message instead of `None`, so the agent can correct course instead of retrying blindly — and failed MCP calls no longer show a misleading green ✓ in the trace
+- MCP planner context: the `execute_mcp` digest now echoes which underlying tool was called and with what arguments (plus the real error on failure), so the planner stops looping through call variants
+- MCP tool UI: the tool card now shows the actual command/input invoked (tool + arguments for `execute_mcp`, query for `search_mcps`, code for `write_csv`), not just the result
+
 ## Version 0.0.400 (June 7, 2026)
 - Teradata Vantage data source integration — connect Teradata as a data source, with sample queries included in the client description
 - Generated-code reuse via `load_step`/`load_entity` — the planner and coder now prefer loading a prior step's results over rebuilding from scratch, reducing redundant code generation

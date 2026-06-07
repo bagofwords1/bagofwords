@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from app.data_sources.clients.tool_provider_base import ToolProviderClient
@@ -95,11 +96,18 @@ class McpClient(ToolProviderClient):
                 data = self._extract_result_data(result)
                 content_type = self._detect_content_type(data)
 
+                is_error = bool(getattr(result, "isError", False))
+                # On a tool-level error (isError=True) the MCP spec puts the
+                # explanation in the content blocks, not in a transport
+                # exception. Surface it in `error` so callers don't see a
+                # useless "None" — otherwise the agent retries blindly.
+                error_msg = self._extract_error_message(data) if is_error else None
+
                 return {
-                    "success": not getattr(result, "isError", False),
+                    "success": not is_error,
                     "data": data,
                     "content_type": content_type,
-                    "error": None,
+                    "error": error_msg,
                 }
         except BaseException as e:
             msg = self._unwrap_exception(e)
@@ -139,6 +147,43 @@ class McpClient(ToolProviderClient):
             elif hasattr(content, "data"):
                 parts.append(content.data)
         return parts
+
+    @staticmethod
+    def _extract_error_message(data: Any) -> str:
+        """Pull a human-readable error string out of an isError tool result.
+
+        MCP servers signal tool-level failures with isError=True and the reason
+        carried in the content blocks (already parsed into `data` by
+        _extract_result_data). The shape varies — a dict like
+        {"error": "..."} / {"message": "..."}, a list of such dicts, or a
+        plain string. Fall back to a stringified form so the caller always gets
+        something more useful than None.
+        """
+        def _from_dict(d: dict) -> str | None:
+            for key in ("error", "message", "detail", "error_message"):
+                val = d.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val
+                if isinstance(val, dict):
+                    nested = _from_dict(val)
+                    if nested:
+                        return nested
+            return None
+
+        if isinstance(data, dict):
+            return _from_dict(data) or json.dumps(data, default=str)
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    msg = _from_dict(item)
+                    if msg:
+                        return msg
+                elif isinstance(item, str) and item.strip():
+                    return item
+            return json.dumps(data, default=str) if data else "Tool reported an error"
+        if isinstance(data, str) and data.strip():
+            return data
+        return "Tool reported an error"
 
     @staticmethod
     def _unwrap_exception(e: BaseException) -> str:
