@@ -22,7 +22,7 @@ Follow this sequence. Don't skip the research steps.
    ask. Keep the returned `report_id` and pass it to every later call. Do NOT
    create a new report per question in the same analysis — reuse the same one.
 2. **Discover the data — `get_context`.** Before querying, call `get_context`
-   to see data sources, tables, columns, and metadata resources. Optionally
+   to see data sources/agents, tables, columns, and metadata resources. Optionally
    filter with regex. Never assume table or column names — confirm them here.
 3. **Validate assumptions — `inspect_data` (optional, sparing).** Use only for a
    quick peek (it returns ~3 sample rows): check nulls, distinct values, join
