@@ -373,3 +373,70 @@ def test_outsider_cannot_see_other_orgs_data_source(test_client, ds_world):
         d["id"] not in (ds_world["ds_a"]["id"], ds_world["ds_b"]["id"])
         for d in list_resp.json()
     )
+
+
+# ────────────────────────────────────────────────────────────────────
+# Demo install: creator gets the RBAC manage grant, not just membership
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_demo_installer_gets_manage_grant(
+    test_client,
+    bootstrap_admin,
+    invite_user_to_org,
+    create_role,
+    assign_role,
+    install_demo_data_source,
+):
+    """A non-admin who installs a demo data source must receive the RBAC
+    `manage` grant — not just the legacy DataSourceMembership — so they can
+    actually manage the data source they created.
+
+    Regression: the demo-install path used to hand-roll only the membership
+    row, leaving a non-admin installer able to see the demo in their list
+    yet failing every `manage`-gated action on it (e.g. PUT). Admins never
+    hit this because full_admin_access bypasses resource checks, so we test
+    with a plain member holding only create_data_source.
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+
+    # A member who may create data sources but is NOT an org admin.
+    role_resp = create_role(
+        name="ds-creator",
+        permissions=["create_data_source"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert role_resp.status_code == 200, role_resp.json()
+    role_id = role_resp.json()["id"]
+
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    assign_resp = assign_role(
+        role_id=role_id,
+        principal_type="user",
+        principal_id=member["user_id"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert assign_resp.status_code in (200, 201), assign_resp.json()
+
+    # Member installs the demo (gated by create_data_source).
+    result = install_demo_data_source(
+        demo_id="chinook", user_token=member["token"], org_id=org_id
+    )
+    assert result["success"] is True, result
+    ds_id = result["data_source_id"]
+
+    # The installer must be able to perform a `manage`-gated update on it.
+    # Without the manage grant this returns 403.
+    put_resp = test_client.put(
+        f"/api/data_sources/{ds_id}",
+        json={"description": "updated by installer"},
+        headers=_hdr(member["token"], org_id),
+    )
+    assert put_resp.status_code == 200, (
+        f"installer should hold manage on the demo they created; got "
+        f"{put_resp.status_code}: {put_resp.text}"
+    )
