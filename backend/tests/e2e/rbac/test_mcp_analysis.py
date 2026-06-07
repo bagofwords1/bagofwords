@@ -255,3 +255,78 @@ def test_tools_list_gated_by_permission(
     assert "create_instruction" not in member_tools, (
         f"member saw privileged tools: {member_tools - admin_tools | (member_tools & {'create_instruction'})}"
     )
+
+
+# ── send_email ─────────────────────────────────────────────────────────
+
+from unittest.mock import AsyncMock, patch
+from app.schemas.notification_schema import ChannelResult
+
+
+def _tool_names(test_client, key):
+    r = _mcp(test_client, method="tools/list", api_key=key)
+    assert r.status_code == 200, r.text
+    return {t["name"] for t in r.json()["result"]["tools"]}
+
+
+@pytest.mark.e2e
+def test_send_email_hidden_when_smtp_unconfigured(mcp_org, create_api_key, test_client):
+    """With no email client configured, send_email is not advertised."""
+    admin = mcp_org["admin"]
+    key = create_api_key(user_token=admin["token"], org_id=mcp_org["org_id"])["key"]
+    with patch("app.settings.config.settings.email_client", None):
+        assert "send_email" not in _tool_names(test_client, key)
+
+
+@pytest.mark.e2e
+def test_send_email_listed_when_smtp_configured(mcp_org, create_api_key, test_client):
+    """When an email client is configured, send_email shows up in tools/list."""
+    admin = mcp_org["admin"]
+    key = create_api_key(user_token=admin["token"], org_id=mcp_org["org_id"])["key"]
+    with patch("app.settings.config.settings.email_client", object()):
+        assert "send_email" in _tool_names(test_client, key)
+
+
+@pytest.mark.e2e
+def test_send_email_sends_to_self(mcp_org, create_api_key, test_client):
+    """A plain message is sent, and the recipient is always the token user."""
+    admin = mcp_org["admin"]
+    key = create_api_key(user_token=admin["token"], org_id=mcp_org["org_id"])["key"]
+
+    sent = ChannelResult(channel="email", status="sent", recipients=[admin["email"]])
+    mock_send = AsyncMock(return_value=sent)
+    with patch("app.settings.config.settings.email_client", object()), \
+         patch("app.services.notification_service.notification_service.send_custom_email", mock_send):
+        out = _tool_call(
+            test_client, name="send_email",
+            arguments={"subject": "Hi", "body": "Your summary"}, api_key=key,
+        )
+
+    assert out["success"] is True
+    assert out["recipient"] == admin["email"]
+    # Recipient is never caller-controllable — it's the token user's address.
+    assert mock_send.await_args.kwargs["recipients"] == [admin["email"]]
+
+
+@pytest.mark.e2e
+def test_send_email_attachments_require_report_id(mcp_org, create_api_key, test_client):
+    """Attachments are report-scoped: without report_id the send is refused and
+    no email goes out."""
+    admin = mcp_org["admin"]
+    key = create_api_key(user_token=admin["token"], org_id=mcp_org["org_id"])["key"]
+
+    mock_send = AsyncMock(return_value=ChannelResult(channel="email", status="sent"))
+    with patch("app.settings.config.settings.email_client", object()), \
+         patch("app.services.notification_service.notification_service.send_custom_email", mock_send):
+        out = _tool_call(
+            test_client, name="send_email",
+            arguments={
+                "subject": "Hi", "body": "x",
+                "attachments": [{"ref_type": "visualization", "ref_id": "whatever"}],
+            },
+            api_key=key,
+        )
+
+    assert out["success"] is False
+    assert "report_id" in (out["error"] or "")
+    mock_send.assert_not_awaited()

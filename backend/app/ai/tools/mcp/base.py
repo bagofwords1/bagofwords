@@ -67,6 +67,16 @@ class MCPTool(ABC):
         return ["model", "app"]
 
     @property
+    def is_available(self) -> bool:
+        """Whether this tool is usable in the current deployment.
+
+        Tools whose backing capability isn't configured (e.g. send_email when
+        SMTP is absent) override this to False so they're excluded from
+        ``tools/list`` rather than advertised and always failing.
+        """
+        return True
+
+    @property
     @abstractmethod
     def input_schema(self) -> Dict[str, Any]:
         """JSON Schema for tool input arguments."""

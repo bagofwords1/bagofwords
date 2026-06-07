@@ -238,3 +238,40 @@ class MCPEditArtifactOutput(BaseModel):
     diff_applied: Optional[bool] = Field(default=None, description="True if surgical diff was applied, False if fell back to full rewrite.")
     error_message: Optional[str] = None
     url: Optional[str] = Field(default=None, description="Link to view the edited artifact. Always share this with the user.")
+
+
+# ── send_email ─────────────────────────────────────────────────────
+
+# Reuse the attachment spec / result shapes from the internal tool so the MCP
+# surface and the agent tool stay in lockstep.
+from app.ai.tools.schemas.send_email import (  # noqa: E402
+    EmailAttachmentSpec,
+    SendEmailAttachmentResult,
+)
+
+
+class MCPSendEmailInput(BaseModel):
+    """Input for the send_email MCP tool.
+
+    Sends a free-form email to the requesting user themselves. The recipient is
+    ALWAYS the authenticated user — it is not selectable, so the tool can never
+    email anyone else.
+    """
+    subject: str = Field(..., min_length=1, max_length=300, description="A clear, specific subject line.")
+    body: str = Field(..., min_length=1, description="The email body. Plain text by default; keep it short and natural.")
+    body_format: str = Field(default="text", description="'text' (default) or 'html'. Use 'html' only when light structure genuinely helps.")
+    report_id: Optional[str] = Field(default=None, description="Report ID that owns any attachments. Required when 'attachments' is non-empty; attachments are scoped to this report.")
+    attachments: List[EmailAttachmentSpec] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Optional files to attach (max 5), referenced by visualization_id / query_id / artifact_id / file_id from the report. Requires report_id.",
+    )
+
+
+class MCPSendEmailOutput(BaseModel):
+    """Output for the send_email MCP tool."""
+    success: bool
+    recipient: Optional[str] = None
+    subject: Optional[str] = None
+    attachments: List[SendEmailAttachmentResult] = Field(default_factory=list)
+    error: Optional[str] = None
