@@ -37,6 +37,14 @@ tracer = get_tracer(__name__)
 # can still schedule usage recording via run_coroutine_threadsafe.
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
 
+# Strong references to in-flight usage-record tasks. asyncio only keeps a weak
+# reference to tasks created via loop.create_task(), so a fire-and-forget task
+# can be garbage-collected mid-execution before its DB commit lands — silently
+# dropping the usage record. Holding a reference here until the task completes
+# closes that gap. This adds no latency: the tasks still run in the background,
+# off the response path. The set is bounded by in-flight count and self-drains.
+_PENDING_RECORD_TASKS: set = set()
+
 
 class LLM:
     def __init__(
@@ -654,8 +662,19 @@ class LLM:
         cache_creation_tokens: int = 0,
         should_record: bool,
     ):
-        if not should_record or not scope or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
+        if not should_record or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
             return
+        # Safety net: a call that reaches here with tokens but no scope is a
+        # call site that forgot to label itself. Rather than silently dropping
+        # the record (the old behavior, which made tokens vanish from
+        # /monitoring), record it under "unscoped" and warn so it's visible.
+        if not scope:
+            logger.warning(
+                "LLM usage recorded without a usage_scope (provider=%s model=%s); "
+                "labeling as 'unscoped'. Add usage_scope at the call site.",
+                self.provider, self.model_id,
+            )
+            scope = "unscoped"
         session_maker = self._usage_session_maker
         if session_maker is None:
             return
@@ -697,7 +716,11 @@ class LLM:
                 logger.warning("Unable to schedule LLM usage recording (threadsafe): %s", exc)
             return
         try:
-            loop.create_task(_record_usage())
+            task = loop.create_task(_record_usage())
+            # Retain a strong reference until the task finishes so it can't be
+            # GC'd mid-flight (see _PENDING_RECORD_TASKS note above).
+            _PENDING_RECORD_TASKS.add(task)
+            task.add_done_callback(_PENDING_RECORD_TASKS.discard)
         except Exception as exc:
             logger.warning("Unable to schedule LLM usage recording: %s", exc)
 

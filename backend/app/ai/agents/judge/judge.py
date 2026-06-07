@@ -1,7 +1,10 @@
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-import tiktoken 
+from app.services.usage_policy_service import UsageLimitContext
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Callable, Optional
+import tiktoken
 import json
 from partialjson.json_parser import JSONParser
 from app.schemas.ai.planner import PlannerInput
@@ -9,8 +12,15 @@ import asyncio
 
 class Judge:
 
-    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder=None) -> None:
-        self.llm = LLM(model)
+    def __init__(
+        self,
+        model: LLMModel,
+        organization_settings: OrganizationSettingsConfig,
+        instruction_context_builder=None,
+        usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
+        usage_context: Optional[UsageLimitContext] = None,
+    ) -> None:
+        self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.organization_settings = organization_settings
     
     async def judge_test_case(self, test_case_prompt: str, trace: any): 
@@ -35,7 +45,9 @@ class Judge:
         }}
         """
 
-        response = await asyncio.to_thread(self.llm.inference, judge_prompt)
+        response = await asyncio.to_thread(
+            self.llm.inference, judge_prompt, usage_scope="judge.test_case"
+        )
         try:
             result = json.loads(response)
             passed = result["passed"]
@@ -93,7 +105,9 @@ class Judge:
             """
 
             # Offload potentially blocking LLM call to a thread to avoid blocking the event loop
-            response = await asyncio.to_thread(self.llm.inference, scoring_prompt)
+            response = await asyncio.to_thread(
+                self.llm.inference, scoring_prompt, usage_scope="judge.instructions_context"
+            )
             try:
                 scores = json.loads(response)
                 instructions_score = max(1, min(5, int(scores.get("instructions_score", 3))))
@@ -165,8 +179,10 @@ class Judge:
             """
 
             # Offload potentially blocking LLM call to a thread to avoid blocking the event loop
-            response = await asyncio.to_thread(self.llm.inference, scoring_prompt)
-            
+            response = await asyncio.to_thread(
+                self.llm.inference, scoring_prompt, usage_scope="judge.response_quality"
+            )
+
             try:
                 score_data = json.loads(response)
                 response_score = max(1, min(5, int(score_data.get("response_score", 3))))

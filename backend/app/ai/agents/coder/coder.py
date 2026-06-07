@@ -320,7 +320,9 @@ class Coder:
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
 
-        result = await asyncio.to_thread(self.llm.inference, text)
+        result = await asyncio.to_thread(
+            self.llm.inference, text, usage_scope="create_data.code_gen"
+        )
 
         # Remove markdown code fence (with optional language tag) if present
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
@@ -613,6 +615,7 @@ class Coder:
                 span.set_attribute("coder.allow_llm_see_data", bool(self.enable_llm_see_data))
                 async for evt in self.llm.inference_stream_v2(
                     messages=[Message(role="user", content=text)],
+                    usage_scope="create_data.code_gen",
                 ):
                     if isinstance(evt, TextDeltaEvent):
                         chunks.append(evt.text)
@@ -741,6 +744,7 @@ class Coder:
         chunks: list[str] = []
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
+            usage_scope="create_data.inspection",
         ):
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
