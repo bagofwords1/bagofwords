@@ -402,7 +402,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "teradata": DataSourceRegistryEntry(
         type="teradata",
-        title="Teradata",
+        title="Teradata Vantage",
         description="Enterprise-scale analytics database and data warehouse (Teradata Vantage), commonly deployed on-premises.",
         config_schema=TeradataConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={

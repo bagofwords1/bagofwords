@@ -224,8 +224,43 @@ class TeradataClient(DataSourceClient):
         "databases" are the namespace, equivalent to schemas elsewhere). Use
         them exactly as given, without quotes — e.g. SELECT * FROM sales.orders.
 
+        Sample queries:
+
         ```python
+        # Preview rows (use TOP, not LIMIT)
         df = client.execute_query("SELECT TOP 10 * FROM sales.orders ORDER BY order_date DESC")
+        ```
+        ```python
+        # Aggregate with a date filter
+        df = client.execute_query(
+            "SELECT order_status, COUNT(*) AS cnt, SUM(amount) AS total "
+            "FROM sales.orders "
+            "WHERE order_date BETWEEN DATE '2024-01-01' AND DATE '2024-12-31' "
+            "GROUP BY order_status ORDER BY total DESC"
+        )
+        ```
+        ```python
+        # Latest row per group using QUALIFY (Teradata-specific)
+        df = client.execute_query(
+            "SELECT customer_id, order_id, order_date FROM sales.orders "
+            "QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date DESC) = 1"
+        )
+        ```
+        ```python
+        # Join across databases and bucket by month
+        df = client.execute_query(
+            "SELECT TRUNC(o.order_date, 'MON') AS month, c.region, SUM(o.amount) AS revenue "
+            "FROM sales.orders o "
+            "JOIN sales.customers c ON o.customer_id = c.customer_id "
+            "GROUP BY 1, 2 ORDER BY 1, 2"
+        )
+        ```
+        ```python
+        # Top-N per group with a tie-safe rank
+        df = client.execute_query(
+            "SELECT product_id, region, revenue FROM finance.product_sales "
+            "QUALIFY RANK() OVER (PARTITION BY region ORDER BY revenue DESC) <= 5"
+        )
         ```
 
         IMPORTANT - Teradata dialect differences:
@@ -233,14 +268,15 @@ class TeradataClient(DataSourceClient):
         Pagination: use TOP n (between SELECT and the column list), e.g.
             SELECT TOP 100 * FROM sales.orders. LIMIT is NOT supported.
             You may also use QUALIFY ROW_NUMBER() OVER (...) <= n.
+        Date literals: DATE '2024-01-31', TIMESTAMP '2024-01-31 10:00:00'.
         Current date/time: CURRENT_DATE, CURRENT_TIMESTAMP, CURRENT_TIME.
         Date arithmetic: date + INTERVAL '7' DAY, ADD_MONTHS(date, n),
-            EXTRACT(YEAR FROM date). Use CAST(x AS DATE) for casts.
+            EXTRACT(YEAR FROM date), TRUNC(date, 'MON') for month bucketing.
+            Use CAST(x AS DATE) for casts.
         Window filtering: QUALIFY filters window functions directly, e.g.
             SELECT ... QUALIFY ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) = 1.
         Sampling: SAMPLE n (rows) or SAMPLE 0.1 (fraction).
-        String aggregation: use XMLAGG(...) or stringagg patterns; there is no
-            GROUP_CONCAT.
+        String aggregation: use XMLAGG(...) patterns; there is no GROUP_CONCAT.
         Concatenation: || (NULL propagates — wrap with COALESCE if needed).
         NULL handling: COALESCE(a, b) and NULLIF(a, b) are supported.
         Not-equal: use <> (preferred) or !=.
@@ -253,6 +289,6 @@ class TeradataClient(DataSourceClient):
         - Prefer exact match or IN (...) over text search on large columns.
         - Queries have a 60s timeout. Narrow date ranges first; don't rely on retries.
         """
-        description = f"Teradata database '{self.database}' at {self.host}:{self.port}\n\n"
+        description = f"Teradata Vantage database '{self.database}' at {self.host}:{self.port}\n\n"
         description += system_prompt
         return description
