@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.401 (June 7, 2026)
+- Agent run activity chart in /monitoring diagnosis — daily agent executions bucketed by status (success/error) with click-to-filter by day, backed by a new diagnosis timeseries endpoint
+- Add a `bagofwords` MCP skill template documenting the core analysis workflow (create report, run tracked queries, build dashboards) for use with the BOW MCP connector
+
 ## Version 0.0.400 (June 7, 2026)
 - Teradata Vantage data source integration — connect Teradata as a data source, with sample queries included in the client description
 - Generated-code reuse via `load_step`/`load_entity` — the planner and coder now prefer loading a prior step's results over rebuilding from scratch, reducing redundant code generation
