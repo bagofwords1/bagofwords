@@ -4,7 +4,7 @@
 			<template #header>
 				<div class="flex items-start justify-between">
 					<div>
-						<h3 class="text-base font-semibold text-gray-900">Webhooks</h3>
+						<h3 class="text-base font-semibold text-gray-900">Triggers</h3>
 						<p class="text-sm text-gray-400 mt-0.5">Send external events into this report.</p>
 					</div>
 					<UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
@@ -54,7 +54,7 @@
 
 			<!-- New webhook -->
 			<section>
-				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">New webhook</h4>
+				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">New trigger</h4>
 
 				<div class="space-y-4">
 					<div>
@@ -100,7 +100,7 @@
 							@click="create"
 						>
 							<Spinner v-if="creating" class="w-4 h-4" />
-							Create webhook
+							Create trigger
 						</button>
 					</div>
 				</div>
@@ -131,7 +131,7 @@ const creating = ref(false)
 const reveal = ref<any>(null)
 
 // Token header is the default auth mode (simplest for most senders).
-const defaultForm = () => ({ name: 'Webhook', source: 'github', auth_mode: 'token', classify_enabled: true, classifier_prompt: '' })
+const defaultForm = () => ({ name: 'Trigger', source: 'github', auth_mode: 'token', classify_enabled: true, classifier_prompt: '' })
 const form = ref(defaultForm())
 
 function sourceIcon(s: string): string {
