@@ -297,6 +297,28 @@ def test_resolve_entity_denied_when_no_ds_access(monkeypatch):
     _run(go())
 
 
+def test_build_codegen_context_includes_loadables():
+    """The discovery section must reach the coder prompt via build_codegen_context."""
+    ids = _run(_seed())
+    from app.ai.prompt_formatters import build_codegen_context
+
+    async def go():
+        async with async_session_maker() as db:
+            report = await _load(db, Report, ids["report_id"])
+            org = await _load(db, Organization, ids["org_id"])
+            user = await _load(db, User, ids["user_id"])
+            runtime_ctx = {"db": db, "organization": org, "report": report, "user": user}
+            ctx = await build_codegen_context(
+                runtime_ctx=runtime_ctx,
+                user_prompt="reuse the customer sales step",
+                interpreted_prompt=None,
+                schemas_excerpt="",
+            )
+            assert "available_steps" in ctx.loadables_context
+            assert "Customer Sales" in ctx.loadables_context
+    _run(go())
+
+
 def test_list_for_discovery_lists_default_step():
     ids = _run(_seed())
 
@@ -316,6 +338,99 @@ def test_list_for_discovery_lists_default_step():
 # --------------------------------------------------------------------------- #
 # End-to-end execution                                                        #
 # --------------------------------------------------------------------------- #
+
+def _stub_coder(code_to_return):
+    """A code_generator_fn drop-in that ignores context and returns fixed code.
+
+    Supports a list to vary output across retry attempts.
+    """
+    seq = code_to_return if isinstance(code_to_return, list) else [code_to_return]
+    state = {"i": 0}
+
+    async def _gen(**kwargs):
+        i = min(state["i"], len(seq) - 1)
+        state["i"] += 1
+        return seq[i]
+
+    return _gen
+
+
+def test_stream_v2_agentic_path_resolves_and_injects_load_step():
+    """The create_data streaming path AST-scans, resolves, injects and runs."""
+    ids = _run(_seed())
+    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+    code = (
+        "def generate_df(ds_clients, excel_files, load_step, load_entity):\n"
+        "    a = load_step('Customer Sales')\n"
+        "    b = load_entity('Monthly Revenue Model')\n"
+        "    return a.merge(b, on='customer_id')\n"
+    )
+
+    async def go():
+        async with async_session_maker() as db:
+            report = await _load(db, Report, ids["report_id"])
+            org = await _load(db, Organization, ids["org_id"])
+            user = await _load(db, User, ids["user_id"])
+            resolver = LoadablesResolver(db, org, report, user)
+            executor = StreamingCodeExecutor()
+            ctx = CodeGenContext(user_prompt="x", schemas_excerpt="")
+            done = None
+            async for ev in executor.generate_and_execute_stream_v2(
+                request=CodeGenRequest(context=ctx, retries=2),
+                ds_clients={},
+                excel_files=[],
+                code_generator_fn=_stub_coder(code),
+                loadable_resolver_fn=resolver.resolve,
+            ):
+                if ev["type"] == "done":
+                    done = ev["payload"]
+            assert done is not None
+            df = done["df"]
+            assert df is not None and sorted(df.columns) == ["customer_id", "name", "revenue"]
+            assert len(df) == 2
+            assert not done["errors"], done["errors"]
+
+    _run(go())
+
+
+def test_stream_v2_miss_feeds_retry_loop():
+    """A bad ref must surface as a code error (driving regeneration), not crash."""
+    ids = _run(_seed())
+    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+    bad = (
+        "def generate_df(ds_clients, excel_files, load_step):\n"
+        "    return load_step('Does Not Exist')\n"
+    )
+
+    async def go():
+        async with async_session_maker() as db:
+            report = await _load(db, Report, ids["report_id"])
+            org = await _load(db, Organization, ids["org_id"])
+            resolver = LoadablesResolver(db, org, report, None)
+            executor = StreamingCodeExecutor()
+            ctx = CodeGenContext(user_prompt="x", schemas_excerpt="")
+            stdout_msgs = []
+            done = None
+            async for ev in executor.generate_and_execute_stream_v2(
+                request=CodeGenRequest(context=ctx, retries=2),
+                ds_clients={},
+                excel_files=[],
+                code_generator_fn=_stub_coder([bad, bad]),
+                loadable_resolver_fn=resolver.resolve,
+            ):
+                if ev["type"] == "stdout":
+                    stdout_msgs.append(ev["payload"])
+                if ev["type"] == "done":
+                    done = ev["payload"]
+            # resolution error was surfaced and folded into the error feedback
+            assert any("Loadable resolution failed" in m for m in stdout_msgs), stdout_msgs
+            assert done is not None
+            assert any("Does Not Exist" in e[1] for e in (done["errors"] or []))
+
+    _run(go())
+
 
 def test_execute_code_end_to_end_load_step_and_entity():
     ids = _run(_seed())

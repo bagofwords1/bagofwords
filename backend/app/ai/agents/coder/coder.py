@@ -516,13 +516,19 @@ class Coder:
                - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
                - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
-            2a. **Reusing existing results (load_step / load_entity)**:
-               - You may reuse data the user already built instead of re-querying it. Add the parameters you need to your signature, e.g. `def generate_df(ds_clients, excel_files, load_step, load_entity):` (any subset, in any order after `excel_files`).
-               - `load_step("<id or name>")` returns a pandas DataFrame for a prior step in THIS report. Pick from the `<available_steps>` section above (match the `id`, `slug`, or `title`).
+            2a. **Reusing existing results (load_step / load_entity)** — IMPORTANT:
+               - When the user refers to data they already built (e.g. "the Customer Sales step", "the step you just built", "reuse ...") or asks you NOT to re-query, you MUST load that data with `load_step` rather than re-querying or inventing it. **NEVER fabricate, hardcode, or randomly generate rows** to stand in for real data — load the real step/entity instead.
+               - To use them, add the parameters to your signature, e.g. `def generate_df(ds_clients, excel_files, load_step, load_entity):` (any subset, in any order after `excel_files`).
+               - `load_step("<id or name>")` returns a pandas DataFrame for a prior step in THIS report. Choose one from the `<available_steps>` section above (match its `id`, `slug`, or `title` exactly).
+               - Do NOT reload a prior step's data with `pd.read_csv(...)` or by reading from `excel_files` — those are for user-uploaded files only. To reuse a previous step, use `load_step(...)`.
                - `load_entity("<id or name>")` returns a pandas DataFrame for a published catalog entity from the `<entities>` section.
-               - **The argument MUST be a string literal** (e.g. `load_step("Raw Customer Data")`), not a variable — it is pre-resolved before your code runs.
-               - Returned data is a **cached snapshot**: it may be row-capped (~1000 rows) and date/decimal columns arrive as strings. Treat it as a reference/lookup table; `pd.to_datetime(...)`/`.astype(...)` if you need typed values before joining.
-               - Prefer this over re-querying when a listed step/entity already contains the data you need (e.g. merge a fresh query with a prior step on a shared key).
+               - **The argument MUST be a string literal** (e.g. `load_step("Customer Sales")`), not a variable — it is pre-resolved before your code runs.
+               - Returned data is a **cached snapshot**: it may be row-capped (~1000 rows) and date/decimal columns arrive as strings. Treat it as a reference/lookup table; use `pd.to_datetime(...)`/`.astype(...)` if you need typed values before joining.
+               - Example — add a column to a prior step without touching the database:
+                 `def generate_df(ds_clients, excel_files, load_step):`
+                 `    df = load_step("Customer Sales")`
+                 `    df["tier"] = df["TotalSales"].astype(float).apply(lambda v: "High" if v >= 40 else "Low")`
+                 `    return df`
 
             3. **Schema Adherence**:
                - Use only columns and relationships that exist in the provided schemas.
