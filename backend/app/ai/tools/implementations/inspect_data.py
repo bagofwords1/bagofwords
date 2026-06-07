@@ -36,6 +36,8 @@ Use when:
 	•	A previous create_data attempt failed and you need to diagnose the issue.
 Don't use on images
 
+Note: if the data already exists in a prior step (see <available_steps>) or a published entity (see <entities>), you don't need to re-query to reuse it — create_data can load it directly via load_step/load_entity. Prefer that over rebuilding from scratch when the user refers to an existing result.
+
 Queries are subject to a per-connection timeout.
             """,
             category="research",

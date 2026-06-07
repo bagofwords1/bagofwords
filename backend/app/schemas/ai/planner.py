@@ -86,6 +86,10 @@ class PlannerInput(BaseModel):
     mentions_context: Optional[str] = None
     # Entities context rendered from catalog search
     entities_context: Optional[str] = None
+    # Loadable prior steps in this report (rendered <available_steps> block).
+    # Signals to the planner that create_data can reuse these via load_step
+    # instead of re-deriving from scratch.
+    available_steps_context: Optional[str] = None
     # Active recurring scheduled tasks for this report (rendered <scheduled_tasks> block)
     scheduled_tasks_context: Optional[str] = None
     # A compact dictionary describing the most recent tool observation (if any)

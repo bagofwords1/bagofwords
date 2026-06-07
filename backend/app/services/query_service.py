@@ -224,6 +224,12 @@ class QueryService:
             ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
             ds_clients.update(ds_conns)
         excel_files = report.files
+        # Pre-resolve any load_step()/load_entity() refs in the saved code so
+        # reruns of code that reuses prior results keep working.
+        from app.ai.code_execution.loadables import resolve_loadables_for_code
+        from app.models.organization import Organization
+        org = await db.get(Organization, str(organization_id or report.organization_id)) if (organization_id or getattr(report, "organization_id", None)) else None
+        loadables = await resolve_loadables_for_code(db, org, report, run_user, step.code)
         usage_context = self._usage_context(organization_id, user_id, source="query_run", source_ref_id=query_id)
         executor = StreamingCodeExecutor(usage_context=usage_context)
         try:
@@ -231,6 +237,7 @@ class QueryService:
                 code=step.code,
                 ds_clients=ds_clients,
                 excel_files=excel_files,
+                loadables=loadables,
             )
             df = executor.format_df_for_widget(exec_df)
             # Persist results on the new step

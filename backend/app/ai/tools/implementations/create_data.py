@@ -887,7 +887,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="create_data",
-            description="Generate code from prompt and execute to return data resultas table or chart. Use this when you want to generate a tracked insight, or you have enough information to generate a widget. Call create_data for 1 insight at a time. If you need to generate multiple insights, call create_data multiple times. Queries are subject to a per-connection timeout.",
+            description="Generate code from prompt and execute to return data resultas table or chart. Use this when you want to generate a tracked insight, or you have enough information to generate a widget. Call create_data for 1 insight at a time. If you need to generate multiple insights, call create_data multiple times. Reuse over rebuild: when the data already exists in a prior step from this report (see <available_steps>) or a published entity (see <entities>) — especially when the user refers to it by name or asks to extend/modify a previous result — prefer create_data here, which loads that data via load_step/load_entity instead of writing SQL from scratch. Queries are subject to a per-connection timeout.",
             category="action",
             version="1.0.0",
             input_schema=CreateDataInput.model_json_schema(),
@@ -1184,6 +1184,17 @@ Do not use generic placeholders like "value" unless that is the actual column na
         codegen_ms = None
         execution_ms = None
 
+        # Resolver for load_step()/load_entity() calls the generated code may
+        # make — scoped to this report's steps and the user's accessible
+        # entities.
+        from app.ai.code_execution.loadables import LoadablesResolver
+        _loadables_resolver = LoadablesResolver(
+            db=runtime_ctx.get("db"),
+            organization=runtime_ctx.get("organization"),
+            report=runtime_ctx.get("report"),
+            current_user=runtime_ctx.get("user"),
+        )
+
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
                 request=CodeGenRequest(context=codegen_context, retries=2),
@@ -1192,6 +1203,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 code_context_builder=None,
                 code_generator_fn=coder.generate_code,
                 sigkill_event=runtime_ctx.get("sigkill_event"),
+                loadable_resolver_fn=_loadables_resolver.resolve,
             ):
                 if e["type"] == "progress":
                     # Map internal stage names to UI-friendly names
