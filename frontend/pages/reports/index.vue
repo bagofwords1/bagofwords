@@ -234,7 +234,8 @@
                             <li
                                 v-for="report in visibleReports"
                                 :key="report.id"
-                                class="group flex items-center gap-3 py-3.5 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition-colors"
+                                @click="goToReport(report)"
+                                class="group flex items-center gap-3 py-3.5 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                             >
                                 <!-- Bulk select (My reports) -->
                                 <input
@@ -242,13 +243,14 @@
                                     type="checkbox"
                                     :checked="selectedIds.has(report.id)"
                                     @change="toggleOne(report.id)"
+                                    @click.stop
                                     class="rounded border-gray-300 opacity-0 group-hover:opacity-100 checked:opacity-100 transition-opacity"
                                 />
 
                                 <!-- Star -->
                                 <UTooltip :text="report.is_starred ? $t('reports.tooltips.unstar') : $t('reports.tooltips.star')">
                                     <button
-                                        @click="toggleStar(report)"
+                                        @click.stop="toggleStar(report)"
                                         class="inline-flex items-center justify-center focus:outline-none"
                                     >
                                         <UIcon
@@ -269,7 +271,8 @@
                                     <div class="flex items-center gap-2 flex-wrap">
                                         <NuxtLink
                                             :to="`/reports/${report.id}`"
-                                            class="font-semibold text-gray-900 hover:text-blue-600 truncate"
+                                            @click.stop
+                                            class="font-medium text-gray-900 hover:text-blue-600 truncate"
                                         >
                                             {{ report.title }}
                                         </NuxtLink>
@@ -299,9 +302,9 @@
                                             <Icon name="heroicons:clock" class="h-3.5 w-3.5 text-gray-400" />
                                         </UTooltip>
                                     </div>
-                                    <!-- Type sub-label + data sources -->
-                                    <div class="mt-0.5 flex items-center gap-2 text-xs text-gray-500">
-                                        <span class="inline-flex items-center gap-1" :class="reportTypeColor(report)">
+                                    <!-- Type sub-label + data sources + metrics -->
+                                    <div class="mt-0.5 flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+                                        <span class="inline-flex items-center gap-1">
                                             <Icon :name="reportTypeIcon(report)" class="h-3.5 w-3.5" />
                                             {{ reportTypeLabel(report) }}
                                         </span>
@@ -323,44 +326,44 @@
                                                 </UTooltip>
                                             </span>
                                         </template>
+                                        <template v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count || report.webhook_count">
+                                            <span class="text-gray-300">·</span>
+                                            <span class="inline-flex items-center gap-1.5 flex-wrap text-gray-400">
+                                                <span v-if="report.query_count" class="inline-flex items-center gap-1">
+                                                    <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3" />
+                                                    {{ report.query_count }}
+                                                </span>
+                                                <span v-if="report.artifact_count" class="inline-flex items-center gap-1">
+                                                    <Icon name="heroicons:chart-bar-square" class="w-3 h-3" />
+                                                    {{ report.artifact_count }}
+                                                </span>
+                                                <span v-if="report.scheduled_prompt_count" class="inline-flex items-center gap-1">
+                                                    <Icon name="heroicons:clock" class="w-3 h-3" />
+                                                    {{ report.scheduled_prompt_count }}
+                                                </span>
+                                                <span v-if="report.instruction_count" class="inline-flex items-center gap-1">
+                                                    <Icon name="heroicons-academic-cap" class="w-3 h-3" />
+                                                    {{ report.instruction_count }}
+                                                </span>
+                                                <span v-if="report.webhook_count" class="inline-flex items-center gap-1">
+                                                    <Icon name="heroicons-bolt" class="w-3 h-3" />
+                                                    {{ report.webhook_count }}
+                                                </span>
+                                            </span>
+                                        </template>
                                     </div>
                                 </div>
 
-                                <!-- Right metadata: metrics + date -->
-                                <div class="shrink-0 hidden sm:flex flex-col items-end gap-1 text-right">
-                                    <div
-                                        v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count || report.webhook_count"
-                                        class="text-[11px] text-gray-400 flex items-center gap-1.5 flex-wrap justify-end"
-                                    >
-                                        <span v-if="report.query_count" class="inline-flex items-center gap-1">
-                                            <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3" />
-                                            {{ report.query_count }}
-                                        </span>
-                                        <span v-if="report.artifact_count" class="inline-flex items-center gap-1">
-                                            <Icon name="heroicons:chart-bar-square" class="w-3 h-3" />
-                                            {{ report.artifact_count }}
-                                        </span>
-                                        <span v-if="report.scheduled_prompt_count" class="inline-flex items-center gap-1">
-                                            <Icon name="heroicons:clock" class="w-3 h-3" />
-                                            {{ report.scheduled_prompt_count }}
-                                        </span>
-                                        <span v-if="report.instruction_count" class="inline-flex items-center gap-1">
-                                            <Icon name="heroicons-academic-cap" class="w-3 h-3" />
-                                            {{ report.instruction_count }}
-                                        </span>
-                                        <span v-if="report.webhook_count" class="inline-flex items-center gap-1">
-                                            <Icon name="heroicons-bolt" class="w-3 h-3" />
-                                            {{ report.webhook_count }}
-                                        </span>
-                                    </div>
-                                    <div class="text-xs text-gray-500">{{ formatDate(report.created_at) }}</div>
+                                <!-- Right metadata: date -->
+                                <div class="shrink-0 hidden sm:block text-xs text-gray-500">
+                                    {{ formatDate(report.created_at) }}
                                 </div>
 
                                 <!-- Archive action -->
                                 <div class="shrink-0 w-8 flex justify-end">
                                     <UTooltip v-if="canDeleteReport(report)" :text="$t('reports.archive')">
                                         <button
-                                            @click="confirmDelete(report.id)"
+                                            @click.stop="confirmDelete(report.id)"
                                             class="text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"
                                         >
                                             <Icon name="heroicons:archive-box" class="w-4 h-4" />
@@ -488,10 +491,8 @@ const reportTypeLabel = (report: any) => {
     return t('reports.type.chat')
 }
 
-const reportTypeColor = (report: any) => {
-    if (report.artifact_modes?.includes('page')) return 'text-blue-500'
-    if (report.artifact_modes?.includes('slides')) return 'text-purple-500'
-    return 'text-green-500'
+const goToReport = (report: any) => {
+    router.push(`/reports/${report.id}`)
 }
 
 const formatDate = (iso: string) => {
