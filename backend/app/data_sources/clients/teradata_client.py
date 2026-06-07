@@ -57,8 +57,7 @@ _TD_TYPE_CODES = {
 
 
 class TeradataClient(DataSourceClient):
-    def __init__(self, host, database, user, password, port: int = 1025,
-                 logmech: Optional[str] = "TD2"):
+    def __init__(self, host, database, user, password, port: int = 1025):
         if teradatasql is None:
             raise ImportError(
                 "teradatasql is required for Teradata connections. "
@@ -69,8 +68,6 @@ class TeradataClient(DataSourceClient):
         self.database = database
         self.user = user
         self.password = password
-        # Empty/None logmech means use the driver default (TD2).
-        self.logmech = (logmech or "").strip() or None
 
         # `database` may be a single database or a comma-separated list. In
         # Teradata a "database" is the namespace (≈ schema in other engines).
@@ -92,8 +89,6 @@ class TeradataClient(DataSourceClient):
             "password": self.password,
             "dbs_port": str(self.port),
         }
-        if self.logmech:
-            conn_kwargs["logmech"] = self.logmech
         # Default the session database to the first configured database.
         if self._databases:
             conn_kwargs["database"] = self._databases[0]

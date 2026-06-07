@@ -358,12 +358,6 @@ class TeradataConfig(BaseModel):
         description="Database to query. In Teradata a database is the namespace (≈ schema). Can be a comma-separated list.",
         json_schema_extra={"ui:type": "string"},
     )
-    logmech: str = Field(
-        "TD2",
-        title="Logon Mechanism",
-        description="Authentication mechanism. TD2 (default) for native users; LDAP/KRB5/TDNEGO for directory-based logon (common on-prem).",
-        json_schema_extra={"ui:type": "select", "ui:options": ["TD2", "LDAP", "KRB5", "TDNEGO"]},
-    )
 
 
 # AWS Redshift
