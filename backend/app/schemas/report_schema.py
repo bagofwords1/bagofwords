@@ -71,6 +71,7 @@ class ReportSchema(ReportBase):
     has_scheduled_prompts: bool = False
     scheduled_prompt_count: int = 0
     instruction_count: int = 0
+    webhook_count: int = 0
     # Fork lineage
     forked_from_id: Optional[str] = None
     forked_from_title: Optional[str] = None

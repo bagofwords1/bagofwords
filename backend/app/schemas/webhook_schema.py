@@ -11,7 +11,7 @@ AuthMode = Literal["hmac", "token", "url_token"]
 class WebhookCreate(BaseModel):
     name: str = "Webhook"
     source: WebhookSource = "generic"
-    auth_mode: AuthMode = "hmac"
+    auth_mode: AuthMode = "token"
     auth_header_name: Optional[str] = "Authorization"
     classify_enabled: bool = True
     classifier_prompt: Optional[str] = None

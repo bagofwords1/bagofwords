@@ -369,6 +369,17 @@ class ReportService:
         )
         report_schema.instruction_count = ic_result.scalar() or 0
 
+        # Webhook count (active, non-deleted)
+        from app.models.webhook import Webhook
+        wh_result = await db.execute(
+            select(func.count(Webhook.id)).where(
+                Webhook.report_id == report.id,
+                Webhook.deleted_at == None,
+                Webhook.is_active == True,
+            )
+        )
+        report_schema.webhook_count = wh_result.scalar() or 0
+
         # Enrich fork lineage
         await self._enrich_fork_lineage(db, report, report_schema)
         return report_schema
@@ -1187,6 +1198,21 @@ class ReportService:
                 ic_result = await db.execute(ic_query)
                 instruction_counts = {str(row[0]): row[1] for row in ic_result.all()}
 
+            webhook_counts: dict[str, int] = {}
+            if report_ids:
+                from app.models.webhook import Webhook
+                wh_query = (
+                    select(Webhook.report_id, func.count(Webhook.id))
+                    .where(
+                        Webhook.report_id.in_(report_ids),
+                        Webhook.deleted_at == None,
+                        Webhook.is_active == True,
+                    )
+                    .group_by(Webhook.report_id)
+                )
+                wh_result = await db.execute(wh_query)
+                webhook_counts = {str(row[0]): row[1] for row in wh_result.all()}
+
             # Convert to schemas
             report_schemas = []
             for report in reports:
@@ -1228,6 +1254,9 @@ class ReportService:
 
                 # Instruction count (from batch query)
                 report_schema.instruction_count = instruction_counts.get(str(report.id), 0)
+
+                # Webhook count (from batch query)
+                report_schema.webhook_count = webhook_counts.get(str(report.id), 0)
 
                 # Starred state for the current user
                 report_schema.is_starred = str(report.id) in starred_ids

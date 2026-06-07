@@ -244,7 +244,7 @@
                                                     </span>
                                                 </UTooltip>
                                             </span>
-                                            <div v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count" class="text-[11px] text-gray-400 mt-0.5">
+                                            <div v-if="report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count || report.webhook_count" class="text-[11px] text-gray-400 mt-0.5">
                                                 <span v-if="report.query_count">{{ report.query_count }} {{ report.query_count === 1 ? $t('reports.metric.query') : $t('reports.metric.queries') }}</span>
                                                 <span v-if="report.query_count && (report.artifact_count || report.scheduled_prompt_count || report.instruction_count)"> | </span>
                                                 <span v-if="report.artifact_count">{{ report.artifact_count }} {{ report.artifact_count === 1 ? $t('reports.metric.artifact') : $t('reports.metric.artifacts') }}</span>
@@ -257,6 +257,11 @@
                                                 <span v-if="report.instruction_count">
                                                     <Icon name="heroicons-academic-cap" class="w-3 h-3 inline -mt-px" />
                                                     {{ report.instruction_count }} {{ report.instruction_count === 1 ? $t('reports.metric.instruction') : $t('reports.metric.instructions') }}
+                                                </span>
+                                                <span v-if="report.webhook_count && (report.query_count || report.artifact_count || report.scheduled_prompt_count || report.instruction_count)"> | </span>
+                                                <span v-if="report.webhook_count">
+                                                    <Icon name="heroicons-bolt" class="w-3 h-3 inline -mt-px" />
+                                                    {{ report.webhook_count }} {{ report.webhook_count === 1 ? 'webhook' : 'webhooks' }}
                                                 </span>
                                             </div>
                                             <div

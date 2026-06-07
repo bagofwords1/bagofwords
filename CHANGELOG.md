@@ -1,7 +1,10 @@
 # Release Notes
 
-## Version 0.0.397 (June 6, 2026)
-- Inbound webhooks for reports — connect GitHub, Jira, or any service (Generic) to a report so external events show up in the chat. Each webhook has its own signing key and verification mode (HMAC, token header, or URL token for systems that can't sign), with per-org dedup and rate limits. An optional small-model AI classifier decides whether an event warrants a response (guided by an optional per-webhook prompt plus your org instructions), shows a 👀/✅ status on the event, and authors the task the agent runs. Configurable from the report Summary tab; gated org-wide by the new "Report Webhooks" setting (on by default)
+## Version 0.0.398 (June 6, 2026)
+- Inbound webhooks for reports — connect GitHub, Jira, or any other service (Generic catch-all) so external events flow into a report's chat. Configure them from the report Summary tab; each report's webhook count shows in the reports list.
+  - Per-webhook signing key with three verification modes: token header (default — a shared secret, works with Jira Cloud and most legacy systems), HMAC signatures (GitHub-native or BOW's own scheme), and URL token (for senders that can only POST). Per-org delivery dedup and rate limiting, plus a one-time URL + key reveal on create/rotate.
+  - Optional small-model AI classifier decides whether an event warrants a response — guided by an optional per-webhook prompt plus your org instructions and the report's conversation — and, when it acts, authors the task the agent runs. The event entry shows a live 👀 (working) → ✅ (done) status; declined events are marked "no action needed".
+  - Gated org-wide by the new "Report Webhooks" setting (on by default), with org limits for max webhooks and delivery rate.
 
 ## Version 0.0.396 (June 6, 2026)
 - Star (favorite) reports — starred reports are pinned to the top of /reports. Starring is per-user, so each person keeps their own favorites, and you can star reports shared with you read-only
