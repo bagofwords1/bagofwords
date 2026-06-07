@@ -347,7 +347,13 @@ class AgentV2:
             organization_settings=self.organization_settings,
             instruction_context_builder=self.context_hub.instruction_builder,
             usage_session_maker=async_session_maker,
-            usage_context=self.usage_limit_context,
+            # Do NOT pass usage_context here. The Judge scores via
+            # asyncio.to_thread(llm.inference) (a worker thread), which routes the
+            # sync quota check through UsageLimitContext.run_blocking(). With no
+            # loop bound on the context that spins up a throwaway event loop and
+            # contends for the context's _cache_lock (created on the main loop),
+            # raising "Lock is bound to a different event loop" mid-run. Token
+            # recording still works via usage_session_maker.
         )
 
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
@@ -605,7 +611,9 @@ class AgentV2:
                     model=self.model,
                     organization_settings=self.organization_settings,
                     usage_session_maker=async_session_maker,
-                    usage_context=self.usage_limit_context,
+                    # No usage_context: Judge runs in a worker thread; routing the
+                    # sync quota check through run_blocking() would contend for the
+                    # context's asyncio.Lock across event loops. See note above.
                 )
                 instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
             else:
@@ -632,7 +640,7 @@ class AgentV2:
                     model=self.model,
                     organization_settings=self.organization_settings,
                     usage_session_maker=async_session_maker,
-                    usage_context=self.usage_limit_context,
+                    # No usage_context: see note above (cross-loop _cache_lock).
                 )
                 original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
                 response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
