@@ -82,6 +82,57 @@ def test_create_oauth_client(
 
 
 @pytest.mark.e2e
+def test_create_oauth_client_with_custom_redirect_uris(
+    create_oauth_client,
+    list_oauth_clients,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Custom redirect_uris are stored verbatim (no defaults appended) and
+    returned on both create and list."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    custom = [
+        "https://my-app.example.com/oauth/callback",
+        "https://my-app.example.com/oauth/callback/debug",
+    ]
+    client = create_oauth_client(
+        user_token=token, org_id=org_id, name="My App", redirect_uris=custom,
+    )
+    assert client["redirect_uris"] == custom
+
+    listed = list_oauth_clients(user_token=token, org_id=org_id)
+    match = next(c for c in listed if c["client_id"] == client["client_id"])
+    assert match["redirect_uris"] == custom
+
+
+@pytest.mark.e2e
+def test_create_oauth_client_rejects_empty_redirect_uris(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """An explicitly-provided redirect_uris list must be non-empty and contain
+    only non-blank strings."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    for bad in ([], ["  "], [123]):
+        resp = test_client.post(
+            "/api/oauth/clients",
+            json={"name": "Bad", "redirect_uris": bad},
+            headers=headers,
+        )
+        assert resp.status_code == 400, (bad, resp.json())
+
+
+@pytest.mark.e2e
 def test_list_oauth_clients(
     create_oauth_client,
     list_oauth_clients,
