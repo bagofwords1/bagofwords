@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.400 (June 7, 2026)
+- Teradata Vantage data source integration — connect Teradata as a data source, with sample queries included in the client description
+- Generated-code reuse via `load_step`/`load_entity` — the planner and coder now prefer loading a prior step's results over rebuilding from scratch, reducing redundant code generation
+- Fix LLM token-usage undercount in /monitoring (no added latency)
+
 ## Version 0.0.399 (June 7, 2026)
 - Fix MCP tool results aborting the agent run: materializing a large/tabular MCP result to a file linked it to the report before the file's id was assigned, causing a foreign-key violation that poisoned the shared transaction (surfaced as "transaction is aborted" / agent execution errors). File linking now happens after the id is set and inside a savepoint, so a materialization failure degrades gracefully instead of failing the whole run. Also restores CSV preview generation, which was silently broken.
 
