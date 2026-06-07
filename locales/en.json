@@ -1891,7 +1891,15 @@
       "paginationRange": "Showing {start} to {end} of {total} results",
       "previous": "Previous",
       "next": "Next",
-      "periodAllTime": "All Time"
+      "periodAllTime": "All Time",
+      "activityChartTitle": "Agent Run Activity",
+      "activityChartSubtitle": "Daily agent executions by status",
+      "activityChartLoading": "Loading activity…",
+      "activityChartEmpty": "No activity for the selected period.",
+      "activityChartSuccess": "Success",
+      "activityChartError": "Error",
+      "activityChartTotal": "Total",
+      "dayFilterLabel": "Showing {date}"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",

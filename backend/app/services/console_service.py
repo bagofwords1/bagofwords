@@ -17,7 +17,8 @@ from app.schemas.console_schema import (
     TraceData, TraceCompletionData, TraceStepData, TraceFeedbackData,
     CompactIssuesResponse, CompactIssueItem,
     AgentExecutionSummaryItem, AgentExecutionSummariesResponse,
-    LLMUsageMetrics, LLMUsageItem
+    LLMUsageMetrics, LLMUsageItem,
+    DiagnosisStatusPoint, DiagnosisTimeSeriesMetrics
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
@@ -2157,3 +2158,83 @@ class ConsoleService:
             'low_confidence': low_confidence,
             'low_instruction_coverage': low_instruction_coverage
         }
+
+    async def get_diagnosis_timeseries(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: MetricsQueryParams
+    ) -> DiagnosisTimeSeriesMetrics:
+        """Agent executions bucketed daily by derived status (success vs error).
+
+        An execution is counted as 'error' if its own status is 'error' or if any
+        of its tool executions failed — mirroring the derived status shown in the
+        diagnosis table. Everything else counts as 'success'.
+        """
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+
+        ds_filter_subquery = None
+        if parsed_data_source_ids:
+            ds_filter_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
+
+        # Fetch all agent executions in range (id, created_at, status)
+        ae_query = (
+            select(AgentExecution.id, AgentExecution.created_at, AgentExecution.status)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                AgentExecution.created_at >= start_date,
+                AgentExecution.created_at <= end_date
+            )
+        )
+        if ds_filter_subquery is not None:
+            ae_query = ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        ae_result = await db.execute(ae_query)
+        ae_rows = ae_result.all()
+
+        # Set of agent execution ids that have at least one failed tool execution
+        failed_ae_query = (
+            select(func.distinct(ToolExecution.agent_execution_id))
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                AgentExecution.created_at >= start_date,
+                AgentExecution.created_at <= end_date,
+                ToolExecution.success == False
+            )
+        )
+        if ds_filter_subquery is not None:
+            failed_ae_query = failed_ae_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        failed_ae_result = await db.execute(failed_ae_query)
+        failed_ae_ids = {str(r[0]) for r in failed_ae_result.all()}
+
+        # Pre-seed every day in range so the chart has continuous buckets
+        buckets: dict[str, dict] = {}
+        current = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        while current <= end_date:
+            buckets[current.strftime('%Y-%m-%d')] = {'success': 0, 'error': 0}
+            current += timedelta(days=1)
+
+        for ae_id, created_at, status in ae_rows:
+            if not created_at:
+                continue
+            date_str = created_at.strftime('%Y-%m-%d')
+            bucket = buckets.get(date_str)
+            if bucket is None:
+                bucket = {'success': 0, 'error': 0}
+                buckets[date_str] = bucket
+            is_error = status == 'error' or str(ae_id) in failed_ae_ids
+            bucket['error' if is_error else 'success'] += 1
+
+        points = [
+            DiagnosisStatusPoint(date=date_str, success=vals['success'], error=vals['error'])
+            for date_str, vals in sorted(buckets.items())
+        ]
+
+        return DiagnosisTimeSeriesMetrics(
+            date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
+            points=points
+        )

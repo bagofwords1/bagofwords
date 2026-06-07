@@ -9,6 +9,14 @@
             <AgentSelector :collapsed="false" :show-text="true" :show-label="false" />
         </DateRangePicker>
 
+        <!-- Activity Chart (observability-style daily bars) -->
+        <DiagnosisActivityChart
+            :points="timeseriesPoints"
+            :is-loading="isTimeseriesLoading"
+            :selected-date="selectedDay"
+            @select-day="handleDaySelect"
+        />
+
         <!-- Summary Cards (matching MetricsCards.vue style) -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <!-- Failed Queries -->
@@ -79,6 +87,17 @@
                     </button>
                 </nav>
             </div>
+        </div>
+
+        <!-- Day filter indicator (set by clicking a bar in the activity chart) -->
+        <div v-if="selectedDay" class="mb-4 -mt-2">
+            <button
+                @click="clearDayFilter"
+                class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-medium hover:bg-blue-100"
+            >
+                {{ $t('monitoring.diagnosis.dayFilterLabel', { date: formatDate(selectedDay) }) }}
+                <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+            </button>
         </div>
 
         <!-- Loading state -->
@@ -251,6 +270,7 @@
 import DateRangePicker from '~/components/console/DateRangePicker.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import AgentSelector from '~/components/AgentSelector.vue'
+import DiagnosisActivityChart from '~/components/console/DiagnosisActivityChart.vue'
 const { isJudgeEnabled } = useOrgSettings()
 const { selectedAgents, initAgent } = useAgent()
 const { t } = useI18n()
@@ -304,6 +324,13 @@ const instructionsEffectiveness = ref<number | null>(null)
 // New data for agent execution summaries
 const executionItems = ref<any[]>([])
 const dashboardMetrics = ref<any>(null)
+
+// Activity chart timeseries (daily agent runs by status)
+interface DiagnosisStatusPoint { date: string; success: number; error: number }
+const timeseriesPoints = ref<DiagnosisStatusPoint[] | null>(null)
+const isTimeseriesLoading = ref(false)
+// Day selected by clicking a bar in the activity chart (YYYY-MM-DD); narrows the table only
+const selectedDay = ref<string | null>(null)
 
 // Filter state
 const filterLabelFor = (value: string): string => {
@@ -397,9 +424,11 @@ const handlePeriodChange = (period: { label: string, value: string }) => {
     }
     
     currentPage.value = 1
-    // Refresh both overall metrics and diagnosis data when date range changes
+    selectedDay.value = null
+    // Refresh overall metrics, timeseries, and diagnosis data when date range changes
     Promise.all([
         fetchOverallMetrics(),
+        fetchTimeseries(),
         fetchDiagnosisData()
     ])
 }
@@ -414,12 +443,7 @@ const fetchDiagnosisData = async () => {
             page_size: pageSize.value.toString()
         })
 
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
+        appendDateParams(params)
 
         // Add filter parameter
         if (selectedFilter.value.value !== 'all') {
@@ -498,15 +522,27 @@ const formatDate = (dateString: string) => {
 
 // Add these methods to the existing script section
 
+// Append start/end date params. When a chart day is selected, narrow to that
+// single day — using explicit UTC midnight so the backend (which normalizes a
+// date to its full day) lands on the right calendar day regardless of timezone.
+const appendDateParams = (params: URLSearchParams) => {
+    if (selectedDay.value) {
+        params.append('start_date', `${selectedDay.value}T00:00:00.000Z`)
+        params.append('end_date', `${selectedDay.value}T00:00:00.000Z`)
+        return
+    }
+    if (dateRange.value.start) {
+        params.append('start_date', new Date(dateRange.value.start).toISOString())
+    }
+    if (dateRange.value.end) {
+        params.append('end_date', new Date(dateRange.value.end).toISOString())
+    }
+}
+
 const fetchOverallMetrics = async () => {
     try {
         const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
+        appendDateParams(params)
 
         // Add data source filter
         if (selectedAgents.value.length > 0) {
@@ -537,6 +573,34 @@ const fetchOverallMetrics = async () => {
         }
     } catch (error) {
         console.error('Failed to fetch overall metrics:', error)
+    }
+}
+
+const fetchTimeseries = async () => {
+    isTimeseriesLoading.value = true
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+        if (selectedAgents.value.length > 0) {
+            params.append('data_source_ids', selectedAgents.value.join(','))
+        }
+
+        const response = await useMyFetch<any>(`/api/console/diagnosis/timeseries?${params}`)
+        if (response.data.value) {
+            timeseriesPoints.value = response.data.value.points || []
+        } else {
+            timeseriesPoints.value = []
+        }
+    } catch (error) {
+        console.error('Failed to fetch diagnosis timeseries:', error)
+        timeseriesPoints.value = []
+    } finally {
+        isTimeseriesLoading.value = false
     }
 }
 
@@ -599,6 +663,25 @@ const handleFilterChange = (filter: { label: string, value: string }) => {
     fetchDiagnosisData()
 }
 
+// Activity chart bar click -> filter the KPI cards + table to that day (toggle off if same day)
+const handleDaySelect = (date: string) => {
+    selectedDay.value = selectedDay.value === date ? null : date
+    currentPage.value = 1
+    Promise.all([
+        fetchOverallMetrics(),
+        fetchDiagnosisData()
+    ])
+}
+
+const clearDayFilter = () => {
+    selectedDay.value = null
+    currentPage.value = 1
+    Promise.all([
+        fetchOverallMetrics(),
+        fetchDiagnosisData()
+    ])
+}
+
 
 
 // Watch for page changes
@@ -609,8 +692,10 @@ watch(currentPage, () => {
 // Watch for agent selection changes
 watch(selectedAgents, () => {
     currentPage.value = 1
+    selectedDay.value = null
     Promise.all([
         fetchOverallMetrics(),
+        fetchTimeseries(),
         fetchDiagnosisData()
     ])
 }, { deep: true })
@@ -620,9 +705,10 @@ onMounted(async () => {
     initializeDateRange()
     // Initialize agents for the selector
     await initAgent()
-    // Fetch dashboard metrics and diagnosis data on initial load
+    // Fetch dashboard metrics, timeseries, and diagnosis data on initial load
     await Promise.all([
         fetchOverallMetrics(),
+        fetchTimeseries(),
         fetchDiagnosisData()
     ])
 })

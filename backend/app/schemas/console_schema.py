@@ -54,6 +54,16 @@ class TimeSeriesMetrics(BaseModel):
     activity_metrics: ActivityMetrics
     performance_metrics: PerformanceMetrics
 
+# Diagnosis activity timeseries (agent executions bucketed daily by status)
+class DiagnosisStatusPoint(BaseModel):
+    date: str
+    success: int
+    error: int
+
+class DiagnosisTimeSeriesMetrics(BaseModel):
+    date_range: DateRange
+    points: List[DiagnosisStatusPoint]
+
 class TableUsageData(BaseModel):
     table_name: str
     usage_count: int
