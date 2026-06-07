@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.399 (June 7, 2026)
+- Fix MCP tool results aborting the agent run: materializing a large/tabular MCP result to a file linked it to the report before the file's id was assigned, causing a foreign-key violation that poisoned the shared transaction (surfaced as "transaction is aborted" / agent execution errors). File linking now happens after the id is set and inside a savepoint, so a materialization failure degrades gracefully instead of failing the whole run. Also restores CSV preview generation, which was silently broken.
+
 ## Version 0.0.398 (June 6, 2026)
 - Inbound webhooks for reports — connect GitHub, Jira, or any other service (Generic catch-all) so external events flow into a report's chat. Configure them from the report Summary tab; each report's webhook count shows in the reports list.
   - Per-webhook signing key with three verification modes: token header (default — a shared secret, works with Jira Cloud and most legacy systems), HMAC signatures (GitHub-native or BOW's own scheme), and URL token (for senders that can only POST). Per-org delivery dedup and rate limiting, plus a one-time URL + key reveal on create/rotate.
