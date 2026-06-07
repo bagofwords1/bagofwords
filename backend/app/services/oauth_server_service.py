@@ -105,6 +105,44 @@ class OAuthServerService:
             "created_at": client.created_at.isoformat() if client.created_at else None,
         }
 
+    async def update_client(
+        self,
+        db: AsyncSession,
+        client_db_id: str,
+        organization_id: str,
+        name: Optional[str] = None,
+        redirect_uris: Optional[list[str]] = None,
+    ) -> Optional[dict]:
+        """Update an existing client's name and/or redirect URIs.
+
+        Only fields passed (non-None) are changed. Returns the updated client
+        (no secret) or None if not found in this org.
+        """
+        result = await db.execute(
+            select(OAuthClient)
+            .where(OAuthClient.id == client_db_id)
+            .where(OAuthClient.organization_id == organization_id)
+            .where(OAuthClient.deleted_at.is_(None))
+        )
+        client = result.scalar_one_or_none()
+        if not client:
+            return None
+
+        if name is not None:
+            client.name = name
+        if redirect_uris is not None:
+            client.redirect_uris = json.dumps(redirect_uris)
+        await db.commit()
+        await db.refresh(client)
+
+        return {
+            "id": client.id,
+            "client_id": client.client_id,
+            "name": client.name,
+            "redirect_uris": json.loads(client.redirect_uris),
+            "created_at": client.created_at.isoformat() if client.created_at else None,
+        }
+
     async def list_clients(
         self,
         db: AsyncSession,
@@ -218,6 +256,27 @@ class OAuthServerService:
     def validate_redirect_uri(self, client: OAuthClient, redirect_uri: str) -> bool:
         allowed = json.loads(client.redirect_uris)
         return redirect_uri in allowed
+
+    async def user_is_member_of_org(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        organization_id: str,
+    ) -> bool:
+        """True if the user belongs to the organization.
+
+        Used at consent time to ensure a user can only mint tokens for an org
+        they actually belong to — the token's org is the client's org, so this
+        is the membership gate that backs that binding.
+        """
+        from app.models.membership import Membership
+
+        result = await db.execute(
+            select(Membership)
+            .where(Membership.user_id == str(user_id))
+            .where(Membership.organization_id == str(organization_id))
+        )
+        return result.scalar_one_or_none() is not None
 
     # ── Authorization code ─────────────────────────────────────────
 

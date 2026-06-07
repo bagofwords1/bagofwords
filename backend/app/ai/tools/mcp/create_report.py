@@ -62,8 +62,13 @@ class CreateReportTool(MCPTool):
         # Ensure user mapping exists for Members page visibility
         await self._ensure_mcp_user_mapping(db, user, organization, platform)
         
-        # Get all active data sources for the organization
-        data_sources = await ds_service.get_active_data_sources(db, organization)
+        # Get active data sources the calling user is allowed to see. Passing
+        # current_user is essential: without it, get_active_data_sources skips
+        # all visibility filtering and attaches every org data source —
+        # including private ones the user isn't a member of.
+        data_sources = await ds_service.get_active_data_sources(
+            db, organization, current_user=user
+        )
         
         # Create the report with MCP platform
         report = await report_service.create_report(

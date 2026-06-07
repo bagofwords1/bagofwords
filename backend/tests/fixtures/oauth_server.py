@@ -6,10 +6,13 @@ import pytest
 @pytest.fixture
 def create_oauth_client(test_client):
     """Create an OAuth MCP client for an organization."""
-    def _create_oauth_client(user_token, org_id, name="Test Claude Web"):
+    def _create_oauth_client(user_token, org_id, name="Test Claude Web", redirect_uris=None):
+        body = {"name": name}
+        if redirect_uris is not None:
+            body["redirect_uris"] = redirect_uris
         response = test_client.post(
             "/api/oauth/clients",
-            json={"name": name},
+            json=body,
             headers={
                 "Authorization": f"Bearer {user_token}",
                 "X-Organization-Id": str(org_id),

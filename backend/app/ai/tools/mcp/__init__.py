@@ -10,6 +10,7 @@ from .inspect_data import InspectDataMCPTool
 from .create_data import CreateDataMCPTool
 from .create_artifact import CreateArtifactMCPTool
 from .edit_artifact import EditArtifactMCPTool
+from .send_email import SendEmailMCPTool
 from .instructions import (
     ListInstructionsMCPTool,
     CreateInstructionMCPTool,
@@ -24,6 +25,7 @@ MCP_TOOLS = {
     "create_data": CreateDataMCPTool,
     "create_artifact": CreateArtifactMCPTool,
     "edit_artifact": EditArtifactMCPTool,
+    "send_email": SendEmailMCPTool,
     # Instruction management tools
     "list_instructions": ListInstructionsMCPTool,
     "create_instruction": CreateInstructionMCPTool,
@@ -49,6 +51,8 @@ def list_mcp_tools(include_app_only: bool = True):
     tools = []
     for tool_cls in MCP_TOOLS.values():
         tool = tool_cls()
+        if not tool.is_available:
+            continue
         if not include_app_only and "model" not in tool.visibility:
             continue
         tools.append(tool.to_schema())
