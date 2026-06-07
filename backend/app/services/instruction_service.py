@@ -459,7 +459,8 @@ class InstructionService:
         """
         
         user_permissions = await self._get_user_permissions(db, current_user, organization)
-        
+        is_admin = self._is_admin_permissions(user_permissions)
+
         # Build the query conditions cleanly
         conditions = []
         
@@ -487,7 +488,7 @@ class InstructionService:
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
-            current_user=current_user,
+            current_user=current_user, is_admin=is_admin,
         )
 
     async def get_available_source_types(
@@ -1784,11 +1785,17 @@ class InstructionService:
         build_id: Optional[str] = None,
         include_global: bool = True,
         current_user: Optional[User] = None,
+        is_admin: bool = False,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
-        
+
         By default, loads instructions from the main build (is_main=True).
         Pass build_id to load from a specific build instead.
+
+        Non-admin callers only see instructions that are global (attached to no
+        data source) or attached to at least one data source they can access
+        (public, membership, or grant). Admins (``manage_instructions`` /
+        ``full_admin_access``) bypass this and see everything.
         """
         from sqlalchemy import func
         from app.models.instruction_label import InstructionLabel
@@ -1827,7 +1834,44 @@ class InstructionService:
                 .where(BuildContent.build_id == target_build_id)
             )
             base_conditions.append(Instruction.id.in_(build_instruction_ids_subquery))
-        
+
+        # Per-data-source visibility for non-admins. A member must not see
+        # instructions tied to a data source (agent) they cannot access. Global
+        # instructions (no data source) stay visible to everyone. Admins
+        # (manage_instructions / full_admin_access) bypass this entirely.
+        if current_user is not None and not is_admin:
+            from app.core.permission_resolver import get_accessible_data_source_ids
+            # The passed-in is_admin is the instruction-admin gate
+            # (manage_instructions OR full_admin_access); those callers already
+            # returned above. _full_admin below only flags full_admin_access and
+            # is effectively always False here, but we honor it defensively.
+            _full_admin, accessible_ds_ids = await get_accessible_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+            if not _full_admin:
+                # Public data sources are visible to every member; OR them in.
+                public_ds_subquery = (
+                    select(DataSource.id).where(
+                        and_(
+                            DataSource.organization_id == organization.id,
+                            DataSource.is_public == True,
+                        )
+                    )
+                )
+                visible_ds_clauses = [
+                    Instruction.data_sources.any(DataSource.id.in_(public_ds_subquery))
+                ]
+                if accessible_ds_ids:
+                    visible_ds_clauses.append(
+                        Instruction.data_sources.any(DataSource.id.in_(accessible_ds_ids))
+                    )
+                base_conditions.append(
+                    or_(
+                        ~Instruction.data_sources.any(),  # global instruction
+                        *visible_ds_clauses,
+                    )
+                )
+
         # Build filter conditions list
         filter_conditions = []
         
