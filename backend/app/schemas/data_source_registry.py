@@ -65,6 +65,9 @@ from app.schemas.data_sources.configs import (
     GoogleDriveCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
+    # Teradata
+    TeradataConfig,
+    TeradataCredentials,
     # Timbr
     TimbrConfig,
     TimbrTokenCredentials,
@@ -396,6 +399,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=VerticaCredentials, scopes=["system","user"])
         }),
         client_path=None,
+    ),
+    "teradata": DataSourceRegistryEntry(
+        type="teradata",
+        title="Teradata Vantage",
+        description="Enterprise-scale analytics database and data warehouse (Teradata Vantage), commonly deployed on-premises.",
+        config_schema=TeradataConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=TeradataCredentials, scopes=["system","user"])
+        }),
+        client_path="app.data_sources.clients.teradata_client.TeradataClient",
     ),
     "aws_redshift": DataSourceRegistryEntry(
         type="aws_redshift",

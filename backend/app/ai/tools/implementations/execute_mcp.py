@@ -300,7 +300,7 @@ Do not use when:
         import aiofiles
         from uuid import uuid4
         from app.models.file import File
-        from app.services.file_preview import generate_csv_preview
+        from app.services.file_preview import generate_file_preview
 
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
@@ -315,36 +315,40 @@ Do not use when:
         # Write CSV
         df.to_csv(path, index=False)
 
-        # Generate preview
-        preview = None
-        try:
-            preview = generate_csv_preview(path)
-        except Exception:
-            pass
-
         # Create File record
         file = File(
             filename=f"{safe_name}.csv",
             path=path,
             content_type="text/csv",
-            preview=preview,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
-        db.add(file)
 
-        # Link to report if available
-        if report:
-            from app.models.report_file_association import report_file_association
-            from sqlalchemy import insert
-            await db.execute(
-                insert(report_file_association).values(
-                    report_id=str(report.id),
-                    file_id=str(file.id),
+        # Generate preview from the written file (reads path/content_type)
+        try:
+            file.preview = generate_file_preview(file)
+        except Exception:
+            pass
+
+        # Persist within a savepoint so a failure here rolls back cleanly
+        # instead of poisoning the shared agent-execution transaction.
+        async with db.begin_nested():
+            db.add(file)
+            # Flush first so file.id is populated before we link the association
+            # (the id is assigned by a Python-side default at flush time).
+            await db.flush()
+
+            # Link to report if available
+            if report:
+                from app.models.report_file_association import report_file_association
+                from sqlalchemy import insert
+                await db.execute(
+                    insert(report_file_association).values(
+                        report_id=str(report.id),
+                        file_id=str(file.id),
+                    )
                 )
-            )
 
-        await db.flush()
         return file
 
     async def _materialize_to_json(self, data: Any, tool_name: str, runtime_ctx: dict):
@@ -372,19 +376,25 @@ Do not use when:
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
-        db.add(file)
 
-        if report:
-            from app.models.report_file_association import report_file_association
-            from sqlalchemy import insert
-            await db.execute(
-                insert(report_file_association).values(
-                    report_id=str(report.id),
-                    file_id=str(file.id),
+        # Persist within a savepoint so a failure here rolls back cleanly
+        # instead of poisoning the shared agent-execution transaction.
+        async with db.begin_nested():
+            db.add(file)
+            # Flush first so file.id is populated before we link the association
+            # (the id is assigned by a Python-side default at flush time).
+            await db.flush()
+
+            if report:
+                from app.models.report_file_association import report_file_association
+                from sqlalchemy import insert
+                await db.execute(
+                    insert(report_file_association).values(
+                        report_id=str(report.id),
+                        file_id=str(file.id),
+                    )
                 )
-            )
 
-        await db.flush()
         return file
 
     async def _try_inprocess_mcp(
