@@ -194,6 +194,61 @@ def _digest_web_search(tool_execution) -> str:
     return "web search " + " — ".join(parts) if parts else ""
 
 
+def _digest_execute_mcp(tool_execution) -> str:
+    """Digest for execute_mcp so the planner sees WHAT it called, not just the result.
+
+    Without the input (which MCP tool + arguments) the planner can't tell which
+    calls it already tried and loops through variants — and a tool-level failure
+    used to surface only as "Tool returned error: None". Include the called tool
+    name, a compact argument echo, and the real error message on failure so the
+    next turn can correct course instead of guessing. Returns "" for other tools.
+    """
+    if getattr(tool_execution, 'tool_name', None) != 'execute_mcp':
+        return ""
+    rj = tool_execution.result_json or {}
+    obs = rj.get('observation') or rj
+    args = getattr(tool_execution, 'arguments_json', None) or {}
+    if not isinstance(args, dict):
+        args = {}
+    digest_parts = []
+
+    # Echo the call: which underlying MCP tool, with what arguments.
+    called = args.get('tool_name')
+    if called:
+        call_str = f"called: {called}"
+        tool_args = args.get('arguments')
+        if tool_args is not None:
+            try:
+                args_str = json.dumps(tool_args, default=str)
+            except Exception:
+                args_str = str(tool_args)
+            if len(args_str) > 300:
+                args_str = args_str[:300] + '…'
+            call_str += f"({args_str})"
+        digest_parts.append(call_str)
+
+    # Failure: surface the real error and mark it clearly so the planner adapts.
+    failed = obs.get('success') is False or rj.get('success') is False
+    if failed:
+        err = obs.get('error_message') or rj.get('error_message') or obs.get('summary') or 'unknown error'
+        digest_parts.append(f"FAILED: {str(err)[:300]}")
+        return "; ".join(digest_parts)
+
+    summary = obs.get('summary') or ''
+    if summary:
+        digest_parts.append(summary)
+    ct = obs.get('content_type') or rj.get('content_type')
+    if ct:
+        digest_parts.append(f"type: {ct}")
+    fid = obs.get('file_id') or rj.get('file_id')
+    if fid:
+        digest_parts.append(f"file_id: {fid}")
+    rc = obs.get('row_count') or rj.get('row_count')
+    if rc:
+        digest_parts.append(f"{rc} rows")
+    return "; ".join(digest_parts)
+
+
 def _digest_excel_tool(tool_execution) -> str:
     """Digest for Excel bridge tools.
 
@@ -771,23 +826,9 @@ class MessageContextBuilder:
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    obs = rj.get('observation') or rj
-                                    digest_parts = []
-                                    summary = obs.get('summary') or ''
-                                    if summary:
-                                        digest_parts.append(summary)
-                                    ct = obs.get('content_type') or rj.get('content_type')
-                                    if ct:
-                                        digest_parts.append(f"type: {ct}")
-                                    fid = obs.get('file_id') or rj.get('file_id')
-                                    if fid:
-                                        digest_parts.append(f"file_id: {fid}")
-                                    rc = obs.get('row_count') or rj.get('row_count')
-                                    if rc:
-                                        digest_parts.append(f"{rc} rows")
-                                    if digest_parts:
-                                        tool_info += " - " + "; ".join(digest_parts)
+                                    digest = _digest_execute_mcp(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                     digest = _digest_knowledge_tool(tool_execution)
                                     if digest:
@@ -1381,23 +1422,9 @@ class MessageContextBuilder:
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                obs = rj.get('observation') or rj
-                                digest_parts = []
-                                summary = obs.get('summary') or ''
-                                if summary:
-                                    digest_parts.append(summary)
-                                ct = obs.get('content_type') or rj.get('content_type')
-                                if ct:
-                                    digest_parts.append(f"type: {ct}")
-                                fid = obs.get('file_id') or rj.get('file_id')
-                                if fid:
-                                    digest_parts.append(f"file_id: {fid}")
-                                rc = obs.get('row_count') or rj.get('row_count')
-                                if rc:
-                                    digest_parts.append(f"{rc} rows")
-                                if digest_parts:
-                                    tool_info += " - " + "; ".join(digest_parts)
+                                digest = _digest_execute_mcp(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
                             elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                 digest = _digest_knowledge_tool(tool_execution)
                                 if digest:
