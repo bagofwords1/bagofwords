@@ -108,7 +108,7 @@
 
       <!-- Webhooks -->
       <section v-if="webhooks.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Webhooks</h3>
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Triggers</h3>
         <ul class="space-y-1.5">
           <li
             v-for="w in webhooks"
@@ -139,7 +139,7 @@
         class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-400 hover:text-gray-600 rounded-lg border border-dashed border-gray-200 hover:border-gray-300 transition-colors"
       >
         <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
-        Configure webhook
+        Configure trigger
       </button>
     </div>
 
