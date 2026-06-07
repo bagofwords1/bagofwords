@@ -226,7 +226,14 @@
       "schedule": "Schedule",
       "type": "Type",
       "dataSource": "Data Source",
-      "artifacts": "Artifacts"
+      "artifacts": "Artifacts",
+      "title": "Type",
+      "typeLabel": "Type",
+      "statusLabel": "Status",
+      "scheduleLabel": "Schedule",
+      "dataSourceLabel": "Agent",
+      "artifactsLabel": "Dashboard",
+      "clear": "Clear all"
     },
     "visibility": {
       "public": "Anyone with link",
@@ -261,7 +268,9 @@
       "runningOnSchedule": "Running on a schedule"
     },
     "pagination": {
-      "showing": "Showing {from} to {to} of {total} reports"
+      "showing": "Showing {from} to {to} of {total} reports",
+      "rowsPerPage": "Rows per page",
+      "page": "Page {page}"
     },
     "toasts": {
       "starFailed": "Failed to update star",
@@ -293,10 +302,26 @@
     "trainingEmptyTipLabel": "How it works:",
     "trainingEmptyBody": "Ask questions and review the AI's responses. Approve or edit answers to teach the AI Analyst how to handle similar queries in the future.",
     "trainingStarters": [
-      { "title": "Find Instructions Conflicts", "prompt": "Identify contradictions or gaps between existing training instructions that may cause inconsistent AI responses." },
-      { "title": "Show Low Confidence Responses", "prompt": "List recent AI responses where the model expressed uncertainty or produced low-quality answers that need review." },
-      { "title": "Show Negative Feedback Responses", "prompt": "Review responses that received negative feedback from users to identify patterns and areas for improvement." }
-    ]
+      {
+        "title": "Find Instructions Conflicts",
+        "prompt": "Identify contradictions or gaps between existing training instructions that may cause inconsistent AI responses."
+      },
+      {
+        "title": "Show Low Confidence Responses",
+        "prompt": "List recent AI responses where the model expressed uncertainty or produced low-quality answers that need review."
+      },
+      {
+        "title": "Show Negative Feedback Responses",
+        "prompt": "Review responses that received negative feedback from users to identify patterns and areas for improvement."
+      }
+    ],
+    "filtersButton": "Filters",
+    "type": {
+      "chat": "Chat",
+      "dashboard": "Dashboard",
+      "slides": "Slides",
+      "deep": "Deep Analytics"
+    }
   },
   "traceModal": {
     "title": "Agent Execution",
