@@ -1861,7 +1861,7 @@ class AgentV2:
             observation: Optional[dict] = None
             active_artifact = await self._get_active_artifact()
             # Training mode needs more iterations for thorough exploration
-            step_limit = 100 if self.mode == "training" else 20
+            step_limit = 100 if self.mode == "training" else 100
 
             current_plan_decision = None
             invalid_retry_count = 0
