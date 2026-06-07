@@ -342,6 +342,15 @@ def _digest_notification_tool(tool_execution) -> str:
         if rj.get('subject'):
             subj = str(rj.get('subject'))
             parts.append(f"subject: {subj[:80]}{'…' if len(subj) > 80 else ''}")
+        atts = rj.get('attachments') or []
+        if atts:
+            sent = [a for a in atts if a.get('success')]
+            failed = [a for a in atts if not a.get('success')]
+            names = ", ".join((a.get('filename') or a.get('ref_id') or '?') for a in sent[:5])
+            if names:
+                parts.append(f"attached: {names}")
+            if failed:
+                parts.append(f"attach_failed: {len(failed)}")
         if rj.get('error'):
             parts.append(f"error: {rj.get('error')}")
         return "; ".join(parts)
