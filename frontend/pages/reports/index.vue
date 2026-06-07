@@ -235,7 +235,7 @@
                                 v-for="report in visibleReports"
                                 :key="report.id"
                                 @click="goToReport(report)"
-                                class="group flex items-center gap-3 py-3.5 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                                class="group flex items-center gap-3 py-5 px-3 -mx-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                             >
                                 <!-- Bulk select (My reports) -->
                                 <input
