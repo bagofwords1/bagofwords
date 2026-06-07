@@ -219,6 +219,27 @@ class OAuthServerService:
         allowed = json.loads(client.redirect_uris)
         return redirect_uri in allowed
 
+    async def user_is_member_of_org(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        organization_id: str,
+    ) -> bool:
+        """True if the user belongs to the organization.
+
+        Used at consent time to ensure a user can only mint tokens for an org
+        they actually belong to — the token's org is the client's org, so this
+        is the membership gate that backs that binding.
+        """
+        from app.models.membership import Membership
+
+        result = await db.execute(
+            select(Membership)
+            .where(Membership.user_id == str(user_id))
+            .where(Membership.organization_id == str(organization_id))
+        )
+        return result.scalar_one_or_none() is not None
+
     # ── Authorization code ─────────────────────────────────────────
 
     async def create_authorization_code(

@@ -124,7 +124,6 @@ async def authorize_redirect(
 async def authorize_approve(
     request: Request,
     user: User = Depends(current_user),
-    organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
     """Called by frontend after user approves the consent.
@@ -157,6 +156,18 @@ async def authorize_approve(
     if not service.validate_redirect_uri(client, redirect_uri):
         raise HTTPException(status_code=400, detail="Invalid redirect_uri")
 
+    # The token's org is the CLIENT's org — never the caller's active-org header.
+    # On multi-org deployments a user can be active in org A while approving a
+    # client registered under org B; binding to the header would issue a token
+    # scoped to the wrong tenant. Gate on membership so a user can only approve
+    # clients belonging to an org they're actually in.
+    organization_id = client.organization_id
+    if not await service.user_is_member_of_org(db, user.id, organization_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You are not a member of this application's organization",
+        )
+
     # Validate requested scope: must be a non-empty subset of both the server's
     # SUPPORTED_SCOPES and the client's registered scopes.
     scope_source = raw_scope if isinstance(raw_scope, str) and raw_scope.strip() else DEFAULT_SCOPE
@@ -174,7 +185,7 @@ async def authorize_approve(
         db=db,
         client_id=client_id,
         user_id=user.id,
-        organization_id=organization.id,
+        organization_id=organization_id,
         redirect_uri=redirect_uri,
         scope=scope,
         code_challenge=code_challenge,
