@@ -136,8 +136,14 @@ class StepService:
         excel_files = report.files
         code_execution_manager = CodeExecutionManager()
         code = step.code
-        
-        df, output_log, _ = code_execution_manager.execute_code(code=code, db_clients=db_clients, excel_files=excel_files)
+
+        # Pre-resolve any load_step()/load_entity() refs in the saved code.
+        from app.ai.code_execution.loadables import resolve_loadables_for_code
+        from app.models.organization import Organization
+        org = await db.get(Organization, str(report.organization_id)) if getattr(report, "organization_id", None) else None
+        loadables = await resolve_loadables_for_code(db, org, report, current_user, code)
+
+        df, output_log, _ = code_execution_manager.execute_code(code=code, db_clients=db_clients, excel_files=excel_files, loadables=loadables)
         df = code_execution_manager.format_df_for_widget(df)
         
         # Update existing step instead of creating new one

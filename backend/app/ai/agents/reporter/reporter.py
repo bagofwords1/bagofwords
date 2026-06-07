@@ -51,4 +51,6 @@ class Reporter:
         # `run_blocking`. Called from a running event loop with no `loop`
         # wired on the usage context, that check raises immediately. Offload
         # to a worker thread so the sync check has no loop to collide with.
-        return await asyncio.to_thread(self.llm.inference, text)
+        return await asyncio.to_thread(
+            self.llm.inference, text, usage_scope="report.title"
+        )

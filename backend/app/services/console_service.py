@@ -984,6 +984,19 @@ class ConsoleService:
             completion_tokens = int(row.completion_tokens or 0)
             cache_read_tokens = int(row.cache_read_tokens or 0)
             cache_creation_tokens = int(row.cache_creation_tokens or 0)
+            # Token total must not double-count cache. Providers differ:
+            #   - Anthropic reports cache_read/cache_creation SEPARATELY from
+            #     prompt_tokens, so they must be added in.
+            #   - OpenAI/Azure already fold cached tokens INTO prompt_tokens
+            #     (and have no cache_creation concept), so adding cache_read
+            #     again would over-count. Mirror the cost model's split.
+            if (row.provider_type or "") == "anthropic":
+                row_total_tokens = (
+                    prompt_tokens + completion_tokens
+                    + cache_read_tokens + cache_creation_tokens
+                )
+            else:
+                row_total_tokens = prompt_tokens + completion_tokens
             total_calls += int(row.total_calls or 0)
             total_prompt_tokens += prompt_tokens
             total_completion_tokens += completion_tokens
@@ -1005,7 +1018,7 @@ class ConsoleService:
                     completion_tokens=completion_tokens,
                     cache_read_tokens=cache_read_tokens,
                     cache_creation_tokens=cache_creation_tokens,
-                    total_tokens=prompt_tokens + completion_tokens + cache_read_tokens + cache_creation_tokens,
+                    total_tokens=row_total_tokens,
                     input_cost_usd=input_cost,
                     output_cost_usd=output_cost,
                     total_cost_usd=total_cost,

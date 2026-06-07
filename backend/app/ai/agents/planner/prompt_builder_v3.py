@@ -446,6 +446,14 @@ Examples of good behavior:
         parts.append(
             f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
         )
+        if getattr(planner_input, "available_steps_context", None):
+            parts.append(f"  {planner_input.available_steps_context}")
+            parts.append(
+                "  <reuse_guidance>When a prior step in <available_steps> already holds the data the "
+                "user wants (especially when they refer to it by name, or ask to extend/modify a "
+                "previous result), prefer create_data — it can load that step via load_step instead of "
+                "re-querying from scratch. Do not rebuild existing data with new SQL.</reuse_guidance>"
+            )
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
         parts.append(

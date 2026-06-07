@@ -346,6 +346,8 @@ class AgentV2:
             model=self.small_model,
             organization_settings=self.organization_settings,
             instruction_context_builder=self.context_hub.instruction_builder,
+            usage_session_maker=async_session_maker,
+            usage_context=self.usage_limit_context,
         )
 
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
@@ -375,6 +377,27 @@ class AgentV2:
         except Exception:
             user_note = None
         return user_name, user_note
+
+    async def _build_available_steps_context(self) -> str:
+        """Render this report's loadable steps for the planner prompt.
+
+        Mirrors the coder's <available_steps> so the planner knows create_data
+        can reuse prior results via load_step instead of re-deriving them.
+        """
+        if not self.report:
+            return ""
+        try:
+            from app.ai.code_execution.loadables import LoadablesResolver
+            resolver = LoadablesResolver(
+                self.db,
+                self.organization,
+                self.report,
+                getattr(self.head_completion, 'user', None) if self.head_completion else None,
+            )
+            section = await resolver.list_for_discovery()
+            return section.render() if section else ""
+        except Exception:
+            return ""
 
     async def _get_active_artifact(self) -> Optional[dict]:
         """Get the most recent artifact for the current report, enriched with
@@ -578,7 +601,12 @@ class AgentV2:
             # sit inside the DB retry loop below — a locked-SQLite write should
             # only retry the write, never re-run the model.
             if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                judge = Judge(
+                    model=self.model,
+                    organization_settings=self.organization_settings,
+                    usage_session_maker=async_session_maker,
+                    usage_context=self.usage_limit_context,
+                )
                 instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
             else:
                 instructions_score = 3
@@ -600,7 +628,12 @@ class AgentV2:
             # Score once, up-front — keep the Judge LLM call out of the DB retry
             # loop so a locked-SQLite write never triggers a redundant model call.
             if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                judge = Judge(
+                    model=self.model,
+                    organization_settings=self.organization_settings,
+                    usage_session_maker=async_session_maker,
+                    usage_context=self.usage_limit_context,
+                )
                 original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
                 response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
             else:
@@ -1874,6 +1907,8 @@ class AgentV2:
                     entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
                     # Active scheduled tasks for this report (for dedupe + cancellation)
                     scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+                    # Loadable prior steps (so the planner prefers reuse via load_step)
+                    available_steps_context = await self._build_available_steps_context()
 
                     # Load user-uploaded images for vision models (only on first loop iteration)
                     user_images = await self._load_images_as_input() if loop_index == 0 else []
@@ -1907,6 +1942,7 @@ class AgentV2:
                         files_context=files_context,
                         mentions_context=mentions_context,
                         entities_context=entities_context,
+                        available_steps_context=available_steps_context,
                         scheduled_tasks_context=scheduled_tasks_context,
                         history_summary=history_summary,
                         messages_context=messages_context,
@@ -3412,6 +3448,7 @@ class AgentV2:
         mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+        available_steps_context = await self._build_available_steps_context()
 
         user_message = (self.head_completion.prompt or {}).get("content", "")
 
@@ -3429,6 +3466,7 @@ class AgentV2:
             files_context=files_context,
             mentions_context=mentions_context,
             entities_context=entities_context,
+            available_steps_context=available_steps_context,
             scheduled_tasks_context=scheduled_tasks_context,
             history_summary=history_summary,
             messages_context=messages_context,
