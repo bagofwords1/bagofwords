@@ -48,6 +48,15 @@
                 size="xs"
                 color="gray"
                 variant="ghost"
+                @click="startEdit(client)"
+                title="Edit redirect URIs"
+              >
+                <UIcon name="heroicons-pencil-square" class="w-4 h-4" />
+              </UButton>
+              <UButton
+                size="xs"
+                color="gray"
+                variant="ghost"
                 @click="rotate(client)"
                 :loading="rotatingId === client.id"
                 title="Rotate secret"
@@ -82,8 +91,30 @@
             </div>
           </div>
 
+          <!-- Inline edit form for redirect URIs -->
+          <div v-if="editingId === client.id" class="mt-2 bg-gray-50 border border-gray-200 rounded p-2">
+            <label class="block text-[11px] text-gray-500 uppercase tracking-wide mb-1">Redirect URIs</label>
+            <textarea
+              v-model="editRedirectUris"
+              rows="3"
+              class="w-full border rounded px-2 py-1 text-sm font-mono"
+              placeholder="https://your-app.example.com/oauth/callback"
+            />
+            <p class="text-[11px] text-gray-400 mt-1">One URI per line.</p>
+            <div class="flex justify-end gap-2 mt-2">
+              <UButton size="xs" color="gray" variant="ghost" @click="cancelEdit">Cancel</UButton>
+              <UButton
+                size="xs"
+                color="blue"
+                :loading="savingId === client.id"
+                :disabled="!editRedirectUrisList.length"
+                @click="saveEdit(client)"
+              >Save</UButton>
+            </div>
+          </div>
+
           <!-- Registered redirect URIs -->
-          <div v-if="client.redirect_uris?.length" class="mt-1">
+          <div v-else-if="client.redirect_uris?.length" class="mt-1">
             <details class="text-[11px] text-gray-500">
               <summary class="cursor-pointer hover:text-gray-700">
                 {{ client.redirect_uris.length }} redirect URI{{ client.redirect_uris.length === 1 ? '' : 's' }}
@@ -192,9 +223,16 @@ const loading = ref(true)
 const clients = ref<OAuthClient[]>([])
 const creating = ref(false)
 const rotatingId = ref<string | null>(null)
+const editingId = ref<string | null>(null)
+const editRedirectUris = ref('')
+const savingId = ref<string | null>(null)
 const newName = ref('')
 const newRedirectUris = ref('')
 const baseUrl = ref('')
+
+const editRedirectUrisList = computed(() =>
+  editRedirectUris.value.split('\n').map(s => s.trim()).filter(Boolean)
+)
 
 // Map of client_id → freshly revealed secret (shown until modal closes or user dismisses)
 const freshSecretByClientId = ref<Record<string, string>>({})
@@ -269,6 +307,40 @@ async function submit() {
     toast.add({ title: 'Failed to create client', icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     creating.value = false
+  }
+}
+
+function startEdit(client: OAuthClient) {
+  editingId.value = client.id
+  editRedirectUris.value = (client.redirect_uris || []).join('\n')
+}
+
+function cancelEdit() {
+  editingId.value = null
+  editRedirectUris.value = ''
+}
+
+async function saveEdit(client: OAuthClient) {
+  const uris = editRedirectUrisList.value
+  if (!uris.length) return
+  savingId.value = client.id
+  try {
+    const res = await useMyFetch(`/api/oauth/clients/${client.id}`, {
+      method: 'PATCH',
+      body: { redirect_uris: uris }
+    })
+    if (res.data.value) {
+      const updated = res.data.value as OAuthClient
+      const idx = clients.value.findIndex(c => c.id === client.id)
+      if (idx !== -1) clients.value[idx].redirect_uris = updated.redirect_uris
+      cancelEdit()
+      toast.add({ title: 'Redirect URIs updated', icon: 'i-heroicons-check-circle', color: 'green' })
+      emit('updated')
+    }
+  } catch (e) {
+    toast.add({ title: 'Failed to update redirect URIs', icon: 'i-heroicons-x-circle', color: 'red' })
+  } finally {
+    savingId.value = null
   }
 }
 

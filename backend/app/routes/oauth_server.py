@@ -312,13 +312,7 @@ async def create_client(
             raise HTTPException(status_code=400, detail=f"Unsupported scope: {s}")
     scopes = " ".join(requested)
 
-    redirect_uris = body.get("redirect_uris")
-    if redirect_uris is not None:
-        if not isinstance(redirect_uris, list) or not redirect_uris:
-            raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
-        for uri in redirect_uris:
-            if not isinstance(uri, str) or not uri.strip():
-                raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
+    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"))
 
     service = OAuthServerService()
     return await service.create_client(
@@ -328,6 +322,55 @@ async def create_client(
         scopes=scopes,
         redirect_uris=redirect_uris,
     )
+
+
+def _validate_redirect_uris(redirect_uris):
+    """Validate an optional redirect_uris payload. Returns the list unchanged,
+    or None when absent (caller decides the fallback)."""
+    if redirect_uris is None:
+        return None
+    if not isinstance(redirect_uris, list) or not redirect_uris:
+        raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
+    for uri in redirect_uris:
+        if not isinstance(uri, str) or not uri.strip():
+            raise HTTPException(status_code=400, detail="redirect_uris must be a non-empty list of strings")
+    return redirect_uris
+
+
+@router.patch("/clients/{client_db_id}")
+@requires_permission("manage_settings")
+async def update_client(
+    client_db_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Update an OAuth client's name and/or redirect URIs."""
+    body = await request.json()
+
+    name = None
+    if "name" in body:
+        name = (body.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name must not be empty")
+
+    redirect_uris = _validate_redirect_uris(body.get("redirect_uris"))
+
+    if name is None and redirect_uris is None:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    service = OAuthServerService()
+    updated = await service.update_client(
+        db=db,
+        client_db_id=client_db_id,
+        organization_id=organization.id,
+        name=name,
+        redirect_uris=redirect_uris,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return updated
 
 
 @router.get("/clients/{client_id}/info")
