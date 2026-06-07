@@ -346,6 +346,8 @@ class AgentV2:
             model=self.small_model,
             organization_settings=self.organization_settings,
             instruction_context_builder=self.context_hub.instruction_builder,
+            usage_session_maker=async_session_maker,
+            usage_context=self.usage_limit_context,
         )
 
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
@@ -578,7 +580,12 @@ class AgentV2:
             # sit inside the DB retry loop below — a locked-SQLite write should
             # only retry the write, never re-run the model.
             if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                judge = Judge(
+                    model=self.model,
+                    organization_settings=self.organization_settings,
+                    usage_session_maker=async_session_maker,
+                    usage_context=self.usage_limit_context,
+                )
                 instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
             else:
                 instructions_score = 3
@@ -600,7 +607,12 @@ class AgentV2:
             # Score once, up-front — keep the Judge LLM call out of the DB retry
             # loop so a locked-SQLite write never triggers a redundant model call.
             if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                judge = Judge(
+                    model=self.model,
+                    organization_settings=self.organization_settings,
+                    usage_session_maker=async_session_maker,
+                    usage_context=self.usage_limit_context,
+                )
                 original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
                 response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
             else:

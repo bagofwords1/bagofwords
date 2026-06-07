@@ -5,6 +5,7 @@ from app.ai.llm import LLM
 import pandas as pd
 import json
 from app.models.llm_model import LLMModel
+from app.dependencies import async_session_maker
 
 """
 """
@@ -13,7 +14,7 @@ class DataSourceAgent:
 
     def __init__(self, data_source: DataSource, schema: str, model: LLMModel):
         self.data_source = data_source
-        self.llm = LLM(model)
+        self.llm = LLM(model, usage_session_maker=async_session_maker)
         self.schema = schema
 
     def generate_summary(self):
@@ -30,7 +31,7 @@ Rules:
 - Plain text only.
 - Max 30 words total.
 """
-        response = self.llm.inference(prompt)
+        response = self.llm.inference(prompt, usage_scope="data_source.summary")
         return response
 
     def generate_conversation_starters(self):
@@ -70,7 +71,7 @@ Important: Return only the JSON array with no additional text, formatting, or ex
 Do not add prefix ``` or markdown or anything. just the list of conversation starters.
 """
 
-        response = self.llm.inference(prompt)
+        response = self.llm.inference(prompt, usage_scope="data_source.conversation_starters")
         # Strip any potential whitespace or extra characters
         response = response.strip()
         json_response = json.loads(response)
@@ -119,7 +120,7 @@ Rules:
 Return JSON only:
 {{"title": "{title}", "text": "...", "category": "general", "load_mode": "always", "confidence": 0.95}}"""
 
-        response = self.llm.inference(prompt)
+        response = self.llm.inference(prompt, usage_scope="data_source.instruction")
         response = response.strip()
         # Strip markdown code fences if present
         if response.startswith("```"):
@@ -163,5 +164,5 @@ Examples:
 - "Google Analytics data that provides information about website traffic, user behavior, and marketing effectiveness."
 - "Jira data that provides information about engineering projects, tasks, and team performance."
 """
-        response = self.llm.inference(prompt)
+        response = self.llm.inference(prompt, usage_scope="data_source.description")
         return response
