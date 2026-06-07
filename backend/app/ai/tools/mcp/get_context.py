@@ -54,10 +54,17 @@ class GetContextTool(MCPTool):
 
         # Load report as ORM model (preserves Connection.get_credentials())
         report = await self._load_report(db, input_data.report_id)
-        # Exclude user_required data sources this user can't query (no creds, no
-        # system fallback) so the agent doesn't advertise sources that 403.
         from app.services.data_source_service import DataSourceService
-        data_sources, _skipped = await DataSourceService().filter_user_usable_data_sources(db, report.data_sources, user)
+        ds_service = DataSourceService()
+        # First, restrict to data sources THIS user is allowed to see — the
+        # report's attachments are not re-checked elsewhere, so without this a
+        # private source on a shared report would leak its schema to a non-member.
+        visible = await ds_service.filter_user_visible_data_sources(
+            db, report.data_sources, user, organization
+        )
+        # Then exclude user_required data sources this user can't query (no creds,
+        # no system fallback) so the agent doesn't advertise sources that 403.
+        data_sources, _skipped = await ds_service.filter_user_usable_data_sources(db, visible, user)
         
         # Update report with external_platform_id if not set (direct DB update)
         if not report.external_platform:

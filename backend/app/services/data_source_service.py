@@ -1513,6 +1513,47 @@ class DataSourceService:
             allowed = params
         return ClientClass(**allowed)
 
+    async def filter_user_visible_data_sources(
+        self,
+        db: AsyncSession,
+        data_sources: list,
+        current_user: User | None,
+        organization: Organization,
+    ) -> list:
+        """Keep only data sources the user is allowed to SEE.
+
+        Visibility (public OR explicit member/grant OR org-wide DS governance)
+        is distinct from usability (credentials, handled by
+        filter_user_usable_data_sources). A report's attached data sources are
+        trusted input from whoever created it, so when a *different* user reads
+        that report's context over MCP we must re-filter by their visibility —
+        otherwise a private data source's schema leaks to a non-member.
+
+        With no current_user (system/scheduled contexts) nothing is filtered.
+        """
+        if current_user is None:
+            return list(data_sources or [])
+
+        from app.core.permission_resolver import (
+            get_member_data_source_ids,
+            can_view_all_data_sources,
+        )
+
+        if await can_view_all_data_sources(
+            db, str(current_user.id), str(organization.id)
+        ):
+            return list(data_sources or [])
+
+        member_ids = set(
+            await get_member_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+        )
+        return [
+            ds for ds in (data_sources or [])
+            if getattr(ds, "is_public", False) or str(ds.id) in member_ids
+        ]
+
     async def filter_user_usable_data_sources(
         self,
         db: AsyncSession,
