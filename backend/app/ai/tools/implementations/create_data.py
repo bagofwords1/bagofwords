@@ -1184,6 +1184,17 @@ Do not use generic placeholders like "value" unless that is the actual column na
         codegen_ms = None
         execution_ms = None
 
+        # Resolver for load_step()/load_entity() calls the generated code may
+        # make — scoped to this report's steps and the user's accessible
+        # entities.
+        from app.ai.code_execution.loadables import LoadablesResolver
+        _loadables_resolver = LoadablesResolver(
+            db=runtime_ctx.get("db"),
+            organization=runtime_ctx.get("organization"),
+            report=runtime_ctx.get("report"),
+            current_user=runtime_ctx.get("user"),
+        )
+
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
                 request=CodeGenRequest(context=codegen_context, retries=2),
@@ -1192,6 +1203,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 code_context_builder=None,
                 code_generator_fn=coder.generate_code,
                 sigkill_event=runtime_ctx.get("sigkill_event"),
+                loadable_resolver_fn=_loadables_resolver.resolve,
             ):
                 if e["type"] == "progress":
                     # Map internal stage names to UI-friendly names

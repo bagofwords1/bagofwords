@@ -357,6 +357,7 @@ class Coder:
             instructions_context = context.instructions_context or ""
             mentions_context = context.mentions_context or "<mentions>No mentions for this turn</mentions>"
             entities_context = context.entities_context or ""
+            loadables_context = context.loadables_context or ""
             messages_context = context.messages_context or ""
             resources_context = context.resources_context or ""
             files_context = context.files_context or ""
@@ -444,6 +445,9 @@ class Coder:
             - Entities:
             {entities_context}
 
+            - Available steps (loadable via load_step):
+            {loadables_context}
+
             - Messages (recent):
             <messages>
             {messages_context}
@@ -471,6 +475,7 @@ class Coder:
             1. **Function Signature**: Implement either:
                `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
                `def generate_df(ds_clients, excel_files, http):` — when fetching URLs (see HTTP section below).
+               - You may also add `load_step` and/or `load_entity` parameters to reuse existing results (see section 2a), e.g. `def generate_df(ds_clients, excel_files, load_step):`.
                - The function should return the main dataframe that answers the user prompt.
 
             1a. **HTTP client (when the task involves URLs)**:
@@ -510,6 +515,14 @@ class Coder:
                - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
                - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
                - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
+
+            2a. **Reusing existing results (load_step / load_entity)**:
+               - You may reuse data the user already built instead of re-querying it. Add the parameters you need to your signature, e.g. `def generate_df(ds_clients, excel_files, load_step, load_entity):` (any subset, in any order after `excel_files`).
+               - `load_step("<id or name>")` returns a pandas DataFrame for a prior step in THIS report. Pick from the `<available_steps>` section above (match the `id`, `slug`, or `title`).
+               - `load_entity("<id or name>")` returns a pandas DataFrame for a published catalog entity from the `<entities>` section.
+               - **The argument MUST be a string literal** (e.g. `load_step("Raw Customer Data")`), not a variable — it is pre-resolved before your code runs.
+               - Returned data is a **cached snapshot**: it may be row-capped (~1000 rows) and date/decimal columns arrive as strings. Treat it as a reference/lookup table; `pd.to_datetime(...)`/`.astype(...)` if you need typed values before joining.
+               - Prefer this over re-querying when a listed step/entity already contains the data you need (e.g. merge a fresh query with a prior step on a shared key).
 
             3. **Schema Adherence**:
                - Use only columns and relationships that exist in the provided schemas.
