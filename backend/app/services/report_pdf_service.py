@@ -104,12 +104,7 @@ class ReportPdfService:
         try:
             from app.dependencies import async_session_maker
             from app.models.artifact import Artifact
-            from app.models.report import Report
-            from app.models.visualization import Visualization
-            from app.models.query import Query
-            from app.models.step import Step
             from sqlalchemy import select
-            from sqlalchemy.orm import selectinload
 
             async with async_session_maker() as db:
                 stmt = (
@@ -125,68 +120,104 @@ class ReportPdfService:
                     logger.warning(f"No artifact found for report {report_id}")
                     return None
 
-                report = await db.get(Report, report_id)
-                if not report:
-                    return None
-
-                # Get visualization data
-                viz_stmt = (
-                    select(Visualization)
-                    .options(selectinload(Visualization.query))
-                    .where(Visualization.report_id == report_id)
-                )
-                viz_result = await db.execute(viz_stmt)
-                visualizations = viz_result.scalars().all()
-
-                viz_data = []
-                for viz in visualizations:
-                    if not viz.query_id:
-                        continue
-                    query = await db.get(Query, viz.query_id)
-                    if not query:
-                        continue
-
-                    step = None
-                    if query.default_step_id:
-                        step = await db.get(Step, query.default_step_id)
-                    if not step:
-                        step_result = await db.execute(
-                            select(Step).where(Step.query_id == query.id).order_by(Step.created_at.desc()).limit(1)
-                        )
-                        step = step_result.scalar_one_or_none()
-
-                    viz_data.append({
-                        "id": str(viz.id),
-                        "title": viz.title or query.title or "Untitled",
-                        "view": viz.view or {},
-                        "rows": step.data.get("rows", []) if step and step.data else [],
-                        "columns": step.data.get("columns", []) if step and step.data else [],
-                        "dataModel": step.data_model or {} if step else {},
-                    })
-
-                artifact_code = artifact.content.get("code", "")
-                html_content = self._build_pdf_html(
-                    report_id=str(report.id),
-                    report_title=report.title,
-                    report_theme=report.theme_name,
-                    artifact_code=artifact_code,
-                    visualizations=viz_data,
-                    mode=artifact.mode or "page",
-                )
-
-                rel_path = await self.generate_pdf(
-                    artifact_id=str(artifact.id),
-                    html_content=html_content,
-                    mode=artifact.mode or "page",
-                )
-
-                if rel_path:
-                    return str(self.UPLOADS_DIR / f"{artifact.id}.pdf")
-                return None
+                return await self._render_artifact_pdf(db, artifact)
 
         except Exception as e:
             logger.exception(f"Failed to generate PDF for report {report_id}: {e}")
             return None
+
+    async def generate_for_artifact(self, artifact_id: str) -> Optional[str]:
+        """Generate a PDF for a specific artifact.
+
+        Returns:
+            Absolute filesystem path to the PDF, or None on failure.
+        """
+        try:
+            from app.dependencies import async_session_maker
+            from app.models.artifact import Artifact
+
+            async with async_session_maker() as db:
+                artifact = await db.get(Artifact, artifact_id)
+                if not artifact or artifact.deleted_at is not None or not artifact.content:
+                    logger.warning(f"No usable artifact found for id {artifact_id}")
+                    return None
+
+                return await self._render_artifact_pdf(db, artifact)
+
+        except Exception as e:
+            logger.exception(f"Failed to generate PDF for artifact {artifact_id}: {e}")
+            return None
+
+    async def _render_artifact_pdf(self, db, artifact) -> Optional[str]:
+        """Build the artifact HTML (with its report's visualization data) and render to PDF.
+
+        Returns the absolute filesystem path to the PDF, or None on failure.
+        """
+        from app.models.report import Report
+        from app.models.visualization import Visualization
+        from app.models.query import Query
+        from app.models.step import Step
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        report = await db.get(Report, artifact.report_id)
+        if not report:
+            return None
+
+        # Get visualization data for the artifact's report
+        viz_stmt = (
+            select(Visualization)
+            .options(selectinload(Visualization.query))
+            .where(Visualization.report_id == artifact.report_id)
+        )
+        viz_result = await db.execute(viz_stmt)
+        visualizations = viz_result.scalars().all()
+
+        viz_data = []
+        for viz in visualizations:
+            if not viz.query_id:
+                continue
+            query = await db.get(Query, viz.query_id)
+            if not query:
+                continue
+
+            step = None
+            if query.default_step_id:
+                step = await db.get(Step, query.default_step_id)
+            if not step:
+                step_result = await db.execute(
+                    select(Step).where(Step.query_id == query.id).order_by(Step.created_at.desc()).limit(1)
+                )
+                step = step_result.scalar_one_or_none()
+
+            viz_data.append({
+                "id": str(viz.id),
+                "title": viz.title or query.title or "Untitled",
+                "view": viz.view or {},
+                "rows": step.data.get("rows", []) if step and step.data else [],
+                "columns": step.data.get("columns", []) if step and step.data else [],
+                "dataModel": step.data_model or {} if step else {},
+            })
+
+        artifact_code = artifact.content.get("code", "")
+        html_content = self._build_pdf_html(
+            report_id=str(report.id),
+            report_title=report.title,
+            report_theme=report.theme_name,
+            artifact_code=artifact_code,
+            visualizations=viz_data,
+            mode=artifact.mode or "page",
+        )
+
+        rel_path = await self.generate_pdf(
+            artifact_id=str(artifact.id),
+            html_content=html_content,
+            mode=artifact.mode or "page",
+        )
+
+        if rel_path:
+            return str(self.UPLOADS_DIR / f"{artifact.id}.pdf")
+        return None
 
     def _build_pdf_html(
         self,

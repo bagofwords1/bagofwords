@@ -181,12 +181,16 @@ class NotificationService:
         subject: str,
         body: str,
         subtype: str = "plain",
+        attachments: Optional[list] = None,
     ) -> ChannelResult:
         """Send a free-form email with arbitrary subject/body.
 
         Unlike ``dispatch`` (template-driven), this sends exactly the subject
         and body provided. The send is awaited so the returned status reflects
         actual delivery to the SMTP server, not just enqueueing.
+
+        ``attachments`` follows the fastapi-mail dict shape, e.g.
+        ``{"file": "/abs/path", "filename": "x.csv", "type": "text", "subtype": "csv"}``.
         """
         fm = settings.email_client
         if not fm:
@@ -200,12 +204,15 @@ class NotificationService:
         if subtype not in ("plain", "html"):
             subtype = "plain"
 
-        message = MessageSchema(
+        message_kwargs = dict(
             subject=subject,
             recipients=recipients,
             body=body,
             subtype=subtype,
         )
+        if attachments:
+            message_kwargs["attachments"] = attachments
+        message = MessageSchema(**message_kwargs)
 
         try:
             await fm.send_message(message)

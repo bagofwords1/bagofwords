@@ -22,7 +22,12 @@ from .write_to_excel import WriteToExcelInput, WriteToExcelOutput
 from .write_officejs_code import WriteOfficeJsCodeInput, WriteOfficeJsCodeOutput
 from .read_excel_range import ReadExcelRangeInput, ReadExcelRangeOutput, ReadExcelRangeItem
 from .read_excel_as_csv import ReadExcelAsCsvInput, ReadExcelAsCsvOutput
-from .send_email import SendEmailInput, SendEmailOutput
+from .send_email import (
+    SendEmailInput,
+    SendEmailOutput,
+    EmailAttachmentSpec,
+    SendEmailAttachmentResult,
+)
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -83,6 +88,8 @@ __all__ = [
     "ReadExcelAsCsvOutput",
     "SendEmailInput",
     "SendEmailOutput",
+    "EmailAttachmentSpec",
+    "SendEmailAttachmentResult",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",
