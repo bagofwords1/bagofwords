@@ -201,7 +201,61 @@ pip install httpx pyjwt   # minimal, for token-level probes
 | # | Date | What we ran | Result / token `aud`+`upn` | Notes |
 |---|------|-------------|----------------------------|-------|
 | 0 | 2026-06-08 | Code review + sandbox net check | Entra & Graph reachable (200); pyodbc not installed | baseline |
-|   |      |             |                            |       |
+| 1 | 2026-06-08 | Live ROPC + OBO probe, demo1 & demo2 (app `a901…ba677`, tenant `3871…09f9`) | **Direct delegated tokens ✅; OBO ❌ (AADSTS50013)** | see §6a — this changes the plan |
+
+### 6a. Iteration 1 findings (live, both users)
+
+**✅ Direct per-user delegated tokens work perfectly** (ROPC, but auth-code/"Connect"
+gives the identical token). For each user we got, with the user's own `upn` and
+`idtyp=user`:
+- **Fabric SQL:** `aud = https://database.windows.net`, `scp = user_impersonation`
+  — **this is exactly the token `MsFabricClient._get_access_token()` needs** for the
+  pyodbc `attrs_before={1256: ...}` SQL login. Per-user, not the SP.
+- PowerBI: `aud = analysis.windows.net/powerbi/api`, `scp = Dataset.Read.All Workspace.Read.All`.
+- Fabric API: `aud = api.fabric.microsoft.com`.
+
+**❌ OBO fails for both users:**
+```
+AADSTS50013: Assertion failed signature validation.
+[Key was found, but use of the key to verify the signature failed...]
+```
+**Why:** the *login* token this app gets has **`aud = 00000003-0000-0000-c000-000000000000`
+(Microsoft Graph)**, not `aud = <client_id>`. You cannot use a Graph token as an OBO
+assertion for your own app — OBO requires the assertion to be issued *for your API*
+(`aud = client_id` / `api://client_id`), which needs **"Expose an API"** on the app
+reg (this app doesn't have it). So `connection_oauth_service.exchange_obo_token`
+(and the auto-provision-at-login path) **cannot work with this registration** — and
+this is the *normal* state of affairs unless you deliberately set up Expose-an-API.
+
+### 6b. Conclusion — OBO is the wrong lever; use the delegated "Connect" flow
+
+The thing labeled "OBO" in the ask is really just **"each user uses their own
+delegated token."** We do **not** need the OBO grant to achieve that — the
+**interactive Connect flow (§2a)** already mints a per-user
+`aud=database.windows.net` token via authorization-code+PKCE and stores it as
+`UserConnectionCredentials`. It works for **any** user, **including the admin**.
+
+So enabling "admin uses their own creds, not the principal" reduces to **two code
+changes** (still not implemented — pending your §7 sign-off):
+1. **Let the admin actually go through Connect** for a `user_required` connection
+   (today the admin is never prompted because the fallback short-circuits them).
+2. **Gate / remove the service-principal fallback** in
+   `data_source_service.resolve_credentials_for_connection` (~1761) and
+   `resolve_credentials` (~1464) so an admin without a personal token is prompted to
+   Connect instead of silently getting the SP. (Likely keep SP available only for
+   background **indexing**, see §7-B4.)
+
+The broken OBO-at-login path (`auto_provision_connection_credentials`,
+`exchange_obo_token`) is effectively dead weight for this kind of registration — we
+should either delete it or document that it requires Expose-an-API.
+
+### 6c. Still TODO to fully close the loop
+- **Fabric server host + warehouse name** were not provided — needed to run a real
+  `SELECT 1` / table-list with each user's delegated token and prove
+  per-user permission differences (demo1 vs demo2). Both tokens currently carry the
+  same `scp`; row/table differences come from Fabric-side grants, which we can only
+  see by querying. Drop the host in §5 and I'll run it (needs pyodbc + ODBC Driver 18
+  in the sandbox — will verify install + reachability to `*.datawarehouse.fabric.microsoft.com`).
 
 ---
 
