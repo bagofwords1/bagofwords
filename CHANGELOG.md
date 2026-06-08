@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.403 (June 8, 2026)
+- Data-source access control on reports (security): a report's attached data sources are a trusted snapshot consumed at query time, so a member who couldn't even see a private data source could attach it to a report by id and query it — and revoking access didn't stop an existing report from still using it. Now gated end to end:
+  - **Attach time** — `create_report` and `set_data_sources_for_report` filter requested sources by the user's visibility and scope the query by organization, so an inaccessible (or cross-org) source can't be pinned to a report.
+  - **Client construction** — `construct_clients` (the chokepoint every query path flows through) returns 403 for a data source the running user can't access, closing the revocation-after-attach case regardless of what a stale snapshot claims; system/scheduled contexts are unaffected.
+  - **Agent runtime** — the agent drops report data sources that produced no client, and MCP `create_data`/`inspect_data` apply the same visibility filter as `get_context`, so an inaccessible source no longer leaks its schema into context or errors the run mid-flight.
+  - **Teams** — a reused Teams 1:1 conversation report (up to 5 days old) now re-syncs its data sources to the user's current access on each message, so grants appear and revocations disappear without waiting out the window.
+  - **UI** — the data-source members panel relabels the management column to "Management role" and the empty state to "Query only" (was "None"), and clarifies that everyone listed can query the agent and that Remove is what revokes access.
+
 ## Version 0.0.402 (June 8, 2026)
 - Admin query-identity toggle for delegated (Entra ID / Microsoft Fabric OBO) connections — admins/owners can now choose, per connection, to run queries as the **service account** (the connection's principal) or as **themselves** (their own delegated/OBO token), from the connection detail modal. Default is "Me": the service principal is never used silently for an admin's interactive queries — if they have no personal token yet, the query is blocked and the UI prompts them to Connect. The selection is persisted per (user, connection) and applied consistently across the tables selector (overlay vs shared catalog), the agent's schema context, and query execution (inspect/create data).
 
