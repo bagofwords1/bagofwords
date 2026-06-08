@@ -201,7 +201,8 @@ pip install httpx pyjwt   # minimal, for token-level probes
 | # | Date | What we ran | Result / token `aud`+`upn` | Notes |
 |---|------|-------------|----------------------------|-------|
 | 0 | 2026-06-08 | Code review + sandbox net check | Entra & Graph reachable (200); pyodbc not installed | baseline |
-| 1 | 2026-06-08 | Live ROPC + OBO probe, demo1 & demo2 (app `a901…ba677`, tenant `3871…09f9`) | **Direct delegated tokens ✅; OBO ❌ (AADSTS50013)** | see §6a — this changes the plan |
+| 1 | 2026-06-08 | Live ROPC + OBO probe, demo1 & demo2 (app `a901…ba677`, tenant `3871…09f9`) | **Direct delegated tokens ✅; OBO ❌ (AADSTS50013)** — OBO assertion was a Graph-aud token | see §6a |
+| 2 | 2026-06-08 | Re-probe OBO with login scope `api://<client_id>/access_as_user` (Expose-an-API now configured) | **OBO ✅ for both users** → `aud=database.windows.net`, `scp=user_impersonation`, per-user `upn` | see §6d — OBO-at-login is now viable |
 
 ### 6a. Iteration 1 findings (live, both users)
 
@@ -249,6 +250,40 @@ The broken OBO-at-login path (`auto_provision_connection_credentials`,
 `exchange_obo_token`) is effectively dead weight for this kind of registration — we
 should either delete it or document that it requires Expose-an-API.
 
+### 6d. Iteration 2 — OBO now works (Expose-an-API configured)
+
+You added `api://<client_id>/access_as_user` to the **OIDC login scopes** (so "Expose
+an API" is set on the app reg). Re-probed: the login token now comes back with
+**`aud = api://<client_id>`, `scp = access_as_user`** — which is a valid OBO
+assertion — and the OBO exchange **succeeds for both users**:
+- demo1/demo2 → `aud = https://database.windows.net`, `scp = user_impersonation`,
+  `idtyp = user`, each with their own `upn`. (Also `obo->powerbi` works.)
+
+**This revives the in-code OBO-at-login path** (`auth_providers._handle_callback` →
+`auto_provision_connection_credentials` → `exchange_obo_token`). For it to fire
+end-to-end, two config conditions must hold (both now satisfiable):
+1. The Entra **OIDC login provider** requests the `api://<client_id>/access_as_user`
+   scope (the config you pasted does this), so the `access_token` handed to
+   `auto_provision_connection_credentials` has `aud=api://<client_id>`.
+2. The **Fabric connection's** `oauth_client_id`/`oauth_client_secret` are the **same
+   app reg** (`a901…ba677`) that exposed the API — otherwise the assertion audience
+   won't match the OBO client.
+
+So both mechanisms are now on the table and **both yield the same per-user
+`database.windows.net` token**:
+- **OBO-at-login** (zero clicks — token minted automatically on Entra sign-in), or
+- **interactive Connect** (explicit, no Expose-an-API dependency).
+
+Revised §6b: OBO is *not* dead — with this registration it works. The admin-identity
+question (§7) is now purely about **the resolver fallback + the index split**, not
+about *how* the token is obtained.
+
+> Note (impl-time): for an **admin signing in**, OBO-at-login would now auto-create a
+> `UserConnectionCredentials` row — which means the admin would start using their own
+> token automatically. That interacts directly with the "toggle SP vs me" idea (§7):
+> decide whether auto-provisioned admin tokens should immediately take over, or only
+> when the admin selects "as me".
+
 ### 6c. Still TODO to fully close the loop
 - **Fabric server host + warehouse name** were not provided — needed to run a real
   `SELECT 1` / table-list with each user's delegated token and prove
@@ -285,53 +320,8 @@ decision points I see (no recommendation locked in — just the levers):
 **C. Scope of the change**
 - Just Fabric, or all Entra OBO types (`powerbi/sharepoint/onedrive`) too?
 
-Your notes (2026-06-08):
-> - Basic level: give admins a **toggle** — *"view as service account"* **OR**
->   *"view as Yochay"* (their own identity).
-> - The **principal is always needed** to get the **seed of the schema** (the shared
->   catalog/index). Keep that.
-> - If my (the admin's) own token is connected, it should **also index — but keep that
->   index for myself only** (unlike the principal, whose index is shared with everyone).
-
-### Decided direction (from the notes above — to be implemented later)
-
-This maps onto levers **A1 + B2/B4** and the existing shared-catalog/overlay split:
-
-1. **Service principal stays, always**, as the **seed/shared schema** source. It keeps
-   driving background indexing into the shared catalog
-   (`refresh_data_source_schema` / the SHARED catalog path,
-   `data_source_service.py` ~3069/3093). No change to that role.
-2. **Admin gets a per-connection/per-view toggle**: *"as service account"* vs *"as
-   me"*.
-   - *As service account* → current behavior: resolver returns the SP creds
-     (`resolve_credentials_for_connection` fallback) and the admin sees the shared
-     catalog. This becomes an **explicit, chosen** state instead of a silent default.
-   - *As me* → resolver returns the admin's **`UserConnectionCredentials`** delegated
-     token (from the Connect flow; `aud=database.windows.net`, their `upn`), and the
-     admin sees **their own private schema overlay**, not the shared catalog.
-3. **When the admin connects their own token, index it into a private overlay**
-   (`get_user_data_source_schema` already builds per-user overlays) — visible only to
-   that admin, never merged into the shared catalog the SP seeds.
-4. OBO grant is **not used** (it can't work here — see §6a). "As me" = the delegated
-   token from the **Connect** flow.
-
-**Where the toggle state likely lives / needs touching (for the eventual impl, not now):**
-- A per-user, per-connection preference (e.g. on `UserConnectionCredentials` or a new
-  small pref) read by `resolve_credentials_for_connection` to decide SP vs personal
-  token — instead of the implicit owner/admin fallback at
-  `data_source_service.py:1761`.
-- Frontend: surface the toggle wherever the connection/data-source identity is shown
-  (status comes from `build_user_status*`, which already reports
-  `effective_auth` = `system` vs `user` and `uses_fallback`).
-- Indexing: ensure an admin's personal-token index writes to the **private overlay**,
-  not the shared catalog (the catalog-ownership classification at ~3069 is the seam).
-
-**Implications / things to confirm before building:**
-- "View as service account" must remain gated to admins/owners only (regular users
-  never get SP) — the existing `FULL_ADMIN` / `manage` checks already define that set.
-- The toggle is a **read/query-time identity switch**; a single admin may flip back
-  and forth, so both the SP-seeded shared schema and the admin's private overlay can
-  coexist and be selected per session/view.
+Your notes:
+> 
 
 ---
 
