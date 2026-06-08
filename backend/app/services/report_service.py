@@ -436,15 +436,26 @@ class ReportService:
                     selectinload(DataSource.data_source_memberships),
                     selectinload(DataSource.files),
                 )
-                .filter(DataSource.id.in_(data_source_ids))
+                .filter(
+                    DataSource.id.in_(data_source_ids),
+                    DataSource.organization_id == organization.id,
+                )
             )
             data_sources = ds_result.scalars().all()
+            # Access gate: only attach data sources the creator is actually
+            # allowed to see. Report attachments are a trusted snapshot consumed
+            # downstream without re-checking, so an unfiltered attach here lets a
+            # user pin a private source they have no access to and then query it.
+            from app.services.data_source_service import DataSourceService
+            ds_service = DataSourceService()
+            data_sources = await ds_service.filter_user_visible_data_sources(
+                db, list(data_sources), current_user, organization
+            )
             # Don't attach user_required sources the creator can't actually use
             # (no personal creds, no system fallback) — they'd only break
             # create/inspect-data tools at run time. Mirrors the per-execution
             # filtering in build_rich_context / get_context.
-            from app.services.data_source_service import DataSourceService
-            data_sources, _skipped_unconnected = await DataSourceService().filter_user_usable_data_sources(
+            data_sources, _skipped_unconnected = await ds_service.filter_user_usable_data_sources(
                 db, list(data_sources), current_user
             )
             report.data_sources.extend(data_sources)
@@ -531,7 +542,7 @@ class ReportService:
             report.mode = report_data.mode
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
-            await self.set_data_sources_for_report(db, report, report_data.data_sources)
+            await self.set_data_sources_for_report(db, report, report_data.data_sources, current_user, organization)
         
         #await self._set_slug_for_report(db, report)
 
@@ -1406,32 +1417,47 @@ class ReportService:
 
         return report
 
-    async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str]) -> Report:
-        """Replace a report's data source associations atomically with the provided ids."""
+    async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str], current_user: User = None, organization: Organization = None) -> Report:
+        """Replace a report's data source associations atomically with the provided ids.
+
+        When current_user/organization are provided, the requested ids are
+        filtered to the data sources that user is allowed to see — otherwise a
+        user could pin a private source they have no access to and query it.
+        """
         from sqlalchemy import delete
-        
+
         # Delete existing associations directly via SQL to avoid ORM state tracking issues
         await db.execute(
             delete(report_data_source_association).where(
                 report_data_source_association.c.report_id == report.id
             )
         )
-        
+
         # Expire and refresh the relationship so ORM sees it as empty (avoids MissingGreenlet on lazy load)
         db.expire(report, ["data_sources"])
         await db.refresh(report, ["data_sources"])
-        
+
         if data_source_ids:
-            # Load all requested data sources
+            # Load all requested data sources (scoped to the org when known)
+            ds_filters = [DataSource.id.in_(data_source_ids)]
+            if organization is not None:
+                ds_filters.append(DataSource.organization_id == organization.id)
             result = await db.execute(
                 select(DataSource)
                 .options(
                     selectinload(DataSource.data_source_memberships),
                     selectinload(DataSource.files),
                 )
-                .filter(DataSource.id.in_(data_source_ids))
+                .filter(*ds_filters)
             )
             new_data_sources = result.scalars().all()
+
+            # Access gate: drop sources the user isn't allowed to see.
+            if current_user is not None and organization is not None:
+                from app.services.data_source_service import DataSourceService
+                new_data_sources = await DataSourceService().filter_user_visible_data_sources(
+                    db, list(new_data_sources), current_user, organization
+                )
 
             # Add new associations
             report.data_sources.extend(new_data_sources)
