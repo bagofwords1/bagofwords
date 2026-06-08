@@ -176,4 +176,9 @@ async def purge_step_payloads_keep_latest_per_query(
     Daily maintenance task - now delegates to per-organization purge.
     The retention_days parameter is ignored in favor of per-org settings.
     """
+    import asyncio
+    from app.core.scheduler import claim_scheduled_run
+    # Fires in every worker (shared job store); claim so only one purges.
+    if not await asyncio.to_thread(claim_scheduled_run, "purge_step_payloads_daily"):
+        return 0
     return await purge_step_payloads_per_organization(null_fields=null_fields)

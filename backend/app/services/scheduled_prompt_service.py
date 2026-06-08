@@ -12,7 +12,7 @@ from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.scheduled_prompt_schema import ScheduledPromptCreate, ScheduledPromptUpdate
-from app.core.scheduler import scheduler, cron_dow_to_apscheduler
+from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
 from app.services.notification_service import notification_service
 from app.settings.config import settings
 
@@ -212,6 +212,11 @@ class ScheduledPromptService:
 
     async def scheduled_run_prompt(self, scheduled_prompt_id: str):
         """Execute a scheduled prompt. Called by APScheduler cron trigger."""
+        # Every uvicorn worker/replica runs its own scheduler against the shared
+        # job store, so this fires once per worker. Claim the run so exactly one
+        # worker proceeds — otherwise subscribers get one email per worker.
+        if not await asyncio.to_thread(claim_scheduled_run, self._job_id(scheduled_prompt_id)):
+            return
         from app.dependencies import async_session_maker
         from app.services.completion_service import CompletionService
         completion_service = CompletionService()
