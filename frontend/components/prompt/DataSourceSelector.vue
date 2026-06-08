@@ -39,7 +39,7 @@
                 </button>
             </UTooltip>
             <template #panel>
-                <div class="p-2 text-xs max-h-64 overflow-y-auto w-[260px] rounded-xl">
+                <div class="p-2 text-xs max-h-64 overflow-y-auto w-max min-w-[260px] max-w-[420px] rounded-xl">
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 space-x-2">
                         <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
                         <span>Loading data sources…</span>
