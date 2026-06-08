@@ -67,9 +67,17 @@
 
                     <!-- Existing instruction: simple read-only view -->
                     <template v-else-if="dataSource?.primary_instruction">
-                        <div class="flex items-center gap-2 mb-2">
+                        <div class="flex items-center justify-between gap-2 mb-2">
                             <span class="text-sm font-medium text-gray-800">{{ dataSource.primary_instruction.title || 'Primary instruction' }}</span>
-                            <button v-if="useCan('update_data_source')" @click="editingInstruction = true" class="text-[10px] text-blue-600 hover:underline">Edit</button>
+                            <PrimaryInstructionMenu
+                                v-if="useCan('update_data_source')"
+                                :agent-id="(route.params.id as string)"
+                                :current-instruction-id="dataSource.primary_instruction.id"
+                                :can-train="canStartTraining"
+                                @edit="editingInstruction = true"
+                                @select="onSelectExistingInstruction"
+                                @start-training="startTrainingSession"
+                            />
                         </div>
                         <InstructionText
                             :text="dataSource.primary_instruction.text"
@@ -88,14 +96,27 @@
                         <div class="text-xs text-gray-500 mt-1 max-w-md mx-auto">
                             Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.
                         </div>
-                        <button
-                            v-if="useCan('update_data_source')"
-                            @click="creatingInstruction = true"
-                            class="mt-4 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
-                            Add Primary Instruction
-                        </button>
+                        <div v-if="useCan('update_data_source')" class="mt-4 flex items-center justify-center gap-3">
+                            <button
+                                @click="creatingInstruction = true"
+                                class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
+                                Add Primary Instruction
+                            </button>
+                            <span class="text-xs text-gray-400">or</span>
+                            <PrimaryInstructionPicker
+                                :agent-id="(route.params.id as string)"
+                                label="select existing"
+                                @select="onSelectExistingInstruction"
+                            />
+                        </div>
+                        <div v-if="useCan('update_data_source') && canStartTraining" class="mt-3">
+                            <button @click="startTrainingSession" class="text-xs text-sky-600 hover:underline inline-flex items-center gap-1">
+                                <UIcon name="heroicons-academic-cap" class="w-3.5 h-3.5" />
+                                Start a training session
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -162,13 +183,21 @@ import { useCan } from '~/composables/usePermissions'
 import { isIndexingActive, indexingSummary } from '~/composables/useConnectionStatus'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
+import PrimaryInstructionMenu from '~/components/instructions/PrimaryInstructionMenu.vue'
+import { useOrgSettings } from '~/composables/useOrgSettings'
 import type { Ref } from 'vue'
 
 definePageMeta({ auth: true, layout: 'data' })
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const toast = useToast?.()
+
+// Training mode is gated by org setting + permission (mirrors the prompt box).
+const { isTrainingModeEnabled } = useOrgSettings()
+const canStartTraining = computed(() => useCan('train_mode') && isTrainingModeEnabled.value)
 
 // Inject integration data from layout (avoid duplicate API calls)
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))
@@ -215,6 +244,50 @@ async function onPrimaryInstructionCreated(saved: any) {
 async function onPrimaryInstructionSaved(_saved: any) {
     editingInstruction.value = false
     await injectedFetchIntegration()
+}
+
+async function startTrainingSession() {
+    const agentId = route.params.id as string
+    // Partial prompt the admin completes — pre-filled, not auto-submitted.
+    const prompt = 'I need to update the instruction for this agent with '
+    try {
+        // 1. New report scoped to this agent.
+        const { data, error } = await useMyFetch<any>('/reports', {
+            method: 'POST',
+            body: { title: 'Training session', data_sources: [agentId] },
+        })
+        const reportId = (data?.value as any)?.id
+        if (error?.value || !reportId) throw new Error(error?.value ? String(error.value) : 'Failed to create report')
+        // 2. Put it in training mode.
+        const { error: modeErr } = await useMyFetch(`/reports/${reportId}`, {
+            method: 'PUT',
+            body: { mode: 'training' },
+        })
+        if (modeErr?.value) throw new Error(String(modeErr.value))
+        // 3. Land on the report with the prompt pre-filled (non-submitting).
+        router.push({ path: `/reports/${reportId}`, query: { prompt } })
+    } catch (e: any) {
+        toast?.add?.({ title: 'Error', description: String(e?.message || e), color: 'red' })
+    }
+}
+
+async function onSelectExistingInstruction(instruction: any) {
+    const id = route.params.id as string
+    const newId = instruction?.id
+    if (!newId) return
+    try {
+        const { error } = await useMyFetch(`/data_sources/${id}`, {
+            method: 'PUT',
+            body: { primary_instruction_id: newId },
+        })
+        if (error?.value) throw new Error(String(error.value))
+        editingInstruction.value = false
+        creatingInstruction.value = false
+        await injectedFetchIntegration()
+        toast?.add?.({ title: 'Saved', description: 'Primary instruction updated.' })
+    } catch (e: any) {
+        toast?.add?.({ title: 'Error', description: String(e?.message || e), color: 'red' })
+    }
 }
 
 const indexingConnections = computed(() =>
