@@ -341,3 +341,17 @@ def test_admin_does_not_see_instructions_for_unjoined_data_source(
     assert priv_id not in seen, \
         "admin must NOT see instructions for a private data source they never joined"
     assert global_id in seen, "global instructions remain visible to everyone"
+
+    # And it must not be reachable by id either — the detail modal, version
+    # history, and pending-builds endpoints all gate on view access, so an admin
+    # can't open an instruction for an agent they never joined.
+    assert test_client.get(
+        f"/api/instructions/{priv_id}", headers=_hdr(admin1["token"], org_id)
+    ).status_code == 404
+    assert test_client.get(
+        f"/api/instructions/{priv_id}/versions", headers=_hdr(admin1["token"], org_id)
+    ).status_code == 404
+    # Global instruction stays openable by id.
+    assert test_client.get(
+        f"/api/instructions/{global_id}", headers=_hdr(admin1["token"], org_id)
+    ).status_code == 200

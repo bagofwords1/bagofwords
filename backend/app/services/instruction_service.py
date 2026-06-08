@@ -678,14 +678,60 @@ class InstructionService:
         
         if not instruction:
             return None
-            
+
         return await self._instruction_to_schema_with_references(db, instruction)
-    
+
+    async def user_can_view_instruction(
+        self,
+        db: AsyncSession,
+        instruction,
+        current_user: User,
+        organization: Organization,
+    ) -> bool:
+        """Mirror the list's per-data-source visibility for a single instruction.
+
+        Viewable iff the instruction is global (attached to no data source) or
+        attached to a data source the user is an explicit member of, or that is
+        public. Used to gate read/detail endpoints (the instruction modal,
+        version history, pending builds) so an instruction for an agent the user
+        never joined isn't reachable by id even though it's hidden from the list.
+
+        NOTE: this gates *viewing* only. Management endpoints (update/delete/
+        revert) keep their own resource-permission checks, where org admins
+        retain capability bypass.
+        """
+        ds_list = getattr(instruction, "data_sources", None) or []
+        ds_ids = {str(getattr(d, "id", None)) for d in ds_list if getattr(d, "id", None)}
+        if not ds_ids:
+            return True  # global instruction — visible to everyone
+
+        from app.core.permission_resolver import get_member_data_source_ids
+        member_ids = {
+            str(m)
+            for m in await get_member_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+        }
+        if ds_ids & member_ids:
+            return True
+
+        result = await db.execute(
+            select(DataSource.id).where(
+                and_(
+                    DataSource.id.in_(ds_ids),
+                    DataSource.organization_id == organization.id,
+                    DataSource.is_public == True,
+                )
+            )
+        )
+        public_ids = {str(r[0]) for r in result.all()}
+        return bool(ds_ids & public_ids)
+
     async def update_instruction(
-        self, 
-        db: AsyncSession, 
-        instruction_id: str, 
-        instruction_data: InstructionUpdate, 
+        self,
+        db: AsyncSession,
+        instruction_id: str,
+        instruction_data: InstructionUpdate,
         organization: Organization,
         current_user: User
     ) -> Optional[InstructionSchema]:

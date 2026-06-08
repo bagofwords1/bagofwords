@@ -316,6 +316,11 @@ async def get_instruction(
     instruction = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if instruction is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    # Mirror list visibility: an instruction tied to a data source the user
+    # can't access (and that isn't public/global) must not be viewable by id —
+    # even for admins — so it stays hidden in the detail modal too.
+    if not await instruction_service.user_can_view_instruction(db, instruction, current_user, organization):
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     return instruction
 
 @router.put("/instructions/{instruction_id}", response_model=InstructionSchema)
@@ -403,7 +408,9 @@ async def get_instruction_versions(
     )
     if not instruction:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    
+    if not await instruction_service.user_can_view_instruction(db, instruction, current_user, organization):
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+
     result = await instruction_version_service.get_versions(
         db, instruction_id, skip=skip, limit=limit
     )
@@ -438,6 +445,8 @@ async def compare_instruction_versions(
     )
     if not instruction:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if not await instruction_service.user_can_view_instruction(db, instruction, current_user, organization):
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
 
     from_version = await instruction_version_service.get_version(db, from_version_id)
     to_version = await instruction_version_service.get_version(db, to_version_id)
@@ -468,6 +477,8 @@ async def get_instruction_version(
         db, instruction_id, organization, current_user
     )
     if not instruction:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if not await instruction_service.user_can_view_instruction(db, instruction, current_user, organization):
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
 
     version = await instruction_version_service.get_version(db, version_id)
@@ -543,6 +554,8 @@ async def get_instruction_pending_builds(
         db, instruction_id, organization, current_user
     )
     if existing is None:
+        raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+    if not await instruction_service.user_can_view_instruction(db, existing, current_user, organization):
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
 
     # Exclude builds that contain this instruction at the same version the
