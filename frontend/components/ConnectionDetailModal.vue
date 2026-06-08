@@ -87,6 +87,72 @@
         </div>
       </div>
 
+      <!-- Query identity toggle (admin/owner on delegated connections) -->
+      <div v-if="requiresUserAuth && canSwitchIdentity" class="py-3 border-t border-gray-100">
+        <div class="text-xs text-gray-500 mb-2">{{ $t('data.runQueriesAs') }}</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            @click="setIdentity('service_account')"
+            :disabled="switchingIdentity"
+            :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
+                     queryIdentity === 'service_account'
+                       ? 'bg-blue-50 border-blue-300 text-blue-700'
+                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']"
+          >
+            <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
+            {{ $t('data.serviceAccount') }}
+          </button>
+          <button
+            @click="setIdentity('self')"
+            :disabled="switchingIdentity"
+            :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
+                     queryIdentity === 'self'
+                       ? 'bg-blue-50 border-blue-300 text-blue-700'
+                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']"
+          >
+            <UIcon name="heroicons-user" class="w-3.5 h-3.5" />
+            {{ $t('data.me') }}
+          </button>
+        </div>
+
+        <!-- "Me" selected: connect / disconnect / reload -->
+        <div v-if="queryIdentity === 'self'" class="mt-3">
+          <div v-if="!hasUserCredentials">
+            <button
+              @click="openCredentialsModal"
+              :disabled="connecting"
+              class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Spinner v-if="connecting" class="w-3.5 h-3.5" />
+              <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
+              {{ $t('data.connect') }}
+            </button>
+            <p class="text-xs text-gray-400 mt-1.5 text-center">{{ $t('data.connectToQueryAsYou') }}</p>
+          </div>
+          <div v-else class="flex items-center gap-2">
+            <button
+              @click="reloadMySchema"
+              :disabled="reloadingMySchema"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Spinner v-if="reloadingMySchema" class="w-3.5 h-3.5" />
+              <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
+              {{ reloadingMySchema ? $t('data.refreshing') : $t('data.reloadMyTables') }}
+            </button>
+            <button
+              @click="disconnect"
+              :disabled="disconnecting"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+            >
+              <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
+              <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
+              {{ disconnecting ? $t('data.disconnecting') : $t('data.disconnect') }}
+            </button>
+          </div>
+        </div>
+        <p v-else class="mt-2 text-xs text-gray-400">{{ $t('data.serviceAccountNote') }}</p>
+      </div>
+
       <!-- Actions -->
       <div class="flex items-center gap-2 pt-4 border-t border-gray-100">
         <button
@@ -110,7 +176,7 @@
         </button>
 
         <!-- Connect / Disconnect (user auth required, no admin permission) -->
-        <template v-else-if="requiresUserAuth">
+        <template v-else-if="requiresUserAuth && !canSwitchIdentity">
           <!-- Per-user reload: refresh the tables THIS user can see (their
                overlay) via their own creds — the per-user counterpart to the
                admin Reindex. -->
@@ -310,14 +376,60 @@ const POLL_INTERVAL_MS = 2000
 // Permission and auth checks
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
-const hasUserCredentials = computed(() => !!props.connection?.user_status?.has_user_credentials)
+// Locally-overridable user status: the query-identity PATCH returns a fresh status
+// which we apply immediately, so the modal reflects the switch without waiting on
+// (or depending on) the parent re-passing the connection prop.
+const statusOverride = ref<any>(null)
+// Optimistic identity selection — highlights the chosen button the instant it's
+// clicked, before the request returns; cleared once the authoritative status lands.
+const pendingIdentity = ref<'self' | 'service_account' | null>(null)
+const userStatus = computed(() => statusOverride.value || props.connection?.user_status || null)
+const hasUserCredentials = computed(() => !!userStatus.value?.has_user_credentials)
 // Owner/admin runs via the connection's system (service principal) creds.
-const usesServiceAccount = computed(() => props.connection?.user_status?.effective_auth === 'system')
+const usesServiceAccount = computed(() => userStatus.value?.effective_auth === 'system')
 // Non-admin viewer running on their own per-user (OBO) creds: show a user-scoped
 // summary instead of the shared service-principal indexing run + logs.
 const isPerUserViewer = computed(() =>
   requiresUserAuth.value && hasUserCredentials.value && !canUpdateDataSource.value
 )
+// Admin/owner query-identity toggle (delegated/OBO connections).
+const canSwitchIdentity = computed(() => !!userStatus.value?.can_switch_identity)
+const queryIdentity = computed<'self' | 'service_account'>(() =>
+  (pendingIdentity.value
+    ?? (userStatus.value?.query_identity === 'service_account' ? 'service_account' : 'self'))
+)
+const switchingIdentity = ref(false)
+async function setIdentity(identity: 'self' | 'service_account') {
+  if (!props.connection?.id || switchingIdentity.value) return
+  if (queryIdentity.value === identity) return
+  pendingIdentity.value = identity // optimistic highlight
+  switchingIdentity.value = true
+  try {
+    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/query-identity`, {
+      method: 'PATCH',
+      body: { query_identity: identity },
+    })
+    if (error.value) {
+      pendingIdentity.value = null
+      toast.add({
+        title: t('data.switchIdentityFailed'),
+        description: (error.value as any)?.data?.detail || (error.value as any)?.message,
+        color: 'red',
+      })
+    } else {
+      // Apply the authoritative status returned by the endpoint, then let the
+      // parent refresh table counts / overlays in the background.
+      if (data.value) statusOverride.value = data.value
+      pendingIdentity.value = null
+      emit('updated')
+    }
+  } catch (e: any) {
+    pendingIdentity.value = null
+    toast.add({ title: t('data.switchIdentityFailed'), description: e?.message, color: 'red' })
+  } finally {
+    switchingIdentity.value = false
+  }
+}
 const disconnecting = ref(false)
 // The credentials modal expects a data-source-shaped object whose
 // `connections[0].id` is the connection to authorize. We only have the
@@ -588,6 +700,8 @@ watch(isOpen, (val) => {
   // if active.
   myTableCountOverride.value = null
   myRefreshedAt.value = null
+  statusOverride.value = null
+  pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
 })
@@ -595,6 +709,8 @@ watch(isOpen, (val) => {
 // If the parent swaps the connection prop while the modal is open, refresh.
 watch(() => props.connection?.id, () => {
   if (!isOpen.value) return
+  statusOverride.value = null
+  pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
 })
