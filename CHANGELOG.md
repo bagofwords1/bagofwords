@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.404 (June 8, 2026)
+- Fix duplicate scheduled emails/reports under multi-worker/replica deployments — each cron fire is now claimed once via a DB-backed lock so exactly one worker runs it (also covers cache warmups, payload purge, and LDAP sync)
+- License expiry now takes effect without a restart, plus a global expiry-countdown banner and a redesigned license settings page (tier/expiry details, expiring-soon and expired states, renew CTA)
+- Small (<10 row) create_data results are no longer sent to Slack/Teams and are auto-collapsed in the report UI, since the agent's text already states the values
+- Manage an agent's primary instruction from the agent page: edit, replace with an existing instruction, or start a training session
+- Many-series (>8) line/bar/area charts now use a scrollable vertical legend docked on the right instead of an overflowing horizontal one
+- Data-source and agent pickers grow to fit long names instead of truncating
+- Fix report auto-title silently not saving (mostly on Postgres) when the background task outlived its DB session
+
 ## Version 0.0.403 (June 8, 2026)
 - **Teams** — a reused Teams 1:1 conversation report (up to 5 days old) now re-syncs its data sources to the user's current access on each message, so grants appear and revocations disappear without waiting out the window.
 - **UI** — the data-source members panel relabels the management column to "Management role" and the empty state to "Query only" (was "None"), and clarifies that everyone listed can query the agent and that Remove is what revokes access.
