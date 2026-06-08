@@ -207,19 +207,19 @@ class TestLicenseValidation:
 
         clear_license_cache()
 
-        # First access: signature verified, claims cached, license is active.
+        # First access: signature verified, info cached, license is active.
         info = get_license_info(force_refresh=True)
         assert info.licensed is True
         assert info.tier == "enterprise"
         assert is_enterprise_licensed() is True
 
-        # Simulate wall-clock time advancing past expiry by moving the cached claim's
-        # exp into the past. No force_refresh / cache clear — only time has "passed".
-        license_module._cached_payload["exp"] = int(
-            (datetime.now(timezone.utc) - timedelta(seconds=1)).timestamp()
+        # Simulate wall-clock time advancing past expiry by moving the cached info's
+        # expiry into the past. No force_refresh / cache clear — only time has "passed".
+        license_module._cached_license.expires_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
         )
 
-        # Next access must re-evaluate expiry from the cached claims and report expired.
+        # Next access must re-evaluate expiry from the cached info and report expired.
         info_after = get_license_info()
         assert info_after.licensed is False
         assert info_after.tier == "expired"

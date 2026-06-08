@@ -27,22 +27,12 @@ from app.services import connection_indexing_service as _cis
 
 @pytest.fixture(scope="session", autouse=True)
 def _e2e_force_enterprise_license():
-    """Activate a fake enterprise license for the whole e2e session.
-
-    License state is keyed off cached, signature-verified JWT *claims* (the expiry is
-    re-evaluated on every access), so we inject a claims payload with a far-future
-    expiry rather than a pre-built LicenseInfo.
-    """
-    import time
-
-    fake_payload = {
-        "iss": "bagofwords.com",
-        "sub": "e2e-fake",
-        "iat": int(time.time()),
-        "exp": int(time.time()) + 10 * 365 * 24 * 3600,  # ~10 years out
-        "tier": "enterprise",
-        "org_name": "e2e-tests",
-        "features": [
+    """Activate a fake enterprise license for the whole e2e session."""
+    fake = ee_license.LicenseInfo(
+        licensed=True,
+        tier="enterprise",
+        org_name="e2e-tests",
+        features=[
             "audit_logs",
             "step_retention_config",
             "scim",
@@ -50,18 +40,16 @@ def _e2e_force_enterprise_license():
             "ldap",
             "usage_limits",
         ],
-    }
-    saved_payload = ee_license._cached_payload
-    saved_unlicensed = ee_license._cached_unlicensed
+        license_id="e2e-fake",
+    )
+    saved_cached = ee_license._cached_license
     saved_initialized = ee_license._cache_initialized
-    ee_license._cached_payload = fake_payload
-    ee_license._cached_unlicensed = None
+    ee_license._cached_license = fake
     ee_license._cache_initialized = True
     try:
-        yield ee_license.get_license_info()
+        yield fake
     finally:
-        ee_license._cached_payload = saved_payload
-        ee_license._cached_unlicensed = saved_unlicensed
+        ee_license._cached_license = saved_cached
         ee_license._cache_initialized = saved_initialized
 
 
