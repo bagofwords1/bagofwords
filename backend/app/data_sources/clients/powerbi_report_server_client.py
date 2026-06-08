@@ -1660,6 +1660,11 @@ async def warm_all_pbirs_caches() -> None:
     import asyncio
     import time as _time
 
+    from app.core.scheduler import claim_scheduled_run
+    # Fires in every worker (shared job store); claim so only one warms.
+    if not await asyncio.to_thread(claim_scheduled_run, "pbirs_warmup"):
+        return
+
     from sqlalchemy import select
 
     from app.dependencies import async_session_maker
