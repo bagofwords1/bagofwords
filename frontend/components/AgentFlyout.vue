@@ -16,7 +16,7 @@
         @mouseenter="$emit('mouseenter')"
         @mouseleave="$emit('mouseleave')"
       >
-        <div class="w-[400px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
+        <div class="w-max min-w-[400px] max-w-[520px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
           <!-- Header with connection info -->
           <div class="px-4 py-3 border-b border-gray-100">
             <!-- Title row -->

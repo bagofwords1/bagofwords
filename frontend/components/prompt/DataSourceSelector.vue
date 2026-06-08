@@ -232,7 +232,9 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
     const panelRect = panel?.getBoundingClientRect()
     const rect = el.getBoundingClientRect()
 
-    const flyoutWidth = 400
+    // Matches AgentFlyout's max width (it grows to fit long names) so a
+    // left-placed flyout reserves enough room and never overlaps the dropdown.
+    const flyoutWidth = 520
     const gap = 8
 
     // Position to the right of the dropdown panel
