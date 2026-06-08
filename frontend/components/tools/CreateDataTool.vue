@@ -130,21 +130,11 @@
       </div>
     </Transition>
 
-    <!-- Results Preview - only show if not failed -->
-    <div class="mt-2" v-if="hasPreview && status !== 'error'">
-      <!-- Small table results are auto-collapsed: the agent's text answer
-           already describes them. A toggle lets the user expand on demand. -->
-      <div
-        v-if="autoCollapsePreview"
-        class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700 mb-1"
-        @click="togglePreview"
-      >
-        <Icon :name="previewCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
-        <span>{{ previewCollapsed ? $t('tools.createData.showData') : $t('tools.createData.hideData') }}</span>
-      </div>
-      <Transition name="fade">
-        <ToolWidgetPreview v-if="!previewCollapsed" :tool-execution="toolExecution" :readonly="readonly" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
-      </Transition>
+    <!-- Results Preview - only show if not failed.
+         Small table results stay hidden until the user expands the tool via
+         the existing header chevron; charts and larger tables always render. -->
+    <div class="mt-2" v-if="hasPreview && status !== 'error' && (!autoCollapsePreview || !createDataCollapsed)">
+      <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
     </div>
   </div>
   <QueryCodeEditorModal
@@ -386,10 +376,10 @@ const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
   return Object.entries(groups).map(([type, names]) => ({ type, names }))
 })
 
-// Auto-collapse the data preview for small table results (< 10 rows).
+// Hide the data preview by default for small table results (< 10 rows).
 // The agent describes these in its text answer, so the inline table is
-// redundant by default — but the user can still expand it. Charts and
-// metric cards are visualizations and always render.
+// redundant — the existing header chevron (createDataCollapsed) reveals it
+// when wanted. Charts and metric cards are visualizations and always render.
 const SMALL_RESULT_THRESHOLD = 10
 const resultDataModelType = computed(() => (props.toolExecution.result_json as any)?.data_model?.type || '')
 const isTableResult = computed(() => !resultDataModelType.value || resultDataModelType.value === 'table')
@@ -398,12 +388,6 @@ const autoCollapsePreview = computed(() =>
   && executionRowCount.value != null
   && executionRowCount.value < SMALL_RESULT_THRESHOLD
 )
-// null = follow the auto default; true/false = user override
-const previewUserToggle = ref<boolean | null>(null)
-const previewCollapsed = computed(() =>
-  previewUserToggle.value === null ? autoCollapsePreview.value : previewUserToggle.value
-)
-function togglePreview() { previewUserToggle.value = !previewCollapsed.value }
 
 function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
 function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }

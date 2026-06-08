@@ -401,9 +401,7 @@
       "executionFailed": "ההרצה נכשלה",
       "executionSucceeded": "ההרצה הצליחה",
       "retrying": "מנסה שוב · ניסיון {n}",
-      "visualizing": "ממחיש",
-      "showData": "הצג נתונים",
-      "hideData": "הסתר נתונים"
+      "visualizing": "ממחיש"
     },
     "createArtifact": {
       "creating": "יוצר פריט",

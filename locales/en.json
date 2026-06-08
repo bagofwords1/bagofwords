@@ -434,9 +434,7 @@
       "executionFailed": "Execution failed",
       "executionSucceeded": "Execution succeeded",
       "retrying": "Retrying · attempt {n}",
-      "visualizing": "Visualizing",
-      "showData": "Show data",
-      "hideData": "Hide data"
+      "visualizing": "Visualizing"
     },
     "webFetch": {
       "fetching": "Fetching",

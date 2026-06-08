@@ -391,9 +391,7 @@
       "executionFailed": "Ausführung fehlgeschlagen",
       "executionSucceeded": "Ausführung erfolgreich",
       "retrying": "Erneuter Versuch · Versuch {n}",
-      "visualizing": "Wird visualisiert",
-      "showData": "Daten anzeigen",
-      "hideData": "Daten ausblenden"
+      "visualizing": "Wird visualisiert"
     },
     "createArtifact": {
       "creating": "Artefakt wird erstellt",
