@@ -1,13 +1,13 @@
 # Release Notes
 
 ## Version 0.0.404 (June 8, 2026)
-- **Scheduled tasks** — fix duplicate scheduled emails/reports under multi-worker (and multi-replica) deployments. Each cron fire is now claimed once via a DB-backed per-fire lock (new `scheduled_job_runs` table, bucketed to a 30s window), so exactly one worker runs it; fails open to prefer a rare duplicate over a dropped run. The claim also guards the QVD/PBIRS cache warmups, daily payload purge, and LDAP sync jobs.
-- **Licensing** — license expiry now takes effect immediately without a process restart: the signature is still verified once, but the time-based expiry is re-evaluated on every check. Added a global expiry-countdown banner (amber in the last 30 days, red once expired, click-through to the license page for admins) and redesigned the license settings page with tier/expiry details, distinct expiring-soon/expired states, and a renew CTA. New banner/detail strings across all 10 locales.
-- **Small results in chat** — when a `create_data` result has fewer than 10 rows, the agent's text answer already states the values, so the redundant table is no longer sent to Slack/Teams and is auto-collapsed (behind the result's header chevron) in the report UI. Charts and scalar counts are unaffected; the planner is instructed to spell out small results in its text.
-- **Agents** — manage an agent's primary instruction from the agent page via a kebab menu: edit it, replace it with an existing published instruction (searchable; the previous primary is only unlinked, not deleted), or start a training session (when training mode is enabled and you have the `train_mode` permission) that opens a new agent-scoped report pre-filled with an update prompt.
-- **Charts** — line/bar/area charts with many series (>8) now dock a scrollable vertical legend on the right with reserved space, instead of a wrapping horizontal legend that overlapped the plot and axis labels. Applies to both chat/preview and dashboard rendering.
-- **UI** — data-source and agent pickers/flyouts grow to fit long names instead of truncating at a fixed width.
-- **Fix** — report auto-title generation silently failing (most visibly on Postgres) when the background task outlived its DB session; the report id is now captured up front so the title is reliably persisted.
+- Fix duplicate scheduled emails/reports under multi-worker/replica deployments — each cron fire is now claimed once via a DB-backed lock so exactly one worker runs it (also covers cache warmups, payload purge, and LDAP sync)
+- License expiry now takes effect without a restart, plus a global expiry-countdown banner and a redesigned license settings page (tier/expiry details, expiring-soon and expired states, renew CTA)
+- Small (<10 row) create_data results are no longer sent to Slack/Teams and are auto-collapsed in the report UI, since the agent's text already states the values
+- Manage an agent's primary instruction from the agent page: edit, replace with an existing instruction, or start a training session
+- Many-series (>8) line/bar/area charts now use a scrollable vertical legend docked on the right instead of an overflowing horizontal one
+- Data-source and agent pickers grow to fit long names instead of truncating
+- Fix report auto-title silently not saving (mostly on Postgres) when the background task outlived its DB session
 
 ## Version 0.0.403 (June 8, 2026)
 - **Teams** — a reused Teams 1:1 conversation report (up to 5 days old) now re-syncs its data sources to the user's current access on each message, so grants appear and revocations disappear without waiting out the window.
