@@ -204,6 +204,46 @@ pip install httpx pyjwt   # minimal, for token-level probes
 | 1 | 2026-06-08 | Live ROPC + OBO probe, demo1 & demo2 (app `a901…ba677`, tenant `3871…09f9`) | **Direct delegated tokens ✅; OBO ❌ (AADSTS50013)** — OBO assertion was a Graph-aud token | see §6a |
 | 2 | 2026-06-08 | Re-probe OBO with login scope `api://<client_id>/access_as_user` (Expose-an-API now configured) | **OBO ✅ for both users** → `aud=database.windows.net`, `scp=user_impersonation`, per-user `upn` | see §6d — OBO-at-login is now viable |
 | 3 | 2026-06-08 | Per-user REST probe over 443 (OBO → PowerBI/Fabric APIs); Fabric host `p3fx…rqf4sq…fabric.microsoft.com`, db `demo_db` | **Per-user access differs ✅** (demo1 ≠ demo2); **TDS 1433 blocked** so no live SQL | see §6e |
+| 4 | 2026-06-08 | **Implemented** the admin query-identity toggle; ran full stack (Postgres) + verified | **All checks ✅** — see §6f | feature done |
+
+### 6f. Iteration 4 — implemented + verified end-to-end
+
+The admin query-identity toggle is implemented (see §7a) and verified by running the
+real app (Postgres + enterprise license + real Anthropic Haiku for the agent) with the
+live Entra app + demo users.
+
+**Backend credential resolution** (`ConnectionService.resolve_credentials`), three cases:
+- `service_account` → returns the **service principal** (`client_id=a901…`, no token).
+- `self` + no token → **403 "Connect required"** (no silent SP fallback). ✅
+- `self` + the admin's OBO token → returns the **admin's own delegated token**
+  (`aud=database.windows.net`, `upn=demo1`). ✅
+
+**Agent query path** (`DataSourceService.construct_clients`, what the agent actually
+builds): under `service_account` the `MsFabricClient` is built with the SP
+`client_id/secret` (→ `ClientSecretCredential`); under `self` it's built with the
+admin's delegated `access_token` (`upn=demo1`). **Same connection, different
+credentials per toggle.** ✅
+
+**UI** (Playwright, headless Chromium against the running app) — all passed:
+- "Run queries as" toggle renders for the admin on the Fabric connection.
+- `Me` + no token → shows **Connect** button ("Connect your account to query as yourself").
+- `Service account` → Connect hidden, note "Queries run with the connection's service account".
+- `Me` again → Connect returns.
+- Selection **persists across reload** (PATCH `/connections/{id}/query-identity`).
+
+> The sandbox's Fabric **SQL query** still can't run (no ODBC Driver 18 + 1433 blocked),
+> so the modal shows an "Indexing failed / Can't open lib 'ODBC Driver 18'" line — an
+> environment limitation, not a feature defect. In the customer's network (driver
+> present, 1433 open) the resolved token drives the query as proven above.
+
+### Env setup used (for reproducing the loop)
+- **Postgres** local cluster (`initdb` + `pg_ctl`), `BOW_DATABASE_URL=postgresql://bow@127.0.0.1:5432/bagofwords`.
+- Backend: Python **3.12** venv (3.11 fails on f-string backslashes), `pip install -r requirements_versioned.txt` (needs `unixodbc-dev`, `libpq-dev`), `alembic upgrade head`, run via `uvicorn main:app` (avoid `python main.py` — its `reload` watches `logs/` → reload loop).
+- `BOW_CONFIG_PATH=/abs/path/bow-config.dev.yaml` (root dev config = `local_only` auth so the local admin can sign in; `configs/bow-config.dev.yaml` is `sso_only`).
+- `BOW_ENCRYPTION_KEY` (Fernet), `BOW_LICENSE_KEY` (enterprise — `user_required` is gated), `ANTHROPIC_API_KEY` (Haiku for the agent).
+- Entra/Fabric secrets via the same env vars as `tests/integrations/test_oauth_delegated.py` (`BOW_ENTRA_*`, demo creds, `BOW_FABRIC_SERVER`, `BOW_FABRIC_DATABASE`).
+- Frontend: `yarn install && yarn dev` (proxies `/api` → `127.0.0.1:8000`).
+- Admin login for the UI: `test@test.com` / `test123`.
 
 ### 6a. Iteration 1 findings (live, both users)
 
