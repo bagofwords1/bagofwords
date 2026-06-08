@@ -19,9 +19,14 @@ class SearchMCPsTool(Tool):
 Search for available MCP and custom API tools connected to the current data sources.
 Returns full tool descriptions and input schemas so you can understand how to call them.
 
+IMPORTANT: Call this BEFORE execute_mcp to get a tool's exact input schema (the precise
+argument names and types). The <mcp_tools> context lists only tool names and descriptions,
+not their argument schemas — do not guess argument names. Calling a tool with the wrong
+argument shape wastes a turn; fetch the schema here first.
+
 Use when:
     - You need to discover what external tools are available (Notion, Jira, Datadog, etc.)
-    - You need the full input schema for a tool before calling execute_mcp
+    - You need the full input schema for a tool before calling execute_mcp (do this first)
     - You want to understand what capabilities are available beyond SQL queries
             """,
             category="research",

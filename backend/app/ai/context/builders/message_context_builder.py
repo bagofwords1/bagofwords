@@ -232,6 +232,16 @@ def _digest_execute_mcp(tool_execution) -> str:
     if failed:
         err = obs.get('error_message') or rj.get('error_message') or obs.get('summary') or 'unknown error'
         digest_parts.append(f"FAILED: {str(err)[:300]}")
+        # Surface the tool's valid argument names so a later turn corrects the
+        # call instead of re-guessing (execute_mcp attaches input_schema on
+        # failure).
+        schema = obs.get('input_schema') or rj.get('input_schema')
+        if isinstance(schema, dict):
+            props = schema.get('properties') or {}
+            if props:
+                required = set(schema.get('required') or [])
+                arg_list = ", ".join(f"{n}*" if n in required else n for n in props.keys())
+                digest_parts.append(f"valid args: {{{arg_list}}}")
         return "; ".join(digest_parts)
 
     summary = obs.get('summary') or ''
