@@ -69,7 +69,16 @@
                     <template v-else-if="dataSource?.primary_instruction">
                         <div class="flex items-center gap-2 mb-2">
                             <span class="text-sm font-medium text-gray-800">{{ dataSource.primary_instruction.title || 'Primary instruction' }}</span>
-                            <button v-if="useCan('update_data_source')" @click="editingInstruction = true" class="text-[10px] text-blue-600 hover:underline">Edit</button>
+                            <div v-if="useCan('update_data_source')" class="flex items-center gap-2">
+                                <button @click="editingInstruction = true" class="text-[10px] text-blue-600 hover:underline">Edit</button>
+                                <span class="text-gray-300 text-[10px]">·</span>
+                                <PrimaryInstructionPicker
+                                    :agent-id="(route.params.id as string)"
+                                    :current-instruction-id="dataSource.primary_instruction.id"
+                                    label="Replace"
+                                    @select="onSelectExistingInstruction"
+                                />
+                            </div>
                         </div>
                         <InstructionText
                             :text="dataSource.primary_instruction.text"
@@ -88,14 +97,21 @@
                         <div class="text-xs text-gray-500 mt-1 max-w-md mx-auto">
                             Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.
                         </div>
-                        <button
-                            v-if="useCan('update_data_source')"
-                            @click="creatingInstruction = true"
-                            class="mt-4 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
-                            Add Primary Instruction
-                        </button>
+                        <div v-if="useCan('update_data_source')" class="mt-4 flex items-center justify-center gap-3">
+                            <button
+                                @click="creatingInstruction = true"
+                                class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
+                                Add Primary Instruction
+                            </button>
+                            <span class="text-xs text-gray-400">or</span>
+                            <PrimaryInstructionPicker
+                                :agent-id="(route.params.id as string)"
+                                label="select existing"
+                                @select="onSelectExistingInstruction"
+                            />
+                        </div>
                     </div>
                 </div>
 
@@ -162,6 +178,7 @@ import { useCan } from '~/composables/usePermissions'
 import { isIndexingActive, indexingSummary } from '~/composables/useConnectionStatus'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import type { Ref } from 'vue'
 
 definePageMeta({ auth: true, layout: 'data' })
@@ -215,6 +232,25 @@ async function onPrimaryInstructionCreated(saved: any) {
 async function onPrimaryInstructionSaved(_saved: any) {
     editingInstruction.value = false
     await injectedFetchIntegration()
+}
+
+async function onSelectExistingInstruction(instruction: any) {
+    const id = route.params.id as string
+    const newId = instruction?.id
+    if (!newId) return
+    try {
+        const { error } = await useMyFetch(`/data_sources/${id}`, {
+            method: 'PUT',
+            body: { primary_instruction_id: newId },
+        })
+        if (error?.value) throw new Error(String(error.value))
+        editingInstruction.value = false
+        creatingInstruction.value = false
+        await injectedFetchIntegration()
+        toast?.add?.({ title: 'Saved', description: 'Primary instruction updated.' })
+    } catch (e: any) {
+        toast?.add?.({ title: 'Error', description: String(e?.message || e), color: 'red' })
+    }
 }
 
 const indexingConnections = computed(() =>
