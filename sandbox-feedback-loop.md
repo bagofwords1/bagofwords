@@ -285,8 +285,53 @@ decision points I see (no recommendation locked in — just the levers):
 **C. Scope of the change**
 - Just Fabric, or all Entra OBO types (`powerbi/sharepoint/onedrive`) too?
 
-Your notes:
-> 
+Your notes (2026-06-08):
+> - Basic level: give admins a **toggle** — *"view as service account"* **OR**
+>   *"view as Yochay"* (their own identity).
+> - The **principal is always needed** to get the **seed of the schema** (the shared
+>   catalog/index). Keep that.
+> - If my (the admin's) own token is connected, it should **also index — but keep that
+>   index for myself only** (unlike the principal, whose index is shared with everyone).
+
+### Decided direction (from the notes above — to be implemented later)
+
+This maps onto levers **A1 + B2/B4** and the existing shared-catalog/overlay split:
+
+1. **Service principal stays, always**, as the **seed/shared schema** source. It keeps
+   driving background indexing into the shared catalog
+   (`refresh_data_source_schema` / the SHARED catalog path,
+   `data_source_service.py` ~3069/3093). No change to that role.
+2. **Admin gets a per-connection/per-view toggle**: *"as service account"* vs *"as
+   me"*.
+   - *As service account* → current behavior: resolver returns the SP creds
+     (`resolve_credentials_for_connection` fallback) and the admin sees the shared
+     catalog. This becomes an **explicit, chosen** state instead of a silent default.
+   - *As me* → resolver returns the admin's **`UserConnectionCredentials`** delegated
+     token (from the Connect flow; `aud=database.windows.net`, their `upn`), and the
+     admin sees **their own private schema overlay**, not the shared catalog.
+3. **When the admin connects their own token, index it into a private overlay**
+   (`get_user_data_source_schema` already builds per-user overlays) — visible only to
+   that admin, never merged into the shared catalog the SP seeds.
+4. OBO grant is **not used** (it can't work here — see §6a). "As me" = the delegated
+   token from the **Connect** flow.
+
+**Where the toggle state likely lives / needs touching (for the eventual impl, not now):**
+- A per-user, per-connection preference (e.g. on `UserConnectionCredentials` or a new
+  small pref) read by `resolve_credentials_for_connection` to decide SP vs personal
+  token — instead of the implicit owner/admin fallback at
+  `data_source_service.py:1761`.
+- Frontend: surface the toggle wherever the connection/data-source identity is shown
+  (status comes from `build_user_status*`, which already reports
+  `effective_auth` = `system` vs `user` and `uses_fallback`).
+- Indexing: ensure an admin's personal-token index writes to the **private overlay**,
+  not the shared catalog (the catalog-ownership classification at ~3069 is the seam).
+
+**Implications / things to confirm before building:**
+- "View as service account" must remain gated to admins/owners only (regular users
+  never get SP) — the existing `FULL_ADMIN` / `manage` checks already define that set.
+- The toggle is a **read/query-time identity switch**; a single admin may flip back
+  and forth, so both the SP-seeded shared schema and the admin's private overlay can
+  coexist and be selected per session/view.
 
 ---
 
