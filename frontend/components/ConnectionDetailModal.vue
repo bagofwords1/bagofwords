@@ -376,39 +376,56 @@ const POLL_INTERVAL_MS = 2000
 // Permission and auth checks
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
-const hasUserCredentials = computed(() => !!props.connection?.user_status?.has_user_credentials)
+// Locally-overridable user status: the query-identity PATCH returns a fresh status
+// which we apply immediately, so the modal reflects the switch without waiting on
+// (or depending on) the parent re-passing the connection prop.
+const statusOverride = ref<any>(null)
+// Optimistic identity selection — highlights the chosen button the instant it's
+// clicked, before the request returns; cleared once the authoritative status lands.
+const pendingIdentity = ref<'self' | 'service_account' | null>(null)
+const userStatus = computed(() => statusOverride.value || props.connection?.user_status || null)
+const hasUserCredentials = computed(() => !!userStatus.value?.has_user_credentials)
 // Owner/admin runs via the connection's system (service principal) creds.
-const usesServiceAccount = computed(() => props.connection?.user_status?.effective_auth === 'system')
+const usesServiceAccount = computed(() => userStatus.value?.effective_auth === 'system')
 // Non-admin viewer running on their own per-user (OBO) creds: show a user-scoped
 // summary instead of the shared service-principal indexing run + logs.
 const isPerUserViewer = computed(() =>
   requiresUserAuth.value && hasUserCredentials.value && !canUpdateDataSource.value
 )
 // Admin/owner query-identity toggle (delegated/OBO connections).
-const userStatus = computed(() => props.connection?.user_status || null)
 const canSwitchIdentity = computed(() => !!userStatus.value?.can_switch_identity)
 const queryIdentity = computed<'self' | 'service_account'>(() =>
-  userStatus.value?.query_identity === 'service_account' ? 'service_account' : 'self'
+  (pendingIdentity.value
+    ?? (userStatus.value?.query_identity === 'service_account' ? 'service_account' : 'self'))
 )
 const switchingIdentity = ref(false)
 async function setIdentity(identity: 'self' | 'service_account') {
   if (!props.connection?.id || switchingIdentity.value) return
   if (queryIdentity.value === identity) return
+  pendingIdentity.value = identity // optimistic highlight
   switchingIdentity.value = true
   try {
-    const { error } = await useMyFetch(`/connections/${props.connection.id}/query-identity`, {
+    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/query-identity`, {
       method: 'PATCH',
       body: { query_identity: identity },
     })
     if (error.value) {
+      pendingIdentity.value = null
       toast.add({
         title: t('data.switchIdentityFailed'),
-        description: (error.value as any).message,
+        description: (error.value as any)?.data?.detail || (error.value as any)?.message,
         color: 'red',
       })
     } else {
+      // Apply the authoritative status returned by the endpoint, then let the
+      // parent refresh table counts / overlays in the background.
+      if (data.value) statusOverride.value = data.value
+      pendingIdentity.value = null
       emit('updated')
     }
+  } catch (e: any) {
+    pendingIdentity.value = null
+    toast.add({ title: t('data.switchIdentityFailed'), description: e?.message, color: 'red' })
   } finally {
     switchingIdentity.value = false
   }
@@ -683,6 +700,8 @@ watch(isOpen, (val) => {
   // if active.
   myTableCountOverride.value = null
   myRefreshedAt.value = null
+  statusOverride.value = null
+  pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
 })
@@ -690,6 +709,8 @@ watch(isOpen, (val) => {
 // If the parent swaps the connection prop while the modal is open, refresh.
 watch(() => props.connection?.id, () => {
   if (!isOpen.value) return
+  statusOverride.value = null
+  pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
 })
