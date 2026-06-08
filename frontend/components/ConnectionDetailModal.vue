@@ -87,6 +87,72 @@
         </div>
       </div>
 
+      <!-- Query identity toggle (admin/owner on delegated connections) -->
+      <div v-if="requiresUserAuth && canSwitchIdentity" class="py-3 border-t border-gray-100">
+        <div class="text-xs text-gray-500 mb-2">{{ $t('data.runQueriesAs') }}</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            @click="setIdentity('service_account')"
+            :disabled="switchingIdentity"
+            :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
+                     queryIdentity === 'service_account'
+                       ? 'bg-blue-50 border-blue-300 text-blue-700'
+                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']"
+          >
+            <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
+            {{ $t('data.serviceAccount') }}
+          </button>
+          <button
+            @click="setIdentity('self')"
+            :disabled="switchingIdentity"
+            :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
+                     queryIdentity === 'self'
+                       ? 'bg-blue-50 border-blue-300 text-blue-700'
+                       : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50']"
+          >
+            <UIcon name="heroicons-user" class="w-3.5 h-3.5" />
+            {{ $t('data.me') }}
+          </button>
+        </div>
+
+        <!-- "Me" selected: connect / disconnect / reload -->
+        <div v-if="queryIdentity === 'self'" class="mt-3">
+          <div v-if="!hasUserCredentials">
+            <button
+              @click="openCredentialsModal"
+              :disabled="connecting"
+              class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Spinner v-if="connecting" class="w-3.5 h-3.5" />
+              <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
+              {{ $t('data.connect') }}
+            </button>
+            <p class="text-xs text-gray-400 mt-1.5 text-center">{{ $t('data.connectToQueryAsYou') }}</p>
+          </div>
+          <div v-else class="flex items-center gap-2">
+            <button
+              @click="reloadMySchema"
+              :disabled="reloadingMySchema"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Spinner v-if="reloadingMySchema" class="w-3.5 h-3.5" />
+              <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
+              {{ reloadingMySchema ? $t('data.refreshing') : $t('data.reloadMyTables') }}
+            </button>
+            <button
+              @click="disconnect"
+              :disabled="disconnecting"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+            >
+              <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
+              <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
+              {{ disconnecting ? $t('data.disconnecting') : $t('data.disconnect') }}
+            </button>
+          </div>
+        </div>
+        <p v-else class="mt-2 text-xs text-gray-400">{{ $t('data.serviceAccountNote') }}</p>
+      </div>
+
       <!-- Actions -->
       <div class="flex items-center gap-2 pt-4 border-t border-gray-100">
         <button
@@ -110,7 +176,7 @@
         </button>
 
         <!-- Connect / Disconnect (user auth required, no admin permission) -->
-        <template v-else-if="requiresUserAuth">
+        <template v-else-if="requiresUserAuth && !canSwitchIdentity">
           <!-- Per-user reload: refresh the tables THIS user can see (their
                overlay) via their own creds — the per-user counterpart to the
                admin Reindex. -->
@@ -318,6 +384,35 @@ const usesServiceAccount = computed(() => props.connection?.user_status?.effecti
 const isPerUserViewer = computed(() =>
   requiresUserAuth.value && hasUserCredentials.value && !canUpdateDataSource.value
 )
+// Admin/owner query-identity toggle (delegated/OBO connections).
+const userStatus = computed(() => props.connection?.user_status || null)
+const canSwitchIdentity = computed(() => !!userStatus.value?.can_switch_identity)
+const queryIdentity = computed<'self' | 'service_account'>(() =>
+  userStatus.value?.query_identity === 'service_account' ? 'service_account' : 'self'
+)
+const switchingIdentity = ref(false)
+async function setIdentity(identity: 'self' | 'service_account') {
+  if (!props.connection?.id || switchingIdentity.value) return
+  if (queryIdentity.value === identity) return
+  switchingIdentity.value = true
+  try {
+    const { error } = await useMyFetch(`/connections/${props.connection.id}/query-identity`, {
+      method: 'PATCH',
+      body: { query_identity: identity },
+    })
+    if (error.value) {
+      toast.add({
+        title: t('data.switchIdentityFailed'),
+        description: (error.value as any).message,
+        color: 'red',
+      })
+    } else {
+      emit('updated')
+    }
+  } finally {
+    switchingIdentity.value = false
+  }
+}
 const disconnecting = ref(false)
 // The credentials modal expects a data-source-shaped object whose
 // `connections[0].id` is the connection to authorize. We only have the

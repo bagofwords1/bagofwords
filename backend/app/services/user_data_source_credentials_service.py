@@ -105,6 +105,14 @@ class UserDataSourceCredentialsService:
                 last_checked_at=last_checked
             )
 
+        # Delegated/OBO connections: status follows the admin query-identity toggle.
+        if connection is not None:
+            from app.services.connection_identity import supports_user_token, build_token_identity_status
+            if supports_user_token(connection):
+                return await build_token_identity_status(
+                    db, connection, user, get_cached_status(), get_last_checked_at()
+                )
+
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
             # Owner/admin fallback possible; owner/admin can use system creds or empty creds (e.g., SQLite)
@@ -220,6 +228,14 @@ class UserDataSourceCredentialsService:
                 connection=conn_status,
                 effective_auth="system",
                 last_checked_at=last_checked
+            )
+
+        # Delegated/OBO connections: status is driven by the admin query-identity
+        # toggle (service account vs self) — handled in one place.
+        from app.services.connection_identity import supports_user_token, build_token_identity_status
+        if supports_user_token(connection):
+            return await build_token_identity_status(
+                db, connection, user, get_cached_status(), get_last_checked_at()
             )
 
         # For user_required, check if user has credentials

@@ -1420,57 +1420,12 @@ class DataSourceService:
         )
         row = row.scalars().first()
         if not row:
-            # Check connection-level credentials (stored by OAuth flow)
-            from app.models.user_connection_credentials import UserConnectionCredentials
-            conn_cred_result = await db.execute(
-                select(UserConnectionCredentials)
-                .where(
-                    UserConnectionCredentials.connection_id == str(conn.id),
-                    UserConnectionCredentials.user_id == str(current_user.id),
-                    UserConnectionCredentials.is_active == True,
-                )
-                .order_by(UserConnectionCredentials.is_primary.desc(), UserConnectionCredentials.updated_at.desc())
-            )
-            conn_cred = conn_cred_result.scalars().first()
-            if conn_cred:
-                if conn_cred.auth_mode == "oauth":
-                    try:
-                        from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
-                        return await maybe_refresh_oauth_credentials(db, conn, conn_cred)
-                    except Exception:
-                        return conn_cred.decrypt_credentials()
-                return conn_cred.decrypt_credentials() or {}
-
-            # Owner/admin fallback: allow creator or admin to use system creds if present
-            try:
-                is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
-            except Exception:
-                is_owner = False
-            # Admin-level access gate: full_admin or per-DS `manage` grant
-            has_update_perm = False
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db,
-                    str(current_user.id),
-                    str(getattr(data_source, "organization_id", "")),
-                )
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
-                )
-            except Exception:
-                has_update_perm = False
-            if is_owner or has_update_perm:
-                # Owner/admin can use system credentials (or empty creds for data sources like SQLite)
-                if conn.credentials:
-                    try:
-                        return conn.decrypt_credentials() or {}
-                    except Exception:
-                        pass
-                # Return empty dict for data sources that don't require credentials (e.g., SQLite)
-                return {}
-            raise HTTPException(status_code=403, detail="User credentials required for this data source")
+            # No data-source-level creds — delegate to the connection-level resolver,
+            # the single source of truth for delegated/OBO tokens, the admin
+            # query-identity toggle, OAuth refresh, the legacy owner/admin system
+            # fallback, and the "connect required" 403.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, conn, current_user)
         return row.decrypt_credentials() or {}
 
     async def construct_client(self, db: AsyncSession, data_source: DataSource, current_user: User | None):
@@ -1706,8 +1661,9 @@ class DataSourceService:
         """
         auth_policy = connection.auth_policy or "system_only"
 
-        # For user_required, try to get user credentials first
+        # For user_required, resolve per-user credentials.
         if auth_policy == "user_required" and current_user:
+            # Data-source-level per-user creds (legacy user/pass keyed on the DS).
             from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
             u_svc = UserDataSourceCredentialsService()
             try:
@@ -1717,64 +1673,13 @@ class DataSourceService:
             except Exception:
                 pass
 
-            # Per-user sign-in (OBO / "Connect") saves credentials at the
-            # CONNECTION level (user_connection_credentials), not the data-source
-            # level. Resolve those via ConnectionService, which reads the right
-            # table and handles OAuth token refresh. Without this, a signed-in
-            # user's query would 403 here and the source gets silently skipped
-            # in the completion loop -> KeyError on the data source's name.
-            try:
-                from app.models.user_connection_credentials import UserConnectionCredentials
-                from sqlalchemy import select as _select
-                has_conn_creds = (await db.execute(
-                    _select(UserConnectionCredentials.id).where(
-                        UserConnectionCredentials.connection_id == str(connection.id),
-                        UserConnectionCredentials.user_id == str(current_user.id),
-                        UserConnectionCredentials.is_active == True,
-                    ).limit(1)
-                )).first() is not None
-                if has_conn_creds:
-                    from app.services.connection_service import ConnectionService
-                    return await ConnectionService().resolve_credentials(db, connection, current_user)
-            except HTTPException:
-                raise
-            except Exception:
-                pass
-
-            # Check if owner or admin can use system credentials
-            is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
-            has_update_perm = False
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db,
-                    str(current_user.id),
-                    str(getattr(data_source, "organization_id", "")),
-                )
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
-                )
-            except Exception:
-                pass
-
-            if is_owner or has_update_perm:
-                # Owner/admin fall back to the connection's stored credentials.
-                # Use decrypt_credentials(), NOT get_credentials() — the latter
-                # returns None for user_required, which strands OBO connectors:
-                # the stored service-principal client_id/secret would be dropped
-                # and MsFabricClient's ClientSecretCredential then fails with
-                # "client_id should be the id of a Microsoft Entra application".
-                # This mirrors ConnectionService.resolve_credentials so an
-                # owner/admin queries with the same SP creds that drive indexing
-                # (a regular user without their own token still 403s below and is
-                # routed to per-user OBO sign-in).
-                try:
-                    return connection.decrypt_credentials() or {}
-                except Exception:
-                    return {}
-
-            raise HTTPException(status_code=403, detail="User credentials required for this connection")
+            # Connection-level resolution. ConnectionService.resolve_credentials is the
+            # single source of truth: it handles delegated/OBO tokens, the admin
+            # query-identity toggle (service account vs self), OAuth refresh, the legacy
+            # owner/admin system fallback for non-delegated connections, and the
+            # "connect required" 403 for a self-identity user with no token.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, connection, current_user)
 
         # For system_only or if no user, use system credentials
         return connection.get_credentials() if hasattr(connection, 'get_credentials') else {}

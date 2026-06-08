@@ -948,20 +948,47 @@ class ConnectionService:
                     pass
             raise HTTPException(status_code=403, detail="User credentials required")
 
-        result = await db.execute(
-            select(UserConnectionCredentials)
-            .where(
-                UserConnectionCredentials.connection_id == connection.id,
-                UserConnectionCredentials.user_id == current_user.id,
-                UserConnectionCredentials.is_active == True,
-            )
-            .order_by(
-                UserConnectionCredentials.is_primary.desc(),
-                UserConnectionCredentials.updated_at.desc()
-            )
+        from app.services.connection_identity import (
+            supports_user_token,
+            identity_pref_from_row,
+            row_has_token,
+            get_user_conn_cred_row,
+            is_admin_or_owner,
+            QUERY_IDENTITY_SERVICE,
         )
-        row = result.scalars().first()
 
+        row = await get_user_conn_cred_row(db, connection, current_user)
+
+        # Delegated/OBO connections honor the admin query-identity toggle:
+        #   - "service_account" (admin/owner only) → connection system creds
+        #   - "self" (default) → the user's own token; NO silent SP fallback —
+        #     if they have no token, block so the UI prompts Connect.
+        if supports_user_token(connection):
+            admin_or_owner = await is_admin_or_owner(db, connection, current_user)
+            pref = identity_pref_from_row(row)
+
+            if pref == QUERY_IDENTITY_SERVICE and admin_or_owner:
+                return connection.decrypt_credentials() or {}
+
+            if row_has_token(row):
+                if row.auth_mode == "oauth":
+                    try:
+                        from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
+                        return await maybe_refresh_oauth_credentials(db, connection, row)
+                    except Exception as e:
+                        logger.warning(f"OAuth token refresh check failed: {e}")
+                        return row.decrypt_credentials()
+                return row.decrypt_credentials()
+
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Connect required: this connection runs queries with your own "
+                    "credentials. Connect your account or switch to the service account."
+                ),
+            )
+
+        # --- Legacy path: non-delegated user_required connections (e.g. user/pass) ---
         if not row:
             # Owner/admin fallback: allow owner or admin to use system creds
             is_owner = False
