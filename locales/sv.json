@@ -391,7 +391,9 @@
       "executionFailed": "Körningen misslyckades",
       "executionSucceeded": "Körningen lyckades",
       "retrying": "Försöker igen · försök {n}",
-      "visualizing": "Visualiserar"
+      "visualizing": "Visualiserar",
+      "showData": "Visa data",
+      "hideData": "Dölj data"
     },
     "createArtifact": {
       "creating": "Skapar artefakt",

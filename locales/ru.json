@@ -391,7 +391,9 @@
       "executionFailed": "Ошибка выполнения",
       "executionSucceeded": "Выполнение успешно",
       "retrying": "Повтор · попытка {n}",
-      "visualizing": "Визуализация"
+      "visualizing": "Визуализация",
+      "showData": "Показать данные",
+      "hideData": "Скрыть данные"
     },
     "createArtifact": {
       "creating": "Создание артефакта",

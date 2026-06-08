@@ -391,7 +391,9 @@
       "executionFailed": "فشل التنفيذ",
       "executionSucceeded": "نجح التنفيذ",
       "retrying": "إعادة المحاولة · المحاولة {n}",
-      "visualizing": "جارٍ التصور المرئي"
+      "visualizing": "جارٍ التصور المرئي",
+      "showData": "عرض البيانات",
+      "hideData": "إخفاء البيانات"
     },
     "createArtifact": {
       "creating": "جارٍ إنشاء العنصر",

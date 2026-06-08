@@ -23,6 +23,22 @@ from app.services.platform_adapters.adapter_factory import PlatformAdapterFactor
 # standard module logger.
 logger = logging.getLogger(__name__)
 
+# Below this row count, we don't send the raw table data to Slack/Teams.
+# The agent's text answer already describes small results in prose (the
+# planner is instructed to do so for small datasets), so attaching a CSV
+# or markdown table on top is noise. Larger results still go through so
+# the user can scan/download them.
+MIN_ROWS_TO_SEND = 10
+
+
+def _step_row_count(step: 'Step') -> int:
+    """Return the number of data rows on a step, or 0 if unavailable."""
+    try:
+        rows = (step.data or {}).get('rows')
+        return len(rows) if rows else 0
+    except Exception:
+        return 0
+
 def create_plot(data_model: dict, data: dict, title: str) -> str:
     """Creates a plot from a step's data and data_model."""
     chart_type = data_model.get('type')
@@ -271,9 +287,21 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
 
             adapter = PlatformAdapterFactory.create_adapter(platform)
             success = False
-            if step.data_model.get('type') == "table":
+            data_type = step.data_model.get('type')
+
+            # Don't send small table results — the agent's text answer already
+            # describes them. Charts (sent as images) and counts (scalar
+            # answers) are unaffected.
+            if data_type == "table" and _step_row_count(step) < MIN_ROWS_TO_SEND:
+                logger.info(
+                    "SLACK_NOTIFIER: Skipping data send for step %s (%d rows < %d threshold)",
+                    step_id, _step_row_count(step), MIN_ROWS_TO_SEND,
+                )
+                return
+
+            if data_type == "table":
                 success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id, platform_type=platform_type)
-            elif step.data_model.get('type') == "count":
+            elif data_type == "count":
                 if step.data and 'rows' in step.data and step.data['rows'] and 'columns' in step.data and step.data['columns']:
                     count_value = step.data['rows'][0].get(step.data['columns'][0].get('field', ''))
                     message = f"**{step.title or 'Count'}**: {count_value}" if platform_type == "teams" else f"*{step.title or 'Count'}*: {count_value}"
