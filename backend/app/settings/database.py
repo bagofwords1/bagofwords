@@ -219,6 +219,25 @@ def _build_async_database_engine():
 
         if "postgresql+asyncpg" in database_url:
             connect_args = _get_async_ssl_connect_args(db_config) if db_config.uses_iam_auth else {}
+            # Server-side safety timeouts. Without these, any transaction that
+            # holds a row lock (e.g. the agent's long-lived shared
+            # agent-execution transaction, or a leaked/abandoned session) blocks
+            # every other writer *forever* — Postgres defaults all three to 0
+            # (no limit). The instruction build system is especially exposed:
+            # promoting a build flips `is_main` on a single shared
+            # `instruction_builds` row, so one stuck transaction stalls every
+            # create/publish org-wide. Bounding them turns an unbounded hang into
+            # a fast, retryable error and lets leaked transactions self-reap.
+            #   - lock_timeout: a statement waits at most 30s for a lock, then
+            #     errors instead of hanging indefinitely. Only affects *waiters*,
+            #     never the lock holder, so legitimate long agent runs are safe.
+            #   - idle_in_transaction_session_timeout: Postgres terminates a
+            #     session left idle *inside a transaction* for >5min, releasing
+            #     its locks. 5min is far longer than any healthy agent step, so
+            #     it reaps genuine leaks without killing real work.
+            server_settings = connect_args.setdefault("server_settings", {})
+            server_settings.setdefault("lock_timeout", "30000")
+            server_settings.setdefault("idle_in_transaction_session_timeout", "300000")
             # PostgreSQL: use connection pooling for production
             # Pool sizing assumes one uvicorn worker. Each in-flight SSE
             # completion holds the agent's primary session for its entire

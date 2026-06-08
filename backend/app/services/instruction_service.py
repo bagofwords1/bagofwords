@@ -128,42 +128,107 @@ class InstructionService:
         
         # === Build System Integration ===
         # Create version and add to build for ALL instructions (including draft/suggested)
+        #
+        # Capture the instruction id as a plain string up front. If a build step
+        # fails and we roll back, the ORM objects become expired — touching any
+        # attribute (even for a log line) would trigger an implicit lazy load on
+        # a dead transaction and blow up with MissingGreenlet. Plain strings are
+        # safe to use after a rollback.
+        instr_id = str(instruction.id)
         try:
             # Re-fetch instruction with relationships for version creation
             await db.refresh(instruction, ['data_sources', 'labels', 'references'])
-            
+
             # Create the first version
             version = await self.version_service.create_version(
                 db, instruction, user_id=current_user.id,
                 status_override=version_status_override,
             )
-            
+
             # Update instruction's current version
             instruction.current_version_id = version.id
-            
+
             # Use provided build or get/create a draft build for user changes
             target_build = build
             if target_build is None:
                 target_build = await self.build_service.get_or_create_draft_build(
                     db, organization.id, source='user', user_id=current_user.id
                 )
-            
+            version_id = str(version.id)
+            target_build_id = str(target_build.id)
+
             # Add the version to the build
             await self.build_service.add_to_build(
-                db, target_build.id, instruction.id, version.id
+                db, target_build_id, instr_id, version_id
             )
-            
+
             await db.commit()
-            
-            # Auto-finalize unless explicitly disabled (for batching scenarios)
+
+            # Auto-finalize unless explicitly disabled (for batching scenarios).
+            # When disabled (agent batching), the session-end flow finalizes later,
+            # so there's nothing to fail here.
             if auto_finalize:
-                await self._auto_finalize_build(db, target_build, current_user, user_permissions)
-            
-            logger.info(f"Created version {version.id} for instruction {instruction.id}, added to build {target_build.id}")
+                finalized = await self._auto_finalize_build(db, target_build, current_user, user_permissions)
+            else:
+                finalized = True
+
+            logger.info(f"Created version {version_id} for instruction {instr_id}, added to build {target_build_id}")
         except Exception as e:
-            logger.warning(f"Failed to create version for instruction {instruction.id}: {e}")
-            # Don't fail the instruction creation if versioning fails
-        
+            logger.warning(f"Failed to create version for instruction {instr_id}: {e}")
+            # Roll back so the session is clean for the cleanup/return below.
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            finalized = False
+
+        # If a synchronous create couldn't be made live — e.g. a concurrent
+        # long-running transaction (the agent's shared session, or a leaked one)
+        # held the shared ``instruction_builds`` lock until ``lock_timeout``
+        # fired — don't leave a half-created instruction stranded in a build
+        # that will never reach main (it would be invisible in the list, which
+        # is the reported "instruction was not created" symptom). Soft-delete it
+        # and signal a fast, retryable error instead of hanging or 500-ing.
+        if auto_finalize and not finalized:
+            try:
+                orphan = await db.get(Instruction, instr_id)
+                if orphan is not None and orphan.deleted_at is None:
+                    orphan.deleted_at = datetime.utcnow()
+                    await db.commit()
+            except Exception:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Could not save the instruction because the instruction store "
+                    "is busy with another update. Please try again."
+                ),
+            )
+
+        # Re-fetch instruction fresh with eager loading. This is also our
+        # recovery point if a (non-fatal) build failure rolled the session back
+        # above: re-reading by id rebinds clean ORM state so the lines below
+        # (telemetry/audit/return) never touch an expired object on a dead
+        # transaction.
+        fresh_instruction = await db.execute(
+            select(Instruction)
+            .options(
+                selectinload(Instruction.user),
+                selectinload(Instruction.data_sources).options(
+                    selectinload(DataSource.data_source_memberships),
+                    selectinload(DataSource.primary_instruction),
+                ),
+                selectinload(Instruction.reviewed_by),
+                selectinload(Instruction.references),
+                selectinload(Instruction.labels),
+            )
+            .where(Instruction.id == instr_id)
+        )
+        instruction = fresh_instruction.scalar_one()
+
         # Telemetry: emit minimal, non-PII metadata using existing fields only
         try:
             refs = getattr(instruction_data, "references", None) or []
@@ -184,25 +249,6 @@ class InstructionService:
         except Exception:
             # Never fail the request due to telemetry
             pass
-
-        # Load relationships and return
-        await db.refresh(instruction)
-        # Re-fetch instruction with proper eager loading to avoid lazy loading issues
-        fresh_instruction = await db.execute(
-            select(Instruction)
-            .options(
-                selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).options(
-                    selectinload(DataSource.data_source_memberships),
-                    selectinload(DataSource.primary_instruction),
-                ),
-                selectinload(Instruction.reviewed_by),
-                selectinload(Instruction.references),
-                selectinload(Instruction.labels),
-            )
-            .where(Instruction.id == instruction.id)
-        )
-        instruction = fresh_instruction.scalar_one()
 
         # Audit log
         try:
@@ -459,7 +505,7 @@ class InstructionService:
         """
         
         user_permissions = await self._get_user_permissions(db, current_user, organization)
-        
+
         # Build the query conditions cleanly
         conditions = []
         
@@ -632,14 +678,60 @@ class InstructionService:
         
         if not instruction:
             return None
-            
+
         return await self._instruction_to_schema_with_references(db, instruction)
-    
+
+    async def user_can_view_instruction(
+        self,
+        db: AsyncSession,
+        instruction,
+        current_user: User,
+        organization: Organization,
+    ) -> bool:
+        """Mirror the list's per-data-source visibility for a single instruction.
+
+        Viewable iff the instruction is global (attached to no data source) or
+        attached to a data source the user is an explicit member of, or that is
+        public. Used to gate read/detail endpoints (the instruction modal,
+        version history, pending builds) so an instruction for an agent the user
+        never joined isn't reachable by id even though it's hidden from the list.
+
+        NOTE: this gates *viewing* only. Management endpoints (update/delete/
+        revert) keep their own resource-permission checks, where org admins
+        retain capability bypass.
+        """
+        ds_list = getattr(instruction, "data_sources", None) or []
+        ds_ids = {str(getattr(d, "id", None)) for d in ds_list if getattr(d, "id", None)}
+        if not ds_ids:
+            return True  # global instruction — visible to everyone
+
+        from app.core.permission_resolver import get_member_data_source_ids
+        member_ids = {
+            str(m)
+            for m in await get_member_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+        }
+        if ds_ids & member_ids:
+            return True
+
+        result = await db.execute(
+            select(DataSource.id).where(
+                and_(
+                    DataSource.id.in_(ds_ids),
+                    DataSource.organization_id == organization.id,
+                    DataSource.is_public == True,
+                )
+            )
+        )
+        public_ids = {str(r[0]) for r in result.all()}
+        return bool(ds_ids & public_ids)
+
     async def update_instruction(
-        self, 
-        db: AsyncSession, 
-        instruction_id: str, 
-        instruction_data: InstructionUpdate, 
+        self,
+        db: AsyncSession,
+        instruction_id: str,
+        instruction_data: InstructionUpdate,
         organization: Organization,
         current_user: User
     ) -> Optional[InstructionSchema]:
@@ -1786,9 +1878,14 @@ class InstructionService:
         current_user: Optional[User] = None,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
-        
+
         By default, loads instructions from the main build (is_main=True).
         Pass build_id to load from a specific build instead.
+
+        Every caller (admins included) only sees instructions that are global
+        (attached to no data source) or attached to a data source they are an
+        explicit member of (or that is public). Org admins do not get a blanket
+        bypass here — the list mirrors the default data-sources view.
         """
         from sqlalchemy import func
         from app.models.instruction_label import InstructionLabel
@@ -1827,7 +1924,44 @@ class InstructionService:
                 .where(BuildContent.build_id == target_build_id)
             )
             base_conditions.append(Instruction.id.in_(build_instruction_ids_subquery))
-        
+
+        # Per-data-source visibility — applied to EVERYONE, admins included.
+        # An instruction tied to a data source (agent) is only visible to users
+        # who can actually access that data source; global instructions (no data
+        # source) stay visible to all. This mirrors the default data-sources
+        # list (see data_source_service.get_data_sources): the view is scoped to
+        # *explicit* membership/grants even for admins — being an org admin does
+        # not flood the table with instructions for agents you never joined. (An
+        # admin retains capability bypass elsewhere and can still open any
+        # instruction directly; this only governs the list.) Public data sources
+        # are visible to every member.
+        if current_user is not None:
+            from app.core.permission_resolver import get_member_data_source_ids
+            member_ds_ids = await get_member_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+            public_ds_subquery = (
+                select(DataSource.id).where(
+                    and_(
+                        DataSource.organization_id == organization.id,
+                        DataSource.is_public == True,
+                    )
+                )
+            )
+            visible_ds_clauses = [
+                Instruction.data_sources.any(DataSource.id.in_(public_ds_subquery))
+            ]
+            if member_ds_ids:
+                visible_ds_clauses.append(
+                    Instruction.data_sources.any(DataSource.id.in_(member_ds_ids))
+                )
+            base_conditions.append(
+                or_(
+                    ~Instruction.data_sources.any(),  # global instruction
+                    *visible_ds_clauses,
+                )
+            )
+
         # Build filter conditions list
         filter_conditions = []
         
@@ -2482,33 +2616,42 @@ class InstructionService:
         return InstructionSchema(**instruction_dict)
     
     async def _auto_finalize_build(
-        self, 
-        db: AsyncSession, 
-        build, 
+        self,
+        db: AsyncSession,
+        build,
         current_user: User,
         user_permissions: set,
-    ) -> None:
+    ) -> bool:
         """
         Auto-finalize a build based on user permissions.
-        
+
         - Admins: approve only (makes build ready, but doesn't auto-promote)
         - Non-admins: submit for approval only (admin must review)
-        
+
         Note: Promoting to main requires explicit action (Publish/Deploy button)
+
+        Returns True if finalization completed (or there was nothing to do),
+        False if it failed (e.g. a concurrent transaction held the
+        ``instruction_builds`` lock until ``lock_timeout`` fired). On failure
+        the session is rolled back so the caller can keep using it — otherwise
+        Postgres leaves the transaction in an aborted state and every
+        subsequent statement (refresh / eager-load) blows up with an opaque
+        500, which is the cascade behind the reported "stuck on loading" /
+        "Could not refresh instance" failures.
         """
         from app.models.instruction_build import InstructionBuild
-        
+
         try:
             # Only finalize if still in draft state
             if build.status != 'draft':
-                return
-            
+                return True
+
             # Submit the build for approval
             await self.build_service.submit_build(db, build.id)
-            
+
             # Check if user is admin
             is_admin = self._is_admin_permissions(user_permissions)
-            
+
             if is_admin:
                 # Admin: auto-approve and auto-promote to main
                 await self.build_service.approve_build(
@@ -2525,9 +2668,18 @@ class InstructionService:
 
             # Single commit for all deferred audit logs from submit/approve/promote
             await db.commit()
+            return True
         except Exception as e:
             logger.warning(f"Failed to auto-finalize build {build.id}: {e}")
-            # Don't fail the instruction operation if auto-finalize fails
+            # Roll back so the session is usable again (a swallowed error would
+            # otherwise leave an aborted Postgres transaction).
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            # Don't fail the instruction operation here; the caller decides
+            # whether a failed finalize is fatal (see create_instruction).
+            return False
     
     async def _instructions_to_schema_with_references(self, db: AsyncSession, instructions) -> List[InstructionSchema]:
         """Convert multiple instructions to schemas with populated references."""

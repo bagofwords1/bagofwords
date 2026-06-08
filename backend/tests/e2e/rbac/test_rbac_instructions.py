@@ -235,3 +235,123 @@ def test_instructions_list_filters_by_visibility(test_client, ins_world):
     admin_items = body_admin["items"] if isinstance(body_admin, dict) and "items" in body_admin else body_admin
     admin_seen_ids = {i["id"] for i in admin_items}
     assert author_inst_id in admin_seen_ids
+
+
+@pytest.mark.e2e
+def test_instructions_list_filters_by_data_source_access(
+    test_client, ins_world, sqlite_data_source
+):
+    """A member must not see published instructions tied to a data source they
+    cannot access.
+
+    Visibility rules for a non-admin member:
+      - global instructions (no data source)        → visible
+      - instructions on a public data source        → visible
+      - instructions on a private DS they're not in → hidden
+      - instructions on a private DS they ARE in    → visible (per-DS grantee)
+    """
+    org_id = ins_world["org_id"]
+    ds_a_id = ins_world["ds_a"]["id"]  # private; ds_a_author has a grant on it
+
+    admin = ins_world["principals"]["admin"]
+    member = ins_world["principals"]["member"]
+    author = ins_world["principals"]["ds_a_author"]
+
+    # A public data source that every member can access.
+    ds_pub = sqlite_data_source(
+        name="ins_ds_public", user_token=admin["token"], org_id=org_id, is_public=True
+    )
+
+    def _create(data_source_ids):
+        resp = test_client.post(
+            "/api/instructions",
+            json={
+                "text": f"published on ds={data_source_ids}",
+                "status": "published",
+                "category": "general",
+                "data_source_ids": data_source_ids,
+            },
+            headers=_hdr(admin["token"], org_id),
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["id"]
+
+    # Admin (auto-promoted to main) publishes across the three scopes.
+    global_id = _create([])
+    public_id = _create([ds_pub["id"]])
+    private_a_id = _create([ds_a_id])
+
+    # Member: sees global + public, never the private-ds_a instruction.
+    member_list = test_client.get("/api/instructions", headers=_hdr(member["token"], org_id))
+    assert member_list.status_code == 200, member_list.text
+    member_body = member_list.json()
+    member_items = member_body["items"] if isinstance(member_body, dict) and "items" in member_body else member_body
+    member_ids = {i["id"] for i in member_items}
+    assert global_id in member_ids
+    assert public_id in member_ids
+    assert private_a_id not in member_ids
+
+    # ds_a_author: has a grant on ds_a, so additionally sees the ds_a instruction.
+    author_list = test_client.get("/api/instructions", headers=_hdr(author["token"], org_id))
+    assert author_list.status_code == 200, author_list.text
+    author_body = author_list.json()
+    author_items = author_body["items"] if isinstance(author_body, dict) and "items" in author_body else author_body
+    author_ids = {i["id"] for i in author_items}
+    assert global_id in author_ids
+    assert public_id in author_ids
+    assert private_a_id in author_ids
+
+
+@pytest.mark.e2e
+def test_admin_does_not_see_instructions_for_unjoined_data_source(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """Even a full org admin only sees instructions for data sources they are an
+    explicit member of — mirroring the default data-sources list. An admin must
+    NOT see instructions tied to a private DS they never joined; global
+    instructions stay visible to everyone.
+    """
+    admin1 = bootstrap_admin("admin")
+    org_id = admin1["org_id"]
+    # Second full admin who will own a data source admin1 never joins.
+    admin2 = invite_user_to_org(org_id=org_id, admin_token=admin1["token"], role="admin")
+
+    ds_private = sqlite_data_source(name="adm2_ds", user_token=admin2["token"], org_id=org_id)
+
+    def _post(token, body):
+        r = test_client.post("/api/instructions", json=body, headers=_hdr(token, org_id))
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    priv_id = _post(admin2["token"], {
+        "text": "adm2 private inst", "status": "published",
+        "category": "general", "data_source_ids": [ds_private["id"]],
+    })
+    global_id = _post(admin2["token"], {
+        "text": "adm2 global inst", "status": "published",
+        "category": "general", "data_source_ids": [],
+    })
+
+    # admin1 is a full admin but is NOT a member of ds_private.
+    resp = test_client.get("/api/instructions", headers=_hdr(admin1["token"], org_id))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    items = body["items"] if isinstance(body, dict) and "items" in body else body
+    seen = {i["id"] for i in items}
+    assert priv_id not in seen, \
+        "admin must NOT see instructions for a private data source they never joined"
+    assert global_id in seen, "global instructions remain visible to everyone"
+
+    # And it must not be reachable by id either — the detail modal, version
+    # history, and pending-builds endpoints all gate on view access, so an admin
+    # can't open an instruction for an agent they never joined.
+    assert test_client.get(
+        f"/api/instructions/{priv_id}", headers=_hdr(admin1["token"], org_id)
+    ).status_code == 404
+    assert test_client.get(
+        f"/api/instructions/{priv_id}/versions", headers=_hdr(admin1["token"], org_id)
+    ).status_code == 404
+    # Global instruction stays openable by id.
+    assert test_client.get(
+        f"/api/instructions/{global_id}", headers=_hdr(admin1["token"], org_id)
+    ).status_code == 200

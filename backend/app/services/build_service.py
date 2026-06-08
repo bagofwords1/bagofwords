@@ -107,7 +107,13 @@ class BuildService:
         
         db.add(build)
         await db.commit()
-        await db.refresh(build, ['id', 'build_number'])
+        # NB: do NOT db.refresh(build, ['id', 'build_number']) here. `id` is a
+        # client-side UUID default and `build_number` is assigned above, so both
+        # are already populated after the flush; with expire_on_commit=False the
+        # commit doesn't clear them. The refresh was redundant and, when this is
+        # called mid-request on a session whose transaction had already been
+        # poisoned upstream, it raised "Could not refresh instance" (the 500 seen
+        # when publishing a stale build via the auto-merge path).
 
         logger.info(f"Created build {build.id} (#{build.build_number}) for org {org_id}, source={source}")
         
