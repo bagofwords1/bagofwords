@@ -505,7 +505,6 @@ class InstructionService:
         """
         
         user_permissions = await self._get_user_permissions(db, current_user, organization)
-        is_admin = self._is_admin_permissions(user_permissions)
 
         # Build the query conditions cleanly
         conditions = []
@@ -534,7 +533,7 @@ class InstructionService:
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
-            current_user=current_user, is_admin=is_admin,
+            current_user=current_user,
         )
 
     async def get_available_source_types(
@@ -1831,17 +1830,16 @@ class InstructionService:
         build_id: Optional[str] = None,
         include_global: bool = True,
         current_user: Optional[User] = None,
-        is_admin: bool = False,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
         By default, loads instructions from the main build (is_main=True).
         Pass build_id to load from a specific build instead.
 
-        Non-admin callers only see instructions that are global (attached to no
-        data source) or attached to at least one data source they can access
-        (public, membership, or grant). Admins (``manage_instructions`` /
-        ``full_admin_access``) bypass this and see everything.
+        Every caller (admins included) only sees instructions that are global
+        (attached to no data source) or attached to a data source they are an
+        explicit member of (or that is public). Org admins do not get a blanket
+        bypass here — the list mirrors the default data-sources view.
         """
         from sqlalchemy import func
         from app.models.instruction_label import InstructionLabel
@@ -1881,42 +1879,42 @@ class InstructionService:
             )
             base_conditions.append(Instruction.id.in_(build_instruction_ids_subquery))
 
-        # Per-data-source visibility for non-admins. A member must not see
-        # instructions tied to a data source (agent) they cannot access. Global
-        # instructions (no data source) stay visible to everyone. Admins
-        # (manage_instructions / full_admin_access) bypass this entirely.
-        if current_user is not None and not is_admin:
-            from app.core.permission_resolver import get_accessible_data_source_ids
-            # The passed-in is_admin is the instruction-admin gate
-            # (manage_instructions OR full_admin_access); those callers already
-            # returned above. _full_admin below only flags full_admin_access and
-            # is effectively always False here, but we honor it defensively.
-            _full_admin, accessible_ds_ids = await get_accessible_data_source_ids(
+        # Per-data-source visibility — applied to EVERYONE, admins included.
+        # An instruction tied to a data source (agent) is only visible to users
+        # who can actually access that data source; global instructions (no data
+        # source) stay visible to all. This mirrors the default data-sources
+        # list (see data_source_service.get_data_sources): the view is scoped to
+        # *explicit* membership/grants even for admins — being an org admin does
+        # not flood the table with instructions for agents you never joined. (An
+        # admin retains capability bypass elsewhere and can still open any
+        # instruction directly; this only governs the list.) Public data sources
+        # are visible to every member.
+        if current_user is not None:
+            from app.core.permission_resolver import get_member_data_source_ids
+            member_ds_ids = await get_member_data_source_ids(
                 db, str(current_user.id), str(organization.id)
             )
-            if not _full_admin:
-                # Public data sources are visible to every member; OR them in.
-                public_ds_subquery = (
-                    select(DataSource.id).where(
-                        and_(
-                            DataSource.organization_id == organization.id,
-                            DataSource.is_public == True,
-                        )
+            public_ds_subquery = (
+                select(DataSource.id).where(
+                    and_(
+                        DataSource.organization_id == organization.id,
+                        DataSource.is_public == True,
                     )
                 )
-                visible_ds_clauses = [
-                    Instruction.data_sources.any(DataSource.id.in_(public_ds_subquery))
-                ]
-                if accessible_ds_ids:
-                    visible_ds_clauses.append(
-                        Instruction.data_sources.any(DataSource.id.in_(accessible_ds_ids))
-                    )
-                base_conditions.append(
-                    or_(
-                        ~Instruction.data_sources.any(),  # global instruction
-                        *visible_ds_clauses,
-                    )
+            )
+            visible_ds_clauses = [
+                Instruction.data_sources.any(DataSource.id.in_(public_ds_subquery))
+            ]
+            if member_ds_ids:
+                visible_ds_clauses.append(
+                    Instruction.data_sources.any(DataSource.id.in_(member_ds_ids))
                 )
+            base_conditions.append(
+                or_(
+                    ~Instruction.data_sources.any(),  # global instruction
+                    *visible_ds_clauses,
+                )
+            )
 
         # Build filter conditions list
         filter_conditions = []

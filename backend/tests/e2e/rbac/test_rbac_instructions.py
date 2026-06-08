@@ -300,3 +300,44 @@ def test_instructions_list_filters_by_data_source_access(
     assert global_id in author_ids
     assert public_id in author_ids
     assert private_a_id in author_ids
+
+
+@pytest.mark.e2e
+def test_admin_does_not_see_instructions_for_unjoined_data_source(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """Even a full org admin only sees instructions for data sources they are an
+    explicit member of — mirroring the default data-sources list. An admin must
+    NOT see instructions tied to a private DS they never joined; global
+    instructions stay visible to everyone.
+    """
+    admin1 = bootstrap_admin("admin")
+    org_id = admin1["org_id"]
+    # Second full admin who will own a data source admin1 never joins.
+    admin2 = invite_user_to_org(org_id=org_id, admin_token=admin1["token"], role="admin")
+
+    ds_private = sqlite_data_source(name="adm2_ds", user_token=admin2["token"], org_id=org_id)
+
+    def _post(token, body):
+        r = test_client.post("/api/instructions", json=body, headers=_hdr(token, org_id))
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    priv_id = _post(admin2["token"], {
+        "text": "adm2 private inst", "status": "published",
+        "category": "general", "data_source_ids": [ds_private["id"]],
+    })
+    global_id = _post(admin2["token"], {
+        "text": "adm2 global inst", "status": "published",
+        "category": "general", "data_source_ids": [],
+    })
+
+    # admin1 is a full admin but is NOT a member of ds_private.
+    resp = test_client.get("/api/instructions", headers=_hdr(admin1["token"], org_id))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    items = body["items"] if isinstance(body, dict) and "items" in body else body
+    seen = {i["id"] for i in items}
+    assert priv_id not in seen, \
+        "admin must NOT see instructions for a private data source they never joined"
+    assert global_id in seen, "global instructions remain visible to everyone"
