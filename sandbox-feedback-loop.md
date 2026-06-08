@@ -347,7 +347,76 @@ decision points I see (no recommendation locked in — just the levers):
 - Just Fabric, or all Entra OBO types (`powerbi/sharepoint/onedrive`) too?
 
 Your notes:
-> 
+> - Admin switches **Service account ↔ Me** in the **Connection detail** modal.
+> - If the admin has no personal token, still show "Me" but with a **Connect** button.
+> - Run queries **as the admin (OBO)**, not the SP — but keep it **configurable**.
+> - SP is **always** the seed of the shared schema; a connected admin token indexes a
+>   **private overlay**, kept to that admin only.
+
+### 7a. Implementation plan (approved direction)
+
+**Goal:** admins query Fabric as *themselves* (OBO token) by default, with an explicit
+toggle to query *as the service account*. SP stays the shared-schema seed; it is never
+used **silently** for an admin's interactive queries.
+
+OBO is confirmed working (§6d/§6e), so no new auth plumbing — this is resolver logic +
+a stored preference + one UI control.
+
+**1. Storage (no migration).**
+Persist the preference on `UserConnectionCredentials.metadata_json`:
+`{"query_identity": "self" | "service_account"}` (default `self`). Row is already
+keyed `(user_id, connection_id)`.
+
+**2. Backend — credential resolution** (`data_source_service.py`).
+In `resolve_credentials_for_connection` (~1696-1780) and the legacy
+`resolve_credentials` (~1396-1474), replace the *silent* owner/admin→SP fallback with
+toggle-aware logic for `user_required` connections:
+- Admin/owner + `query_identity == "service_account"` → SP creds (explicit choice).
+- Admin/owner + `self` (default):
+  - personal `UserConnectionCredentials` token present → use it (with existing
+    `maybe_refresh_oauth_credentials`).
+  - none/expired-no-refresh → **fall back to SP** (no breakage) and mark the status as
+    "not connected as self" so the UI nudges Connect.
+- Regular users → unchanged (their own token, else 403 → Connect).
+
+**3. Backend — status** (`user_data_source_credentials_service.build_user_status*`).
+Already returns `effective_auth` (`system`/`user`) + `uses_fallback`. Add:
+`query_identity` (current pref) and `can_switch_identity` (true for admin/owner), so the
+modal can render the toggle + Connect state.
+
+**4. Backend — set-preference endpoint.**
+Small route, e.g. `PATCH /connections/{id}/query-identity` body
+`{"query_identity": "self"|"service_account"}` — admin/owner only; upserts a
+`UserConnectionCredentials` row (creating a bare one if "service_account" chosen before
+any Connect) and writes `metadata_json`.
+
+**5. Frontend — ConnectionDetailModal.**
+- Toggle **Service account / Me** (visible when `can_switch_identity`).
+- "Me" selected + no token → show **Connect** button → existing
+  `GET /connections/{id}/oauth/authorize` flow.
+- Persist selection via the endpoint in (4).
+
+**6. Indexing — unchanged.**
+SP keeps seeding the shared catalog (`refresh_data_source_schema`). A connected admin's
+`self` token already builds a **private overlay** via `get_user_data_source_schema`
+(runs on OAuth/OBO connect). Confirm the overlay stays private (catalog-ownership seam
+~`data_source_service.py:3069`).
+
+**7. Frontend — DataSourceSelector (optional).**
+Cosmetic only: per-source badge "as you" / "service account" from `effective_auth`. No
+functional change.
+
+**8. Tests.**
+- e2e: admin with `self` + token → queries use delegated creds; with `service_account`
+  → uses SP; admin `self` + no token → SP fallback + status flags Connect.
+- Live OBO/identity already validated in §6 (token + REST level).
+
+**Out of scope / unchanged:** regular-user flow, the OBO-at-login auto-provision
+(keeps working), and the SP's indexing role.
+
+**One open default to confirm:** admin selects "Me" but isn't connected yet — fall back
+to SP silently (recommended, no breakage) vs hard-block with "Connect required".
+
 
 ---
 
