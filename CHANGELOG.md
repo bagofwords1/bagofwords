@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.403 (June 8, 2026)
+- **Teams** — a reused Teams 1:1 conversation report (up to 5 days old) now re-syncs its data sources to the user's current access on each message, so grants appear and revocations disappear without waiting out the window.
+- **UI** — the data-source members panel relabels the management column to "Management role" and the empty state to "Query only" (was "None"), and clarifies that everyone listed can query the agent and that Remove is what revokes access.
+
 ## Version 0.0.402 (June 8, 2026)
 - Admin query-identity toggle for delegated (Entra ID / Microsoft Fabric OBO) connections — admins/owners can now choose, per connection, to run queries as the **service account** (the connection's principal) or as **themselves** (their own delegated/OBO token), from the connection detail modal. Default is "Me": the service principal is never used silently for an admin's interactive queries — if they have no personal token yet, the query is blocked and the UI prompts them to Connect. The selection is persisted per (user, connection) and applied consistently across the tables selector (overlay vs shared catalog), the agent's schema context, and query execution (inspect/create data).
 

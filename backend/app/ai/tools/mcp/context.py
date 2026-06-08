@@ -81,10 +81,19 @@ async def build_rich_context(
     """
     data_sources = getattr(report, 'data_sources', []) or []
 
-    # Exclude user_required data sources the running user can't actually query
+    ds_service = DataSourceService()
+
+    # Restrict to data sources THIS user is allowed to see first. A report's
+    # attached sources are a trusted snapshot that isn't re-checked elsewhere,
+    # so without this a private source on a shared (or stale) report would leak
+    # its schema to a non-member via create/inspect-data. Mirrors get_context.
+    data_sources = await ds_service.filter_user_visible_data_sources(
+        db, data_sources, user, organization
+    )
+
+    # Then exclude user_required data sources the running user can't actually query
     # (no personal creds, no system fallback). Otherwise their schemas land in
     # the LLM context and create/inspect-data tools 403 mid-run.
-    ds_service = DataSourceService()
     data_sources, skipped_unconnected = await ds_service.filter_user_usable_data_sources(db, data_sources, user)
     if skipped_unconnected:
         logger.info(f"build_rich_context: excluding data source(s) the user is not connected to: {skipped_unconnected}")

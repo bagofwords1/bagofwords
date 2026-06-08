@@ -1572,6 +1572,23 @@ class DataSourceService:
         import inspect
         from typing import Dict, Any
 
+        # Access backstop: never build a credentialed client for a data source
+        # the requesting user can't access. This is the deepest chokepoint — every
+        # path (main agent, MCP create/inspect_data, file tools) builds clients
+        # here, so gating here makes execute_query unreachable for unauthorized
+        # sources regardless of what a (possibly stale or hand-crafted) report
+        # snapshot claims. `current_user is None` means a trusted system/scheduled
+        # context, which is not filtered (mirrors filter_user_*_data_sources).
+        if current_user is not None:
+            from app.core.permission_resolver import user_can_access_data_source
+            if not await user_can_access_data_source(
+                db, str(current_user.id), str(data_source.organization_id), data_source
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"You do not have access to data source '{data_source.name}'",
+                )
+
         if not data_source.connections:
             raise HTTPException(status_code=400, detail="Data source has no associated connections")
 

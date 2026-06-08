@@ -47,7 +47,7 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-sm font-medium text-gray-800">Members</h3>
-                            <p class="text-xs text-gray-500 mt-0.5">Users and groups with access to this agent</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Everyone listed here can query this agent. The role below only grants extra management rights — use <span class="font-medium">Remove</span> to revoke access.</p>
                         </div>
                         <button
                             v-if="canManageDsMembers"
@@ -63,7 +63,7 @@
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">User / Group</th>
-                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">Permissions</th>
+                                    <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">Management role</th>
                                     <th v-if="canManageDsMembers" class="px-4 py-2 text-start text-xs font-medium text-gray-500 uppercase">Actions</th>
                                 </tr>
                             </thead>
@@ -132,7 +132,7 @@
                                                         {{ formatPermission(p) }}
                                                     </UBadge>
                                                 </span>
-                                                <span v-else class="text-gray-400">None</span>
+                                                <span v-else class="text-gray-400" title="This member can query the agent but has no extra management rights">Query only</span>
                                             </UButton>
                                         </UDropdown>
                                         <div v-else class="flex gap-1 flex-wrap">
@@ -145,7 +145,7 @@
                                             >
                                                 {{ formatPermission(p) }}
                                             </UBadge>
-                                            <span v-if="!m.permissions?.length" class="text-xs text-gray-400">Member</span>
+                                            <span v-if="!m.permissions?.length" class="text-xs text-gray-400" title="This member can query the agent but has no extra management rights">Query only</span>
                                         </div>
                                     </td>
                                     <td v-if="canManageDsMembers" class="px-4 py-3">
