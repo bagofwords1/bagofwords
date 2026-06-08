@@ -26,7 +26,7 @@ from apscheduler.jobstores.base import JobLookupError
 from logging import getLogger
 import asyncio
 
-from app.core.scheduler import scheduler, cron_dow_to_apscheduler
+from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
 from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.ee.audit.service import audit_service
@@ -1521,6 +1521,10 @@ class ReportService:
             raise ValueError("Invalid cron expression format")
     
     async def scheduled_rerun_report_steps(self, report_id: str, current_user_id: str, organization_id: str):
+        # Claim this fire so only one worker/replica reruns the report and emails
+        # subscribers (all workers run a scheduler against the shared job store).
+        if not await asyncio.to_thread(claim_scheduled_run, f"report_{report_id}"):
+            return
         from app.dependencies import async_session_maker
         async with async_session_maker() as db:
             # Load current_user and organization here

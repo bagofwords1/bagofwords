@@ -29,8 +29,12 @@ os.environ.setdefault("BOW_SMTP_PASSWORD", "dummy")
 
 PG = "postgresql://postgres:postgres@127.0.0.1:5432/bow"
 JOB_ID = "scheduled_report_email_repro"
-INTERVAL_SECONDS = 10
-RUN_SECONDS = 35
+# Keep interval > claim window, mirroring production (cron >=60s fires vs 30s
+# claim window). _USE_CLAIM=1 turns on the fix (app.core.scheduler.claim_scheduled_run).
+INTERVAL_SECONDS = int(os.environ.get("_INTERVAL", "8"))
+CLAIM_WINDOW = int(os.environ.get("_CLAIM_WINDOW", "4"))
+USE_CLAIM = os.environ.get("_USE_CLAIM") == "1"
+RUN_SECONDS = 30
 
 
 def record_email_send():
@@ -43,6 +47,12 @@ def record_email_send():
     import psycopg2, time as _t
     pid = os.getpid()
     role = os.environ.get("_WORKER_ROLE", "?")
+    # THE FIX: claim this scheduled fire; only the winning worker sends.
+    if USE_CLAIM:
+        from app.core.scheduler import claim_scheduled_run
+        if not claim_scheduled_run(JOB_ID, window_seconds=CLAIM_WINDOW):
+            print(f"[pid {pid} role={role}] claim lost — skipping send (fix working)", flush=True)
+            return
     # Bucket the send into its scheduled interval window. Both workers compute
     # the SAME next_run_time from the shared job store, so same-tick sends land
     # in the same bucket even if they execute a fraction of a second apart.
