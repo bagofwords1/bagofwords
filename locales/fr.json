@@ -1057,7 +1057,17 @@
       "expiresSoon": "Votre licence expire dans {days} jours. Contactez-nous pour la renouveler.",
       "enterpriseInfo": "Débloquez les journaux d'audit, le contrôle d'accès avancé basé sur les rôles et les politiques de conservation des données avec une licence enterprise.",
       "activateHint": "Définissez {envvar} et redémarrez pour activer.",
-      "learnMore": "En savoir plus →"
+      "learnMore": "En savoir plus →",
+      "banner": {
+        "expiring": "Votre licence enterprise expire dans {days} jours — renouvelez-la pour éviter toute interruption.",
+        "expired": "Votre licence enterprise a expiré — renouvelez-la pour restaurer les fonctionnalités enterprise.",
+        "viewLicense": "Voir la licence"
+      },
+      "fieldTier": "Niveau",
+      "inDays": "{days} jours restants",
+      "expiredNotice": "Votre licence enterprise a expiré. Les fonctionnalités enterprise sont désactivées jusqu'au renouvellement.",
+      "enterpriseTitle": "Édition enterprise",
+      "renewInfo": "Renouvelez votre licence pour restaurer les fonctionnalités enterprise comme les journaux d'audit, le contrôle d'accès avancé et les politiques de rétention des données."
     },
     "mcpModal": {
       "editTitle": "Modifier la connexion MCP",

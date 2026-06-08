@@ -1135,7 +1135,17 @@
       "expiresSoon": "הרישיון שלך יפוג בעוד {days} ימים. צור איתנו קשר לחידוש.",
       "enterpriseInfo": "פתח יומני ביקורת, בקרת גישה מתקדמת מבוססת תפקידים ומדיניות שמירת נתונים עם רישיון Enterprise.",
       "activateHint": "הגדר את {envvar} והפעל מחדש כדי להפעיל.",
-      "learnMore": "למידע נוסף →"
+      "learnMore": "למידע נוסף →",
+      "banner": {
+        "expiring": "רישיון ה-enterprise שלך יפוג בעוד {days} ימים — חדש אותו כדי למנוע הפרעה.",
+        "expired": "רישיון ה-enterprise שלך פג — חדש אותו כדי לשחזר את תכונות ה-enterprise.",
+        "viewLicense": "הצג רישיון"
+      },
+      "fieldTier": "דרגה",
+      "inDays": "נותרו {days} ימים",
+      "expiredNotice": "רישיון ה-enterprise שלך פג. תכונות ה-enterprise מושבתות עד לחידוש.",
+      "enterpriseTitle": "מהדורת enterprise",
+      "renewInfo": "חדש את הרישיון כדי לשחזר תכונות enterprise כמו יומני ביקורת, בקרת גישה מתקדמת ומדיניות שמירת נתונים."
     },
     "mcpModal": {
       "editTitle": "עריכת חיבור MCP",

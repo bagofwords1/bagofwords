@@ -10,11 +10,31 @@
         <span>{{ showGlobalOnboardingBannerText }}</span>
       </div>
     </div>
+
+    <!-- License expiry countdown banner (shown in the last 30 days, and after expiry) -->
+    <div v-if="showLicenseBanner" class="fixed top-0 start-0 end-0 z-[1000]">
+      <div
+        :class="[
+          'text-center text-sm py-2 px-4 flex items-center justify-center gap-2 shadow-md',
+          licenseExpired
+            ? 'bg-red-600/95 text-white'
+            : 'bg-amber-500/95 text-white',
+          canModifySettings ? 'cursor-pointer hover:opacity-95' : ''
+        ]"
+        @click="canModifySettings ? router.push('/settings/license') : null"
+      >
+        <UIcon :name="licenseExpired ? 'i-heroicons-exclamation-circle' : 'i-heroicons-exclamation-triangle'" class="h-5 shrink-0" />
+        <span>{{ licenseBannerText }}</span>
+        <span v-if="canModifySettings" class="underline underline-offset-2 font-medium ms-1">
+          {{ $t('settings.licensePage.banner.viewLicense') }}
+        </span>
+      </div>
+    </div>
   <aside id="separator-sidebar"
     :class="[
       'fixed start-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full rtl:translate-x-full sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80',
       isCollapsed ? 'w-14' : 'w-48',
-      showGlobalOnboardingBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
+      showTopBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
     <button @click="toggleSidebar" :class="[
@@ -195,7 +215,7 @@
 
   </aside>
 
-  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-48', showGlobalOnboardingBanner ? 'pt-10' : 'pt-0']">
+  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-48', showTopBanner ? 'pt-10' : 'pt-0']">
     <UNotifications />
 
     <slot />
@@ -321,6 +341,22 @@
     const ob = onboarding.value as any
     if (!ob) return '/onboarding'
     return ob.current_step === 'llm_configured' ? '/onboarding/llm' : '/onboarding/data'
+  })
+
+  // License expiry countdown banner. Shown to everyone (an expired license affects the
+  // whole org), but only admins get the clickable link to the license settings page.
+  const { isExpired: licenseExpired, isExpiringSoon, daysUntilExpiry } = useEnterprise()
+  const showLicenseBanner = computed<boolean>(() => {
+    // Never stack on top of the onboarding banner — they share the same fixed slot,
+    // and a brand-new org won't have a near-expiry enterprise license anyway.
+    if (showGlobalOnboardingBanner.value) return false
+    return licenseExpired.value || isExpiringSoon.value
+  })
+  // Either fixed top banner pushes the sidebar + content down by the same amount.
+  const showTopBanner = computed<boolean>(() => showGlobalOnboardingBanner.value || showLicenseBanner.value)
+  const licenseBannerText = computed<string>(() => {
+    if (licenseExpired.value) return t('settings.licensePage.banner.expired')
+    return t('settings.licensePage.banner.expiring', { days: daysUntilExpiry.value ?? 0 })
   })
 
   const { isExcel } = useExcel()
