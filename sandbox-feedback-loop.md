@@ -372,11 +372,12 @@ In `resolve_credentials_for_connection` (~1696-1780) and the legacy
 `resolve_credentials` (~1396-1474), replace the *silent* owner/admin→SP fallback with
 toggle-aware logic for `user_required` connections:
 - Admin/owner + `query_identity == "service_account"` → SP creds (explicit choice).
-- Admin/owner + `self` (default):
+- Admin/owner + `self` (**default, even when no pref/row exists**):
   - personal `UserConnectionCredentials` token present → use it (with existing
     `maybe_refresh_oauth_credentials`).
-  - none/expired-no-refresh → **fall back to SP** (no breakage) and mark the status as
-    "not connected as self" so the UI nudges Connect.
+  - none/expired-no-refresh → **do NOT fall back to SP**. Block with a clear
+    "Connect required" (403-style) and have the UI surface the Connect button. SP is
+    used *only* when the admin explicitly switches to `service_account`.
 - Regular users → unchanged (their own token, else 403 → Connect).
 
 **3. Backend — status** (`user_data_source_credentials_service.build_user_status*`).
@@ -414,8 +415,10 @@ functional change.
 **Out of scope / unchanged:** regular-user flow, the OBO-at-login auto-provision
 (keeps working), and the SP's indexing role.
 
-**One open default to confirm:** admin selects "Me" but isn't connected yet — fall back
-to SP silently (recommended, no breakage) vs hard-block with "Connect required".
+**Resolved:** default identity is **`self` (Me)** even when no preference/row exists.
+Selecting "Me" **never** silently uses the SP — if there's no valid personal token the
+query is blocked and the UI prompts **Connect**. SP is used only when the admin
+explicitly chooses `service_account`.
 
 
 ---
