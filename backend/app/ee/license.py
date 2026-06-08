@@ -56,8 +56,15 @@ class LicenseInfo(BaseModel):
     license_id: Optional[str] = None
 
 
-# Cached license info (validated once at startup/first access)
-_cached_license: Optional[LicenseInfo] = None
+# Cached license state.
+#
+# Signature verification is an expensive cryptographic operation, so we cache the
+# *verified JWT claims* once (or a sentinel LicenseInfo for community/invalid keys).
+# The time-based expiry decision, however, is re-evaluated on every call so a license
+# that expires while the process is running is reflected immediately — without needing
+# a pod/container restart.
+_cached_payload: Optional[dict] = None
+_cached_unlicensed: Optional[LicenseInfo] = None
 _cache_initialized: bool = False
 
 
@@ -75,8 +82,15 @@ def _get_license_key() -> Optional[str]:
     return None
 
 
-def _validate_license_key(key: str) -> LicenseInfo:
-    """Validate a license key and return license info"""
+def _verify_license_key(key: str) -> Optional[dict]:
+    """
+    Verify a license key's signature and issuer.
+
+    Returns the verified JWT claims (without applying the expiry check), or None if the
+    key is missing, malformed, signed by the wrong key, or issued by the wrong issuer.
+    The time-based expiry decision is deliberately left to the caller so it can be
+    re-evaluated on every access rather than frozen at verification time.
+    """
     try:
         # Remove bow_lic_ prefix if present
         if key.startswith("bow_lic_"):
@@ -96,65 +110,88 @@ def _validate_license_key(key: str) -> LicenseInfo:
         # Check issuer
         if payload.get("iss") != "bagofwords.com":
             logger.warning("Invalid license issuer")
-            return LicenseInfo(licensed=False, tier="community")
+            return None
 
-        # Check expiration manually (so we can preserve org_name for expired licenses)
-        exp = payload.get("exp")
-        expires_at = None
-        if exp:
-            expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
-            if expires_at < datetime.now(timezone.utc):
-                logger.warning("License has expired")
-                return LicenseInfo(
-                    licensed=False,
-                    tier="expired",
-                    org_name=payload.get("org_name"),
-                    expires_at=expires_at,
-                    license_id=payload.get("sub")
-                )
-
-        # Valid license
-        return LicenseInfo(
-            licensed=True,
-            tier=payload.get("tier", "enterprise"),
-            org_name=payload.get("org_name"),
-            expires_at=expires_at,
-            features=payload.get("features", []),
-            license_id=payload.get("sub")
-        )
+        return payload
 
     except jwt.InvalidTokenError as e:
         logger.warning(f"Invalid license key: {e}")
-        return LicenseInfo(licensed=False, tier="community")
+        return None
     except Exception as e:
         logger.error(f"Error validating license: {e}")
-        return LicenseInfo(licensed=False, tier="community")
+        return None
+
+
+def _license_info_from_payload(payload: dict) -> LicenseInfo:
+    """
+    Build LicenseInfo from verified JWT claims, applying a *current-time* expiry check.
+
+    This is called on every get_license_info() access so an expired license is reflected
+    immediately, even if it was still valid when its signature was first verified.
+    """
+    # Check expiration (so we can preserve org_name for expired licenses)
+    exp = payload.get("exp")
+    expires_at = None
+    if exp:
+        expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            return LicenseInfo(
+                licensed=False,
+                tier="expired",
+                org_name=payload.get("org_name"),
+                expires_at=expires_at,
+                license_id=payload.get("sub")
+            )
+
+    # Valid (not yet expired) license
+    return LicenseInfo(
+        licensed=True,
+        tier=payload.get("tier", "enterprise"),
+        org_name=payload.get("org_name"),
+        expires_at=expires_at,
+        features=payload.get("features", []),
+        license_id=payload.get("sub")
+    )
 
 
 def get_license_info(force_refresh: bool = False) -> LicenseInfo:
     """
     Get current license information.
-    Results are cached after first validation.
+
+    The license key's signature is verified once and the resulting claims are cached,
+    but the expiry check is re-evaluated on every call. This means a license that
+    expires while the process is running takes effect immediately, rather than only
+    after a pod/container restart.
     """
-    global _cached_license, _cache_initialized
+    global _cached_payload, _cached_unlicensed, _cache_initialized
 
-    if _cache_initialized and not force_refresh:
-        return _cached_license
+    if not _cache_initialized or force_refresh:
+        key = _get_license_key()
+        if not key:
+            _cached_payload = None
+            _cached_unlicensed = LicenseInfo(licensed=False, tier="community")
+        else:
+            payload = _verify_license_key(key)
+            if payload is None:
+                _cached_payload = None
+                _cached_unlicensed = LicenseInfo(licensed=False, tier="community")
+            else:
+                _cached_payload = payload
+                _cached_unlicensed = None
 
-    key = _get_license_key()
-    if not key:
-        _cached_license = LicenseInfo(licensed=False, tier="community")
-    else:
-        _cached_license = _validate_license_key(key)
+        _cache_initialized = True
 
-    _cache_initialized = True
+        # Log the resolved status once, at (re)initialization, to avoid per-call noise.
+        _initial = _license_info_from_payload(_cached_payload) if _cached_payload else _cached_unlicensed
+        if _initial.licensed:
+            logger.info(f"Enterprise license active: {_initial.org_name}, tier: {_initial.tier}")
+        else:
+            logger.info(f"Running in community mode (tier: {_initial.tier})")
 
-    if _cached_license.licensed:
-        logger.info(f"Enterprise license active: {_cached_license.org_name}, tier: {_cached_license.tier}")
-    else:
-        logger.info(f"Running in community mode (tier: {_cached_license.tier})")
-
-    return _cached_license
+    # Re-derive the time-sensitive status on every call from the cached claims.
+    if _cached_payload is not None:
+        return _license_info_from_payload(_cached_payload)
+    return _cached_unlicensed
 
 
 def is_enterprise_licensed() -> bool:
@@ -248,6 +285,7 @@ def require_enterprise(feature: Optional[str] = None):
 
 def clear_license_cache():
     """Clear the license cache (useful for testing or config reload)"""
-    global _cached_license, _cache_initialized
-    _cached_license = None
+    global _cached_payload, _cached_unlicensed, _cache_initialized
+    _cached_payload = None
+    _cached_unlicensed = None
     _cache_initialized = False

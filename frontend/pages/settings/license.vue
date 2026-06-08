@@ -1,53 +1,52 @@
 <template>
-  <div class="mt-6">
-    <h2 class="text-lg font-medium text-gray-900">
-      {{ $t('settings.licensePage.title') }}
-      <p class="text-sm text-gray-500 font-normal mb-8">
-        {{ $t('settings.licensePage.subtitle') }}
-      </p>
-    </h2>
+  <div class="mt-4">
+    <!-- Header -->
+    <div class="mb-6">
+      <h2 class="text-sm font-medium text-gray-900">{{ $t('settings.licensePage.title') }}</h2>
+      <p class="text-xs text-gray-500 mt-0.5">{{ $t('settings.licensePage.subtitle') }}</p>
+    </div>
 
-    <div v-if="loading" class="py-4">
+    <div v-if="loading" class="py-8 flex justify-center">
       <ULoader />
     </div>
 
-    <div v-else class="space-y-6">
+    <div v-else class="space-y-4 max-w-2xl">
       <!-- License Status Card -->
-      <div class="rounded-lg border border-gray-200 p-5">
-        <div class="flex items-center justify-between">
+      <div
+        :class="[
+          'rounded-lg border p-5',
+          isExpired ? 'border-red-200 bg-red-50/40' : 'border-gray-200'
+        ]"
+      >
+        <div class="flex items-start justify-between gap-4">
           <div class="flex items-center gap-3">
             <div
               :class="[
-                'w-8 h-8 rounded-full flex items-center justify-center',
-                isLicensed ? 'bg-green-50' : 'bg-gray-50'
+                'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
+                isLicensed ? 'bg-green-50' : isExpired ? 'bg-red-50' : 'bg-gray-100'
               ]"
             >
-              <svg
+              <UIcon
                 v-if="isLicensed"
-                class="w-4 h-4 text-green-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke-width="2"
-                stroke="currentColor"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-              <svg
+                name="i-heroicons-check-badge"
+                class="w-5 h-5 text-green-600"
+              />
+              <UIcon
+                v-else-if="isExpired"
+                name="i-heroicons-exclamation-circle"
+                class="w-5 h-5 text-red-500"
+              />
+              <UIcon
                 v-else
-                class="w-4 h-4 text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke-width="2"
-                stroke="currentColor"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12h-15" />
-              </svg>
+                name="i-heroicons-cube"
+                class="w-5 h-5 text-gray-400"
+              />
             </div>
             <div>
               <p class="text-sm font-medium text-gray-900">
                 {{ isLicensed ? $t('settings.licensePage.enterprise') : $t('settings.licensePage.community') }}
               </p>
-              <p class="text-xs text-gray-500">
+              <p class="text-xs text-gray-500 mt-0.5">
                 <template v-if="isLicensed && license?.org_name">
                   {{ license.org_name }}
                 </template>
@@ -69,22 +68,26 @@
           </UBadge>
         </div>
 
-        <!-- License Details (if licensed) -->
-        <div v-if="isLicensed || isExpired" class="mt-4 pt-4 border-t border-gray-100 space-y-2">
-          <div class="flex justify-between text-xs">
-            <span class="text-gray-500">{{ $t('settings.licensePage.fieldLicenseId') }}</span>
-            <span class="font-mono text-gray-700">{{ license?.license_id || '-' }}</span>
+        <!-- License Details (if licensed or expired) -->
+        <dl v-if="isLicensed || isExpired" class="mt-5 pt-4 border-t border-gray-100 space-y-2.5">
+          <div class="flex justify-between items-center text-xs">
+            <dt class="text-gray-500">{{ $t('settings.licensePage.fieldTier') }}</dt>
+            <dd class="text-gray-700 capitalize">{{ license?.tier || '-' }}</dd>
           </div>
-          <div v-if="expiresAt" class="flex justify-between text-xs">
-            <span class="text-gray-500">{{ $t('settings.licensePage.fieldExpires') }}</span>
-            <span :class="isExpiringSoon ? 'text-amber-600' : 'text-gray-700'">
+          <div class="flex justify-between items-center text-xs">
+            <dt class="text-gray-500">{{ $t('settings.licensePage.fieldLicenseId') }}</dt>
+            <dd class="font-mono text-gray-700">{{ license?.license_id || '-' }}</dd>
+          </div>
+          <div v-if="expiresAt" class="flex justify-between items-center text-xs">
+            <dt class="text-gray-500">{{ $t('settings.licensePage.fieldExpires') }}</dt>
+            <dd :class="isExpiringSoon || isExpired ? 'text-amber-600 font-medium' : 'text-gray-700'">
               {{ formatDate(expiresAt) }}
-              <template v-if="daysUntilExpiry && daysUntilExpiry > 0">
-                ({{ daysUntilExpiry }} {{ $t('common.days') }})
-              </template>
-            </span>
+              <span v-if="daysUntilExpiry !== null && daysUntilExpiry > 0" class="text-gray-400">
+                · {{ $t('settings.licensePage.inDays', { days: daysUntilExpiry }) }}
+              </span>
+            </dd>
           </div>
-        </div>
+        </dl>
 
         <!-- Expiry Warning -->
         <UAlert
@@ -93,13 +96,25 @@
           color="amber"
           variant="subtle"
           icon="i-heroicons-exclamation-triangle"
-        >
-          {{ $t('settings.licensePage.expiresSoon', { days: daysUntilExpiry }) }}
-        </UAlert>
+          :title="$t('settings.licensePage.expiresSoon', { days: daysUntilExpiry })"
+        />
+
+        <!-- Expired Notice -->
+        <UAlert
+          v-else-if="isExpired"
+          class="mt-4"
+          color="red"
+          variant="subtle"
+          icon="i-heroicons-exclamation-circle"
+          :title="$t('settings.licensePage.expiredNotice')"
+        />
       </div>
 
-      <!-- Enterprise Info (only show when not licensed) -->
-      <div v-if="!isLicensed" class="rounded-lg border border-gray-200 p-5">
+      <!-- Enterprise Info (only show when not licensed and not expired) -->
+      <div v-if="!isLicensed && !isExpired" class="rounded-lg border border-gray-200 p-5">
+        <p class="text-sm text-gray-700 font-medium mb-1">
+          {{ $t('settings.licensePage.enterpriseTitle') }}
+        </p>
         <p class="text-sm text-gray-600 mb-3">
           {{ $t('settings.licensePage.enterpriseInfo') }}
         </p>
@@ -111,10 +126,25 @@
           </i18n-t>
         </p>
         <a
-          href="https://docs.bagofwords/enterprise"
+          href="https://docs.bagofwords.com/enterprise"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-xs text-blue-600 hover:text-blue-700"
+          class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+        >
+          {{ $t('settings.licensePage.learnMore') }}
+        </a>
+      </div>
+
+      <!-- Renew CTA when expired -->
+      <div v-if="isExpired" class="rounded-lg border border-gray-200 p-5">
+        <p class="text-sm text-gray-600 mb-3">
+          {{ $t('settings.licensePage.renewInfo') }}
+        </p>
+        <a
+          href="https://docs.bagofwords.com/enterprise"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
         >
           {{ $t('settings.licensePage.learnMore') }}
         </a>

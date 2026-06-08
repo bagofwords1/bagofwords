@@ -1057,7 +1057,17 @@
       "expiresSoon": "Sua licença expira em {days} dias. Entre em contato conosco para renovar.",
       "enterpriseInfo": "Desbloqueie logs de auditoria, controle de acesso avançado baseado em funções e políticas de retenção de dados com uma licença enterprise.",
       "activateHint": "Defina {envvar} e reinicie para ativar.",
-      "learnMore": "Saiba mais →"
+      "learnMore": "Saiba mais →",
+      "banner": {
+        "expiring": "Sua licença enterprise expira em {days} dias — renove para evitar interrupções.",
+        "expired": "Sua licença enterprise expirou — renove para restaurar os recursos enterprise.",
+        "viewLicense": "Ver licença"
+      },
+      "fieldTier": "Nível",
+      "inDays": "{days} dias restantes",
+      "expiredNotice": "Sua licença enterprise expirou. Os recursos enterprise estão desativados até a renovação.",
+      "enterpriseTitle": "Edição enterprise",
+      "renewInfo": "Renove sua licença para restaurar recursos enterprise como registros de auditoria, controle de acesso avançado e políticas de retenção de dados."
     },
     "mcpModal": {
       "editTitle": "Editar conexão MCP",

@@ -1057,7 +1057,17 @@
       "expiresSoon": "ينتهي ترخيصك خلال {days} يومًا. تواصل معنا للتجديد.",
       "enterpriseInfo": "احصل على سجلات التدقيق وإدارة الوصول المتقدمة المستندة إلى الأدوار وسياسات الاحتفاظ بالبيانات مع ترخيص enterprise.",
       "activateHint": "اضبط {envvar} وأعد التشغيل للتفعيل.",
-      "learnMore": "اعرف المزيد ←"
+      "learnMore": "اعرف المزيد ←",
+      "banner": {
+        "expiring": "ينتهي ترخيص enterprise الخاص بك خلال {days} يوم — جدّده لتجنب الانقطاع.",
+        "expired": "انتهت صلاحية ترخيص enterprise الخاص بك — جدّده لاستعادة ميزات enterprise.",
+        "viewLicense": "عرض الترخيص"
+      },
+      "fieldTier": "المستوى",
+      "inDays": "باقٍ {days} يوم",
+      "expiredNotice": "انتهت صلاحية ترخيص enterprise الخاص بك. ميزات enterprise معطّلة حتى التجديد.",
+      "enterpriseTitle": "إصدار enterprise",
+      "renewInfo": "جدّد ترخيصك لاستعادة ميزات enterprise مثل سجلات التدقيق والتحكم المتقدم في الوصول وسياسات الاحتفاظ بالبيانات."
     },
     "mcpModal": {
       "editTitle": "تعديل اتصال MCP",

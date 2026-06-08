@@ -1057,7 +1057,17 @@
       "expiresSoon": "La tua licenza scade tra {days} giorni. Contattaci per il rinnovo.",
       "enterpriseInfo": "Sblocca i registri di audit, il controllo degli accessi avanzato basato sui ruoli e le politiche di conservazione dei dati con una licenza enterprise.",
       "activateHint": "Imposta {envvar} e riavvia per attivare.",
-      "learnMore": "Scopri di più →"
+      "learnMore": "Scopri di più →",
+      "banner": {
+        "expiring": "La tua licenza enterprise scade tra {days} giorni — rinnovala per evitare interruzioni.",
+        "expired": "La tua licenza enterprise è scaduta — rinnovala per ripristinare le funzionalità enterprise.",
+        "viewLicense": "Visualizza licenza"
+      },
+      "fieldTier": "Livello",
+      "inDays": "{days} giorni rimanenti",
+      "expiredNotice": "La tua licenza enterprise è scaduta. Le funzionalità enterprise sono disattivate fino al rinnovo.",
+      "enterpriseTitle": "Edizione enterprise",
+      "renewInfo": "Rinnova la licenza per ripristinare le funzionalità enterprise come i log di audit, il controllo degli accessi avanzato e le policy di conservazione dei dati."
     },
     "mcpModal": {
       "editTitle": "Modifica connessione MCP",
