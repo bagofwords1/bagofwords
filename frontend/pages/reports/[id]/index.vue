@@ -523,6 +523,7 @@
 					:report_id="report_id"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
+					:textareaContent="prefillText"
 					:latestInProgressCompletion="isCompletionInProgress ? {} : undefined"
 					:isStopping="false"
 					:queryList="queryList"
@@ -1383,6 +1384,8 @@ const initialPanelWidth = ref(0)
 
 // Live prompt mode (mirrors PromptBoxV2 selection; initialised from report once loaded)
 const currentPromptMode = ref<'chat' | 'deep' | 'training'>('chat')
+// Draft text pushed into the prompt box without auto-submitting (e.g. training session).
+const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m as any }, { immediate: true })
 
 // Right panel view mode
@@ -3556,6 +3559,9 @@ onMounted(async () => {
 		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
 		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
 		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined })
+	} else if (route.query.prompt && messages.value.length == 0) {
+		// Pre-fill the prompt box without submitting (e.g. a training session draft).
+		prefillText.value = route.query.prompt as string
 	}
 
 	// If a system message is still in progress (after refresh), begin polling until it finishes
