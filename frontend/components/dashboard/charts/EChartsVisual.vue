@@ -458,20 +458,48 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
   // Respect user's legend setting, default to hidden
   const legendShouldShow = props.view?.legendVisible ?? viewV2?.legend?.show ?? false
 
-  // Only include legend config when it should be shown
-  const legendConfig = legendShouldShow ? {
-    show: true,
-    data: series.map(s => s.name),
-    right: 12,
-    top: 12,
-    orient: 'horizontal',
-    itemWidth: 10,
-    itemHeight: 6,
-    icon: 'roundRect',
-    textStyle: { color: tokens.value?.legend?.textColor, fontSize: 11 }
-  } : { show: false }
+  // Only include legend config when it should be shown. With many series a
+  // single horizontal row overflows the chart, so dock a scrollable vertical
+  // legend on the right and reserve grid space for it.
+  const manySeries = series.length > 8
+  const legendConfig = legendShouldShow
+    ? (manySeries
+      ? {
+        show: true,
+        type: 'scroll',
+        orient: 'vertical',
+        right: 8,
+        top: 8,
+        bottom: 8,
+        data: series.map(s => s.name),
+        itemWidth: 10,
+        itemHeight: 6,
+        icon: 'roundRect',
+        pageButtonItemGap: 4,
+        textStyle: { color: tokens.value?.legend?.textColor, fontSize: 11 }
+      }
+      : {
+        show: true,
+        type: 'scroll',
+        data: series.map(s => s.name),
+        right: 12,
+        top: 12,
+        orient: 'horizontal',
+        itemWidth: 10,
+        itemHeight: 6,
+        icon: 'roundRect',
+        textStyle: { color: tokens.value?.legend?.textColor, fontSize: 11 }
+      })
+    : { show: false }
+
+  // Reserve room on the right for the vertical legend so it doesn't overlap
+  // the plot.
+  const gridOverride = (legendShouldShow && manySeries)
+    ? { containLabel: true, left: 24, right: 150, bottom: 24, top: 18 }
+    : undefined
 
   return {
+    ...(gridOverride ? { grid: gridOverride } : {}),
     tooltip: { trigger: 'axis' },
     xAxis: isHorizontal ? valueAxis : categoryAxis,
     yAxis: isHorizontal ? categoryAxis : valueAxis,

@@ -1057,7 +1057,17 @@
       "expiresSoon": "Ihre Lizenz läuft in {days} Tagen ab. Kontaktieren Sie uns zur Verlängerung.",
       "enterpriseInfo": "Schalten Sie Audit-Protokolle, erweiterte rollenbasierte Zugriffskontrolle und Datenaufbewahrungsrichtlinien mit einer Enterprise-Lizenz frei.",
       "activateHint": "Setzen Sie {envvar} und starten Sie neu, um zu aktivieren.",
-      "learnMore": "Mehr erfahren →"
+      "learnMore": "Mehr erfahren →",
+      "banner": {
+        "expiring": "Ihre Enterprise-Lizenz läuft in {days} Tagen ab – verlängern Sie, um Unterbrechungen zu vermeiden.",
+        "expired": "Ihre Enterprise-Lizenz ist abgelaufen – verlängern Sie, um Enterprise-Funktionen wiederherzustellen.",
+        "viewLicense": "Lizenz anzeigen"
+      },
+      "fieldTier": "Stufe",
+      "inDays": "noch {days} Tage",
+      "expiredNotice": "Ihre Enterprise-Lizenz ist abgelaufen. Enterprise-Funktionen sind bis zur Verlängerung deaktiviert.",
+      "enterpriseTitle": "Enterprise-Edition",
+      "renewInfo": "Verlängern Sie Ihre Lizenz, um Enterprise-Funktionen wie Audit-Logs, erweiterte Zugriffssteuerung und Datenaufbewahrungsrichtlinien wiederherzustellen."
     },
     "mcpModal": {
       "editTitle": "MCP-Verbindung bearbeiten",

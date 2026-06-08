@@ -608,6 +608,13 @@ async def warm_all_qvd_caches() -> None:
     Parquet caches are warm. Designed to run on an APScheduler interval.
     A single module-level semaphore caps concurrent pyqvd parses at 1 per pod.
     """
+    import asyncio
+    from app.core.scheduler import claim_scheduled_run
+    # Every worker runs a scheduler against the shared job store, so this can
+    # fire in multiple workers at once. Claim the fire so only one warms.
+    if not await asyncio.to_thread(claim_scheduled_run, "qvd_warmup"):
+        return
+
     from sqlalchemy import select
 
     from app.dependencies import async_session_maker

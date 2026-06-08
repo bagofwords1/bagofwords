@@ -1232,8 +1232,18 @@ class AgentV2:
             # Restore the original mode
             self.mode = prior_mode
 
-    async def _generate_title_background(self, messages_context: str, plan_info: list):
-        """Generate report title in background after completion.finished is sent."""
+    async def _generate_title_background(self, messages_context: str, plan_info: list, report_id: str):
+        """Generate report title in background after completion.finished is sent.
+
+        `report_id` is passed in as a plain string (captured while the request's
+        session is still alive). We must NOT read it off `self.report` here: this
+        runs as a fire-and-forget task that can outlive the request, at which point
+        `self.report` is detached from its (now-closed) session and any attribute
+        access raises "Instance is not bound to a Session". That silently skipped
+        title generation — most visibly on Postgres, whose pooled connections
+        return/expire faster than SQLite's, so the session was reliably gone by the
+        time this task ran.
+        """
         import logging
         logger = logging.getLogger(__name__)
         try:
@@ -1248,14 +1258,14 @@ class AgentV2:
                     # lazyload("*") suppresses Report's lazy="selectin" cascade (14 rels +
                     # downstream DS/widget/query graph) — update_report_title only touches title.
                     from sqlalchemy.orm import lazyload as _lazyload
-                    stmt = select(Report).where(Report.id == self.report.id).options(_lazyload("*"))
+                    stmt = select(Report).where(Report.id == report_id).options(_lazyload("*"))
                     result = await session.execute(stmt)
                     report = result.scalar_one_or_none()
                     if report:
                         await self.project_manager.update_report_title(session, report, title)
                         logger.info(f"Report title updated to: {title}")
                     else:
-                        logger.warning(f"Report not found for title update: {self.report.id}")
+                        logger.warning(f"Report not found for title update: {report_id}")
                 except Exception as e:
                     logger.error(f"Failed to generate/update report title: {e}")
         except Exception as e:
@@ -3317,15 +3327,22 @@ class AgentV2:
                         # Generate title in background to not block completion
                         messages_section = await self.context_hub.message_builder.build(max_messages=5)
                         messages_context = messages_section.render()
-                        
+
                         # Extract plan information from current execution
                         plan_info = []
                         if current_plan_decision:
                             if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
                                 plan_info.append({"action": current_plan_decision.action_name})
-                        
+
+                        # Capture the report id as a plain string NOW, while self.db is
+                        # still open. The background task can outlive the request, and
+                        # reading self.report.id after the session closes raises
+                        # "Instance is not bound to a Session" (the bug that silently
+                        # skipped title generation, esp. on Postgres).
+                        report_id_for_title = str(self.report.id)
+
                         # Run title generation in background
-                        asyncio.create_task(self._generate_title_background(messages_context, plan_info))
+                        asyncio.create_task(self._generate_title_background(messages_context, plan_info, report_id_for_title))
             except Exception as e:
                 # Don't fail the entire execution if title generation fails
                 import logging

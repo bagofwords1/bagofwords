@@ -184,6 +184,48 @@ class TestLicenseValidation:
         assert info.tier == "expired"
         assert info.org_name == "Expired Corp"
 
+    def test_license_expiring_while_running_takes_effect_without_restart(
+        self, test_client, patch_license_key
+    ):
+        """A license that expires while the process runs must be reflected on the next
+        access — without a force_refresh, cache clear, or process restart.
+
+        Regression test: previously the resolved LicenseInfo was cached once, so an
+        expired license kept reporting licensed=True until the pod/container restarted.
+        """
+        import app.ee.license as license_module
+        from app.ee.license import get_license_info, clear_license_cache, is_enterprise_licensed
+        from app.settings.config import settings
+
+        # Valid license at startup.
+        test_license = _create_test_license(org_name="Running Corp", tier="enterprise")
+        if not hasattr(settings.bow_config, 'license') or not settings.bow_config.license:
+            from app.settings.bow_config import LicenseConfig
+            settings.bow_config.license = LicenseConfig(key=test_license)
+        else:
+            settings.bow_config.license.key = test_license
+
+        clear_license_cache()
+
+        # First access: signature verified, info cached, license is active.
+        info = get_license_info(force_refresh=True)
+        assert info.licensed is True
+        assert info.tier == "enterprise"
+        assert is_enterprise_licensed() is True
+
+        # Simulate wall-clock time advancing past expiry by moving the cached info's
+        # expiry into the past. No force_refresh / cache clear — only time has "passed".
+        license_module._cached_license.expires_at = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
+        )
+
+        # Next access must re-evaluate expiry from the cached info and report expired.
+        info_after = get_license_info()
+        assert info_after.licensed is False
+        assert info_after.tier == "expired"
+        assert info_after.org_name == "Running Corp"
+        assert is_enterprise_licensed() is False
+
     def test_invalid_license_signature(self, test_client, license_env_cleanup):
         """Test invalid license signature returns community mode."""
         from app.ee.license import get_license_info, clear_license_cache

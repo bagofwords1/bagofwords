@@ -1200,7 +1200,17 @@
       "expiresSoon": "Your license expires in {days} days. Contact us to renew.",
       "enterpriseInfo": "Unlock audit logs, advanced role-based access control, and data retention policies with an enterprise license.",
       "activateHint": "Set {envvar} and restart to activate.",
-      "learnMore": "Learn more →"
+      "learnMore": "Learn more →",
+      "banner": {
+        "expiring": "Your enterprise license expires in {days} days — renew to avoid interruption.",
+        "expired": "Your enterprise license has expired — renew to restore enterprise features.",
+        "viewLicense": "View license"
+      },
+      "fieldTier": "Tier",
+      "inDays": "{days} days left",
+      "expiredNotice": "Your enterprise license has expired. Enterprise features are now disabled until you renew.",
+      "enterpriseTitle": "Enterprise edition",
+      "renewInfo": "Renew your license to restore enterprise features like audit logs, advanced role-based access control, and data retention policies."
     },
     "mcpModal": {
       "editTitle": "Edit MCP Connection",

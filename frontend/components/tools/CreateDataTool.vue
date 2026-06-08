@@ -130,8 +130,10 @@
       </div>
     </Transition>
 
-    <!-- Results Preview - only show if not failed -->
-    <div class="mt-2" v-if="hasPreview && status !== 'error'">
+    <!-- Results Preview - only show if not failed.
+         Small table results stay hidden until the user expands the tool via
+         the existing header chevron; charts and larger tables always render. -->
+    <div class="mt-2" v-if="hasPreview && status !== 'error' && (!autoCollapsePreview || !createDataCollapsed)">
       <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
     </div>
   </div>
@@ -373,6 +375,19 @@ const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
   }
   return Object.entries(groups).map(([type, names]) => ({ type, names }))
 })
+
+// Hide the data preview by default for small table results (< 10 rows).
+// The agent describes these in its text answer, so the inline table is
+// redundant — the existing header chevron (createDataCollapsed) reveals it
+// when wanted. Charts and metric cards are visualizations and always render.
+const SMALL_RESULT_THRESHOLD = 10
+const resultDataModelType = computed(() => (props.toolExecution.result_json as any)?.data_model?.type || '')
+const isTableResult = computed(() => !resultDataModelType.value || resultDataModelType.value === 'table')
+const autoCollapsePreview = computed(() =>
+  isTableResult.value
+  && executionRowCount.value != null
+  && executionRowCount.value < SMALL_RESULT_THRESHOLD
+)
 
 function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
 function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }

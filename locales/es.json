@@ -1135,7 +1135,17 @@
       "expiresSoon": "Tu licencia caduca en {days} días. Contáctanos para renovarla.",
       "enterpriseInfo": "Desbloquea registros de auditoría, control avanzado de acceso por roles y políticas de retención de datos con una licencia Enterprise.",
       "activateHint": "Configura {envvar} y reinicia para activar.",
-      "learnMore": "Más información →"
+      "learnMore": "Más información →",
+      "banner": {
+        "expiring": "Tu licencia enterprise caduca en {days} días: renuévala para evitar interrupciones.",
+        "expired": "Tu licencia enterprise ha caducado: renuévala para restaurar las funciones enterprise.",
+        "viewLicense": "Ver licencia"
+      },
+      "fieldTier": "Nivel",
+      "inDays": "{days} días restantes",
+      "expiredNotice": "Tu licencia enterprise ha caducado. Las funciones enterprise están desactivadas hasta que la renueves.",
+      "enterpriseTitle": "Edición enterprise",
+      "renewInfo": "Renueva tu licencia para restaurar funciones enterprise como registros de auditoría, control de acceso avanzado y políticas de retención de datos."
     },
     "mcpModal": {
       "editTitle": "Editar conexión MCP",
