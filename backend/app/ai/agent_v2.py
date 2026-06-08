@@ -215,6 +215,23 @@ class AgentV2:
             # Handle case where data_sources or files might be None
             self.data_sources = getattr(report, 'data_sources', []) or []
             self.clients = clients
+            # Drop data sources that produced no client. The caller builds
+            # `clients` via DataSourceService.construct_clients, which now 403s
+            # for sources the running user can't access — so a source still on
+            # the report's (possibly stale) snapshot that the user lost access
+            # to has no client. Without this, its schema would still flow into
+            # the agent context and the agent would try to query a source it
+            # can't reach, erroring mid-run. Silently dropping it keeps the
+            # context aligned with what's actually queryable. Only filter when
+            # clients were supplied (some non-query callers pass none).
+            if clients:
+                def _has_client(ds):
+                    name = getattr(ds, 'name', None)
+                    if not name:
+                        return False
+                    prefix = f"{name}:"
+                    return any(k == name or k.startswith(prefix) for k in clients)
+                self.data_sources = [ds for ds in self.data_sources if _has_client(ds)]
             all_files = getattr(report, 'files', []) or []
             # Split files: images go to LLM vision, everything else goes through existing flow
             self.image_files = [f for f in all_files if (getattr(f, 'content_type', '') or '').startswith('image/')]
