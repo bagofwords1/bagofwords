@@ -64,6 +64,12 @@ class DataSourceUserStatus(BaseModel):
     effective_auth: Literal["user", "system", "none"] = "none"
     uses_fallback: bool = False
     credentials_id: Optional[str] = None
+    # Admin query-identity toggle (delegated/OBO connections only).
+    # query_identity: which identity the user's queries run under — "self" (their own
+    #   delegated token) or "service_account" (the connection's system/principal creds).
+    # can_switch_identity: whether this user (admin/owner) may flip the toggle.
+    query_identity: Optional[Literal["self", "service_account"]] = None
+    can_switch_identity: bool = False
 
 
 class ConnectionEmbedded(BaseModel):

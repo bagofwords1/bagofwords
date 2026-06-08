@@ -1312,7 +1312,15 @@
     "impactAgentsOne": "This will impact {count} agent",
     "impactAgentsMany": "This will impact {count} agents",
     "andMore": "and {n} more",
-    "tablesRemovedNote": "All tables from this connection will be removed from these agents."
+    "tablesRemovedNote": "All tables from this connection will be removed from these agents.",
+    "runQueriesAs": "Run queries as",
+    "serviceAccount": "Service account",
+    "me": "Me",
+    "connectToQueryAsYou": "Connect your account to query as yourself.",
+    "disconnecting": "Disconnecting…",
+    "disconnect": "Disconnect",
+    "serviceAccountNote": "Queries run with the connection's service account.",
+    "switchIdentityFailed": "Failed to switch query identity"
   },
   "share": {
     "shareDashboard": "Share Dashboard",

@@ -3,6 +3,7 @@ Connection Routes - Admin-only CRUD for database connections.
 Connections are the underlying database connections that Domains (DataSources) link to.
 """
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List
@@ -464,6 +465,74 @@ async def delete_my_connection_credentials(
         connection_id=connection_id,
         organization=organization,
         current_user=user,
+    )
+
+
+class QueryIdentityUpdate(BaseModel):
+    query_identity: str  # "self" | "service_account"
+
+
+@router.patch("/{connection_id}/query-identity")
+async def set_connection_query_identity(
+    connection_id: str,
+    data: QueryIdentityUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Set the admin/owner query-identity for a delegated connection: run queries as
+    the service account or as the user themselves. Persisted per (user, connection).
+    """
+    from app.services.connection_identity import (
+        VALID_IDENTITIES,
+        QUERY_IDENTITY_SERVICE,
+        SERVICE_ACCOUNT_MARKER_MODE,
+        supports_user_token,
+        is_admin_or_owner,
+        get_user_conn_cred_row,
+    )
+    from app.models.user_connection_credentials import UserConnectionCredentials
+    from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+
+    identity = (data.query_identity or "").strip()
+    if identity not in VALID_IDENTITIES:
+        raise HTTPException(status_code=400, detail="query_identity must be 'self' or 'service_account'")
+
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    if (connection.auth_policy or "system_only") != "user_required" or not supports_user_token(connection):
+        raise HTTPException(status_code=400, detail="This connection does not support query-identity selection")
+    if not await is_admin_or_owner(db, connection, current_user):
+        raise HTTPException(status_code=403, detail="Only admins or owners can switch query identity")
+
+    row = await get_user_conn_cred_row(db, connection, current_user)
+    if row is None:
+        # "self" is the default and needs no row. Only persist when choosing the
+        # service account before ever connecting — a lightweight marker row.
+        if identity == QUERY_IDENTITY_SERVICE:
+            row = UserConnectionCredentials(
+                connection_id=str(connection.id),
+                user_id=str(current_user.id),
+                organization_id=str(connection.organization_id),
+                auth_mode=SERVICE_ACCOUNT_MARKER_MODE,
+                is_active=True,
+                is_primary=True,
+                metadata_json={"query_identity": QUERY_IDENTITY_SERVICE},
+            )
+            row.encrypt_credentials({})
+            db.add(row)
+            await db.commit()
+    else:
+        md = dict(row.metadata_json) if isinstance(row.metadata_json, dict) else {}
+        md["query_identity"] = identity
+        row.metadata_json = md
+        db.add(row)
+        await db.commit()
+
+    status = await UserDataSourceCredentialsService().build_user_status_for_connection(
+        db, connection, current_user, live_test=False
+    )
+    return status.model_dump() if hasattr(status, "model_dump") else (
+        status.dict() if hasattr(status, "dict") else status
     )
 
 
