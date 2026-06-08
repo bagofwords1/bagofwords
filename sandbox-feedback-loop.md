@@ -203,6 +203,7 @@ pip install httpx pyjwt   # minimal, for token-level probes
 | 0 | 2026-06-08 | Code review + sandbox net check | Entra & Graph reachable (200); pyodbc not installed | baseline |
 | 1 | 2026-06-08 | Live ROPC + OBO probe, demo1 & demo2 (app `a901…ba677`, tenant `3871…09f9`) | **Direct delegated tokens ✅; OBO ❌ (AADSTS50013)** — OBO assertion was a Graph-aud token | see §6a |
 | 2 | 2026-06-08 | Re-probe OBO with login scope `api://<client_id>/access_as_user` (Expose-an-API now configured) | **OBO ✅ for both users** → `aud=database.windows.net`, `scp=user_impersonation`, per-user `upn` | see §6d — OBO-at-login is now viable |
+| 3 | 2026-06-08 | Per-user REST probe over 443 (OBO → PowerBI/Fabric APIs); Fabric host `p3fx…rqf4sq…fabric.microsoft.com`, db `demo_db` | **Per-user access differs ✅** (demo1 ≠ demo2); **TDS 1433 blocked** so no live SQL | see §6e |
 
 ### 6a. Iteration 1 findings (live, both users)
 
@@ -283,6 +284,31 @@ about *how* the token is obtained.
 > token automatically. That interacts directly with the "toggle SP vs me" idea (§7):
 > decide whether auto-provisioned admin tokens should immediately take over, or only
 > when the admin selects "as me".
+
+### 6e. Iteration 3 — per-user access proven against real Fabric (REST), SQL endpoint blocked
+
+The sandbox network policy **blocks outbound TCP 1433** (TDS) — DNS for the Fabric
+host resolves and 443 is open, but `connect(host, 1433)` times out. Fabric's
+Warehouse SQL endpoint only speaks TDS on 1433, so a live `MsFabricClient` pyodbc
+`SELECT` **can't run from this sandbox**. (Not a product issue — purely the sandbox
+egress policy. To test the SQL path: run the loop from a network that allows 1433,
+or use the existing `tests/integrations/test_oauth_delegated.py` from such a host.)
+
+What I *could* prove over 443: take each user's login token → OBO → call the **real
+PowerBI + Fabric REST APIs** and confirm authorization is genuinely per-user:
+
+| | demo1 sees | demo2 sees |
+|---|---|---|
+| PowerBI workspaces | `bow-bi` | `BOW`, `bow-bi` |
+| Fabric workspaces | `bow-bi`, `My workspace` | `BOW`, `bow-bi`, `My workspace` |
+| Items in their extra workspace | Warehouse `dwh` (in `bow-bi`) | in `BOW`: **Warehouse `demo_db`**, warehouses, lakehouses, semantic models, reports… |
+
+**Takeaway:** the OBO delegated tokens enforce **different access per user** at the
+real Fabric service — demo2 can see the `BOW` workspace and the **`demo_db`**
+warehouse; demo1 cannot. This validates the whole premise end-to-end at the
+authorization layer; the only unproven hop is the TDS table-level `SELECT`, which is
+just a stricter version of what we've already shown and is blocked solely by the
+sandbox's 1433 egress.
 
 ### 6c. Still TODO to fully close the loop
 - **Fabric server host + warehouse name** were not provided — needed to run a real
