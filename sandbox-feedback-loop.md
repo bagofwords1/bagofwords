@@ -236,6 +236,30 @@ credentials per toggle.** ✅
 > environment limitation, not a feature defect. In the customer's network (driver
 > present, 1433 open) the resolved token drives the query as proven above.
 
+### 6g. Iteration 5 — identity consistency audit (toggle honored *everywhere*)
+
+Audited every surface that lists tables or runs queries to confirm it follows the
+toggle (overlay/own-token for **Me**, shared catalog/SP for **Service account**, nothing
+for Me-not-connected):
+
+| Surface | Mechanism | Status |
+|---|---|---|
+| Agent **schema context** (what the LLM is told) | `SchemaContextBuilder._resolve_user_access` → `build_user_status_for_connection` | ✅ already identity-aware |
+| Agent **query execution** (inspect_data / create_data) | `completion_service` builds `ds_clients` via `construct_clients` → `resolve_credentials` → toggle; tools run on `runtime_ctx["ds_clients"]` | ✅ already toggle-aware |
+| `/data_sources/{id}/schema` (legacy list) | `get_data_source_schema` → `_resolve_effective_auth` | ✅ already |
+| Connection/DS **table counts** | `list_connections` / `_build_connections_list` use `effective_auth` | ✅ already |
+| **`/tables` selector** (`/full_schema` paginated) | `get_data_source_schema_paginated` | ❌ **was reading shared catalog regardless** → **FIXED** |
+
+**Fix:** `get_data_source_schema_paginated` now resolves `effective_auth` and scopes the
+catalog query to the user's overlay (`UserDataSourceTable`) when **Me**, to nothing when
+Me-not-connected, and to the full catalog when **Service account** / system_only.
+
+**Validated** (seeded catalog `dbo.sales, dbo.customers, dbo.secret_hr`; admin overlay =
+`dbo.sales` only):
+- selector, Service account → all 3 tables; Me → only `dbo.sales`; Me-not-connected → none.
+- agent-loop `construct_clients`: Service account → SP client; Me → admin's delegated
+  token (`upn=demo1`). inspect/create-data execute on exactly these clients.
+
 ### Env setup used (for reproducing the loop)
 - **Postgres** local cluster (`initdb` + `pg_ctl`), `BOW_DATABASE_URL=postgresql://bow@127.0.0.1:5432/bagofwords`.
 - Backend: Python **3.12** venv (3.11 fails on f-string backslashes), `pip install -r requirements_versioned.txt` (needs `unixodbc-dev`, `libpq-dev`), `alembic upgrade head`, run via `uvicorn main:app` (avoid `python main.py` — its `reload` watches `logs/` → reload loop).

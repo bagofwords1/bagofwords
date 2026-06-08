@@ -1966,7 +1966,9 @@ class DataSourceService:
         
         # Verify data source exists
         result = await db.execute(
-            select(DataSource).filter(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(
                 DataSource.id == data_source_id,
                 DataSource.organization_id == organization.id
             )
@@ -1974,16 +1976,43 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
-        
+
+        # Identity-aware scoping: for a user_required (delegated) source, the tables
+        # selector must show what the CURRENT effective identity can see — the same
+        # rule the agent's schema context and query execution follow:
+        #   'user'   (toggle = Me, has token) → only the user's overlay tables
+        #   'none'   (Me, not connected)      → nothing
+        #   'system' (toggle = Service account / admin SP) → full catalog
+        # `overlay_table_ids is None` means "no restriction" (full catalog).
+        overlay_table_ids = None
+        conn0 = data_source.connections[0] if getattr(data_source, "connections", None) else None
+        if current_user is not None and conn0 is not None and (conn0.auth_policy or "system_only") == "user_required":
+            eff_auth = await self._resolve_effective_auth(db, data_source, current_user)
+            if eff_auth == "user":
+                ov = await db.execute(
+                    select(UserOverlayTable.data_source_table_id).where(
+                        UserOverlayTable.data_source_id == str(data_source_id),
+                        UserOverlayTable.user_id == str(current_user.id),
+                        UserOverlayTable.is_accessible == True,
+                        UserOverlayTable.data_source_table_id.isnot(None),
+                    )
+                )
+                overlay_table_ids = [r[0] for r in ov.all()]
+            elif eff_auth == "none":
+                overlay_table_ids = []
+
+        def _scope(q):
+            return q if overlay_table_ids is None else q.where(DataSourceTable.id.in_(overlay_table_ids))
+
         # Get total_tables count first (no filters - for display purposes)
         total_tables_result = await db.execute(
-            select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)
+            _scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id))
         )
         total_tables = total_tables_result.scalar() or 0
-        
+
         # Build base query
-        base_query = select(DataSourceTable).where(DataSourceTable.datasource_id == data_source_id)
-        count_query = select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)
+        base_query = _scope(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source_id))
+        count_query = _scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id))
         
         # Apply selected_state filter (takes precedence over include_inactive)
         if selected_state == 'selected':
