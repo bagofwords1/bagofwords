@@ -1012,7 +1012,12 @@
       "successInvited": "Invitación enviada a {email}",
       "rolesUpdated": "Roles actualizados",
       "failedToUpdateRoles": "No se pudieron actualizar los roles",
-      "failedToRemoveRole": "No se pudo eliminar el rol"
+      "failedToRemoveRole": "No se pudo eliminar el rol",
+      "selected": "seleccionados",
+      "bulkAddRole": "Añadir rol",
+      "bulkAddGroup": "Añadir al grupo",
+      "bulkClear": "Limpiar",
+      "paginationOf": "de"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",

@@ -935,7 +935,12 @@
       "successInvited": "Invitation envoyée à {email}",
       "rolesUpdated": "Rôles mis à jour",
       "failedToUpdateRoles": "Échec de la mise à jour des rôles",
-      "failedToRemoveRole": "Échec du retrait du rôle"
+      "failedToRemoveRole": "Échec du retrait du rôle",
+      "selected": "sélectionnés",
+      "bulkAddRole": "Ajouter un rôle",
+      "bulkAddGroup": "Ajouter au groupe",
+      "bulkClear": "Effacer",
+      "paginationOf": "sur"
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",

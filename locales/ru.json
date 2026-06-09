@@ -935,7 +935,12 @@
       "successInvited": "Приглашение отправлено на {email}",
       "rolesUpdated": "Роли обновлены",
       "failedToUpdateRoles": "Не удалось обновить роли",
-      "failedToRemoveRole": "Не удалось удалить роль"
+      "failedToRemoveRole": "Не удалось удалить роль",
+      "selected": "выбрано",
+      "bulkAddRole": "Добавить роль",
+      "bulkAddGroup": "Добавить в группу",
+      "bulkClear": "Очистить",
+      "paginationOf": "из"
     },
     "organizationName": "Название организации",
     "organizationIcon": "Иконка организации",

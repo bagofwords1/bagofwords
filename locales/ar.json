@@ -935,7 +935,12 @@
       "successInvited": "تم إرسال الدعوة إلى {email}",
       "rolesUpdated": "تم تحديث الأدوار",
       "failedToUpdateRoles": "تعذّر تحديث الأدوار",
-      "failedToRemoveRole": "تعذّر إزالة الدور"
+      "failedToRemoveRole": "تعذّر إزالة الدور",
+      "selected": "محدد",
+      "bulkAddRole": "إضافة دور",
+      "bulkAddGroup": "إضافة إلى المجموعة",
+      "bulkClear": "مسح",
+      "paginationOf": "من"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",

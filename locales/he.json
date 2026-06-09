@@ -1012,7 +1012,12 @@
       "successInvited": "הזמנה נשלחה אל {email}",
       "rolesUpdated": "התפקידים עודכנו",
       "failedToUpdateRoles": "עדכון התפקידים נכשל",
-      "failedToRemoveRole": "הסרת התפקיד נכשלה"
+      "failedToRemoveRole": "הסרת התפקיד נכשלה",
+      "selected": "נבחרו",
+      "bulkAddRole": "הוספת תפקיד",
+      "bulkAddGroup": "הוספה לקבוצה",
+      "bulkClear": "ניקוי",
+      "paginationOf": "מתוך"
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",

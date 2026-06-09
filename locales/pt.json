@@ -935,7 +935,12 @@
       "successInvited": "Convite enviado para {email}",
       "rolesUpdated": "Funções atualizadas",
       "failedToUpdateRoles": "Falha ao atualizar funções",
-      "failedToRemoveRole": "Falha ao remover função"
+      "failedToRemoveRole": "Falha ao remover função",
+      "selected": "selecionados",
+      "bulkAddRole": "Adicionar função",
+      "bulkAddGroup": "Adicionar ao grupo",
+      "bulkClear": "Limpar",
+      "paginationOf": "de"
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",

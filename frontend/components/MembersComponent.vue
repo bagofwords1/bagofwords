@@ -80,12 +80,63 @@
             </USelectMenu>
         </div>
 
+        <!-- Bulk actions bar -->
+        <div
+            v-if="canBulkActions && selectedIds.length"
+            class="flex flex-wrap items-center gap-2 mb-4 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50/60"
+        >
+            <span class="text-sm font-medium text-gray-700">
+                {{ selectedIds.length }} {{ $t('settings.members.selected') }}
+            </span>
+            <div class="flex items-center gap-2 ms-auto">
+                <UDropdown
+                    v-if="useCan('update_organization_members') && availableRoles.length"
+                    :items="[availableRoles.map(r => ({ label: r.label, click: () => bulkAddRole(r.id) }))]"
+                    :popper="{ placement: 'bottom-start' }"
+                >
+                    <UButton color="gray" variant="outline" size="xs" icon="i-heroicons-shield-check" trailing-icon="i-heroicons-chevron-down-20-solid" :loading="bulkBusy">
+                        {{ $t('settings.members.bulkAddRole') }}
+                    </UButton>
+                </UDropdown>
+                <UDropdown
+                    v-if="canManageGroups && groups.length"
+                    :items="[groups.map(g => ({ label: g.name, click: () => bulkAddGroup(g.id) }))]"
+                    :popper="{ placement: 'bottom-start' }"
+                >
+                    <UButton color="gray" variant="outline" size="xs" icon="i-heroicons-user-group" trailing-icon="i-heroicons-chevron-down-20-solid" :loading="bulkBusy">
+                        {{ $t('settings.members.bulkAddGroup') }}
+                    </UButton>
+                </UDropdown>
+                <UButton
+                    v-if="useCan('remove_organization_members')"
+                    color="red"
+                    variant="outline"
+                    size="xs"
+                    icon="i-heroicons-trash"
+                    :loading="bulkBusy"
+                    @click="bulkRemove"
+                >
+                    {{ $t('settings.members.remove') }}
+                </UButton>
+                <UButton color="gray" variant="ghost" size="xs" :disabled="bulkBusy" @click="clearSelection">
+                    {{ $t('settings.members.bulkClear') }}
+                </UButton>
+            </div>
+        </div>
+
         <!-- Table card -->
         <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-100">
                     <thead class="bg-gray-50/60">
                         <tr>
+                            <th v-if="canBulkActions" class="ps-4 pe-1 py-2 w-8">
+                                <UCheckbox
+                                    :model-value="headerChecked"
+                                    :indeterminate="headerIndeterminate"
+                                    @change="toggleSelectAll"
+                                />
+                            </th>
                             <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colUser') }}</th>
                             <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colRole') }}</th>
                             <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colGroups') }}</th>
@@ -113,7 +164,10 @@
                         </tr>
                         <!-- Data rows -->
                         <template v-else>
-                            <tr v-for="member in filteredMembers" :key="member.id" class="hover:bg-gray-50/70 transition-colors">
+                            <tr v-for="member in paginatedMembers" :key="member.id" class="hover:bg-gray-50/70 transition-colors" :class="{ 'bg-blue-50/40': isSelected(member.id) }">
+                                <td v-if="canBulkActions" class="ps-4 pe-1 py-2">
+                                    <UCheckbox :model-value="isSelected(member.id)" @change="toggleSelect(member.id)" />
+                                </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div v-if="member.user" class="flex items-center">
                                         <div class="flex-shrink-0 h-7 w-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-medium">
@@ -252,10 +306,11 @@
                                         {{ $t('settings.members.statusPending') }}
                                     </span>
                                 </td>
-                                <td class="px-4 py-2 w-48">
+                                <td class="px-4 py-2 min-w-[18rem]">
                                     <input
                                         v-if="useCan('update_organization_members')"
                                         :value="member.note || ''"
+                                        :title="member.note || ''"
                                         @change="onNoteChange(member, ($event.target as HTMLInputElement).value)"
                                         type="text"
                                         maxlength="500"
@@ -319,6 +374,22 @@
                         </template>
                     </tbody>
                 </table>
+            </div>
+            <!-- Pagination -->
+            <div
+                v-if="!isLoading && filteredMembers.length > pageSize"
+                class="flex items-center justify-between px-4 py-2.5 border-t border-gray-100 text-sm text-gray-500"
+            >
+                <span>
+                    {{ pageRangeStart }}–{{ pageRangeEnd }} {{ $t('settings.members.paginationOf') }} {{ filteredMembers.length }}
+                </span>
+                <UPagination
+                    v-model="page"
+                    :page-count="pageSize"
+                    :total="filteredMembers.length"
+                    :max="7"
+                    size="xs"
+                />
             </div>
         </div>
     </div>
@@ -583,7 +654,8 @@ const groupPendingMemberships = ref<Record<string, string[]>>({}) // groupId -> 
 const usagePolicies = ref<UsagePolicySummary[]>([])
 const { hasFeature } = useEnterprise()
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
-const membersColspan = computed(() => 8 + (showQuotaColumn.value ? 1 : 0) + (useCan('remove_organization_members') ? 1 : 0))
+const canBulkActions = computed(() => useCan('update_organization_members') || useCan('remove_organization_members'))
+const membersColspan = computed(() => 8 + (showQuotaColumn.value ? 1 : 0) + (useCan('remove_organization_members') ? 1 : 0) + (canBulkActions.value ? 1 : 0))
 
 // Filters
 const statusFilter = ref<'all' | 'active' | 'pending'>('all')
@@ -763,17 +835,149 @@ const filteredMembers = computed(() => {
         result = result.filter(member => !member.user)
     }
 
-    // Group filter
+    // Group filter (matches registered users and pending invites)
     if (groupFilter.value) {
-        const memberIds = groupMemberships.value[groupFilter.value] || []
+        const userIds = groupMemberships.value[groupFilter.value] || []
+        const pendingIds = groupPendingMemberships.value[groupFilter.value] || []
         result = result.filter(member => {
             const userId = member.user_id || member.user?.id
-            return userId && memberIds.includes(userId)
+            return (userId && userIds.includes(userId)) || pendingIds.includes(member.id)
         })
     }
 
     return result
 })
+
+// ── Pagination ────────────────────────────────────────────────────────
+const pageSize = 10
+const page = ref(1)
+const paginatedMembers = computed(() => {
+    const start = (page.value - 1) * pageSize
+    return filteredMembers.value.slice(start, start + pageSize)
+})
+const pageRangeStart = computed(() => filteredMembers.value.length === 0 ? 0 : (page.value - 1) * pageSize + 1)
+const pageRangeEnd = computed(() => Math.min(page.value * pageSize, filteredMembers.value.length))
+
+// Reset to page 1 (and drop selections that fell out of the filter) whenever
+// the filtered set changes.
+watch(filteredMembers, (rows) => {
+    const maxPage = Math.max(1, Math.ceil(rows.length / pageSize))
+    if (page.value > maxPage) page.value = maxPage
+    const visible = new Set(rows.map(m => m.id))
+    selectedIds.value = selectedIds.value.filter(id => visible.has(id))
+})
+watch([searchQuery, statusFilter, groupFilter], () => { page.value = 1 })
+
+// ── Selection + bulk actions ──────────────────────────────────────────
+const selectedIds = ref<string[]>([])
+const bulkBusy = ref(false)
+
+function isSelected(id: string): boolean {
+    return selectedIds.value.includes(id)
+}
+function toggleSelect(id: string) {
+    selectedIds.value = isSelected(id)
+        ? selectedIds.value.filter(x => x !== id)
+        : [...selectedIds.value, id]
+}
+function clearSelection() {
+    selectedIds.value = []
+}
+const headerChecked = computed(() =>
+    filteredMembers.value.length > 0 && filteredMembers.value.every(m => isSelected(m.id))
+)
+const headerIndeterminate = computed(() =>
+    selectedIds.value.length > 0 && !headerChecked.value
+)
+function toggleSelectAll() {
+    selectedIds.value = headerChecked.value ? [] : filteredMembers.value.map(m => m.id)
+}
+
+function selectedMembers(): Member[] {
+    const ids = new Set(selectedIds.value)
+    return (members.value as Member[]).filter(m => ids.has(m.id))
+}
+
+async function refreshAfterBulk() {
+    const refreshed = await useMyFetch(`/organizations/${organizationId}/members`)
+    members.value = (refreshed.data.value || []) as Member[]
+    await Promise.all([loadGroups(), loadUsagePolicies()])
+}
+
+async function bulkAddRole(roleId: string) {
+    bulkBusy.value = true
+    try {
+        let ok = 0
+        for (const m of selectedMembers()) {
+            const userId = m.user_id || m.user?.id
+            const principalType = userId ? 'user' : 'membership'
+            const principalId = userId || m.id
+            const already = (m.roles || []).some(r => r.id === roleId && (!r.source || r.source === 'direct'))
+            if (already) continue
+            const { error } = await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
+                method: 'POST',
+                body: { role_id: roleId, principal_type: principalType, principal_id: principalId },
+            })
+            // 409 (already assigned) is fine; surface other errors once.
+            if (!error.value || (error.value as any)?.statusCode === 409) ok++
+        }
+        await refreshAfterBulk()
+        toast.add({ title: t('settings.members.rolesUpdated'), description: `${ok}/${selectedIds.value.length}`, color: 'green' })
+        clearSelection()
+    } catch (e: any) {
+        toast.add({ title: e?.data?.detail || t('settings.members.failedToUpdateRoles'), color: 'red' })
+    } finally {
+        bulkBusy.value = false
+    }
+}
+
+async function bulkAddGroup(groupId: string) {
+    bulkBusy.value = true
+    try {
+        let ok = 0
+        for (const m of selectedMembers()) {
+            const userId = m.user_id || m.user?.id
+            const body = userId ? { user_id: userId } : { membership_id: m.id }
+            const { error } = await useMyFetch(`/organizations/${organizationId}/groups/${groupId}/members`, {
+                method: 'POST',
+                body,
+            })
+            if (!error.value || (error.value as any)?.statusCode === 409) ok++
+        }
+        await refreshAfterBulk()
+        toast.add({ title: t('groupsManager.toastMemberAdded'), description: `${ok}/${selectedIds.value.length}`, color: 'green' })
+        clearSelection()
+    } catch (e: any) {
+        toast.add({ title: e?.data?.detail || t('groupsManager.failedToAddMember'), color: 'red' })
+    } finally {
+        bulkBusy.value = false
+    }
+}
+
+async function bulkRemove() {
+    const n = selectedIds.value.length
+    if (!n) return
+    if (!window.confirm(t('settings.members.confirmRemove', { name: `${n} ${t('settings.members.selected')}` }))) return
+    bulkBusy.value = true
+    try {
+        let ok = 0
+        const errors: string[] = []
+        for (const id of [...selectedIds.value]) {
+            const { error } = await useMyFetch(`/organizations/${organizationId}/members/${id}`, { method: 'DELETE' })
+            if (error.value) errors.push((error.value as any)?.data?.detail || 'error')
+            else ok++
+        }
+        await refreshAfterBulk()
+        clearSelection()
+        if (errors.length) {
+            toast.add({ title: t('settings.members.failedToRemove'), description: errors[0], color: errors.length === n ? 'red' : 'yellow' })
+        } else {
+            toast.add({ title: t('common.success'), description: `${ok} ${t('settings.members.selected')}`, color: 'green' })
+        }
+    } finally {
+        bulkBusy.value = false
+    }
+}
 
 async function loadAvailableRoles() {
     try {

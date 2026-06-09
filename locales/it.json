@@ -935,7 +935,12 @@
       "successInvited": "Invito inviato a {email}",
       "rolesUpdated": "Ruoli aggiornati",
       "failedToUpdateRoles": "Impossibile aggiornare i ruoli",
-      "failedToRemoveRole": "Impossibile rimuovere il ruolo"
+      "failedToRemoveRole": "Impossibile rimuovere il ruolo",
+      "selected": "selezionati",
+      "bulkAddRole": "Aggiungi ruolo",
+      "bulkAddGroup": "Aggiungi al gruppo",
+      "bulkClear": "Cancella",
+      "paginationOf": "di"
     },
     "organizationName": "Nome dell'organizzazione",
     "organizationIcon": "Icona dell'organizzazione",
