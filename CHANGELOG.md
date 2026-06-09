@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.405 (June 9, 2026)
+- QVD date/timestamp/time fields now load as real DATE/TIMESTAMP/TIME columns instead of raw Excel-style serial numbers, so they filter, sort, and group as dates
+
 ## Version 0.0.404 (June 8, 2026)
 - Fix duplicate scheduled emails/reports under multi-worker/replica deployments — each cron fire is now claimed once via a DB-backed lock so exactly one worker runs it (also covers cache warmups, payload purge, and LDAP sync)
 - License expiry now takes effect without a restart, plus a global expiry-countdown banner and a redesigned license settings page (tier/expiry details, expiring-soon and expired states, renew CTA)
