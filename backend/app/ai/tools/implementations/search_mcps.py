@@ -129,13 +129,30 @@ Use when:
         result = await db.execute(stmt)
         tools = result.scalars().all()
 
-        # Filter by query if provided
+        # Filter by query if provided.
+        #
+        # The query is a relevance hint, not a hard filter. A naive full-string
+        # substring match (`q in name or q in description`) returns ZERO tools
+        # for any natural-language or multi-word query (e.g. "contacts for a
+        # company", or an id), which silently defeats discovery — the agent
+        # gets no schemas and falls back to guessing argument shapes. Instead:
+        #   - tokenize the query and rank tools by how many tokens they match,
+        #   - keep only tools that match at least one token,
+        #   - but if nothing matches (over-specific/NL query), fall back to
+        #     returning all tools so discovery never yields an empty result
+        #     when tools actually exist.
         if data.query:
-            q = data.query.lower()
-            tools = [
-                t for t in tools
-                if q in (t.name or "").lower() or q in (t.description or "").lower()
-            ]
+            import re
+            tokens = [tok for tok in re.split(r"[^a-z0-9_]+", data.query.lower()) if len(tok) >= 3]
+            if tokens:
+                def _score(t) -> int:
+                    hay = f"{t.name or ''} {t.description or ''}".lower()
+                    return sum(1 for tok in tokens if tok in hay)
+                scored = sorted(((_score(t), t) for t in tools), key=lambda x: -x[0])
+                matched = [t for s, t in scored if s > 0]
+                # Fall back to all tools when no token matched — better to return
+                # every schema than none.
+                tools = matched or tools
 
         # Build output
         tool_previews = []
