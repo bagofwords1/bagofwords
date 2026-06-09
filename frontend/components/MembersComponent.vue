@@ -81,27 +81,27 @@
         </div>
 
         <!-- Table card -->
-        <div class="bg-white shadow-sm border border-gray-200 rounded-lg">
+        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
+                <table class="min-w-full divide-y divide-gray-100">
+                    <thead class="bg-gray-50/60">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colUser') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colRole') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colGroups') }}</th>
-                            <th v-if="showQuotaColumn" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colQuota') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colStatus') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Note</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('settings.members.colExternalPlatforms') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Last Login</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colUser') }}</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colRole') }}</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colGroups') }}</th>
+                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('quotaPolicies.colQuota') }}</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colStatus') }}</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">Note</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colExternalPlatforms') }}</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">Last Login</th>
+                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">Last Seen</th>
                             <th
                                 v-if="useCan('remove_organization_members')"
-                                class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide"
                             >{{ $t('settings.members.colActions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
+                    <tbody class="bg-white divide-y divide-gray-100">
                         <!-- Loading state -->
                         <tr v-if="isLoading">
                             <td :colspan="membersColspan" class="px-6 py-12 text-center">
@@ -113,24 +113,29 @@
                         </tr>
                         <!-- Data rows -->
                         <template v-else>
-                            <tr v-for="member in filteredMembers" :key="member.id" class="hover:bg-gray-50">
-                                <td class="px-6 py-4 whitespace-nowrap">
+                            <tr v-for="member in filteredMembers" :key="member.id" class="hover:bg-gray-50/70 transition-colors">
+                                <td class="px-4 py-2 whitespace-nowrap">
                                     <div v-if="member.user" class="flex items-center">
-                                        <div class="flex-shrink-0 h-10 w-10">
-                                            <div class="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
-                                                <span class="text-gray-500 font-medium">
-                                                    {{ member.user.name?.[0]?.toUpperCase() || member.user.email[0].toUpperCase() }}
-                                                </span>
+                                        <div class="flex-shrink-0 h-7 w-7">
+                                            <div class="h-7 w-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-medium">
+                                                {{ member.user.name?.[0]?.toUpperCase() || member.user.email[0].toUpperCase() }}
                                             </div>
                                         </div>
-                                        <div class="ms-4">
+                                        <div class="ms-2.5 leading-tight">
                                             <div class="text-sm font-medium text-gray-900">{{ member.user.name }}</div>
-                                            <div class="text-sm text-gray-500">{{ member.user.email }}</div>
+                                            <div class="text-xs text-gray-400">{{ member.user.email }}</div>
                                         </div>
                                     </div>
-                                    <div v-else class="text-sm text-gray-900">{{ member.email }}</div>
+                                    <div v-else class="flex items-center">
+                                        <div class="flex-shrink-0 h-7 w-7">
+                                            <div class="h-7 w-7 rounded-full bg-gray-50 text-gray-300 flex items-center justify-center text-xs font-medium ring-1 ring-inset ring-gray-200">
+                                                {{ member.email?.[0]?.toUpperCase() || '?' }}
+                                            </div>
+                                        </div>
+                                        <div class="ms-2.5 text-sm text-gray-500">{{ member.email }}</div>
+                                    </div>
                                 </td>
-                                <td class="px-6 py-4">
+                                <td class="px-4 py-2">
                                     <USelectMenu
                                         v-if="useCan('update_organization_members') && availableRoles.length"
                                         :model-value="getDirectRoleIds(member)"
@@ -139,6 +144,8 @@
                                         option-attribute="name"
                                         value-attribute="id"
                                         size="sm"
+                                        variant="none"
+                                        :ui="inlineSelectUi"
                                         :ui-menu="{ width: 'w-48' }"
                                         :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
                                         @update:model-value="updateMemberRoles(member, $event)"
@@ -169,7 +176,7 @@
                                         </UBadge>
                                     </template>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
+                                <td class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex gap-1 flex-wrap items-center">
                                         <UBadge
                                             v-for="group in getMemberGroups(member).slice(0, 3)"
@@ -205,13 +212,15 @@
                                         <span v-if="getMemberGroups(member).length === 0" class="text-gray-400 text-sm italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
-                                <td v-if="showQuotaColumn" class="px-6 py-4">
+                                <td v-if="showQuotaColumn" class="px-4 py-2">
                                     <USelectMenu
                                         :model-value="getDirectQuotaId(memberQuotaPrincipal(member).type, memberQuotaPrincipal(member).id)"
                                         :options="quotaSelectOptions"
                                         value-attribute="value"
                                         option-attribute="label"
                                         size="sm"
+                                        variant="none"
+                                        :ui="inlineSelectUi"
                                         :ui-menu="{ width: 'w-48' }"
                                         :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
                                         @update:model-value="updatePrincipalQuota(memberQuotaPrincipal(member).type, memberQuotaPrincipal(member).id, $event)"
@@ -236,17 +245,17 @@
                                         </template>
                                     </USelectMenu>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span v-if="member.user"
-                                          class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                <td class="px-4 py-2 whitespace-nowrap">
+                                    <span v-if="member.user" class="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
                                         {{ $t('settings.members.statusActive') }}
                                     </span>
-                                    <span v-else
-                                          class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                    <span v-else class="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
                                         {{ $t('settings.members.statusPending') }}
                                     </span>
                                 </td>
-                                <td class="px-6 py-4 max-w-xs">
+                                <td class="px-4 py-2 max-w-xs">
                                     <input
                                         v-if="useCan('update_organization_members')"
                                         :value="member.note || ''"
@@ -261,7 +270,7 @@
                                     </UTooltip>
                                     <span v-else class="text-gray-400 italic text-sm">—</span>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
+                                <td class="px-4 py-2 whitespace-nowrap">
                                     <div v-if="member.user?.external_user_mappings.length > 0">
                                         <div v-for="mapping in member.user?.external_user_mappings" :key="mapping.id">
                                             <UTooltip :text="mapping.is_verified ? $t('settings.members.verified') : $t('settings.members.unverified')">
@@ -273,13 +282,13 @@
                                         <span class="text-gray-400 italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
                                     {{ member.user?.last_login ? new Date(member.user.last_login).toLocaleDateString() : '-' }}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
                                     {{ member.user?.last_seen ? new Date(member.user.last_seen).toLocaleDateString() : '-' }}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm"
+                                <td class="px-4 py-2 whitespace-nowrap text-sm"
                                     v-if="useCan('remove_organization_members')"
                                 >
                                     <button
@@ -640,6 +649,16 @@ function getDirectRoleIds(member: Member): string[] {
 function cap(name?: string): string {
     if (!name) return ''
     return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+// Inline (in-table) selects read as plain text/badges, not form fields:
+// no border or shadow, a subtle hover affordance, and a muted chevron that
+// only firms up on hover. Keeps the table minimal while staying editable.
+const inlineSelectUi = {
+    base: 'relative inline-flex items-center text-left cursor-pointer rounded-md transition-colors hover:bg-gray-100 focus:outline-none',
+    padding: { sm: 'px-2 py-1' },
+    trailing: { padding: { sm: 'pe-6' } },
+    icon: { base: 'text-gray-300 group-hover:text-gray-400' },
 }
 
 function getMemberGroups(member: Member): GroupData[] {
