@@ -501,14 +501,19 @@ const reportTypeLabel = (report: any) => {
 
 // Resolve where a report row/title should link to.
 // "Shared with me" reports belong to another user, so the owner's full
-// /reports/:id editing page isn't accessible — open the read-only shared
-// conversation view at /c/:token instead. If sharing produced no token
-// there's nowhere to link, so return null and skip navigation.
+// /reports/:id editing page isn't accessible. Mirror RecentReportCard:
+// a shared dashboard/slides opens the read-only public artifact view at
+// /r/:id, a shared conversation opens /c/:token. If neither destination
+// exists there's nowhere to link, so return null and skip navigation.
 const reportLink = (report: any): string | null => {
     if (activeFilter.value === 'shared') {
-        return report.conversation_share_token
-            ? `/c/${report.conversation_share_token}`
-            : null
+        if (report.artifact_modes?.length > 0) {
+            return `/r/${report.id}`
+        }
+        if (report.conversation_share_token) {
+            return `/c/${report.conversation_share_token}`
+        }
+        return null
     }
     return `/reports/${report.id}`
 }
