@@ -270,12 +270,20 @@
                                 <div class="min-w-0 flex-1">
                                     <div class="flex items-center gap-2 flex-wrap">
                                         <NuxtLink
-                                            :to="`/reports/${report.id}`"
+                                            v-if="reportLink(report)"
+                                            :to="reportLink(report)"
                                             @click.stop
                                             class="font-medium text-gray-900 hover:text-blue-600 truncate"
                                         >
                                             {{ report.title }}
                                         </NuxtLink>
+                                        <span
+                                            v-else
+                                            @click.stop
+                                            class="font-medium text-gray-900 truncate"
+                                        >
+                                            {{ report.title }}
+                                        </span>
                                         <!-- Visibility badges -->
                                         <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? $t('reports.dashboardWithVisibility', { visibility: visibilityLabel(report.artifact_visibility) }) : $t('reports.dashboardPrivate')">
                                             <span class="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-px">
@@ -491,8 +499,23 @@ const reportTypeLabel = (report: any) => {
     return t('reports.type.chat')
 }
 
+// Resolve where a report row/title should link to.
+// "Shared with me" reports belong to another user, so the owner's full
+// /reports/:id editing page isn't accessible — open the read-only shared
+// conversation view at /c/:token instead. If sharing produced no token
+// there's nowhere to link, so return null and skip navigation.
+const reportLink = (report: any): string | null => {
+    if (activeFilter.value === 'shared') {
+        return report.conversation_share_token
+            ? `/c/${report.conversation_share_token}`
+            : null
+    }
+    return `/reports/${report.id}`
+}
+
 const goToReport = (report: any) => {
-    router.push(`/reports/${report.id}`)
+    const link = reportLink(report)
+    if (link) router.push(link)
 }
 
 const formatDate = (iso: string) => {
