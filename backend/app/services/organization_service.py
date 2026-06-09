@@ -138,65 +138,96 @@ class OrganizationService:
         for membership in memberships:
             schema = MembershipSchema.from_orm(membership)
             if membership.user_id:
-                # Direct role assignments
-                ra_result = await db.execute(
-                    select(RoleAssignment)
-                    .options(selectinload(RoleAssignment.role))
-                    .where(
-                        RoleAssignment.organization_id == organization.id,
-                        RoleAssignment.principal_type == "user",
-                        RoleAssignment.principal_id == membership.user_id,
-                        RoleAssignment.deleted_at.is_(None),
-                    )
+                # Registered user: direct ('user' principal) + group-inherited.
+                schema.roles = await self._resolve_member_roles(
+                    db, organization.id,
+                    direct_principal_type="user",
+                    direct_principal_id=membership.user_id,
+                    group_filter=GroupMembership.user_id == membership.user_id,
                 )
-                assignments = ra_result.scalars().all()
-                roles = [
-                    RoleSummarySchema(id=a.role.id, name=a.role.name, source="direct")
-                    for a in assignments if a.role
-                ]
-
-                # Group-inherited role assignments
-                gm_result = await db.execute(
-                    select(GroupMembership.group_id, Group.name)
-                    .join(Group, Group.id == GroupMembership.group_id)
-                    .where(
-                        GroupMembership.user_id == membership.user_id,
-                        Group.organization_id == organization.id,
-                        GroupMembership.deleted_at.is_(None),
-                        Group.deleted_at.is_(None),
-                    )
+            else:
+                # Pending invite: direct ('membership' principal) +
+                # group-inherited via pending group memberships.
+                schema.roles = await self._resolve_member_roles(
+                    db, organization.id,
+                    direct_principal_type="membership",
+                    direct_principal_id=membership.id,
+                    group_filter=GroupMembership.membership_id == membership.id,
                 )
-                user_groups = gm_result.all()  # [(group_id, group_name), ...]
-
-                if user_groups:
-                    group_ids = [g[0] for g in user_groups]
-                    group_names = {g[0]: g[1] for g in user_groups}
-                    direct_role_ids = {r.id for r in roles}
-
-                    group_ra_result = await db.execute(
-                        select(RoleAssignment)
-                        .options(selectinload(RoleAssignment.role))
-                        .where(
-                            RoleAssignment.organization_id == organization.id,
-                            RoleAssignment.principal_type == "group",
-                            RoleAssignment.principal_id.in_(group_ids),
-                            RoleAssignment.deleted_at.is_(None),
-                        )
-                    )
-                    group_assignments = group_ra_result.scalars().all()
-                    for a in group_assignments:
-                        if a.role and a.role.id not in direct_role_ids:
-                            group_name = group_names.get(a.principal_id, "unknown")
-                            roles.append(RoleSummarySchema(
-                                id=a.role.id,
-                                name=a.role.name,
-                                source=f"group:{group_name}",
-                            ))
-                            direct_role_ids.add(a.role.id)
-
-                schema.roles = roles
             schemas.append(schema)
         return schemas
+
+    async def _resolve_member_roles(
+        self, db: AsyncSession, organization_id: str,
+        direct_principal_type: str, direct_principal_id: str, group_filter,
+    ) -> List["RoleSummarySchema"]:
+        """Resolve a member's direct + group-inherited roles.
+
+        Works for both registered users (principal_type='user', groups joined
+        by user_id) and pending invites (principal_type='membership', groups
+        joined by membership_id).
+        """
+        from app.models.role_assignment import RoleAssignment
+        from app.models.group_membership import GroupMembership
+        from app.models.group import Group
+        from app.schemas.organization_schema import RoleSummarySchema
+
+        # Direct role assignments
+        ra_result = await db.execute(
+            select(RoleAssignment)
+            .options(selectinload(RoleAssignment.role))
+            .where(
+                RoleAssignment.organization_id == organization_id,
+                RoleAssignment.principal_type == direct_principal_type,
+                RoleAssignment.principal_id == direct_principal_id,
+                RoleAssignment.deleted_at.is_(None),
+            )
+        )
+        assignments = ra_result.scalars().all()
+        roles = [
+            RoleSummarySchema(id=a.role.id, name=a.role.name, source="direct")
+            for a in assignments if a.role
+        ]
+
+        # Group-inherited role assignments
+        gm_result = await db.execute(
+            select(GroupMembership.group_id, Group.name)
+            .join(Group, Group.id == GroupMembership.group_id)
+            .where(
+                group_filter,
+                Group.organization_id == organization_id,
+                GroupMembership.deleted_at.is_(None),
+                Group.deleted_at.is_(None),
+            )
+        )
+        member_groups = gm_result.all()  # [(group_id, group_name), ...]
+
+        if member_groups:
+            group_ids = [g[0] for g in member_groups]
+            group_names = {g[0]: g[1] for g in member_groups}
+            seen_role_ids = {r.id for r in roles}
+
+            group_ra_result = await db.execute(
+                select(RoleAssignment)
+                .options(selectinload(RoleAssignment.role))
+                .where(
+                    RoleAssignment.organization_id == organization_id,
+                    RoleAssignment.principal_type == "group",
+                    RoleAssignment.principal_id.in_(group_ids),
+                    RoleAssignment.deleted_at.is_(None),
+                )
+            )
+            for a in group_ra_result.scalars().all():
+                if a.role and a.role.id not in seen_role_ids:
+                    group_name = group_names.get(a.principal_id, "unknown")
+                    roles.append(RoleSummarySchema(
+                        id=a.role.id,
+                        name=a.role.name,
+                        source=f"group:{group_name}",
+                    ))
+                    seen_role_ids.add(a.role.id)
+
+        return roles
     
     async def get_member(self, db: AsyncSession, membership_id: str, organization_id: str, current_user: User) -> MembershipSchema:
         result = await db.execute(
@@ -337,6 +368,22 @@ class OrganizationService:
         if membership.user_id:
             # RBAC lockout prevention: ensure at least one user keeps full_admin_access
             await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
+        else:
+            # Pending invite: clean up any pre-assigned RBAC keyed by this
+            # membership. Done explicitly (not via FK cascade) so it holds on
+            # SQLite, where foreign-key enforcement is off by default.
+            from app.models.role_assignment import RoleAssignment
+            from app.models.group_membership import GroupMembership
+            await db.execute(
+                delete(RoleAssignment).where(
+                    RoleAssignment.organization_id == organization_id,
+                    RoleAssignment.principal_type == "membership",
+                    RoleAssignment.principal_id == membership_id,
+                )
+            )
+            await db.execute(
+                delete(GroupMembership).where(GroupMembership.membership_id == membership_id)
+            )
 
         await db.execute(delete(Membership).where(Membership.id == membership_id))
         await db.commit()

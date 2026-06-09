@@ -131,29 +131,32 @@
                                     <div v-else class="text-sm text-gray-900">{{ member.email }}</div>
                                 </td>
                                 <td class="px-6 py-4">
-                                    <template v-if="member.roles?.length">
-                                        <USelectMenu
-                                            v-if="useCan('update_organization_members')"
-                                            :model-value="getDirectRoleIds(member)"
-                                            :options="availableRoles"
-                                            multiple
-                                            option-attribute="name"
-                                            value-attribute="id"
-                                            size="sm"
-                                            :ui-menu="{ width: 'w-48' }"
-                                            :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
-                                            @update:model-value="updateMemberRoles(member, $event)"
-                                        >
-                                            <template #label>
-                                                <div class="flex gap-1 flex-wrap">
-                                                    <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
-                                                        {{ r.name }}
-                                                        <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
-                                                    </UBadge>
-                                                </div>
-                                            </template>
-                                        </USelectMenu>
-                                        <div v-else class="flex gap-1 flex-wrap">
+                                    <USelectMenu
+                                        v-if="useCan('update_organization_members') && availableRoles.length"
+                                        :model-value="getDirectRoleIds(member)"
+                                        :options="availableRoles"
+                                        multiple
+                                        option-attribute="name"
+                                        value-attribute="id"
+                                        size="sm"
+                                        :ui-menu="{ width: 'w-48' }"
+                                        :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
+                                        @update:model-value="updateMemberRoles(member, $event)"
+                                    >
+                                        <template #label>
+                                            <div class="flex gap-1 flex-wrap">
+                                                <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
+                                                    {{ r.name }}
+                                                    <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
+                                                </UBadge>
+                                                <UBadge v-if="!member.roles?.length" size="xs" color="gray">
+                                                    {{ member.role ? member.role.charAt(0).toUpperCase() + member.role.slice(1) : '—' }}
+                                                </UBadge>
+                                            </div>
+                                        </template>
+                                    </USelectMenu>
+                                    <template v-else-if="member.roles?.length">
+                                        <div class="flex gap-1 flex-wrap">
                                             <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
                                                 {{ r.name }}
                                                 <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
@@ -515,6 +518,7 @@ interface GroupData {
     name: string
     description?: string
     member_user_ids?: string[]
+    member_membership_ids?: string[]
 }
 
 interface UsagePolicyAssignment {
@@ -543,6 +547,7 @@ const isLoading = ref(true)
 const availableRoles = ref<{ id: string; name: string }[]>([])
 const groups = ref<GroupData[]>([])
 const groupMemberships = ref<Record<string, string[]>>({}) // groupId -> userIds
+const groupPendingMemberships = ref<Record<string, string[]>>({}) // groupId -> membershipIds
 const usagePolicies = ref<UsagePolicySummary[]>([])
 const { hasFeature } = useEnterprise()
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
@@ -606,10 +611,11 @@ function getDirectRoleIds(member: Member): string[] {
 
 function getMemberGroups(member: Member): GroupData[] {
     const userId = member.user_id || member.user?.id
-    if (!userId) return []
     return groups.value.filter(group => {
-        const memberIds = groupMemberships.value[group.id]
-        return memberIds?.includes(userId)
+        if (userId && groupMemberships.value[group.id]?.includes(userId)) return true
+        // Pending invite — matched by its membership id.
+        if (!userId && groupPendingMemberships.value[group.id]?.includes(member.id)) return true
+        return false
     })
 }
 
@@ -732,10 +738,13 @@ async function loadGroups() {
             const groupList = data.value as any[]
             groups.value = groupList.map(g => ({ id: g.id, name: g.name, description: g.description }))
             const membershipsMap: Record<string, string[]> = {}
+            const pendingMap: Record<string, string[]> = {}
             for (const group of groupList) {
                 membershipsMap[group.id] = group.member_user_ids ?? []
+                pendingMap[group.id] = group.member_membership_ids ?? []
             }
             groupMemberships.value = membershipsMap
+            groupPendingMemberships.value = pendingMap
         }
     } catch (e) {
         // Groups endpoint may not be available (non-enterprise)
@@ -754,6 +763,12 @@ async function loadUsagePolicies() {
 
 async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
     try {
+        // Registered members are addressed as a 'user' principal; pending
+        // invites (no user yet) as a 'membership' principal.
+        const userId = member.user_id || member.user?.id
+        const principalType = userId ? 'user' : 'membership'
+        const principalId = userId || member.id
+
         const currentRoleIds = (member.roles || []).filter((r: any) => !r.source || r.source === 'direct').map((r: any) => r.id)
         const added = selectedRoleIds.filter((id: string) => !currentRoleIds.includes(id))
         const removed = currentRoleIds.filter((id: string) => !selectedRoleIds.includes(id))
@@ -761,13 +776,13 @@ async function updateMemberRoles(member: any, selectedRoleIds: string[]) {
         for (const roleId of added) {
             await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
                 method: 'POST',
-                body: { role_id: roleId, principal_type: 'user', principal_id: member.user_id || member.user?.id },
+                body: { role_id: roleId, principal_type: principalType, principal_id: principalId },
             })
         }
 
         if (removed.length) {
             const { data: assignments } = await useMyFetch(
-                `/organizations/${organizationId}/role-assignments?principal_type=user&principal_id=${member.user_id || member.user?.id}`
+                `/organizations/${organizationId}/role-assignments?principal_type=${principalType}&principal_id=${principalId}`
             )
             if (assignments.value) {
                 for (const assignment of assignments.value as any[]) {

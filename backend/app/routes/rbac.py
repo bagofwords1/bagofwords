@@ -172,21 +172,24 @@ async def add_group_member(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    await rbac_service.add_group_member(db, organization_id, group_id, data.user_id)
+    await rbac_service.add_group_member(
+        db, organization_id, group_id,
+        user_id=data.user_id, membership_id=data.membership_id,
+    )
 
 
-@router.delete("/organizations/{organization_id}/groups/{group_id}/members/{user_id}", status_code=204)
+@router.delete("/organizations/{organization_id}/groups/{group_id}/members/{principal_id}", status_code=204)
 @require_enterprise(feature="custom_roles")
 @requires_permission("manage_members")
 async def remove_group_member(
     organization_id: str,
     group_id: str,
-    user_id: str,
+    principal_id: str,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    await rbac_service.remove_group_member(db, organization_id, group_id, user_id)
+    await rbac_service.remove_group_member(db, organization_id, group_id, principal_id)
 
 
 # ── Role Assignments ─────────────────────────────────────────────────────

@@ -265,7 +265,7 @@
                     </div>
                     <div
                         v-for="member in groupMembers"
-                        :key="member.user_id"
+                        :key="member.user_id || member.membership_id"
                         class="flex items-center justify-between px-4 py-3"
                     >
                         <div class="flex items-center gap-3">
@@ -275,7 +275,10 @@
                                 </span>
                             </div>
                             <div>
-                                <div class="text-sm font-medium text-gray-900">{{ member.user_name || $t('groupsManager.unknown') }}</div>
+                                <div class="text-sm font-medium text-gray-900 flex items-center gap-2">
+                                    {{ member.user_name || member.user_email || $t('groupsManager.unknown') }}
+                                    <UBadge v-if="member.pending" size="xs" color="yellow" variant="subtle">{{ $t('settings.members.statusPending') }}</UBadge>
+                                </div>
                                 <div class="text-xs text-gray-500">{{ member.user_email }}</div>
                             </div>
                         </div>
@@ -285,7 +288,7 @@
                             size="xs"
                             color="red"
                             icon="i-heroicons-x-mark"
-                            @click="removeMember(member.user_id)"
+                            @click="removeMember(member.user_id || member.membership_id || '')"
                         />
                     </div>
                 </div>
@@ -312,9 +315,11 @@ interface GroupData {
 }
 
 interface GroupMember {
-    user_id: string
+    user_id?: string
+    membership_id?: string
     user_name?: string
     user_email?: string
+    pending?: boolean
 }
 
 interface OrgMember {
@@ -389,16 +394,22 @@ const filteredGroups = computed(() => {
 })
 
 const addableMemberOptions = computed(() => {
-    const existingIds = new Set(groupMembers.value.map(m => m.user_id))
+    // Already-in-group principals, by composite "user:<id>" / "membership:<id>".
+    const existing = new Set(
+        groupMembers.value.map(m => m.user_id ? `user:${m.user_id}` : `membership:${m.membership_id}`)
+    )
     return orgMembers.value
-        .filter(m => {
+        .map(m => {
             const userId = m.user_id || m.user?.id
-            return userId && !existingIds.has(userId)
+            // Registered members → user principal; pending invites → membership principal.
+            const value = userId ? `user:${userId}` : `membership:${m.id}`
+            return {
+                value,
+                label: m.user?.name || m.user?.email || m.email || t('groupsManager.unknown'),
+                pending: !userId,
+            }
         })
-        .map(m => ({
-            value: m.user_id || m.user?.id || '',
-            label: m.user?.name || m.user?.email || m.email || t('groupsManager.unknown'),
-        }))
+        .filter(opt => !existing.has(opt.value))
 })
 
 const quotaSelectOptions = computed(() => [
@@ -660,9 +671,12 @@ async function openMembersModal(group: GroupData) {
 async function addMember() {
     if (!memberToAdd.value || !selectedGroup.value) return
     try {
+        // memberToAdd is a composite "user:<id>" / "membership:<id>" value.
+        const [kind, id] = memberToAdd.value.split(':')
+        const body = kind === 'membership' ? { membership_id: id } : { user_id: id }
         await useMyFetch(`/organizations/${organizationId}/groups/${selectedGroup.value.id}/members`, {
             method: 'POST',
-            body: { user_id: memberToAdd.value },
+            body,
         })
         toast.add({ title: t('groupsManager.toastMemberAdded'), color: 'green' })
         memberToAdd.value = null

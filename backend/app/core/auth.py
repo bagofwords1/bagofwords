@@ -223,6 +223,10 @@ class UserManager(BaseUserManager[User, str]):
             membership_role = membership.role
             membership.email = None  # Clear the email since we now have a user
 
+            # Materialize any pre-assigned (pending) RBAC roles and group
+            # memberships from the invite onto the freshly-registered user.
+            await self._materialize_pending_rbac(session, membership, user.id)
+
             # Create the matching RBAC role_assignment so the invited user
             # actually has permissions in the org. Mirrors
             # OrganizationService._assign_system_role.
@@ -270,6 +274,72 @@ class UserManager(BaseUserManager[User, str]):
                 )
             except Exception:
                 pass
+
+    async def _materialize_pending_rbac(self, session: AsyncSession, membership: Membership, user_id: str) -> None:
+        """Rewrite pending (membership-keyed) RBAC rows onto the registered user.
+
+        An org admin can pre-assign roles and groups to an invite before the
+        user registers. Those are stored as ``RoleAssignment`` rows with
+        ``principal_type='membership'`` and ``GroupMembership`` rows with
+        ``membership_id`` set. When the invitee registers we convert them to
+        the user-keyed equivalents, de-duplicating against anything the user
+        may already have, so the resolver (which only knows 'user'/'group')
+        sees the intended permissions immediately.
+        """
+        from app.models.role_assignment import RoleAssignment
+        from app.models.group_membership import GroupMembership
+
+        org_id = membership.organization_id
+        try:
+            # Role assignments: membership principal → user principal
+            ra_result = await session.execute(
+                select(RoleAssignment).where(
+                    RoleAssignment.organization_id == org_id,
+                    RoleAssignment.principal_type == "membership",
+                    RoleAssignment.principal_id == membership.id,
+                    RoleAssignment.deleted_at.is_(None),
+                )
+            )
+            for assignment in ra_result.scalars().all():
+                existing = await session.execute(
+                    select(RoleAssignment).where(
+                        RoleAssignment.organization_id == org_id,
+                        RoleAssignment.role_id == assignment.role_id,
+                        RoleAssignment.principal_type == "user",
+                        RoleAssignment.principal_id == user_id,
+                        RoleAssignment.deleted_at.is_(None),
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await session.delete(assignment)
+                else:
+                    assignment.principal_type = "user"
+                    assignment.principal_id = user_id
+
+            # Group memberships: membership-keyed → user-keyed
+            gm_result = await session.execute(
+                select(GroupMembership).where(
+                    GroupMembership.membership_id == membership.id,
+                    GroupMembership.deleted_at.is_(None),
+                )
+            )
+            for gm in gm_result.scalars().all():
+                existing = await session.execute(
+                    select(GroupMembership).where(
+                        GroupMembership.group_id == gm.group_id,
+                        GroupMembership.user_id == user_id,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await session.delete(gm)
+                else:
+                    gm.user_id = user_id
+                    gm.membership_id = None
+            await session.flush()
+        except Exception:
+            # Never block registration if pending-RBAC tables aren't present
+            # (pre-migration) or a conversion hits a transient conflict.
+            pass
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
