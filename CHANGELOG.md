@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.407 (June 9, 2026)
+- Fix "Shared with me" reports linking to the owner's `/reports/:id` page (which renders blank for non-owners) — they now open the read-only shared conversation view at `/c/:token`. Shared reports without a share token are no longer clickable.
+
 ## Version 0.0.406 (June 9, 2026)
 - SQL Server connections can now pass extra ODBC keywords (e.g. `ApplicationIntent=ReadOnly` to route to a read-only Always On replica) via a new optional **Additional Connection Parameters** key-value editor in the connect form. Security-sensitive keys (Encrypt, credentials, driver, server, database) cannot be overridden, and existing connections are unchanged.
 
