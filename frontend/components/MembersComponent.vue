@@ -146,7 +146,7 @@
                                         <template #label>
                                             <div class="flex gap-1 flex-wrap">
                                                 <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
-                                                    {{ r.name }}
+                                                    {{ cap(r.name) }}
                                                     <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
                                                 </UBadge>
                                                 <UBadge v-if="!member.roles?.length" size="xs" color="gray">
@@ -158,7 +158,7 @@
                                     <template v-else-if="member.roles?.length">
                                         <div class="flex gap-1 flex-wrap">
                                             <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
-                                                {{ r.name }}
+                                                {{ cap(r.name) }}
                                                 <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
                                             </UBadge>
                                         </div>
@@ -354,6 +354,28 @@
                         option-attribute="label"
                         size="sm"
                     />
+                </div>
+
+                <div v-if="canManageGroups && groups.length" class="flex flex-col">
+                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('settings.members.colGroups') }}</label>
+                    <USelectMenu
+                        v-model="inviteForm.group_ids"
+                        :options="groups"
+                        multiple
+                        option-attribute="name"
+                        value-attribute="id"
+                        size="sm"
+                        :placeholder="$t('settings.members.emptyNone')"
+                    >
+                        <template #label>
+                            <span v-if="inviteForm.group_ids.length" class="flex gap-1 flex-wrap">
+                                <UBadge v-for="gid in inviteForm.group_ids" :key="gid" size="xs" color="blue" variant="subtle">
+                                    {{ groups.find(g => g.id === gid)?.name }}
+                                </UBadge>
+                            </span>
+                            <span v-else class="text-gray-400">{{ $t('settings.members.emptyNone') }}</span>
+                        </template>
+                    </USelectMenu>
                 </div>
 
                 <div class="flex justify-end space-x-2 pt-4">
@@ -609,6 +631,13 @@ function getDirectRoleIds(member: Member): string[] {
     return (member.roles || []).filter(r => !r.source || r.source === 'direct').map(r => r.id)
 }
 
+// Display role names with a leading capital so direct role names (stored
+// lowercase, e.g. "admin") match the capitalized fallback ("Member").
+function cap(name?: string): string {
+    if (!name) return ''
+    return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 function getMemberGroups(member: Member): GroupData[] {
     const userId = member.user_id || member.user?.id
     return groups.value.filter(group => {
@@ -832,10 +861,15 @@ watch(showQuotaColumn, (enabled) => {
     }
 })
 
+// Group pre-assignment in the invite modal is enterprise-gated (same feature
+// flag the Groups manager uses) and requires group-management permission.
+const canManageGroups = computed(() => hasFeature('custom_roles') && useCan('manage_groups'))
+
 const inviteModalOpen = ref(false)
 const inviteForm = ref({
     email: '',
     role: 'member',
+    group_ids: [] as string[],
     organization_id: organizationId
 })
 
@@ -986,7 +1020,11 @@ const inviteMember = async () => {
     try {
         const response = await useMyFetch(`/organizations/${organizationId}/members`, {
             method: 'POST',
-            body: inviteForm.value
+            body: {
+                organization_id: organizationId,
+                email: inviteForm.value.email,
+                role: inviteForm.value.role,
+            }
         })
 
         if (response.error.value) {
@@ -999,8 +1037,26 @@ const inviteMember = async () => {
             throw new Error(errorDetail || t('settings.members.failedToInvite'))
         }
 
+        // Pre-assign the pending invite to any selected groups. The new
+        // membership has no user yet, so it's added by its membership id.
+        const newMembershipId = (response.data.value as any)?.id
+        if (newMembershipId && inviteForm.value.group_ids.length) {
+            for (const groupId of inviteForm.value.group_ids) {
+                const gr = await useMyFetch(`/organizations/${organizationId}/groups/${groupId}/members`, {
+                    method: 'POST',
+                    body: { membership_id: newMembershipId },
+                })
+                if (gr.error?.value) {
+                    const detail = (gr.error.value as any).data?.detail || t('settings.members.failedToInvite')
+                    toast.add({ title: detail, color: 'red' })
+                }
+            }
+        }
+
+        // Refresh members and groups so the new pending row shows its groups.
         const membersResponse = await useMyFetch(`/organizations/${organizationId}/members`)
         members.value = (membersResponse.data.value || []) as Member[]
+        await loadGroups()
 
         toast.add({
             title: t('common.success'),
@@ -1008,7 +1064,7 @@ const inviteMember = async () => {
             color: 'green'
         })
 
-        inviteForm.value = { email: '', role: 'member', organization_id: organizationId }
+        inviteForm.value = { email: '', role: 'member', group_ids: [], organization_id: organizationId }
         inviteModalOpen.value = false
     } catch (error) {
         console.error('Failed to invite member:', error)
