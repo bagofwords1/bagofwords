@@ -255,6 +255,12 @@ class MssqlConfig(SQLConfig):
         description="Encrypt the connection. Disable for SQL Server 2008 without TLS support",
         json_schema_extra={"ui:type": "boolean"}
     )
+    additional_params: Optional[dict] = Field(
+        default_factory=dict,
+        title="Additional Connection Parameters",
+        description="Extra ODBC keywords sent as-is, e.g. ApplicationIntent=ReadOnly. Security keys (Encrypt, credentials, driver) cannot be overridden.",
+        json_schema_extra={"ui:type": "keyvalue"}
+    )
 
 
 class SybaseConfig(SQLConfig):

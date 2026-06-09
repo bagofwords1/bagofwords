@@ -24,6 +24,15 @@
             <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.config[field.field_name]" size="xs" color="blue" />
             <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" :placeholder="field.title || field.field_name" rows="3" />
             <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            <div v-else-if="uiType(field) === 'keyvalue'" class="space-y-1.5">
+              <div v-for="(row, idx) in (kvRowsMap[field.field_name] || [])" :key="idx" class="flex items-center gap-2">
+                <input type="text" v-model="row.k" @input="kvSync(field.field_name)" placeholder="Parameter" class="block w-1/2 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
+                <span class="text-gray-400 text-sm">=</span>
+                <input type="text" v-model="row.v" @input="kvSync(field.field_name)" placeholder="Value" class="block w-1/2 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
+                <button type="button" @click="kvRemove(field.field_name, idx)" class="text-gray-400 hover:text-red-500 text-sm px-1" title="Remove parameter">✕</button>
+              </div>
+              <button type="button" @click="kvAdd(field.field_name)" class="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Add parameter</button>
+            </div>
             <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
           </div>
         </div>
@@ -171,6 +180,51 @@ const selectedType = ref<string>(String(props.initialType || (typeof route.query
 const name = ref(String(props.initialName || ''))
 const fields = ref<any>({ config: null, credentials: null, auth: null, credentials_by_auth: null })
 const formData = reactive<{ config: Record<string, any>; credentials: Record<string, any> }>({ config: {}, credentials: {} })
+// Editable rows backing any `ui:type: keyvalue` config field, keyed by field name.
+// The flat object in formData.config stays the source of truth that gets submitted;
+// these rows are just the UI representation we sync back on every edit.
+const kvRowsMap = reactive<Record<string, Array<{ k: string; v: string }>>>({})
+
+function kvInit(fieldName: string) {
+  const cur = (formData.config as any)[fieldName]
+  const rows: Array<{ k: string; v: string }> = []
+  if (cur && typeof cur === 'object' && !Array.isArray(cur)) {
+    for (const [k, v] of Object.entries(cur)) rows.push({ k, v: v == null ? '' : String(v) })
+  }
+  if (rows.length === 0) rows.push({ k: '', v: '' })
+  kvRowsMap[fieldName] = rows
+  kvSync(fieldName)
+}
+
+function kvSync(fieldName: string) {
+  const obj: Record<string, string> = {}
+  for (const row of kvRowsMap[fieldName] || []) {
+    const key = String(row.k || '').trim()
+    if (key) obj[key] = row.v == null ? '' : String(row.v)
+  }
+  ;(formData.config as any)[fieldName] = obj
+}
+
+function kvAdd(fieldName: string) {
+  if (!kvRowsMap[fieldName]) kvRowsMap[fieldName] = []
+  kvRowsMap[fieldName].push({ k: '', v: '' })
+}
+
+function kvRemove(fieldName: string, idx: number) {
+  const rows = kvRowsMap[fieldName] || []
+  rows.splice(idx, 1)
+  if (rows.length === 0) rows.push({ k: '', v: '' })
+  kvSync(fieldName)
+  clearTestResult()
+}
+
+// Initialize key-value editors for any keyvalue config fields in the active schema.
+function initKeyValueFields() {
+  const configProps = fields.value?.config?.properties || {}
+  for (const [fieldName, schema] of Object.entries<any>(configProps)) {
+    if ((schema?.['ui:type']) === 'keyvalue') kvInit(fieldName)
+  }
+}
 const selectedAuth = ref<string | undefined>(undefined)
 const is_public = ref(true)
 const require_user_auth = ref(Boolean(props.initialRequireUserAuth))
@@ -290,6 +344,7 @@ async function fetchFields() {
     if (authMeta && !selectedAuth.value) selectedAuth.value = authMeta.default || undefined
     const shouldSkipHydration = preserveOnNextFetch.value
     initFormDefaults(preserveOnNextFetch.value)
+    initKeyValueFields()
     preserveOnNextFetch.value = false
     emit('change:type', selectedType.value)
     // hydrate initial values in edit mode (skip if user just toggled auth policy)
@@ -303,6 +358,7 @@ async function fetchFields() {
         // Exclude auth_type from hydrated config to avoid sending it during tests
         const { auth_type: _ignoredAuthType, ...restConfig } = (iv.config || {})
         formData.config = { ...formData.config, ...restConfig }
+        initKeyValueFields()
         formData.credentials = { ...formData.credentials, ...(iv.credentials || {}) }
         connectionTestPassed.value = true
         // Lock credentials if they already exist on the server
@@ -323,7 +379,10 @@ function initFormDefaults(preserveExisting: boolean = false) {
   const nextConfig: Record<string, any> = {}
   const configProps = fields.value?.config?.properties || null
   if (configProps) {
-    Object.entries(configProps).forEach(([k, v]: any) => { nextConfig[k] = v?.default ?? '' })
+    Object.entries(configProps).forEach(([k, v]: any) => {
+      if (v?.['ui:type'] === 'keyvalue') nextConfig[k] = (v?.default && typeof v.default === 'object') ? { ...v.default } : {}
+      else nextConfig[k] = v?.default ?? ''
+    })
     if (preserveExisting) {
       Object.keys(configProps).forEach((k: string) => {
         if (Object.prototype.hasOwnProperty.call(previousConfig, k)) nextConfig[k] = previousConfig[k]
