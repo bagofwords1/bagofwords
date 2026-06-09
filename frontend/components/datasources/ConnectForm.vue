@@ -191,7 +191,7 @@ function kvInit(fieldName: string) {
   if (cur && typeof cur === 'object' && !Array.isArray(cur)) {
     for (const [k, v] of Object.entries(cur)) rows.push({ k, v: v == null ? '' : String(v) })
   }
-  if (rows.length === 0) rows.push({ k: '', v: '' })
+  // Start collapsed (just the "+ Add parameter" button) when there's nothing to show.
   kvRowsMap[fieldName] = rows
   kvSync(fieldName)
 }
@@ -213,7 +213,6 @@ function kvAdd(fieldName: string) {
 function kvRemove(fieldName: string, idx: number) {
   const rows = kvRowsMap[fieldName] || []
   rows.splice(idx, 1)
-  if (rows.length === 0) rows.push({ k: '', v: '' })
   kvSync(fieldName)
   clearTestResult()
 }
