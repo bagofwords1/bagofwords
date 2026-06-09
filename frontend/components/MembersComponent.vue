@@ -222,11 +222,12 @@
                                         @update:model-value="updatePrincipalQuota(memberQuotaPrincipal(member).type, memberQuotaPrincipal(member).id, $event)"
                                     >
                                         <template #label>
-                                            <span class="flex gap-1 flex-wrap items-center">
+                                            <span class="flex gap-1 items-center">
                                                 <UBadge
                                                     v-for="quota in getMemberQuotaPolicies(member).slice(0, 2)"
                                                     :key="quota.id"
                                                     size="xs"
+                                                    class="whitespace-nowrap"
                                                     :color="quota.source === 'direct' ? 'gray' : 'blue'"
                                                     :variant="quota.source === 'direct' ? 'solid' : 'subtle'"
                                                 >
