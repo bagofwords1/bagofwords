@@ -225,7 +225,7 @@ function initKeyValueFields() {
   }
 }
 const selectedAuth = ref<string | undefined>(undefined)
-const is_public = ref(true)
+const is_public = ref(false)
 const require_user_auth = ref(Boolean(props.initialRequireUserAuth))
 const use_llm_onboarding = ref(true)
 const submitting = ref(false)

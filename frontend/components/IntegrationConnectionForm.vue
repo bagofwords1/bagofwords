@@ -293,7 +293,7 @@ async function handleSubmit() {
             name: (agentName.value || props.integrationTitle || form.name).trim(),
             type: props.integrationType,
             connection_ids: [connection.id],
-            is_public: true,
+            is_public: false,
             auth_policy: 'user_required',
             allowed_user_auth_modes: ['oauth'],
           },

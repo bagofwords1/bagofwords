@@ -349,7 +349,7 @@ const groupMembers = ref<Record<string, { user_id: string; user_name: string; us
 watch(injectedIntegration, (ds) => {
     if (ds) {
         form.name = ds?.name || ''
-        form.isPublic = ds?.is_public ?? true
+        form.isPublic = ds?.is_public ?? false
         original.name = form.name
         original.isPublic = form.isPublic
     }
