@@ -78,6 +78,7 @@ def enterprise_license(monkeypatch):
             "scim",
             "custom_roles",
             "ldap",
+            "usage_limits",
         ],
         license_id="e2e-fake",
     )

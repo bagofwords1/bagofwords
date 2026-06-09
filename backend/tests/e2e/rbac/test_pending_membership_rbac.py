@@ -339,3 +339,125 @@ def test_pending_group_membership_materializes_on_registration(
     g = next(x for x in groups if x["id"] == group["id"])
     assert user_id in g["member_user_ids"]
     assert pending["membership_id"] not in g["member_membership_ids"]
+
+
+# ────────────────────────────────────────────────────────────────────
+# Quota (usage policy) on pending memberships (enterprise)
+# ────────────────────────────────────────────────────────────────────
+
+
+def _create_policy(test_client, admin, *, name, token_limit):
+    resp = test_client.post(
+        f"/api/organizations/{admin['org_id']}/usage-policies",
+        json={"name": name, "monthly_token_limit": token_limit, "enabled": True},
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _set_principal_quota(test_client, admin, *, principal_type, principal_id, policy_id):
+    return test_client.put(
+        f"/api/organizations/{admin['org_id']}/usage-policy-assignments/principal",
+        json={"principal_type": principal_type, "principal_id": principal_id, "policy_id": policy_id},
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+
+
+@pytest.mark.e2e
+def test_assign_quota_to_pending_membership(test_client, bootstrap_admin, enterprise_license):
+    """A usage policy can be assigned to a pending invite and shows on the policy."""
+    admin = bootstrap_admin()
+    pending = _invite_pending(test_client, admin)
+    policy = _create_policy(test_client, admin, name="Starter", token_limit=1000)
+
+    resp = _set_principal_quota(
+        test_client, admin,
+        principal_type="membership", principal_id=pending["membership_id"], policy_id=policy["id"],
+    )
+    assert resp.status_code == 200, resp.text
+
+    policies = test_client.get(
+        f"/api/organizations/{admin['org_id']}/usage-policies",
+        headers=_hdr(admin["token"], admin["org_id"]),
+    ).json()
+    p = next(x for x in policies if x["id"] == policy["id"])
+    assert any(
+        a["principal_type"] == "membership" and a["principal_id"] == pending["membership_id"]
+        for a in p["assignments"]
+    )
+
+
+@pytest.mark.e2e
+def test_quota_membership_principal_rejected_for_registered(
+    test_client, bootstrap_admin, enterprise_license, invite_user_to_org
+):
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    policy = _create_policy(test_client, admin, name="Reg", token_limit=500)
+
+    resp = _set_principal_quota(
+        test_client, admin,
+        principal_type="membership", principal_id=member["membership_id"], policy_id=policy["id"],
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.e2e
+def test_pending_quota_materializes_on_registration(
+    test_client, bootstrap_admin, enterprise_license, create_user, login_user, whoami
+):
+    """A quota pre-assigned to a pending invite applies to the user after registration."""
+    admin = bootstrap_admin()
+    pending = _invite_pending(test_client, admin)
+    policy = _create_policy(test_client, admin, name="Capped", token_limit=1234)
+
+    resp = _set_principal_quota(
+        test_client, admin,
+        principal_type="membership", principal_id=pending["membership_id"], policy_id=policy["id"],
+    )
+    assert resp.status_code == 200, resp.text
+
+    create_user(email=pending["email"], password="Test1234!")
+    token = login_user(pending["email"], "Test1234!")
+    user_id = whoami(token)["id"]
+
+    org = _whoami_org(whoami, token, admin["org_id"])
+    assert org["usage_quota"] is not None
+    assert org["usage_quota"]["tokens"]["limit"] == 1234
+
+    # The pending assignment was rewritten to a user principal.
+    policies = test_client.get(
+        f"/api/organizations/{admin['org_id']}/usage-policies",
+        headers=_hdr(admin["token"], admin["org_id"]),
+    ).json()
+    p = next(x for x in policies if x["id"] == policy["id"])
+    principals = {(a["principal_type"], a["principal_id"]) for a in p["assignments"]}
+    assert ("user", user_id) in principals
+    assert ("membership", pending["membership_id"]) not in principals
+
+
+@pytest.mark.e2e
+def test_removing_pending_member_cleans_up_quota(
+    test_client, bootstrap_admin, enterprise_license
+):
+    admin = bootstrap_admin()
+    pending = _invite_pending(test_client, admin)
+    policy = _create_policy(test_client, admin, name="Cleanup", token_limit=10)
+    _set_principal_quota(
+        test_client, admin,
+        principal_type="membership", principal_id=pending["membership_id"], policy_id=policy["id"],
+    )
+
+    rm = test_client.delete(
+        f"/api/organizations/{admin['org_id']}/members/{pending['membership_id']}",
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert rm.status_code == 204, rm.text
+
+    policies = test_client.get(
+        f"/api/organizations/{admin['org_id']}/usage-policies",
+        headers=_hdr(admin["token"], admin["org_id"]),
+    ).json()
+    p = next(x for x in policies if x["id"] == policy["id"])
+    assert not any(a["principal_type"] == "membership" for a in p["assignments"])

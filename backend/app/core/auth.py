@@ -288,6 +288,7 @@ class UserManager(BaseUserManager[User, str]):
         """
         from app.models.role_assignment import RoleAssignment
         from app.models.group_membership import GroupMembership
+        from app.models.usage_policy import UsagePolicyAssignment
 
         org_id = membership.organization_id
         try:
@@ -335,6 +336,31 @@ class UserManager(BaseUserManager[User, str]):
                 else:
                     gm.user_id = user_id
                     gm.membership_id = None
+
+            # Usage-policy (quota) assignments: membership principal → user principal
+            upa_result = await session.execute(
+                select(UsagePolicyAssignment).where(
+                    UsagePolicyAssignment.organization_id == org_id,
+                    UsagePolicyAssignment.principal_type == "membership",
+                    UsagePolicyAssignment.principal_id == membership.id,
+                    UsagePolicyAssignment.deleted_at.is_(None),
+                )
+            )
+            for upa in upa_result.scalars().all():
+                existing = await session.execute(
+                    select(UsagePolicyAssignment).where(
+                        UsagePolicyAssignment.organization_id == org_id,
+                        UsagePolicyAssignment.policy_id == upa.policy_id,
+                        UsagePolicyAssignment.principal_type == "user",
+                        UsagePolicyAssignment.principal_id == user_id,
+                        UsagePolicyAssignment.deleted_at.is_(None),
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await session.delete(upa)
+                else:
+                    upa.principal_type = "user"
+                    upa.principal_id = user_id
             await session.flush()
         except Exception:
             # Never block registration if pending-RBAC tables aren't present

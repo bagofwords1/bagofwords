@@ -207,15 +207,14 @@
                                 </td>
                                 <td v-if="showQuotaColumn" class="px-6 py-4">
                                     <USelectMenu
-                                        v-if="member.user_id || member.user?.id"
-                                        :model-value="getDirectQuotaId('user', member.user_id || member.user?.id || '')"
+                                        :model-value="getDirectQuotaId(memberQuotaPrincipal(member).type, memberQuotaPrincipal(member).id)"
                                         :options="quotaSelectOptions"
                                         value-attribute="value"
                                         option-attribute="label"
                                         size="sm"
                                         :ui-menu="{ width: 'w-48' }"
                                         :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
-                                        @update:model-value="updatePrincipalQuota('user', member.user_id || member.user?.id || '', $event)"
+                                        @update:model-value="updatePrincipalQuota(memberQuotaPrincipal(member).type, memberQuotaPrincipal(member).id, $event)"
                                     >
                                         <template #label>
                                             <span class="flex gap-1 flex-wrap items-center">
@@ -236,12 +235,6 @@
                                             <span class="text-sm">{{ option.label }}</span>
                                         </template>
                                     </USelectMenu>
-                                    <span
-                                        v-else
-                                        class="text-gray-400 text-sm italic"
-                                    >
-                                        {{ $t('quotaPolicies.unlimited') }}
-                                    </span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span v-if="member.user"
@@ -376,6 +369,17 @@
                             <span v-else class="text-gray-400">{{ $t('settings.members.emptyNone') }}</span>
                         </template>
                     </USelectMenu>
+                </div>
+
+                <div v-if="showQuotaColumn && usagePolicies.length" class="flex flex-col">
+                    <label class="text-sm font-medium text-gray-700 mb-2">{{ $t('quotaPolicies.colQuota') }}</label>
+                    <USelectMenu
+                        v-model="inviteForm.quota_policy_id"
+                        :options="quotaSelectOptions"
+                        value-attribute="value"
+                        option-attribute="label"
+                        size="sm"
+                    />
                 </div>
 
                 <div class="flex justify-end space-x-2 pt-4">
@@ -544,7 +548,7 @@ interface GroupData {
 }
 
 interface UsagePolicyAssignment {
-    principal_type: 'user' | 'group' | 'role'
+    principal_type: 'user' | 'group' | 'role' | 'membership'
     principal_id: string
 }
 
@@ -648,11 +652,17 @@ function getMemberGroups(member: Member): GroupData[] {
     })
 }
 
+// Registered members are addressed as a 'user' quota principal; pending invites
+// (no user yet) as a 'membership' principal, materialized on registration.
+function memberQuotaPrincipal(member: Member): { type: UsagePrincipalType; id: string } {
+    const userId = member.user_id || member.user?.id
+    return userId ? { type: 'user', id: userId } : { type: 'membership', id: member.id }
+}
+
 function getMemberQuotaPolicies(member: Member): { id: string; name: string; source: 'direct' | 'inherited' }[] {
     if (!showQuotaColumn.value) return []
-    const userId = member.user_id || member.user?.id
-    if (!userId) return []
-    const direct = getPrincipalQuotaPolicies('user', userId)
+    const principal = memberQuotaPrincipal(member)
+    const direct = getPrincipalQuotaPolicies(principal.type, principal.id)
     if (direct.length) {
         return direct.map(policy => ({ id: policy.id, name: policy.name, source: 'direct' }))
     }
@@ -870,6 +880,7 @@ const inviteForm = ref({
     email: '',
     role: 'member',
     group_ids: [] as string[],
+    quota_policy_id: null as string | null,
     organization_id: organizationId
 })
 
@@ -1053,10 +1064,27 @@ const inviteMember = async () => {
             }
         }
 
-        // Refresh members and groups so the new pending row shows its groups.
+        // Pre-assign a quota policy to the pending invite (enterprise only).
+        if (newMembershipId && showQuotaColumn.value && inviteForm.value.quota_policy_id) {
+            const qr = await useMyFetch(`/organizations/${organizationId}/usage-policy-assignments/principal`, {
+                method: 'PUT',
+                body: {
+                    principal_type: 'membership',
+                    principal_id: newMembershipId,
+                    policy_id: inviteForm.value.quota_policy_id,
+                },
+            })
+            if (qr.error?.value) {
+                const detail = (qr.error.value as any).data?.detail || t('quotaPolicies.failedToSave')
+                toast.add({ title: detail, color: 'red' })
+            }
+        }
+
+        // Refresh members, groups and quotas so the new pending row reflects them.
         const membersResponse = await useMyFetch(`/organizations/${organizationId}/members`)
         members.value = (membersResponse.data.value || []) as Member[]
         await loadGroups()
+        await loadUsagePolicies()
 
         toast.add({
             title: t('common.success'),
@@ -1064,7 +1092,7 @@ const inviteMember = async () => {
             color: 'green'
         })
 
-        inviteForm.value = { email: '', role: 'member', group_ids: [], organization_id: organizationId }
+        inviteForm.value = { email: '', role: 'member', group_ids: [], quota_policy_id: null, organization_id: organizationId }
         inviteModalOpen.value = false
     } catch (error) {
         console.error('Failed to invite member:', error)

@@ -374,6 +374,7 @@ class OrganizationService:
             # SQLite, where foreign-key enforcement is off by default.
             from app.models.role_assignment import RoleAssignment
             from app.models.group_membership import GroupMembership
+            from app.models.usage_policy import UsagePolicyAssignment
             await db.execute(
                 delete(RoleAssignment).where(
                     RoleAssignment.organization_id == organization_id,
@@ -383,6 +384,13 @@ class OrganizationService:
             )
             await db.execute(
                 delete(GroupMembership).where(GroupMembership.membership_id == membership_id)
+            )
+            await db.execute(
+                delete(UsagePolicyAssignment).where(
+                    UsagePolicyAssignment.organization_id == organization_id,
+                    UsagePolicyAssignment.principal_type == "membership",
+                    UsagePolicyAssignment.principal_id == membership_id,
+                )
             )
 
         await db.execute(delete(Membership).where(Membership.id == membership_id))
