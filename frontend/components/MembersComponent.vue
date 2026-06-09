@@ -86,18 +86,18 @@
                 <table class="min-w-full divide-y divide-gray-100">
                     <thead class="bg-gray-50/60">
                         <tr>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colUser') }}</th>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colRole') }}</th>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colGroups') }}</th>
-                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('quotaPolicies.colQuota') }}</th>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colStatus') }}</th>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">Note</th>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">{{ $t('settings.members.colExternalPlatforms') }}</th>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">Last Login</th>
-                            <th class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide">Last Seen</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colUser') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colRole') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colGroups') }}</th>
+                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colQuota') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colStatus') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">Note</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('settings.members.colExternalPlatforms') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">Last Login</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">Last Seen</th>
                             <th
                                 v-if="useCan('remove_organization_members')"
-                                class="px-4 py-2 text-start text-[11px] font-medium text-gray-400 uppercase tracking-wide"
+                                class="px-4 py-2 text-start text-xs font-medium text-gray-500"
                             >{{ $t('settings.members.colActions') }}</th>
                         </tr>
                     </thead>
@@ -141,7 +141,7 @@
                                         :model-value="getDirectRoleIds(member)"
                                         :options="availableRoles"
                                         multiple
-                                        option-attribute="name"
+                                        option-attribute="label"
                                         value-attribute="id"
                                         size="sm"
                                         variant="none"
@@ -151,12 +151,12 @@
                                         @update:model-value="updateMemberRoles(member, $event)"
                                     >
                                         <template #label>
-                                            <div class="flex gap-1 flex-wrap">
+                                            <div class="flex gap-1 items-center">
                                                 <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
                                                     {{ cap(r.name) }}
                                                     <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
                                                 </UBadge>
-                                                <UBadge v-if="!member.roles?.length" size="xs" color="gray">
+                                                <UBadge v-if="!member.roles?.length" size="xs" color="gray" variant="subtle">
                                                     {{ member.role ? member.role.charAt(0).toUpperCase() + member.role.slice(1) : '—' }}
                                                 </UBadge>
                                             </div>
@@ -255,15 +255,15 @@
                                         {{ $t('settings.members.statusPending') }}
                                     </span>
                                 </td>
-                                <td class="px-4 py-2 max-w-xs">
+                                <td class="px-4 py-2 w-48">
                                     <input
                                         v-if="useCan('update_organization_members')"
                                         :value="member.note || ''"
                                         @change="onNoteChange(member, ($event.target as HTMLInputElement).value)"
                                         type="text"
                                         maxlength="500"
-                                        placeholder="Add a note…"
-                                        class="w-full text-sm border border-transparent hover:border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded px-2 py-1 outline-none bg-transparent"
+                                        placeholder="—"
+                                        class="w-full text-sm text-gray-700 placeholder:text-gray-300 border border-transparent hover:bg-gray-100 focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-md px-2 py-1 outline-none bg-transparent transition-colors"
                                     />
                                     <UTooltip v-else-if="member.note" :text="member.note">
                                         <span class="text-sm text-gray-700 truncate block max-w-[16rem]">{{ member.note }}</span>
@@ -579,7 +579,7 @@ const members = ref<Member[]>([])
 const searchQuery = ref('')
 const toast = useToast()
 const isLoading = ref(true)
-const availableRoles = ref<{ id: string; name: string }[]>([])
+const availableRoles = ref<{ id: string; name: string; label: string }[]>([])
 const groups = ref<GroupData[]>([])
 const groupMemberships = ref<Record<string, string[]>>({}) // groupId -> userIds
 const groupPendingMemberships = ref<Record<string, string[]>>({}) // groupId -> membershipIds
@@ -655,10 +655,10 @@ function cap(name?: string): string {
 // no border or shadow, a subtle hover affordance, and a muted chevron that
 // only firms up on hover. Keeps the table minimal while staying editable.
 const inlineSelectUi = {
-    base: 'relative inline-flex items-center text-left cursor-pointer rounded-md transition-colors hover:bg-gray-100 focus:outline-none',
-    padding: { sm: 'px-2 py-1' },
-    trailing: { padding: { sm: 'pe-6' } },
-    icon: { base: 'text-gray-300 group-hover:text-gray-400' },
+    base: 'group relative inline-flex w-fit items-center gap-1 text-left cursor-pointer rounded-md transition-colors hover:bg-gray-100 focus:outline-none',
+    padding: { sm: 'ps-1.5 pe-5 py-1' },
+    trailing: { padding: { sm: 'pe-1' } },
+    icon: { base: 'text-gray-300 group-hover:text-gray-500 transition-colors', size: { sm: 'h-3.5 w-3.5' } },
 }
 
 function getMemberGroups(member: Member): GroupData[] {
@@ -782,7 +782,7 @@ async function loadAvailableRoles() {
     try {
         const { data } = await useMyFetch(`/organizations/${organizationId}/roles`)
         if (data.value) {
-            availableRoles.value = (data.value as any[]).map((r) => ({ id: r.id, name: r.name }))
+            availableRoles.value = (data.value as any[]).map((r) => ({ id: r.id, name: r.name, label: cap(r.name) }))
         }
     } catch (e) {
         // Roles endpoint may not be available yet (backward compat)
