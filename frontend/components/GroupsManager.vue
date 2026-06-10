@@ -31,21 +31,21 @@
         </div>
 
         <!-- Table card -->
-        <div class="bg-white shadow-sm border border-gray-200 rounded-lg">
+        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
+                <table class="min-w-full divide-y divide-gray-100">
+                    <thead class="bg-gray-50/60">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colName') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colDescription') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colRoles') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colMembers') }}</th>
-                            <th v-if="showQuotaColumn" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colQuota') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colSource') }}</th>
-                            <th v-if="useCan('manage_groups')" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('groupsManager.colActions') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colName') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colDescription') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colRoles') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colMembers') }}</th>
+                            <th v-if="showQuotaColumn" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colQuota') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colSource') }}</th>
+                            <th v-if="useCan('manage_groups')" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('groupsManager.colActions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
+                    <tbody class="bg-white divide-y divide-gray-100">
                         <!-- Loading state -->
                         <tr v-if="isLoading">
                             <td :colspan="groupsColspan" class="px-6 py-12 text-center">
@@ -56,8 +56,8 @@
                             </td>
                         </tr>
                         <template v-else>
-                            <tr v-for="group in filteredGroups" :key="group.id" class="hover:bg-gray-50">
-                                <td class="px-6 py-4 whitespace-nowrap">
+                            <tr v-for="group in filteredGroups" :key="group.id" class="hover:bg-gray-50/70 transition-colors">
+                                <td class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex items-center gap-2">
                                         <Icon name="heroicons:user-group" class="h-5 w-5 text-gray-400" />
                                         <span class="text-sm font-medium text-gray-900">{{ group.name }}</span>
@@ -66,39 +66,41 @@
                                         </UBadge>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4 text-sm text-gray-500">
-                                    {{ group.description || '-' }}
+                                <td class="px-4 py-2 text-xs text-gray-400">
+                                    {{ group.description || "-" }}
                                 </td>
-                                <td class="px-6 py-4">
+                                <td class="px-4 py-2">
                                     <USelectMenu
                                         v-if="useCan('manage_role_assignments') && availableRoles.length"
                                         :model-value="getGroupRoleIds(group)"
                                         :options="availableRoles"
                                         multiple
-                                        option-attribute="name"
+                                        option-attribute="label"
                                         value-attribute="id"
                                         size="sm"
+                                        variant="none"
+                                        :ui="inlineSelectUi"
                                         :ui-menu="{ width: 'w-48' }"
                                         :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
                                         @update:model-value="updateGroupRoles(group, $event)"
                                     >
                                         <template #label>
-                                            <div class="flex gap-1 flex-wrap">
+                                            <div class="flex gap-1 items-center">
                                                 <UBadge v-for="r in getGroupRoles(group)" :key="r.id" size="xs" color="gray">
-                                                    {{ r.name }}
+                                                    {{ cap(r.name) }}
                                                 </UBadge>
                                                 <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('groupsManager.none') }}</span>
                                             </div>
                                         </template>
                                     </USelectMenu>
-                                    <div v-else class="flex gap-1 flex-wrap">
+                                    <div v-else class="flex gap-1 items-center">
                                         <UBadge v-for="r in getGroupRoles(group)" :key="r.id" size="xs" color="gray">
-                                            {{ r.name }}
+                                            {{ cap(r.name) }}
                                         </UBadge>
                                         <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('groupsManager.none') }}</span>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
+                                <td class="px-4 py-2 whitespace-nowrap">
                                     <button
                                         @click="openMembersModal(group)"
                                         class="text-blue-600 hover:text-blue-800 text-sm font-medium"
@@ -106,23 +108,26 @@
                                         {{ group.member_count === 1 ? $t('groupsManager.memberSingular', { n: group.member_count }) : $t('groupsManager.memberPlural', { n: group.member_count }) }}
                                     </button>
                                 </td>
-                                <td v-if="showQuotaColumn" class="px-6 py-4">
+                                <td v-if="showQuotaColumn" class="px-4 py-2">
                                     <USelectMenu
                                         :model-value="getDirectQuotaId('group', group.id)"
                                         :options="quotaSelectOptions"
                                         value-attribute="value"
                                         option-attribute="label"
                                         size="sm"
+                                        variant="none"
+                                        :ui="inlineSelectUi"
                                         :ui-menu="{ width: 'w-48' }"
                                         :popper="{ placement: 'bottom-start', strategy: 'fixed' }"
                                         @update:model-value="updatePrincipalQuota('group', group.id, $event)"
                                     >
                                         <template #label>
-                                            <span class="flex gap-1 flex-wrap items-center">
+                                            <span class="flex gap-1 items-center">
                                                 <UBadge
                                                     v-for="policy in getGroupQuotaPolicies(group).slice(0, 1)"
                                                     :key="policy.id"
                                                     size="xs"
+                                                    class="whitespace-nowrap"
                                                     color="blue"
                                                     variant="subtle"
                                                 >
@@ -136,13 +141,13 @@
                                         </template>
                                     </USelectMenu>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
                                     <UBadge v-if="group.external_provider" size="xs" color="blue" variant="subtle">
                                         {{ group.external_provider }}
                                     </UBadge>
                                     <span v-else class="text-gray-400 italic">{{ $t('groupsManager.manual') }}</span>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
+                                <td class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex gap-2">
                                         <UButton
                                             v-if="useCan('manage_groups')"
@@ -339,6 +344,22 @@ const toast = useToast()
 interface RoleInfo {
     id: string
     name: string
+    label?: string
+}
+
+// Capitalize role names for display so they read consistently (Admin/Member).
+function cap(name?: string): string {
+    if (!name) return ''
+    return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+// In-table selects render as plain badges, not form fields: borderless, a
+// subtle hover background, content width, and a muted chevron.
+const inlineSelectUi = {
+    base: 'group relative inline-flex w-fit items-center gap-1 text-left cursor-pointer rounded-md transition-colors hover:bg-gray-100 focus:outline-none',
+    padding: { sm: 'ps-1.5 pe-5 py-1' },
+    trailing: { padding: { sm: 'pe-1' } },
+    icon: { base: 'text-gray-300 group-hover:text-gray-500 transition-colors', size: { sm: 'h-3.5 w-3.5' } },
 }
 
 interface RoleAssignment {
@@ -486,7 +507,7 @@ async function loadAvailableRoles() {
     try {
         const { data } = await useMyFetch(`/organizations/${organizationId}/roles`)
         if (data.value) {
-            availableRoles.value = (data.value as any[]).map(r => ({ id: r.id, name: r.name }))
+            availableRoles.value = (data.value as any[]).map(r => ({ id: r.id, name: r.name, label: cap(r.name) }))
         }
     } catch (e) {
         // Roles endpoint may not be available

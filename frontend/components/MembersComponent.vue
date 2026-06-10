@@ -227,28 +227,29 @@
                                     </template>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
-                                    <div class="flex gap-1 flex-wrap items-center">
+                                    <div class="flex gap-1 items-center">
                                         <UBadge
-                                            v-for="group in getMemberGroups(member).slice(0, 3)"
+                                            v-for="group in getMemberGroups(member).slice(0, 1)"
                                             :key="group.id"
                                             size="xs"
                                             color="blue"
                                             variant="subtle"
+                                            class="whitespace-nowrap"
                                         >
                                             {{ group.name }}
                                         </UBadge>
                                         <UPopover
-                                            v-if="getMemberGroups(member).length > 3"
+                                            v-if="getMemberGroups(member).length > 1"
                                             mode="hover"
                                             :popper="{ placement: 'bottom-start' }"
                                         >
                                             <UBadge size="xs" color="gray" variant="subtle" class="cursor-default">
-                                                +{{ getMemberGroups(member).length - 3 }} {{ $t('settings.members.moreGroups') }}
+                                                +{{ getMemberGroups(member).length - 1 }}
                                             </UBadge>
                                             <template #panel>
                                                 <div class="p-2 max-h-48 overflow-y-auto flex flex-col gap-1 min-w-32">
                                                     <UBadge
-                                                        v-for="group in getMemberGroups(member).slice(3)"
+                                                        v-for="group in getMemberGroups(member).slice(1)"
                                                         :key="group.id"
                                                         size="xs"
                                                         color="blue"
