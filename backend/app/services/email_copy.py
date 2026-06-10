@@ -12,22 +12,22 @@ SIGNATURE = "BOW"
 
 
 def invite_email(sign_up_url: str) -> Tuple[str, str]:
-    subject = "You've been invited to BOW"
+    subject = "Your team invited you to BOW"
     body = (
         "Hi,\n\n"
-        "Your team is using BOW to explore their data and answer questions in "
-        "plain language, and they've invited you to join them.\n\n"
-        "You can set up your account here:\n"
+        "Your team is using BOW to work with their data -- asking questions, "
+        "running analyses and building dashboards or automations, all just by "
+        "typing what they want in plain language. They've invited you to join them.\n\n"
+        "Set up your account here:\n"
         f"{sign_up_url}\n\n"
-        "If this doesn't look like something you were expecting, feel free to "
-        "ignore this email.\n\n"
+        "Hope to see you there,\n"
         f"{SIGNATURE}"
     )
     return subject, body
 
 
 def welcome_email(name: Optional[str], agent_names: List[str], app_url: str) -> Tuple[str, str]:
-    subject = "Welcome to BOW"
+    subject = f"Welcome to BOW, {name}!" if name else "Welcome to BOW"
     greeting = f"Hi {name}," if name else "Hi,"
 
     if agent_names:
