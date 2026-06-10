@@ -148,7 +148,7 @@
                             <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">Last Seen</th>
                             <th
                                 v-if="useCan('remove_organization_members')"
-                                class="px-4 py-2 text-start text-xs font-medium text-gray-500"
+                                class="sticky right-0 z-20 bg-gray-50 border-s border-gray-200 px-4 py-2 text-end text-xs font-medium text-gray-500"
                             >{{ $t('settings.members.colActions') }}</th>
                         </tr>
                     </thead>
@@ -164,7 +164,7 @@
                         </tr>
                         <!-- Data rows -->
                         <template v-else>
-                            <tr v-for="member in paginatedMembers" :key="member.id" class="hover:bg-gray-50/70 transition-colors" :class="{ 'bg-blue-50/40': isSelected(member.id) }">
+                            <tr v-for="member in paginatedMembers" :key="member.id" class="group hover:bg-gray-50/70 transition-colors" :class="{ 'bg-blue-50/40': isSelected(member.id) }">
                                 <td v-if="canBulkActions" class="ps-4 pe-1 py-2">
                                     <UCheckbox :model-value="isSelected(member.id)" @change="toggleSelect(member.id)" />
                                 </td>
@@ -345,22 +345,24 @@
                                 <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
                                     {{ member.user?.last_seen ? new Date(member.user.last_seen).toLocaleDateString() : '-' }}
                                 </td>
-                                <td class="px-4 py-2 whitespace-nowrap text-sm"
+                                <td class="sticky right-0 z-10 border-s border-gray-200 bg-white group-hover:bg-gray-50 px-4 py-2 whitespace-nowrap"
                                     v-if="useCan('remove_organization_members')"
                                 >
-                                    <div class="flex items-center gap-3">
+                                    <div class="flex items-center justify-end gap-4">
                                         <button
                                             v-if="!member.user && useCan('update_organization_members')"
                                             @click="resendInvite(member)"
                                             :disabled="resendingId === member.id"
-                                            class="text-blue-600 hover:text-blue-800 font-medium transition-colors duration-150 disabled:opacity-50"
+                                            class="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors disabled:opacity-50"
                                         >
+                                            <UIcon :name="resendingId === member.id ? 'i-heroicons-arrow-path-20-solid' : 'i-heroicons-paper-airplane'" class="h-3.5 w-3.5" :class="{ 'animate-spin': resendingId === member.id }" />
                                             {{ resendingId === member.id ? $t('settings.members.resending') : $t('settings.members.resend') }}
                                         </button>
                                         <button
                                             @click="removeMember(member)"
-                                            class="text-red-600 hover:text-red-900 font-medium transition-colors duration-150"
+                                            class="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-800 transition-colors"
                                         >
+                                            <UIcon name="i-heroicons-trash" class="h-3.5 w-3.5" />
                                             {{ $t('settings.members.remove') }}
                                         </button>
                                     </div>
