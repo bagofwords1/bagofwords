@@ -481,7 +481,11 @@ class OrganizationService:
         """Return the tokenized sign-up link for a pending invite (admin use).
 
         Lets an admin copy/share the link directly (handy when SMTP is off) and
-        is the proof-of-invite the recipient presents at registration.
+        is the proof-of-invite the recipient presents at registration. If the
+        invite has already expired, the token is regenerated and the 14-day
+        window reset so the copied link is always usable (no email is sent —
+        that's what Resend does). A still-valid link is returned untouched so we
+        don't invalidate one that was already emailed.
         """
         from urllib.parse import quote
 
@@ -490,6 +494,15 @@ class OrganizationService:
             raise HTTPException(status_code=404, detail="Membership not found")
         if membership.user_id is not None or not membership.email:
             raise HTTPException(status_code=400, detail="This member has already registered; no invite link")
+
+        expires = membership.invite_expires_at
+        regenerated = False
+        if not membership.invite_token or (expires is not None and expires < datetime.utcnow()):
+            membership.invite_token = str(uuid.uuid4())
+            membership.invite_expires_at = datetime.utcnow() + timedelta(days=INVITE_EXPIRY_DAYS)
+            await db.commit()
+            await db.refresh(membership)
+            regenerated = True
 
         token = membership.invite_token
         url = (
@@ -501,6 +514,7 @@ class OrganizationService:
             "email": membership.email,
             "url": url,
             "invite_expires_at": membership.invite_expires_at,
+            "regenerated": regenerated,
         }
 
     async def update_organization(self, db: AsyncSession, organization: Organization, data: OrganizationUpdate, current_user: User) -> OrganizationSchema:

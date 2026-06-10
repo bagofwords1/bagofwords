@@ -950,7 +950,8 @@
       "inviteResentFailed": "Invitation actualisée, mais l'e-mail n'a pas pu être envoyé",
       "copyLink": "Copier le lien",
       "linkCopied": "Lien d'invitation copié",
-      "failedToCopyLink": "Impossible de copier le lien"
+      "failedToCopyLink": "Impossible de copier le lien",
+      "linkRegenerated": "Lien d'invitation actualisé et copié"
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",

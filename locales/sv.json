@@ -950,7 +950,8 @@
       "inviteResentFailed": "Inbjudan uppdaterad, men e-posten kunde inte skickas",
       "copyLink": "Kopiera länk",
       "linkCopied": "Inbjudningslänk kopierad",
-      "failedToCopyLink": "Det gick inte att kopiera länken"
+      "failedToCopyLink": "Det gick inte att kopiera länken",
+      "linkRegenerated": "Inbjudningslänk uppdaterad och kopierad"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
