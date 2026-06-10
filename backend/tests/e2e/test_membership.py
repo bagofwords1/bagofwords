@@ -29,6 +29,9 @@ def test_membership_create_and_list(
     assert membership["email"] == second_email
     assert membership["role"] == "member"
     assert membership["user_id"] is None  # Not yet registered
+    # The invite-email outcome is surfaced on the response. The test env has no
+    # SMTP configured, so it should report skipped rather than silently "ok".
+    assert membership["invite_email_status"] == "skipped_no_smtp"
     
     # Now the second user can register with that invited email
     second_user = create_user(email=second_email, password="test123")
@@ -280,3 +283,192 @@ def test_membership_role_update(
     )
     assert response.status_code == 200
     assert response.json()["role"] == "member"
+
+
+# ── Invite token gate + resend ────────────────────────────────────────────
+
+import os as _os
+from sqlalchemy import create_engine as _create_engine, text as _text
+from tests.fixtures.user import _pending_invite_token
+
+
+def _hdr(token, org_id):
+    return {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+
+def _set_invite_expiry_past(email):
+    """Force a pending invite to look expired (no API for it)."""
+    url = _os.environ.get("TEST_DATABASE_URL")
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    eng = _create_engine(sync_url)
+    try:
+        with eng.begin() as conn:
+            conn.execute(
+                _text("UPDATE memberships SET invite_expires_at = :past WHERE email = :e AND user_id IS NULL"),
+                {"past": "2000-01-01 00:00:00", "e": email},
+            )
+    finally:
+        eng.dispose()
+
+
+def _invite(test_client, admin_token, org_id, email):
+    r = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": "member"},
+        headers=_hdr(admin_token, org_id),
+    )
+    assert r.status_code == 200, r.json()
+    return r.json()
+
+
+@pytest.mark.e2e
+def test_register_blocked_without_token_when_invited(test_client, create_user, login_user, whoami):
+    """Closed signups: an invited email can't register without the invite token."""
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"gate_{uuid.uuid4().hex[:8]}@test.com"
+    _invite(test_client, admin_token, org_id, email)
+
+    # Bare register (no token) -> blocked, no user created.
+    resp = test_client.post("/api/auth/register", json={"name": "Gate", "email": email, "password": "test123"})
+    assert resp.status_code == 400, resp.json()
+
+
+@pytest.mark.e2e
+def test_register_blocked_with_invalid_token(test_client, create_user, login_user, whoami):
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"gate_{uuid.uuid4().hex[:8]}@test.com"
+    _invite(test_client, admin_token, org_id, email)
+
+    resp = test_client.post("/api/auth/register", json={
+        "name": "Gate", "email": email, "password": "test123", "invite_token": "not-a-real-token",
+    })
+    assert resp.status_code == 400, resp.json()
+
+
+@pytest.mark.e2e
+def test_register_blocked_with_expired_token(test_client, create_user, login_user, whoami):
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"gate_{uuid.uuid4().hex[:8]}@test.com"
+    _invite(test_client, admin_token, org_id, email)
+    token = _pending_invite_token(email)
+    assert token
+    _set_invite_expiry_past(email)
+
+    resp = test_client.post("/api/auth/register", json={
+        "name": "Gate", "email": email, "password": "test123", "invite_token": token,
+    })
+    assert resp.status_code == 400, resp.json()
+    assert "expired" in str(resp.json().get("detail", "")).lower()
+
+
+@pytest.mark.e2e
+def test_register_succeeds_with_valid_token(test_client, create_user, login_user, whoami):
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"gate_{uuid.uuid4().hex[:8]}@test.com"
+    _invite(test_client, admin_token, org_id, email)
+    token = _pending_invite_token(email)
+
+    resp = test_client.post("/api/auth/register", json={
+        "name": "Gate", "email": email, "password": "test123", "invite_token": token,
+    })
+    assert resp.status_code == 201, resp.json()
+    # And they are attached to the org.
+    info = whoami(login_user(email, "test123"))
+    assert org_id in [o["id"] for o in info["organizations"]]
+
+
+@pytest.mark.e2e
+def test_resend_rotates_token_and_invalidates_old(test_client, create_user, login_user, whoami):
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"gate_{uuid.uuid4().hex[:8]}@test.com"
+    m = _invite(test_client, admin_token, org_id, email)
+    old_token = _pending_invite_token(email)
+
+    resend = test_client.post(
+        f"/api/organizations/{org_id}/members/{m['id']}/resend",
+        headers=_hdr(admin_token, org_id),
+    )
+    assert resend.status_code == 200, resend.json()
+    new_token = _pending_invite_token(email)
+    assert new_token and new_token != old_token
+
+    # Old link no longer works; new one does.
+    bad = test_client.post("/api/auth/register", json={
+        "name": "Gate", "email": email, "password": "test123", "invite_token": old_token,
+    })
+    assert bad.status_code == 400, bad.json()
+    ok = test_client.post("/api/auth/register", json={
+        "name": "Gate", "email": email, "password": "test123", "invite_token": new_token,
+    })
+    assert ok.status_code == 201, ok.json()
+
+
+@pytest.mark.e2e
+def test_resend_requires_manage_members(test_client, create_user, login_user, whoami):
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    # Invite + register a plain member.
+    member_email = f"plain_{uuid.uuid4().hex[:8]}@test.com"
+    _invite(test_client, admin_token, org_id, member_email)
+    create_user(email=member_email, password="test123")
+    member_token = login_user(member_email, "test123")
+    # A second pending invite to attempt resend against.
+    target = _invite(test_client, admin_token, org_id, f"t_{uuid.uuid4().hex[:8]}@test.com")
+
+    resp = test_client.post(
+        f"/api/organizations/{org_id}/members/{target['id']}/resend",
+        headers=_hdr(member_token, org_id),
+    )
+    assert resp.status_code == 403, resp.json()
+
+
+@pytest.mark.e2e
+def test_invite_link_endpoint(test_client, create_user, login_user, whoami):
+    """Admin can fetch the tokenized invite link for a pending member."""
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"link_{uuid.uuid4().hex[:8]}@test.com"
+    m = _invite(test_client, admin_token, org_id, email)
+
+    resp = test_client.get(
+        f"/api/organizations/{org_id}/members/{m['id']}/invite-link",
+        headers=_hdr(admin_token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    data = resp.json()
+    assert data["token"] == _pending_invite_token(email)
+    assert "token=" in data["url"] and "sign-up" in data["url"]
+    # That token actually works for registration.
+    ok = test_client.post("/api/auth/register", json={
+        "name": "Linked", "email": email, "password": "test123", "invite_token": data["token"],
+    })
+    assert ok.status_code == 201, ok.json()
+
+
+@pytest.mark.e2e
+def test_invite_link_requires_manage_members(test_client, create_user, login_user, whoami):
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    member_email = f"plain_{uuid.uuid4().hex[:8]}@test.com"
+    _invite(test_client, admin_token, org_id, member_email)
+    create_user(email=member_email, password="test123")
+    member_token = login_user(member_email, "test123")
+    target = _invite(test_client, admin_token, org_id, f"t_{uuid.uuid4().hex[:8]}@test.com")
+    resp = test_client.get(
+        f"/api/organizations/{org_id}/members/{target['id']}/invite-link",
+        headers=_hdr(member_token, org_id),
+    )
+    assert resp.status_code == 403, resp.json()

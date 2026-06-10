@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional
 
 
@@ -77,19 +77,34 @@ class GroupSchema(GroupCreate):
     external_provider: Optional[str] = None
     member_count: int = 0
     member_user_ids: List[str] = []
+    # Pending (unregistered) memberships pre-assigned to this group, keyed by
+    # membership id. Materialized into ``member_user_ids`` when the invitee
+    # registers.
+    member_membership_ids: List[str] = []
 
     class Config:
         from_attributes = True
 
 
 class GroupMemberAdd(BaseModel):
-    user_id: str
+    # Exactly one of ``user_id`` (registered user) or ``membership_id``
+    # (pending invite) must be provided.
+    user_id: Optional[str] = None
+    membership_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def exactly_one_principal(self) -> "GroupMemberAdd":
+        if bool(self.user_id) == bool(self.membership_id):
+            raise ValueError("Provide exactly one of user_id or membership_id")
+        return self
 
 
 class GroupMemberSchema(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
+    membership_id: Optional[str] = None
     user_name: Optional[str] = None
     user_email: Optional[str] = None
+    pending: bool = False
 
     class Config:
         from_attributes = True
@@ -99,7 +114,7 @@ class GroupMemberSchema(BaseModel):
 
 class RoleAssignmentCreate(BaseModel):
     role_id: str
-    principal_type: str  # "user" | "group"
+    principal_type: str  # "user" | "group" | "membership" (pending invite)
     principal_id: str
 
 

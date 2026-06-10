@@ -13,6 +13,7 @@ from app.ee.license import has_feature
 from app.models.connection import Connection
 from app.models.group import Group
 from app.models.group_membership import GroupMembership
+from app.models.membership import Membership
 from app.models.role_assignment import RoleAssignment
 from app.models.usage_policy import (
     UsageCounter,
@@ -385,8 +386,12 @@ class UsagePolicyService:
         principal_id: str,
         policy_id: Optional[str],
     ) -> UsagePolicyPrincipalAssignmentResult:
-        if principal_type not in {"user", "group", "role"}:
-            raise HTTPException(status_code=400, detail="principal_type must be user, group, or role")
+        if principal_type not in {"user", "group", "role", "membership"}:
+            raise HTTPException(status_code=400, detail="principal_type must be user, group, role, or membership")
+        # A "membership" principal targets a pending (unregistered) invite; the
+        # assignment is rewritten to a "user" principal when they register.
+        if principal_type == "membership":
+            await self._assert_pending_membership(db, org_id, principal_id)
         if policy_id is not None:
             await self._get_policy_model(db, org_id, policy_id)
 
@@ -416,6 +421,23 @@ class UsagePolicyService:
             policy_id=policy_id,
             assignment=assignment_schema,
         )
+
+    async def _assert_pending_membership(self, db: AsyncSession, org_id: str, membership_id: str) -> None:
+        """Validate the membership is an unregistered invite in this org."""
+        result = await db.execute(
+            select(Membership).where(
+                Membership.id == membership_id,
+                Membership.organization_id == org_id,
+            )
+        )
+        membership = result.scalar_one_or_none()
+        if not membership:
+            raise HTTPException(status_code=404, detail="Membership not found")
+        if membership.user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Membership is already registered; use a user principal instead",
+            )
 
     async def resolve_effective_limits(
         self,

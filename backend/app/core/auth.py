@@ -223,6 +223,10 @@ class UserManager(BaseUserManager[User, str]):
             membership_role = membership.role
             membership.email = None  # Clear the email since we now have a user
 
+            # Materialize any pre-assigned (pending) RBAC roles and group
+            # memberships from the invite onto the freshly-registered user.
+            await self._materialize_pending_rbac(session, membership, user.id)
+
             # Create the matching RBAC role_assignment so the invited user
             # actually has permissions in the org. Mirrors
             # OrganizationService._assign_system_role.
@@ -271,6 +275,98 @@ class UserManager(BaseUserManager[User, str]):
             except Exception:
                 pass
 
+    async def _materialize_pending_rbac(self, session: AsyncSession, membership: Membership, user_id: str) -> None:
+        """Rewrite pending (membership-keyed) RBAC rows onto the registered user.
+
+        An org admin can pre-assign roles and groups to an invite before the
+        user registers. Those are stored as ``RoleAssignment`` rows with
+        ``principal_type='membership'`` and ``GroupMembership`` rows with
+        ``membership_id`` set. When the invitee registers we convert them to
+        the user-keyed equivalents, de-duplicating against anything the user
+        may already have, so the resolver (which only knows 'user'/'group')
+        sees the intended permissions immediately.
+        """
+        from app.models.role_assignment import RoleAssignment
+        from app.models.group_membership import GroupMembership
+        from app.models.usage_policy import UsagePolicyAssignment
+
+        org_id = membership.organization_id
+        try:
+            # Role assignments: membership principal → user principal
+            ra_result = await session.execute(
+                select(RoleAssignment).where(
+                    RoleAssignment.organization_id == org_id,
+                    RoleAssignment.principal_type == "membership",
+                    RoleAssignment.principal_id == membership.id,
+                    RoleAssignment.deleted_at.is_(None),
+                )
+            )
+            for assignment in ra_result.scalars().all():
+                existing = await session.execute(
+                    select(RoleAssignment).where(
+                        RoleAssignment.organization_id == org_id,
+                        RoleAssignment.role_id == assignment.role_id,
+                        RoleAssignment.principal_type == "user",
+                        RoleAssignment.principal_id == user_id,
+                        RoleAssignment.deleted_at.is_(None),
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await session.delete(assignment)
+                else:
+                    assignment.principal_type = "user"
+                    assignment.principal_id = user_id
+
+            # Group memberships: membership-keyed → user-keyed
+            gm_result = await session.execute(
+                select(GroupMembership).where(
+                    GroupMembership.membership_id == membership.id,
+                    GroupMembership.deleted_at.is_(None),
+                )
+            )
+            for gm in gm_result.scalars().all():
+                existing = await session.execute(
+                    select(GroupMembership).where(
+                        GroupMembership.group_id == gm.group_id,
+                        GroupMembership.user_id == user_id,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await session.delete(gm)
+                else:
+                    gm.user_id = user_id
+                    gm.membership_id = None
+
+            # Usage-policy (quota) assignments: membership principal → user principal
+            upa_result = await session.execute(
+                select(UsagePolicyAssignment).where(
+                    UsagePolicyAssignment.organization_id == org_id,
+                    UsagePolicyAssignment.principal_type == "membership",
+                    UsagePolicyAssignment.principal_id == membership.id,
+                    UsagePolicyAssignment.deleted_at.is_(None),
+                )
+            )
+            for upa in upa_result.scalars().all():
+                existing = await session.execute(
+                    select(UsagePolicyAssignment).where(
+                        UsagePolicyAssignment.organization_id == org_id,
+                        UsagePolicyAssignment.policy_id == upa.policy_id,
+                        UsagePolicyAssignment.principal_type == "user",
+                        UsagePolicyAssignment.principal_id == user_id,
+                        UsagePolicyAssignment.deleted_at.is_(None),
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await session.delete(upa)
+                else:
+                    upa.principal_type = "user"
+                    upa.principal_id = user_id
+            await session.flush()
+        except Exception:
+            # Never block registration if pending-RBAC tables aren't present
+            # (pre-migration) or a conversion hits a transient conflict.
+            pass
+
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
 
@@ -286,6 +382,19 @@ class UserManager(BaseUserManager[User, str]):
             await session.commit()
             # Auto-create organization for the first uninvited user
             await self._ensure_org_for_first_uninvited_user(session, user)
+
+        # Welcome email (best-effort, non-blocking): summarizes the agents the
+        # user can access + a CTA. Fired after commit so memberships are visible.
+        self._fire_welcome_email(user.id)
+
+    @staticmethod
+    def _fire_welcome_email(user_id) -> None:
+        try:
+            import asyncio
+            from app.services.welcome_email import send_welcome_email
+            asyncio.create_task(send_welcome_email(str(user_id)))
+        except Exception:
+            pass
 
     async def _has_domain_invite(self, email: str, session: AsyncSession) -> bool:
         """Return True if some org's signup_policy would admit this email's domain."""
@@ -452,6 +561,8 @@ class UserManager(BaseUserManager[User, str]):
                     await session.refresh(user)
                     # Auto-create organization for the first uninvited user
                     await self._ensure_org_for_first_uninvited_user(session, user)
+                # New OAuth/OIDC sign-up → welcome email (best-effort).
+                self._fire_welcome_email(user.id)
                 return user
 
     async def _ensure_org_for_first_uninvited_user(self, session: AsyncSession, user: User) -> None:
@@ -561,36 +672,74 @@ class UserManager(BaseUserManager[User, str]):
         return user
 
     async def _validate_user_creation(self, user_create: UserCreate) -> None:
+        """Pre-registration gate (runs before the User row is created).
+
+        Invite-token rules for the local/password path (SSO has its own check in
+        ``oauth_callback`` and is intentionally not affected):
+
+          - token supplied  -> must match a pending invite for this email and not
+            be expired; otherwise reject (no user is created).
+          - no token, pending invite exists, signups closed -> reject and point
+            the user at their invite link (closes the "claim by typing an
+            invited email" gap). Under open signups, email-match onboarding is
+            still allowed.
+          - no token, no invite -> existing behaviour (first user / domain
+            policy / open signups allowed; otherwise rejected).
+        """
+        from datetime import datetime
+
+        token = getattr(user_create, "invite_token", None)
+        email = user_create.email
+
         async with self.user_db.session as session:
-            # Get total user count
             user_count = (await session.execute(select(User))).scalars().all().__len__()
 
-            # If not first user and uninvited signups disabled, check for open membership
-            if user_count > 0 and not settings.bow_config.features.allow_uninvited_signups:
-                # Check if user has an open membership invitation
-                stmt = select(Membership).where(
-                    and_(
-                        Membership.email == user_create.email,
-                        Membership.user_id.is_(None)
+            # 1) A token was presented — validate it strictly.
+            if token:
+                membership = (await session.execute(
+                    select(Membership).where(
+                        Membership.invite_token == token,
+                        Membership.user_id.is_(None),
                     )
+                )).scalar_one_or_none()
+                if not membership:
+                    raise HTTPException(status_code=400, detail="This invite link is invalid. Ask your admin to resend it.")
+                expires = membership.invite_expires_at
+                if expires is not None and expires < datetime.utcnow():
+                    raise HTTPException(status_code=400, detail="This invite link has expired. Ask your admin to resend it.")
+                if membership.email and membership.email.lower() != (email or "").lower():
+                    raise HTTPException(status_code=400, detail="This invite was sent to a different email address.")
+                return  # valid invite — allow creation
+
+            # 2) No token. First user always allowed (bootstrap).
+            if user_count == 0:
+                return
+
+            # A pending invite exists for this email but no token was supplied.
+            pending = (await session.execute(
+                select(Membership).where(
+                    and_(Membership.email == email, Membership.user_id.is_(None))
                 )
-                open_membership = (await session.execute(stmt)).scalar_one_or_none()
+            )).scalar_one_or_none()
 
-                # Accept a matching per-org signup-policy domain as an implicit invite
-                if not open_membership and await self._has_domain_invite(user_create.email, session):
-                    open_membership = True
+            if pending:
+                if settings.bow_config.features.allow_uninvited_signups:
+                    return  # open signups: email-match onboarding still allowed
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please sign up using your invite link, or ask your admin to resend it.",
+                )
 
-                if not open_membership:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Sign-up is disabled. Ask your admin for an invite."
-                    )
+            # 3) No pending invite.
+            if not settings.bow_config.features.allow_uninvited_signups:
+                if await self._has_domain_invite(email, session):
+                    return
+                raise HTTPException(
+                    status_code=400,
+                    detail="Sign-up is disabled. Ask your admin for an invite.",
+                )
 
-        
         return
-            
-            # Add any other pre-registration checks
-            # If any check fails, raise an HTTPException
 
 async def _org_signup_policy(db: AsyncSession, organization_id: str) -> dict:
     from app.models.organization_settings import OrganizationSettings

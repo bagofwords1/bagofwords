@@ -5,7 +5,12 @@ from pydantic import Field, BaseModel
 class SearchMCPsInput(BaseModel):
     query: Optional[str] = Field(
         default=None,
-        description="Optional search query to filter tools by name or description."
+        description=(
+            "Optional relevance hint to rank tools by name/description (not a hard "
+            "filter). Plain text is matched fuzzily by word; wildcards are supported "
+            "(e.g. 'search_*', '*contact*'). Omit to list all tools; if nothing "
+            "matches, all tools are returned so you always get schemas."
+        ),
     )
     connection_ids: Optional[List[str]] = Field(
         default=None,
