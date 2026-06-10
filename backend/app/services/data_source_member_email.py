@@ -132,6 +132,7 @@ async def send_member_added_email(
         if user is None or not getattr(user, "email", None):
             return
         recipient = user.email
+        recipient_name = getattr(user, "name", None)
         ds_name = data_source.name
 
         added_by = await db.get(User, added_by_user_id) if added_by_user_id else None
@@ -142,12 +143,20 @@ async def send_member_added_email(
     base_url = getattr(settings.bow_config, "base_url", None) or "http://localhost:3000"
     agent_url = f"{base_url.rstrip('/')}/agents/{data_source_id}"
 
-    by_clause = f" by {added_by_name}" if added_by_name else ""
-    subject = f"You've been given access to {ds_name} on Bag of words"
+    greeting = f"Hi {recipient_name},<br /><br />" if recipient_name else ""
+    if added_by_name:
+        intro = f"{added_by_name} added you to <strong>{ds_name}</strong> on BOW."
+    else:
+        intro = f"You've been added to <strong>{ds_name}</strong> on BOW."
+
+    subject = f"You've been given access to {ds_name}"
     body = (
-        f"You've been added{by_clause} to the data source "
-        f"<strong>{ds_name}</strong> on Bag of words.<br /><br />"
-        f"You can now use it here: <a href=\"{agent_url}\">{agent_url}</a>"
+        f"{greeting}"
+        f"{intro}<br /><br />"
+        f"You can now chat with this agent and explore its data.<br /><br />"
+        f"<a href=\"{agent_url}\" "
+        f"style=\"display:inline-block;padding:10px 18px;background:#111827;color:#ffffff;"
+        f"text-decoration:none;border-radius:6px;font-weight:600;\">Open {ds_name}</a>"
     )
 
     message = MessageSchema(
