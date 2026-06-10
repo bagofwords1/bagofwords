@@ -2,13 +2,13 @@
 
 Kept as small pure functions returning (subject, body) so the wording lives in
 one place, reads like a person wrote it, and is trivial to test/preview. Bodies
-are plain text on purpose — no HTML, no buttons; links go inline on their own
+are plain text on purpose -- no HTML, no buttons; links go inline on their own
 line so they stay clickable in any client.
 """
 
 from typing import List, Optional, Tuple
 
-SIGNATURE = "— The BOW team"
+SIGNATURE = "BOW"
 
 
 def invite_email(sign_up_url: str) -> Tuple[str, str]:
@@ -47,8 +47,9 @@ def welcome_email(name: Optional[str], agent_names: List[str], app_url: str) -> 
 
     body = (
         f"{greeting}\n\n"
-        "Welcome to BOW! It's where you can ask questions about your data and get "
-        "answers, charts, and reports — just by typing what you want in plain language.\n\n"
+        "Welcome to BOW! It's where you can ask questions about your data, run "
+        "analyses and build dashboards or automations -- just by typing what you "
+        "want in plain language.\n\n"
         f"{agents_block}\n\n"
         "Whenever you're ready, jump in here:\n"
         f"{app_url}\n\n"
