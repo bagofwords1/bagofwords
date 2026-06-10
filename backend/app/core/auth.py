@@ -672,36 +672,74 @@ class UserManager(BaseUserManager[User, str]):
         return user
 
     async def _validate_user_creation(self, user_create: UserCreate) -> None:
+        """Pre-registration gate (runs before the User row is created).
+
+        Invite-token rules for the local/password path (SSO has its own check in
+        ``oauth_callback`` and is intentionally not affected):
+
+          - token supplied  -> must match a pending invite for this email and not
+            be expired; otherwise reject (no user is created).
+          - no token, pending invite exists, signups closed -> reject and point
+            the user at their invite link (closes the "claim by typing an
+            invited email" gap). Under open signups, email-match onboarding is
+            still allowed.
+          - no token, no invite -> existing behaviour (first user / domain
+            policy / open signups allowed; otherwise rejected).
+        """
+        from datetime import datetime
+
+        token = getattr(user_create, "invite_token", None)
+        email = user_create.email
+
         async with self.user_db.session as session:
-            # Get total user count
             user_count = (await session.execute(select(User))).scalars().all().__len__()
 
-            # If not first user and uninvited signups disabled, check for open membership
-            if user_count > 0 and not settings.bow_config.features.allow_uninvited_signups:
-                # Check if user has an open membership invitation
-                stmt = select(Membership).where(
-                    and_(
-                        Membership.email == user_create.email,
-                        Membership.user_id.is_(None)
+            # 1) A token was presented — validate it strictly.
+            if token:
+                membership = (await session.execute(
+                    select(Membership).where(
+                        Membership.invite_token == token,
+                        Membership.user_id.is_(None),
                     )
+                )).scalar_one_or_none()
+                if not membership:
+                    raise HTTPException(status_code=400, detail="This invite link is invalid. Ask your admin to resend it.")
+                expires = membership.invite_expires_at
+                if expires is not None and expires < datetime.utcnow():
+                    raise HTTPException(status_code=400, detail="This invite link has expired. Ask your admin to resend it.")
+                if membership.email and membership.email.lower() != (email or "").lower():
+                    raise HTTPException(status_code=400, detail="This invite was sent to a different email address.")
+                return  # valid invite — allow creation
+
+            # 2) No token. First user always allowed (bootstrap).
+            if user_count == 0:
+                return
+
+            # A pending invite exists for this email but no token was supplied.
+            pending = (await session.execute(
+                select(Membership).where(
+                    and_(Membership.email == email, Membership.user_id.is_(None))
                 )
-                open_membership = (await session.execute(stmt)).scalar_one_or_none()
+            )).scalar_one_or_none()
 
-                # Accept a matching per-org signup-policy domain as an implicit invite
-                if not open_membership and await self._has_domain_invite(user_create.email, session):
-                    open_membership = True
+            if pending:
+                if settings.bow_config.features.allow_uninvited_signups:
+                    return  # open signups: email-match onboarding still allowed
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please sign up using your invite link, or ask your admin to resend it.",
+                )
 
-                if not open_membership:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Sign-up is disabled. Ask your admin for an invite."
-                    )
+            # 3) No pending invite.
+            if not settings.bow_config.features.allow_uninvited_signups:
+                if await self._has_domain_invite(email, session):
+                    return
+                raise HTTPException(
+                    status_code=400,
+                    detail="Sign-up is disabled. Ask your admin for an invite.",
+                )
 
-        
         return
-            
-            # Add any other pre-registration checks
-            # If any check fails, raise an HTTPException
 
 async def _org_signup_policy(db: AsyncSession, organization_id: str) -> dict:
     from app.models.organization_settings import OrganizationSettings

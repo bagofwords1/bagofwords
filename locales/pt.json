@@ -940,7 +940,14 @@
       "bulkAddRole": "Adicionar função",
       "bulkAddGroup": "Adicionar ao grupo",
       "bulkClear": "Limpar",
-      "paginationOf": "de"
+      "paginationOf": "de",
+      "statusExpired": "Expirada",
+      "resend": "Reenviar",
+      "resending": "Reenviando…",
+      "failedToResend": "Falha ao reenviar o convite",
+      "inviteResent": "Convite reenviado",
+      "inviteResentNoSmtp": "Convite atualizado (e-mail não enviado — SMTP não configurado)",
+      "inviteResentFailed": "Convite atualizado, mas o e-mail não pôde ser enviado"
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",

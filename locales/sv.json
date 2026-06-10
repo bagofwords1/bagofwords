@@ -940,7 +940,14 @@
       "bulkAddRole": "Lägg till roll",
       "bulkAddGroup": "Lägg till i grupp",
       "bulkClear": "Rensa",
-      "paginationOf": "av"
+      "paginationOf": "av",
+      "statusExpired": "Utgången",
+      "resend": "Skicka igen",
+      "resending": "Skickar…",
+      "failedToResend": "Det gick inte att skicka inbjudan igen",
+      "inviteResent": "Inbjudan skickad igen",
+      "inviteResentNoSmtp": "Inbjudan uppdaterad (e-post skickades inte — SMTP ej konfigurerat)",
+      "inviteResentFailed": "Inbjudan uppdaterad, men e-posten kunde inte skickas"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",

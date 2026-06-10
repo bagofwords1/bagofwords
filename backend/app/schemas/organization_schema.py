@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
+from datetime import datetime
 from typing import Dict, List, Optional
 from app.schemas.user_schema import UserSchema
 from app.schemas.usage_policy_schema import UsageQuotaSummarySchema
@@ -69,6 +70,8 @@ class MembershipSchema(MembershipCreate):
     # Outcome of the invite email on creation: "sent" | "failed" |
     # "skipped_no_smtp" | None (not an invite / not applicable).
     invite_email_status: Optional[str] = None
+    # When the pending invite link expires (pending invites only).
+    invite_expires_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

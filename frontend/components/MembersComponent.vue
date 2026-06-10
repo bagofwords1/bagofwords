@@ -302,6 +302,10 @@
                                         <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
                                         {{ $t('settings.members.statusActive') }}
                                     </span>
+                                    <span v-else-if="isInviteExpired(member)" class="inline-flex items-center gap-1.5 text-xs text-red-500">
+                                        <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                                        {{ $t('settings.members.statusExpired') }}
+                                    </span>
                                     <span v-else class="inline-flex items-center gap-1.5 text-xs text-gray-500">
                                         <span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
                                         {{ $t('settings.members.statusPending') }}
@@ -344,12 +348,22 @@
                                 <td class="px-4 py-2 whitespace-nowrap text-sm"
                                     v-if="useCan('remove_organization_members')"
                                 >
-                                    <button
-                                        @click="removeMember(member)"
-                                        class="text-red-600 hover:text-red-900 font-medium transition-colors duration-150"
-                                    >
-                                        {{ $t('settings.members.remove') }}
-                                    </button>
+                                    <div class="flex items-center gap-3">
+                                        <button
+                                            v-if="!member.user && useCan('update_organization_members')"
+                                            @click="resendInvite(member)"
+                                            :disabled="resendingId === member.id"
+                                            class="text-blue-600 hover:text-blue-800 font-medium transition-colors duration-150 disabled:opacity-50"
+                                        >
+                                            {{ resendingId === member.id ? $t('settings.members.resending') : $t('settings.members.resend') }}
+                                        </button>
+                                        <button
+                                            @click="removeMember(member)"
+                                            class="text-red-600 hover:text-red-900 font-medium transition-colors duration-150"
+                                        >
+                                            {{ $t('settings.members.remove') }}
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                             <!-- Empty state -->
@@ -594,6 +608,13 @@ interface Member {
     roles?: { id: string; name: string; source?: string }[]
     note?: string | null
     created_at: string
+    invite_expires_at?: string | null
+}
+
+function isInviteExpired(member: Member): boolean {
+    if (member.user_id || member.user) return false
+    if (!member.invite_expires_at) return false
+    return new Date(member.invite_expires_at).getTime() < Date.now()
 }
 
 interface MembershipImportRow {
@@ -1208,6 +1229,33 @@ async function onNoteChange(member: Member, value: string) {
     }
     member.note = (data.value as any)?.note ?? next
     toast.add({ title: 'Note saved', color: 'green' })
+}
+
+const resendingId = ref<string | null>(null)
+async function resendInvite(member: Member) {
+    resendingId.value = member.id
+    try {
+        const { data, error } = await useMyFetch(`/organizations/${organizationId}/members/${member.id}/resend`, { method: 'POST' })
+        if (error.value) {
+            const detail = (error.value as any)?.data?.detail || t('settings.members.failedToResend')
+            toast.add({ title: typeof detail === 'string' ? detail : t('settings.members.failedToResend'), color: 'red' })
+            return
+        }
+        const status = (data.value as any)?.invite_email_status
+        if (status === 'sent') {
+            toast.add({ title: t('settings.members.inviteResent'), color: 'green' })
+        } else if (status === 'skipped_no_smtp') {
+            toast.add({ title: t('settings.members.inviteResentNoSmtp'), color: 'yellow' })
+        } else {
+            toast.add({ title: t('settings.members.inviteResentFailed'), color: 'yellow' })
+        }
+        const refreshed = await useMyFetch(`/organizations/${organizationId}/members`)
+        members.value = (refreshed.data.value || []) as Member[]
+    } catch (e: any) {
+        toast.add({ title: e?.data?.detail || t('settings.members.failedToResend'), color: 'red' })
+    } finally {
+        resendingId.value = null
+    }
 }
 
 const removeMember = async (member: Member) => {

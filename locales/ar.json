@@ -940,7 +940,14 @@
       "bulkAddRole": "إضافة دور",
       "bulkAddGroup": "إضافة إلى المجموعة",
       "bulkClear": "مسح",
-      "paginationOf": "من"
+      "paginationOf": "من",
+      "statusExpired": "منتهية",
+      "resend": "إعادة الإرسال",
+      "resending": "جارٍ الإرسال…",
+      "failedToResend": "تعذّر إعادة إرسال الدعوة",
+      "inviteResent": "تمت إعادة إرسال الدعوة",
+      "inviteResentNoSmtp": "تم تحديث الدعوة (لم يُرسل البريد — SMTP غير مهيأ)",
+      "inviteResentFailed": "تم تحديث الدعوة، لكن تعذّر إرسال البريد"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",

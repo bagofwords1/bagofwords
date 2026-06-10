@@ -1082,7 +1082,14 @@
       "bulkAddRole": "Add role",
       "bulkAddGroup": "Add to group",
       "bulkClear": "Clear",
-      "paginationOf": "of"
+      "paginationOf": "of",
+      "statusExpired": "Expired",
+      "resend": "Resend",
+      "resending": "Resending…",
+      "failedToResend": "Failed to resend invite",
+      "inviteResent": "Invite resent",
+      "inviteResentNoSmtp": "Invite refreshed (email not sent — SMTP not configured)",
+      "inviteResentFailed": "Invite refreshed, but the email couldn't be sent"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",

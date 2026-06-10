@@ -940,7 +940,14 @@
       "bulkAddRole": "Rolle hinzufügen",
       "bulkAddGroup": "Zur Gruppe hinzufügen",
       "bulkClear": "Leeren",
-      "paginationOf": "von"
+      "paginationOf": "von",
+      "statusExpired": "Abgelaufen",
+      "resend": "Erneut senden",
+      "resending": "Wird gesendet…",
+      "failedToResend": "Einladung konnte nicht erneut gesendet werden",
+      "inviteResent": "Einladung erneut gesendet",
+      "inviteResentNoSmtp": "Einladung aktualisiert (E-Mail nicht gesendet — SMTP nicht konfiguriert)",
+      "inviteResentFailed": "Einladung aktualisiert, aber E-Mail konnte nicht gesendet werden"
     },
     "organizationName": "Organisationsname",
     "organizationIcon": "Organisationssymbol",

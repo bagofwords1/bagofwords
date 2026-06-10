@@ -940,7 +940,14 @@
       "bulkAddRole": "Добавить роль",
       "bulkAddGroup": "Добавить в группу",
       "bulkClear": "Очистить",
-      "paginationOf": "из"
+      "paginationOf": "из",
+      "statusExpired": "Истёк",
+      "resend": "Отправить снова",
+      "resending": "Отправка…",
+      "failedToResend": "Не удалось отправить приглашение повторно",
+      "inviteResent": "Приглашение отправлено повторно",
+      "inviteResentNoSmtp": "Приглашение обновлено (письмо не отправлено — SMTP не настроен)",
+      "inviteResentFailed": "Приглашение обновлено, но письмо не отправлено"
     },
     "organizationName": "Название организации",
     "organizationIcon": "Иконка организации",

@@ -1017,7 +1017,14 @@
       "bulkAddRole": "Añadir rol",
       "bulkAddGroup": "Añadir al grupo",
       "bulkClear": "Limpiar",
-      "paginationOf": "de"
+      "paginationOf": "de",
+      "statusExpired": "Caducada",
+      "resend": "Reenviar",
+      "resending": "Reenviando…",
+      "failedToResend": "No se pudo reenviar la invitación",
+      "inviteResent": "Invitación reenviada",
+      "inviteResentNoSmtp": "Invitación actualizada (correo no enviado — SMTP no configurado)",
+      "inviteResentFailed": "Invitación actualizada, pero no se pudo enviar el correo"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",

@@ -13,7 +13,15 @@ from app.schemas.external_user_mapping_schema import ExternalUserMappingMinimalS
 class UserCreate(schemas.BaseUserCreate):
     # pass
     name: str = Field(..., min_length=3, max_length=50)
+    # Optional invite token from the sign-up link. Used only to validate the
+    # invite at registration; never persisted on the User row.
+    invite_token: Optional[str] = None
     #password: str = Field(..., min_length=6)
+
+    def create_update_dict(self):
+        d = super().create_update_dict()
+        d.pop("invite_token", None)
+        return d
 
 class UserUpdate(schemas.BaseUserUpdate):
     pass
