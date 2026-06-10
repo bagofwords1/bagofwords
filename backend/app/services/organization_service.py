@@ -26,8 +26,6 @@ from app.services.llm_service import LLMService
 from app.services.test_suite_service import TestSuiteService
 from app.settings.config import settings
 from fastapi import Request
-from fastapi_mail import FastMail, MessageSchema
-import asyncio
 from typing import Optional
 from app.settings.logging_config import get_logger
 from app.core.telemetry import telemetry
@@ -286,15 +284,24 @@ class OrganizationService:
         except Exception:
             pass
         
-        # Send invitation email if email client is configured
-        if hasattr(settings, 'email_client') and settings.email_client and invitation_email:
-            await self._send_invitation_email(membership_with_user, invitation_email)
+        # Send invitation email immediately, but reliably: awaited (so we know
+        # the real outcome), retried on transient SMTP errors, and timeout-bounded
+        # so a hung relay can't block the request. The outcome is surfaced on the
+        # response so the admin UI can warn instead of silently "succeeding".
+        invite_email_status: Optional[str] = None
+        if invitation_email:
+            if not (hasattr(settings, 'email_client') and settings.email_client):
+                invite_email_status = "skipped_no_smtp"
+            else:
+                invite_email_status = await self._send_invitation_email(invitation_email)
 
         # Create RBAC role_assignment if user_id is set
         if membership_with_user.user_id and membership_data.role:
             await self._assign_system_role(db, membership_data.organization_id, membership_with_user.user_id, membership_data.role)
 
-        return MembershipSchema.from_orm(membership_with_user)
+        schema = MembershipSchema.from_orm(membership_with_user)
+        schema.invite_email_status = invite_email_status
+        return schema
     
     async def get_user_organizations(self, db: AsyncSession, current_user: User) -> List[OrganizationAndRoleSchema]:
         from app.core.permission_resolver import resolve_permissions
@@ -464,26 +471,32 @@ class OrganizationService:
                 count += 1
         return count
     
-    async def _send_invitation_email(self, membership: Membership, email: str):
-        sign_up_url = settings.bow_config.base_url + "/users/sign-up?email=" + email
+    async def _send_invitation_email(self, email: str) -> str:
+        """Send the invite email now, reliably. Returns "sent" or "failed".
 
-        message = MessageSchema(
-            subject="You are invited to Bag of words",
+        Awaited (not fire-and-forget) so the caller knows the real outcome,
+        with a couple of retries for transient SMTP blips and a per-attempt
+        timeout so a hung relay can't stall the invite request.
+        """
+        from urllib.parse import quote
+        from app.services.notification_service import notification_service
+
+        sign_up_url = f"{settings.bow_config.base_url}/users/sign-up?email={quote(email)}"
+        body = (
+            "You have been invited to join an organization on Bag of words. "
+            f"Click to sign up: <br /> {sign_up_url}"
+        )
+        result = await notification_service.send_custom_email(
             recipients=[email],
-            body=f"You have been invited to join an organization on Bag of words. Click to sign up: <br /> {sign_up_url}",
-            subtype="html")
-        fm = settings.email_client
-        logger.info(f"Using email client: {fm}")
-
-        async def send_email():
-            logger.info(f"Sending invitation email to: {email}")
-            try:
-                await fm.send_message(message)
-                logger.info(f"Invitation email sent successfully to: {email}")
-            except Exception as e:
-                logger.error(f"Error sending invitation email: {e}")
-
-        asyncio.create_task(send_email())
+            subject="You are invited to Bag of words",
+            body=body,
+            subtype="html",
+            retries=2,
+            timeout=15,
+        )
+        if result.status != "sent":
+            logger.error("Invitation email to %s failed: %s", email, result.error)
+        return result.status
 
 
     async def get_organization_members(self, db: AsyncSession, current_user: User, organization: Organization) -> List[UserSchema]:

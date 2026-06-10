@@ -182,12 +182,21 @@ class NotificationService:
         body: str,
         subtype: str = "plain",
         attachments: Optional[list] = None,
+        retries: int = 0,
+        retry_delay: float = 1.5,
+        timeout: Optional[float] = None,
     ) -> ChannelResult:
         """Send a free-form email with arbitrary subject/body.
 
         Unlike ``dispatch`` (template-driven), this sends exactly the subject
         and body provided. The send is awaited so the returned status reflects
         actual delivery to the SMTP server, not just enqueueing.
+
+        Reliability knobs (all opt-in, defaults preserve old behaviour):
+        - ``retries``: extra attempts on failure (total tries = retries + 1),
+          with linear backoff (``retry_delay`` × attempt number).
+        - ``timeout``: per-attempt ceiling (seconds) so a hung SMTP server
+          can't block the caller indefinitely.
 
         ``attachments`` follows the fastapi-mail dict shape, e.g.
         ``{"file": "/abs/path", "filename": "x.csv", "type": "text", "subtype": "csv"}``.
@@ -214,22 +223,34 @@ class NotificationService:
             message_kwargs["attachments"] = attachments
         message = MessageSchema(**message_kwargs)
 
-        try:
-            await fm.send_message(message)
-            logger.info("Custom email sent to %s", recipients)
-            return ChannelResult(
-                channel="email",
-                status="sent",
-                recipients=recipients,
-            )
-        except Exception as e:
-            logger.error("Failed to send custom email: %s", e)
-            return ChannelResult(
-                channel="email",
-                status="failed",
-                recipients=recipients,
-                error=str(e),
-            )
+        last_error: Optional[str] = None
+        for attempt in range(retries + 1):
+            try:
+                if timeout is not None:
+                    await asyncio.wait_for(fm.send_message(message), timeout=timeout)
+                else:
+                    await fm.send_message(message)
+                logger.info("Custom email sent to %s", recipients)
+                return ChannelResult(
+                    channel="email",
+                    status="sent",
+                    recipients=recipients,
+                )
+            except Exception as e:
+                last_error = str(e) or e.__class__.__name__
+                logger.error(
+                    "Failed to send custom email (attempt %d/%d): %s",
+                    attempt + 1, retries + 1, last_error,
+                )
+                if attempt < retries:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+
+        return ChannelResult(
+            channel="email",
+            status="failed",
+            recipients=recipients,
+            error=last_error,
+        )
 
     # ---- scheduled report results ----
 

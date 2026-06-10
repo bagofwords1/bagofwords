@@ -29,6 +29,9 @@ def test_membership_create_and_list(
     assert membership["email"] == second_email
     assert membership["role"] == "member"
     assert membership["user_id"] is None  # Not yet registered
+    # The invite-email outcome is surfaced on the response. The test env has no
+    # SMTP configured, so it should report skipped rather than silently "ok".
+    assert membership["invite_email_status"] == "skipped_no_smtp"
     
     # Now the second user can register with that invited email
     second_user = create_user(email=second_email, password="test123")
