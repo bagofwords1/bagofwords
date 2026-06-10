@@ -431,3 +431,44 @@ def test_resend_requires_manage_members(test_client, create_user, login_user, wh
         headers=_hdr(member_token, org_id),
     )
     assert resp.status_code == 403, resp.json()
+
+
+@pytest.mark.e2e
+def test_invite_link_endpoint(test_client, create_user, login_user, whoami):
+    """Admin can fetch the tokenized invite link for a pending member."""
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"link_{uuid.uuid4().hex[:8]}@test.com"
+    m = _invite(test_client, admin_token, org_id, email)
+
+    resp = test_client.get(
+        f"/api/organizations/{org_id}/members/{m['id']}/invite-link",
+        headers=_hdr(admin_token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    data = resp.json()
+    assert data["token"] == _pending_invite_token(email)
+    assert "token=" in data["url"] and "sign-up" in data["url"]
+    # That token actually works for registration.
+    ok = test_client.post("/api/auth/register", json={
+        "name": "Linked", "email": email, "password": "test123", "invite_token": data["token"],
+    })
+    assert ok.status_code == 201, ok.json()
+
+
+@pytest.mark.e2e
+def test_invite_link_requires_manage_members(test_client, create_user, login_user, whoami):
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    member_email = f"plain_{uuid.uuid4().hex[:8]}@test.com"
+    _invite(test_client, admin_token, org_id, member_email)
+    create_user(email=member_email, password="test123")
+    member_token = login_user(member_email, "test123")
+    target = _invite(test_client, admin_token, org_id, f"t_{uuid.uuid4().hex[:8]}@test.com")
+    resp = test_client.get(
+        f"/api/organizations/{org_id}/members/{target['id']}/invite-link",
+        headers=_hdr(member_token, org_id),
+    )
+    assert resp.status_code == 403, resp.json()

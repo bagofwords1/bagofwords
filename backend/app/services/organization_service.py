@@ -477,6 +477,32 @@ class OrganizationService:
         schema.invite_email_status = status
         return schema
 
+    async def get_invite_link(self, db: AsyncSession, membership_id: str, organization_id: str) -> dict:
+        """Return the tokenized sign-up link for a pending invite (admin use).
+
+        Lets an admin copy/share the link directly (handy when SMTP is off) and
+        is the proof-of-invite the recipient presents at registration.
+        """
+        from urllib.parse import quote
+
+        membership = await self.get_member(db, membership_id, organization_id, None)
+        if not membership:
+            raise HTTPException(status_code=404, detail="Membership not found")
+        if membership.user_id is not None or not membership.email:
+            raise HTTPException(status_code=400, detail="This member has already registered; no invite link")
+
+        token = membership.invite_token
+        url = (
+            f"{settings.bow_config.base_url}/users/sign-up"
+            f"?token={quote(token or '')}&email={quote(membership.email)}"
+        )
+        return {
+            "token": token,
+            "email": membership.email,
+            "url": url,
+            "invite_expires_at": membership.invite_expires_at,
+        }
+
     async def update_organization(self, db: AsyncSession, organization: Organization, data: OrganizationUpdate, current_user: User) -> OrganizationSchema:
         """Update organization basic fields like name/description."""
         update = data.dict(exclude_unset=True)

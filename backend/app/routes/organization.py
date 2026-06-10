@@ -127,6 +127,18 @@ async def resend_invite(
     return result
 
 
+@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link")
+@requires_permission('manage_members')
+async def get_invite_link(
+    organization_id: str,
+    membership_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await organization_service.get_invite_link(db, membership_id, organization_id)
+
+
 @router.post("/organizations/{organization_id}/members/import", response_model=MembershipImportReport)
 @requires_permission('manage_members')
 async def import_members(
