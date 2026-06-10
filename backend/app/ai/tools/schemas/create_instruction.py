@@ -81,6 +81,31 @@ class CreateInstructionInput(BaseModel):
         ),
     )
 
+    data_source_names: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Names of the data source(s) / agent(s) this instruction should be attached to "
+            "(e.g. 'Production Postgres', 'Chinook'). Use this to scope a data-source-wide rule "
+            "to a specific agent WITHOUT having to enumerate every table. Names are matched "
+            "case-insensitively against the org's data sources. "
+            "Use your judgement: attach to the specific agent(s) the rule actually pertains to — "
+            "the one(s) you explored or that the rule is about — NOT to every attached agent. "
+            "Leave this empty only when you also set table_names (scope is then derived from those tables) "
+            "or when global_scope=True."
+        ),
+    )
+
+    global_scope: bool = Field(
+        default=False,
+        description=(
+            "Set True ONLY when the user has explicitly asked to make this instruction global / "
+            "apply to ALL agents (all data sources). When True the instruction is org-wide and "
+            "data_source_names / table_names scoping is ignored. Default False: the instruction is "
+            "attached to the specific agent(s) it pertains to (via data_source_names or table_names). "
+            "Do NOT set True just because a rule feels broadly useful — only on explicit user request."
+        ),
+    )
+
 
 class CreateInstructionOutput(BaseModel):
     """Output schema for create_instruction tool response."""

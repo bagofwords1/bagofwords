@@ -2773,6 +2773,7 @@ class AgentV2:
                                 "context_view": view,
                                 "context_hub": self.context_hub,
                                 "ds_clients": self.clients,
+                                "data_sources": self.data_sources,  # Session's attached agents (for instruction scoping)
                                 "excel_files": self.analysis_files,
                                 "training_build_id": self.training_build_id,  # For training mode instruction creation
                                 "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,

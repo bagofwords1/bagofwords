@@ -45,12 +45,17 @@ class CreateInstructionTool(Tool):
                 "Only use when you have HIGH CONFIDENCE (>= 0.7) based on evidence from exploration. "
                 "If confidence is lower, use 'clarify' tool to ask the user first. "
                 "Instructions should capture non-obvious semantic rules that prevent mistakes.\n\n"
-                "SCOPING — table_names: Use ONLY to narrow the rule to specific tables. "
-                "OMIT table_names entirely for rules that apply broadly across the data source "
-                "or org (e.g. naming conventions, general business rules, semantic conventions). "
-                "Listing every table you inspected is wrong — it scopes the instruction to those "
-                "tables and prevents it from loading in unrelated queries. When unsure, prefer "
-                "OMITTING table_names; the user can scope later if needed."
+                "SCOPING — attach to the SPECIFIC agent(s) the rule pertains to, by judgement. "
+                "By default an instruction must be scoped, NOT global:\n"
+                "- table_names: narrow the rule to specific tables (also drives 'intelligent' loading). "
+                "Don't list every table you inspected — that over-scopes the rule.\n"
+                "- data_source_names: attach a data-source-wide rule to a specific agent WITHOUT "
+                "enumerating tables. Use this when the rule applies across an agent but isn't about "
+                "particular tables. Choose the agent(s) the rule is actually about — not all attached agents.\n"
+                "- global_scope=True: ONLY when the user explicitly asks to make the rule global / apply "
+                "to all agents. Never set it on your own judgement.\n"
+                "If you set neither table_names nor data_source_names and the session has a single "
+                "attached agent, the instruction is scoped to that agent automatically."
             ),
             category="action",
             version="1.0.0",
@@ -81,8 +86,9 @@ class CreateInstructionTool(Tool):
                         "confidence": 0.95,
                         "evidence": "Confirmed via clarify tool: user provided status code meanings.",
                         "load_mode": "always",
+                        "data_source_names": ["Production Postgres"]
                     },
-                    "description": "Global / always-on: critical business rule — OMIT table_names so it applies everywhere."
+                    "description": "Agent-wide rule: applies across the agent but not a single table — attach via data_source_names instead of listing tables."
                 },
                 {
                     "input": {
@@ -91,8 +97,20 @@ class CreateInstructionTool(Tool):
                         "confidence": 0.9,
                         "evidence": "Schema inspection identified the Music Store dataset as the Chinook sample.",
                         "load_mode": "intelligent",
+                        "data_source_names": ["Music Store"]
                     },
-                    "description": "Global semantic note: applies across the data source — OMIT table_names rather than listing every table."
+                    "description": "Agent-scoped semantic note: attach to the specific agent via data_source_names rather than listing every table or going global."
+                },
+                {
+                    "input": {
+                        "text": "Always format currency values with a thousands separator and 2 decimals across every report.",
+                        "category": "visualization",
+                        "confidence": 0.9,
+                        "evidence": "User explicitly asked to apply this to all agents.",
+                        "load_mode": "always",
+                        "global_scope": True
+                    },
+                    "description": "Global: ONLY because the user explicitly asked to apply it to all agents — set global_scope=True."
                 },
                 {
                     "input": {
@@ -312,6 +330,62 @@ class CreateInstructionTool(Tool):
                         ))
                         matched_table_names.append(table.name)
 
+            # Resolve explicit data_source_names → data source IDs. Lets the
+            # model attach an agent-wide rule to a specific agent without having
+            # to enumerate its tables.
+            matched_data_source_names = []
+            if data.data_source_names:
+                from sqlalchemy import or_, func
+                from app.models.data_source import DataSource
+
+                ds_conditions = [
+                    func.lower(DataSource.name) == n.lower()
+                    for n in data.data_source_names
+                ]
+                ds_where = [
+                    DataSource.organization_id == str(organization.id),
+                    or_(*ds_conditions),
+                ]
+                # In knowledge-harness mode, restrict to data sources attached to
+                # the current report so a rule can't be scoped to an unrelated agent.
+                if allowed_data_source_ids is not None:
+                    ds_where.append(
+                        DataSource.id.in_(list(allowed_data_source_ids) if allowed_data_source_ids else [])
+                    )
+                ds_rows = (await db.execute(
+                    select(DataSource).where(*ds_where)
+                )).scalars().all()
+                for ds in ds_rows:
+                    data_source_ids.add(ds.id)
+                    matched_data_source_names.append(ds.name)
+
+            # Scope decision. Default is SPECIFIC, not global — an instruction is
+            # attached to the agent(s) it pertains to. global_scope is the only
+            # path to an org-wide rule and requires an explicit user request
+            # (the model sets the flag).
+            if data.global_scope:
+                data_source_ids = set()
+                logger.info("create_instruction: global_scope=True — instruction will apply to all agents")
+            elif not data_source_ids and mode == "training":
+                # Model resolved no explicit scope. Fall back to the session's
+                # single attached agent if there's exactly one — do NOT blanket-
+                # attach to every attached agent. With zero or multiple attached
+                # agents we leave it unscoped and log so it surfaces in review.
+                session_data_sources = runtime_ctx.get("data_sources") or []
+                if len(session_data_sources) == 1:
+                    only_ds = session_data_sources[0]
+                    data_source_ids.add(only_ds.id)
+                    logger.info(
+                        f"create_instruction: no explicit scope given; defaulting to the session's "
+                        f"single attached agent '{getattr(only_ds, 'name', only_ds.id)}'"
+                    )
+                else:
+                    logger.warning(
+                        f"create_instruction: no explicit scope and {len(session_data_sources)} agents "
+                        f"attached — leaving instruction unscoped. Model should pass data_source_names "
+                        f"or table_names to scope it."
+                    )
+
             # Create the instruction as a draft (pending admin approval) but
             # stage the version with status="published" so promote_build flips
             # the live row when the training build is approved. Planner loaders
@@ -342,10 +416,16 @@ class CreateInstructionTool(Tool):
 
             ref_count = len(references)
             tables_str = ", ".join(matched_table_names) if matched_table_names else "none"
+            if data.global_scope:
+                scope_str = "global (all agents)"
+            elif data_source_ids:
+                scope_str = f"{len(data_source_ids)} agent(s)"
+            else:
+                scope_str = "unscoped"
             logger.info(
                 f"Created instruction {instruction.id} in training build {build.id}: "
                 f"'{title}' (confidence={data.confidence}, category={data.category}, "
-                f"load_mode={load_mode}, tables=[{tables_str}])"
+                f"load_mode={load_mode}, scope={scope_str}, tables=[{tables_str}])"
             )
 
             output_dict = CreateInstructionOutput(
@@ -362,7 +442,7 @@ class CreateInstructionTool(Tool):
                 payload={
                     "output": output_dict,
                     "observation": {
-                        "summary": f"Created instruction: {title} (confidence={data.confidence}, load_mode={load_mode}, tables={ref_count})",
+                        "summary": f"Created instruction: {title} (confidence={data.confidence}, load_mode={load_mode}, scope={scope_str}, tables={ref_count})",
                         "artifacts": [
                             {
                                 "type": "instruction",
