@@ -1089,7 +1089,10 @@
       "failedToResend": "Failed to resend invite",
       "inviteResent": "Invite resent",
       "inviteResentNoSmtp": "Invite refreshed (email not sent — SMTP not configured)",
-      "inviteResentFailed": "Invite refreshed, but the email couldn't be sent"
+      "inviteResentFailed": "Invite refreshed, but the email couldn't be sent",
+      "copyLink": "Copy link",
+      "linkCopied": "Invite link copied",
+      "failedToCopyLink": "Couldn't copy invite link"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",

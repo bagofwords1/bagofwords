@@ -1024,7 +1024,10 @@
       "failedToResend": "שליחת ההזמנה מחדש נכשלה",
       "inviteResent": "ההזמנה נשלחה מחדש",
       "inviteResentNoSmtp": "ההזמנה רועננה (דואל לא נשלח — SMTP לא מוגדר)",
-      "inviteResentFailed": "ההזמנה רועננה, אך הדואל לא נשלח"
+      "inviteResentFailed": "ההזמנה רועננה, אך הדואל לא נשלח",
+      "copyLink": "העתקת קישור",
+      "linkCopied": "קישור ההזמנה הועתק",
+      "failedToCopyLink": "לא ניתן להעתיק את הקישור"
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",

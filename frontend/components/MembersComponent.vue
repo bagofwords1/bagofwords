@@ -351,6 +351,15 @@
                                     <div class="flex items-center justify-end gap-4">
                                         <button
                                             v-if="!member.user && useCan('update_organization_members')"
+                                            @click="copyInviteLink(member)"
+                                            :disabled="copyingId === member.id"
+                                            class="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
+                                        >
+                                            <UIcon name="i-heroicons-link" class="h-3.5 w-3.5" />
+                                            {{ $t('settings.members.copyLink') }}
+                                        </button>
+                                        <button
+                                            v-if="!member.user && useCan('update_organization_members')"
                                             @click="resendInvite(member)"
                                             :disabled="resendingId === member.id"
                                             class="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors disabled:opacity-50"
@@ -1231,6 +1240,35 @@ async function onNoteChange(member: Member, value: string) {
     }
     member.note = (data.value as any)?.note ?? next
     toast.add({ title: 'Note saved', color: 'green' })
+}
+
+const copyingId = ref<string | null>(null)
+async function copyInviteLink(member: Member) {
+    copyingId.value = member.id
+    try {
+        const { data, error } = await useMyFetch(`/organizations/${organizationId}/members/${member.id}/invite-link`)
+        if (error.value) {
+            const detail = (error.value as any)?.data?.detail || t('settings.members.failedToCopyLink')
+            toast.add({ title: typeof detail === 'string' ? detail : t('settings.members.failedToCopyLink'), color: 'red' })
+            return
+        }
+        const url = (data.value as any)?.url
+        if (!url) {
+            toast.add({ title: t('settings.members.failedToCopyLink'), color: 'red' })
+            return
+        }
+        try {
+            await navigator.clipboard.writeText(url)
+            toast.add({ title: t('settings.members.linkCopied'), color: 'green' })
+        } catch {
+            // Clipboard blocked (insecure context) — show the link so it can be copied manually.
+            window.prompt(t('settings.members.copyLink'), url)
+        }
+    } catch (e: any) {
+        toast.add({ title: e?.data?.detail || t('settings.members.failedToCopyLink'), color: 'red' })
+    } finally {
+        copyingId.value = null
+    }
 }
 
 const resendingId = ref<string | null>(null)

@@ -947,7 +947,10 @@
       "failedToResend": "Échec du renvoi de l'invitation",
       "inviteResent": "Invitation renvoyée",
       "inviteResentNoSmtp": "Invitation actualisée (e-mail non envoyé — SMTP non configuré)",
-      "inviteResentFailed": "Invitation actualisée, mais l'e-mail n'a pas pu être envoyé"
+      "inviteResentFailed": "Invitation actualisée, mais l'e-mail n'a pas pu être envoyé",
+      "copyLink": "Copier le lien",
+      "linkCopied": "Lien d'invitation copié",
+      "failedToCopyLink": "Impossible de copier le lien"
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",

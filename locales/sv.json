@@ -947,7 +947,10 @@
       "failedToResend": "Det gick inte att skicka inbjudan igen",
       "inviteResent": "Inbjudan skickad igen",
       "inviteResentNoSmtp": "Inbjudan uppdaterad (e-post skickades inte — SMTP ej konfigurerat)",
-      "inviteResentFailed": "Inbjudan uppdaterad, men e-posten kunde inte skickas"
+      "inviteResentFailed": "Inbjudan uppdaterad, men e-posten kunde inte skickas",
+      "copyLink": "Kopiera länk",
+      "linkCopied": "Inbjudningslänk kopierad",
+      "failedToCopyLink": "Det gick inte att kopiera länken"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",

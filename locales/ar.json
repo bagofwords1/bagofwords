@@ -947,7 +947,10 @@
       "failedToResend": "تعذّر إعادة إرسال الدعوة",
       "inviteResent": "تمت إعادة إرسال الدعوة",
       "inviteResentNoSmtp": "تم تحديث الدعوة (لم يُرسل البريد — SMTP غير مهيأ)",
-      "inviteResentFailed": "تم تحديث الدعوة، لكن تعذّر إرسال البريد"
+      "inviteResentFailed": "تم تحديث الدعوة، لكن تعذّر إرسال البريد",
+      "copyLink": "نسخ الرابط",
+      "linkCopied": "تم نسخ رابط الدعوة",
+      "failedToCopyLink": "تعذّر نسخ الرابط"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",

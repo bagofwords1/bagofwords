@@ -947,7 +947,10 @@
       "failedToResend": "Einladung konnte nicht erneut gesendet werden",
       "inviteResent": "Einladung erneut gesendet",
       "inviteResentNoSmtp": "Einladung aktualisiert (E-Mail nicht gesendet — SMTP nicht konfiguriert)",
-      "inviteResentFailed": "Einladung aktualisiert, aber E-Mail konnte nicht gesendet werden"
+      "inviteResentFailed": "Einladung aktualisiert, aber E-Mail konnte nicht gesendet werden",
+      "copyLink": "Link kopieren",
+      "linkCopied": "Einladungslink kopiert",
+      "failedToCopyLink": "Link konnte nicht kopiert werden"
     },
     "organizationName": "Organisationsname",
     "organizationIcon": "Organisationssymbol",

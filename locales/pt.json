@@ -947,7 +947,10 @@
       "failedToResend": "Falha ao reenviar o convite",
       "inviteResent": "Convite reenviado",
       "inviteResentNoSmtp": "Convite atualizado (e-mail não enviado — SMTP não configurado)",
-      "inviteResentFailed": "Convite atualizado, mas o e-mail não pôde ser enviado"
+      "inviteResentFailed": "Convite atualizado, mas o e-mail não pôde ser enviado",
+      "copyLink": "Copiar link",
+      "linkCopied": "Link de convite copiado",
+      "failedToCopyLink": "Não foi possível copiar o link"
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",
