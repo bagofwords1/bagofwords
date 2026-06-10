@@ -45,7 +45,7 @@ async def send_welcome_email(user_id: str) -> None:
         from app.models.user import User
         from app.models.membership import Membership
         from app.services.notification_service import notification_service
-        from app.services.email_branding import cta_button
+        from app.services.email_copy import welcome_email as build_welcome_email
 
         async with async_session_maker() as db:
             user = await db.get(User, user_id)
@@ -62,37 +62,13 @@ async def send_welcome_email(user_id: str) -> None:
             name = getattr(user, "name", None)
 
         base_url = (settings.bow_config.base_url or "http://localhost:3000").rstrip("/")
-        greeting = f"Hi {name}," if name else "Welcome,"
-
-        if agent_names:
-            shown = agent_names[:5]
-            items = "".join(f"<li>{n}</li>" for n in shown)
-            extra = f"<li>…and {len(agent_names) - len(shown)} more</li>" if len(agent_names) > len(shown) else ""
-            agents_block = (
-                "You already have access to these agents:"
-                f"<ul style=\"margin:8px 0;padding-left:20px;\">{items}{extra}</ul>"
-            )
-        else:
-            agents_block = (
-                "Your team hasn't connected any agents yet — once they do, "
-                "they'll show up here for you to chat with."
-            )
-
-        body = (
-            f"{greeting}<br /><br />"
-            "Welcome to <strong>BOW</strong> — where you chat with your data and get "
-            "answers, charts, and reports in plain language."
-            "<br /><br />"
-            f"{agents_block}"
-            "<br /><br />"
-            f"{cta_button(base_url, 'Open BOW')}"
-        )
+        subject, body = build_welcome_email(name, agent_names, base_url)
 
         result = await notification_service.send_custom_email(
             recipients=[recipient],
-            subject="Welcome to BOW",
+            subject=subject,
             body=body,
-            subtype="html",
+            subtype="plain",
             retries=2,
             timeout=15,
         )
