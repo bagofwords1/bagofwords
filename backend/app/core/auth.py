@@ -383,6 +383,19 @@ class UserManager(BaseUserManager[User, str]):
             # Auto-create organization for the first uninvited user
             await self._ensure_org_for_first_uninvited_user(session, user)
 
+        # Welcome email (best-effort, non-blocking): summarizes the agents the
+        # user can access + a CTA. Fired after commit so memberships are visible.
+        self._fire_welcome_email(user.id)
+
+    @staticmethod
+    def _fire_welcome_email(user_id) -> None:
+        try:
+            import asyncio
+            from app.services.welcome_email import send_welcome_email
+            asyncio.create_task(send_welcome_email(str(user_id)))
+        except Exception:
+            pass
+
     async def _has_domain_invite(self, email: str, session: AsyncSession) -> bool:
         """Return True if some org's signup_policy would admit this email's domain."""
         from app.models.organization_settings import OrganizationSettings
@@ -548,6 +561,8 @@ class UserManager(BaseUserManager[User, str]):
                     await session.refresh(user)
                     # Auto-create organization for the first uninvited user
                     await self._ensure_org_for_first_uninvited_user(session, user)
+                # New OAuth/OIDC sign-up → welcome email (best-effort).
+                self._fire_welcome_email(user.id)
                 return user
 
     async def _ensure_org_for_first_uninvited_user(self, session: AsyncSession, user: User) -> None:

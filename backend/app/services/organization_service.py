@@ -480,15 +480,20 @@ class OrganizationService:
         """
         from urllib.parse import quote
         from app.services.notification_service import notification_service
+        from app.services.email_branding import cta_button
 
         sign_up_url = f"{settings.bow_config.base_url}/users/sign-up?email={quote(email)}"
         body = (
-            "You have been invited to join an organization on Bag of words. "
-            f"Click to sign up: <br /> {sign_up_url}"
+            "You've been invited to join your team's workspace on <strong>BOW</strong>."
+            "<br /><br />"
+            "BOW is where your team explores data and gets answers, charts, and reports "
+            "in plain language. Set up your account to get started:"
+            "<br /><br />"
+            f"{cta_button(sign_up_url, 'Accept invitation')}"
         )
         result = await notification_service.send_custom_email(
             recipients=[email],
-            subject="You are invited to Bag of words",
+            subject="You're invited to BOW",
             body=body,
             subtype="html",
             retries=2,
