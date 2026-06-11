@@ -438,6 +438,7 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<FilterSearch>`, `<FilterDateRange>` — `className` replaces default theme.
 - `fmt()`, `<LoadingSpinner>`
 - All components are fully themeable. When the user's design calls for something these can't express — build custom React + Tailwind.
+- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{viz[N]}}` — this renders a built-in "ⓘ" info popover exposing the source/query/columns/filters behind the component. When adding new cards from a visualization, pass `viz={{viz[N]}}`. When an edit touches an existing card that lacks it, add `viz={{viz[N]}}` too.
 
 DATA-CAPABILITY CHECK — DO THIS FIRST, BEFORE GENERATING DIFFS:
 Before producing any SEARCH/REPLACE blocks, verify the edit is achievable with the visualization data available. An edit that adds a filter/chart/KPI referencing a column that doesn't exist in any viz will silently break — surfacing the gap is far better than producing a broken diff.

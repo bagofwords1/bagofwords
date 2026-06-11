@@ -198,6 +198,194 @@
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // InfoPopover — built-in provenance popup for prebuilt components.
+  // Pass a `viz` object (from useArtifactData().visualizations) to KPICard /
+  // SectionCard and a small "i" button appears that opens a clean panel showing
+  // the visualization's backing data: source, query, columns, filters, etc.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function _infoFilterVal(v) {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.join(', ');
+    if (typeof v === 'object') {
+      if (v.from != null || v.to != null) return (v.from || '…') + ' → ' + (v.to || '…');
+      try { return JSON.stringify(v); } catch (e) { return String(v); }
+    }
+    return String(v);
+  }
+
+  // Derive an ordered list of { label, value, ... } rows from a viz object.
+  function buildInfoRows(viz) {
+    if (!viz || typeof viz !== 'object') return [];
+    var rows = [];
+    var dm = viz.dataModel || {};
+    var view = viz.view || {};
+    var innerView = view.view || view;
+    var type = dm.type || innerView.type;
+
+    if (viz.dataSource) rows.push({ label: 'Source', value: String(viz.dataSource) });
+    if (type) rows.push({ label: 'Type', value: String(type).replace(/_/g, ' ') });
+
+    var rowCount = Array.isArray(viz.rows) ? viz.rows.length
+      : (viz.row_count != null ? viz.row_count : null);
+    if (rowCount != null) rows.push({ label: 'Rows', value: String(rowCount) });
+
+    var cols = viz.columns || [];
+    if (cols.length) {
+      var colText = cols.map(function(c) {
+        if (typeof c === 'string') return c;
+        var f = c.headerName || c.field || c.name || '';
+        var dt = c.dtype ? '  · ' + c.dtype : '';
+        return f + dt;
+      }).join('\n');
+      rows.push({ label: 'Columns (' + cols.length + ')', value: colText, pre: true });
+    }
+
+    var agg = innerView.aggregation;
+    if (agg) rows.push({ label: 'Aggregation', value: String(agg) });
+
+    var defFilters = innerView.defaultFilters || [];
+    if (defFilters.length) {
+      rows.push({
+        label: 'Default filters',
+        value: defFilters.map(function(f) {
+          return (f.column || '') + ' ' + (f.operator || '=') + ' ' + _infoFilterVal(f.value);
+        }).join('\n'),
+        pre: true
+      });
+    }
+
+    try {
+      var active = window.__filterStore ? window.__filterStore.get() : {};
+      var akeys = Object.keys(active || {});
+      if (akeys.length) {
+        rows.push({
+          label: 'Active filters',
+          value: akeys.map(function(k) { return k + ': ' + _infoFilterVal(active[k]); }).join('\n'),
+          pre: true
+        });
+      }
+    } catch (e) {}
+
+    if (viz.description) rows.push({ label: 'Description', value: String(viz.description) });
+    if (viz.code) rows.push({ label: 'Query', value: String(viz.code), code: true });
+    if (viz.id) rows.push({ label: 'ID', value: String(viz.id), mono: true });
+    return rows;
+  }
+  window.buildInfoRows = buildInfoRows;
+
+  window.InfoPopover = function(props) {
+    var viz = props.viz;
+    var _o = React.useState(false), open = _o[0], setOpen = _o[1];
+    var _p = React.useState(null), pos = _p[0], setPos = _p[1];
+    var btnRef = React.useRef(null);
+    var panelRef = React.useRef(null);
+
+    React.useEffect(function() {
+      if (!open) return;
+      function onDown(e) {
+        if (btnRef.current && btnRef.current.contains(e.target)) return;
+        if (panelRef.current && panelRef.current.contains(e.target)) return;
+        setOpen(false);
+      }
+      function onKey(e) { if (e.key === 'Escape') setOpen(false); }
+      document.addEventListener('mousedown', onDown);
+      document.addEventListener('keydown', onKey);
+      return function() {
+        document.removeEventListener('mousedown', onDown);
+        document.removeEventListener('keydown', onKey);
+      };
+    }, [open]);
+
+    React.useEffect(function() {
+      if (!open || !btnRef.current) return;
+      function reposition() {
+        if (!btnRef.current) return;
+        var r = btnRef.current.getBoundingClientRect();
+        var W = 320;
+        var left = Math.min(r.right - W, window.innerWidth - W - 8);
+        if (left < 8) left = 8;
+        var spaceBelow = window.innerHeight - r.bottom;
+        var below = spaceBelow > 240;
+        setPos({
+          left: left,
+          top: below ? r.bottom + 6 : null,
+          bottom: below ? null : (window.innerHeight - r.top + 6),
+          width: W
+        });
+      }
+      reposition();
+      window.addEventListener('scroll', reposition, true);
+      window.addEventListener('resize', reposition);
+      return function() {
+        window.removeEventListener('scroll', reposition, true);
+        window.removeEventListener('resize', reposition);
+      };
+    }, [open]);
+
+    if (!viz) return null;
+    var rows = buildInfoRows(viz);
+
+    var panel = (open && pos) ? ReactDOM.createPortal(
+      h('div', {
+        ref: panelRef,
+        className: 'bg-white border border-slate-200 rounded-lg shadow-xl',
+        style: {
+          position: 'fixed', left: pos.left,
+          top: pos.top != null ? pos.top : undefined,
+          bottom: pos.bottom != null ? pos.bottom : undefined,
+          width: pos.width, zIndex: 99999, maxHeight: '70vh',
+          display: 'flex', flexDirection: 'column'
+        }
+      }, [
+        h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 py-2.5 border-b border-slate-100' }, [
+          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 leading-snug' }, viz.title || 'Details'),
+          h('button', {
+            key: 'x', type: 'button', 'aria-label': 'Close',
+            onClick: function() { setOpen(false); },
+            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600'
+          }, h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' },
+            h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
+        ]),
+        h('div', {
+          key: 'bd', className: 'px-3.5 py-3 overflow-auto',
+          style: { display: 'flex', flexDirection: 'column', gap: 10 }
+        }, rows.length ? rows.map(function(row, i) {
+          return h('div', { key: i }, [
+            h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, row.label),
+            row.code
+              ? h('pre', {
+                  key: 'v', className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md p-2 overflow-auto',
+                  style: { maxHeight: 168, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
+                }, row.value)
+              : h('div', {
+                  key: 'v',
+                  className: 'text-xs text-slate-700 leading-relaxed'
+                    + (row.mono ? ' font-mono break-all text-[11px]' : '')
+                    + (row.pre ? ' whitespace-pre-wrap' : '')
+                }, row.value)
+          ]);
+        }) : h('div', { className: 'text-xs text-slate-400' }, 'No details available'))
+      ]),
+      document.body
+    ) : null;
+
+    return h('span', { className: 'inline-flex align-middle' }, [
+      h('button', {
+        key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
+        onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
+        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors '
+          + (open ? 'text-slate-600 bg-slate-100' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-100')
+      }, h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' }, [
+        h('circle', { key: 'c', cx: 8, cy: 8, r: 6.4, stroke: 'currentColor', strokeWidth: 1.2 }),
+        h('circle', { key: 'd', cx: 8, cy: 5.2, r: 0.95, fill: 'currentColor' }),
+        h('path', { key: 'b', d: 'M8 7.4v4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' })
+      ])),
+      panel
+    ]);
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // FIX 2: KPICard / SectionCard — additive className + style pass-through
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -212,6 +400,7 @@
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
       h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
+      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz })) : null,
       h('p', { key: 't', className: titleCls }, props.title),
       h('p', { key: 'v', className: 'text-2xl font-semibold' }, props.value),
       props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
@@ -219,14 +408,15 @@
   };
 
   window.SectionCard = function(props) {
-    var cls = 'rounded-2xl border shadow-sm p-6 bg-white border-slate-200'
+    var cls = 'relative rounded-2xl border shadow-sm p-6 bg-white border-slate-200'
       + (props.className ? ' ' + props.className : '');
     var titleCls = 'text-lg font-semibold text-slate-800'
       + (props.titleClassName ? ' ' + props.titleClassName : '');
     var subtitleCls = 'text-sm mt-1 text-slate-500'
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
-      props.title ? h('div', { key: 'hdr', className: 'mb-4' }, [
+      props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz })) : null,
+      props.title ? h('div', { key: 'hdr', className: 'mb-4 pr-6' }, [
         h('h2', { key: 't', className: titleCls }, props.title),
         props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
       ]) : null,
