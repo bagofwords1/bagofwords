@@ -311,6 +311,10 @@ class TableFormatter:
                 # Tableau: role (MEASURE/DIMENSION)
                 elif col.metadata.get("role"):
                     col_line += f" [{col.metadata['role'].lower()}]"
+                # Partition key (e.g. Spark/Hive partitioned tables): independent
+                # of role/kind, so checked separately rather than in the elif chain.
+                if col.metadata.get("is_partition"):
+                    col_line += " [partition]"
             if col.description:
                 col_line += f" -- {col.description}"
             table_fmt.append(col_line)
