@@ -23,6 +23,7 @@ import pytest
 from app.data_sources.clients.spark_connect_client import (
     SparkConnectClient,
     SparkQueryGuardError,
+    _clean_str,
     _parse_size_to_bytes,
     _max_scan_bytes_from_plan,
     _has_unfiltered_partition_scan,
@@ -174,6 +175,20 @@ class TestQueryAndSchema:
         assert t.columns[0].dtype == "bigint"
         assert t.columns[0].description == "primary id"
 
+    def test_get_tables_handles_nan_descriptions(self, monkeypatch):
+        # Regression: Spark Connect's catalog API returns float('nan') (not None)
+        # for absent table/column descriptions, which would fail Pydantic.
+        nan = float("nan")
+        cols = [_column("id", "int", nan)]
+        spark, _ = _make_fake_spark(tables=["sales"], columns=cols, databases=("default",))
+        spark.catalog.listTables.return_value = [_named("sales", description=nan)]
+        _install_fake_pyspark(monkeypatch, spark)
+        c = SparkConnectClient(host="h", database="default")
+        t = c.get_tables()[0]
+        assert t.description is None
+        assert t.columns[0].description is None
+        assert t.columns[0].dtype == "int"
+
     def test_test_connection_success(self, monkeypatch):
         spark, _ = _make_fake_spark()
         _install_fake_pyspark(monkeypatch, spark)
@@ -196,6 +211,16 @@ class TestQueryAndSchema:
 
 
 # ---------- EXPLAIN gate: pure parsers ---------- #
+
+
+class TestCleanStr:
+    def test_clean_str_variants(self):
+        assert _clean_str(None) is None
+        assert _clean_str(float("nan")) is None
+        assert _clean_str("nan") is None
+        assert _clean_str("") is None
+        assert _clean_str("   ") is None
+        assert _clean_str("  hello ") == "hello"
 
 
 class TestPlanParsers:

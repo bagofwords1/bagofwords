@@ -1,6 +1,7 @@
 from app.data_sources.clients.base import DataSourceClient
 
 import re
+import math
 import pandas as pd
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -27,6 +28,20 @@ _SIZE_RE = re.compile(r"sizeInBytes=([\d.]+(?:E[+-]?\d+)?)\s*(B|KiB|MiB|GiB|TiB|
 # stats. Treat anything at/above 1 EiB as "unknown" so the size gate fails open
 # instead of rejecting every unstatted scan.
 _UNKNOWN_SIZE_FLOOR = _SIZE_UNITS["EiB"]
+
+
+def _clean_str(value) -> Optional[str]:
+    """Normalize a catalog field to a non-empty string or None.
+
+    The Spark Connect catalog API returns ``nan`` (a float) rather than None for
+    absent descriptions/comments, which would fail Pydantic's ``str | None``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    s = str(value).strip()
+    return s if s and s.lower() != "nan" else None
 
 
 def _parse_size_to_bytes(value: str, unit: str) -> int:
@@ -246,8 +261,8 @@ class SparkConnectClient(DataSourceClient):
                         for c in spark.catalog.listColumns(t.name, db):
                             cols.append(TableColumn(
                                 name=c.name,
-                                dtype=getattr(c, "dataType", None) or "unknown",
-                                description=getattr(c, "description", None) or None,
+                                dtype=_clean_str(getattr(c, "dataType", None)) or "unknown",
+                                description=_clean_str(getattr(c, "description", None)),
                             ))
                     except Exception:
                         # Skip columns we can't introspect; keep the table listed
@@ -255,7 +270,7 @@ class SparkConnectClient(DataSourceClient):
                     fqn = f"{db}.{t.name}" if db else t.name
                     tables.append(Table(
                         name=fqn,
-                        description=getattr(t, "description", None) or None,
+                        description=_clean_str(getattr(t, "description", None)),
                         columns=cols,
                         pks=[],
                         fks=[],
