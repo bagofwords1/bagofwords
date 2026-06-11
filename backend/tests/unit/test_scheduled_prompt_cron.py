@@ -29,6 +29,7 @@ SATURDAY_MIDNIGHT = datetime(2026, 6, 6, 0, 0, 0)
         ("*", "*"),
         ("1-5", "mon-fri"),
         ("0,6", "sun,sat"),
+        ("1,3,5", "mon,wed,fri"),  # specific days: Mon/Wed/Fri
         ("mon", "mon"),
         ("MON", "mon"),
         ("*/2", "*/2"),  # step left untouched
@@ -55,6 +56,7 @@ def _next_weekday(cron: str) -> str:
         ("0 9 * * 6", "Saturday"),
         ("0 9 * * 1-5", "Monday"),  # weekdays: next after Saturday is Monday
         ("0 9 * * 0,6", "Saturday"),  # next after Saturday-midnight is Saturday 09:00
+        ("0 9 * * 1,3,5", "Monday"),  # Mon/Wed/Fri: next after Saturday is Monday
     ],
 )
 def test_parsed_cron_fires_on_expected_day(cron, weekday):
