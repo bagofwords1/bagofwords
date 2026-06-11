@@ -223,7 +223,7 @@
   }
 
   // Normalize a viz's columns to { field, header, dtype }, falling back to row keys.
-  function _infoCols(viz) {
+  function _infoCols(viz, rows) {
     var cols = viz.columns || [];
     if (cols.length) {
       return cols.map(function(c) {
@@ -231,7 +231,8 @@
         return { field: c.field || c.headerName || c.name, header: c.headerName || c.field || c.name, dtype: c.dtype };
       }).filter(function(c) { return c.field; });
     }
-    var r = (viz.rows || [])[0];
+    var src = (rows && rows.length) ? rows : (viz.rows || []);
+    var r = src[0];
     if (r && typeof r === 'object') return Object.keys(r).map(function(k) { return { field: k, header: k }; });
     return [];
   }
@@ -363,13 +364,22 @@
 
     if (!viz) return null;
     var meta = _infoMeta(viz);
-    var cols = _infoCols(viz);
-    var dataRows = Array.isArray(viz.rows) ? viz.rows : [];
+    // Prefer the exact rows the component rendered (e.g. filterRows(...) output)
+    // when passed via the `rows` prop; otherwise fall back to the raw query rows.
+    var rawRows = Array.isArray(viz.rows) ? viz.rows : [];
+    var overrideRows = Array.isArray(props.rows) ? props.rows : null;
+    var dataRows = overrideRows != null ? overrideRows : rawRows;
+    var cols = _infoCols(viz, dataRows);
+    var rawCount = rawRows.length || (viz.row_count != null ? viz.row_count : 0);
+    var isFiltered = overrideRows != null && rawCount > 0 && overrideRows.length !== rawCount;
     var MAXR = 100;
 
     var activeFilters = {};
     try { activeFilters = (window.__filterStore ? window.__filterStore.get() : {}) || {}; } catch (e) {}
-    var activeKeys = Object.keys(activeFilters);
+    // Only attribute a filter to this viz if it maps onto one of its columns —
+    // never claim a filter that doesn't actually touch this data.
+    var colFields = cols.map(function(c) { return c.field; });
+    var shownFilterKeys = Object.keys(activeFilters).filter(function(k) { return colFields.indexOf(k) !== -1; });
 
     function tabButton(id, label) {
       var active = tab === id;
@@ -383,15 +393,19 @@
     var metaBits = [];
     if (meta.source) metaBits.push(meta.source);
     if (meta.type) metaBits.push(meta.type);
-    if (meta.rowCount != null) metaBits.push(meta.rowCount + ' rows');
+    if (isFiltered) metaBits.push(dataRows.length + ' of ' + rawCount + ' rows (filtered)');
+    else metaBits.push((overrideRows != null ? dataRows.length : (meta.rowCount != null ? meta.rowCount : dataRows.length)) + ' rows');
     if (cols.length) metaBits.push(cols.length + ' cols');
     if (meta.aggregation) metaBits.push('agg: ' + meta.aggregation);
+
+    var filterNote = shownFilterKeys.length
+      ? 'Filters: ' + shownFilterKeys.map(function(k) { return k + '=' + _infoFilterVal(activeFilters[k]); }).join(', ')
+      : (isFiltered ? 'Filtered view' : null);
 
     // DATA tab — the actual rows + a compact metadata line
     var dataBody = h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
       metaBits.length ? h('div', { key: 'm', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')) : null,
-      activeKeys.length ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' },
-        'Filtered: ' + activeKeys.map(function(k) { return k + '=' + _infoFilterVal(activeFilters[k]); }).join(', ')) : null,
+      filterNote ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' }, filterNote) : null,
       cols.length ? h('div', {
         key: 'tbl', className: 'border border-slate-100 rounded-md overflow-auto', style: { maxHeight: 300 }
       }, h('table', { className: 'border-collapse', style: { minWidth: '100%' } }, [
@@ -488,7 +502,7 @@
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
       h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
-      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz })) : null,
+      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows })) : null,
       h('p', { key: 't', className: titleCls }, props.title),
       h('p', { key: 'v', className: 'text-2xl font-semibold' }, props.value),
       props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
@@ -503,7 +517,7 @@
     var subtitleCls = 'text-sm mt-1 text-slate-500'
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
-      props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz })) : null,
+      props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows })) : null,
       props.title ? h('div', { key: 'hdr', className: 'mb-4 pr-6' }, [
         h('h2', { key: 't', className: titleCls }, props.title),
         props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
