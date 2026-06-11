@@ -214,6 +214,43 @@
     return String(v);
   }
 
+  // Format a single cell value for the data table.
+  function _infoCell(v) {
+    if (v == null) return '—';
+    if (typeof v === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    if (typeof v === 'object') { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    return String(v);
+  }
+
+  // Normalize a viz's columns to { field, header, dtype }, falling back to row keys.
+  function _infoCols(viz) {
+    var cols = viz.columns || [];
+    if (cols.length) {
+      return cols.map(function(c) {
+        if (typeof c === 'string') return { field: c, header: c };
+        return { field: c.field || c.headerName || c.name, header: c.headerName || c.field || c.name, dtype: c.dtype };
+      }).filter(function(c) { return c.field; });
+    }
+    var r = (viz.rows || [])[0];
+    if (r && typeof r === 'object') return Object.keys(r).map(function(k) { return { field: k, header: k }; });
+    return [];
+  }
+
+  // Compact metadata summary for the Data tab header.
+  function _infoMeta(viz) {
+    var dm = viz.dataModel || {};
+    var view = viz.view || {};
+    var innerView = view.view || view;
+    var type = dm.type || innerView.type;
+    var rowCount = Array.isArray(viz.rows) ? viz.rows.length : (viz.row_count != null ? viz.row_count : null);
+    return {
+      source: viz.dataSource || null,
+      type: type ? String(type).replace(/_/g, ' ') : null,
+      rowCount: rowCount,
+      aggregation: innerView.aggregation || null
+    };
+  }
+
   // Derive an ordered list of { label, value, ... } rows from a viz object.
   function buildInfoRows(viz) {
     if (!viz || typeof viz !== 'object') return [];
@@ -278,6 +315,7 @@
     var viz = props.viz;
     var _o = React.useState(false), open = _o[0], setOpen = _o[1];
     var _p = React.useState(null), pos = _p[0], setPos = _p[1];
+    var _t = React.useState('data'), tab = _t[0], setTab = _t[1];
     var btnRef = React.useRef(null);
     var panelRef = React.useRef(null);
 
@@ -302,7 +340,7 @@
       function reposition() {
         if (!btnRef.current) return;
         var r = btnRef.current.getBoundingClientRect();
-        var W = 320;
+        var W = 400;
         var left = Math.min(r.right - W, window.innerWidth - W - 8);
         if (left < 8) left = 8;
         var spaceBelow = window.innerHeight - r.bottom;
@@ -324,7 +362,68 @@
     }, [open]);
 
     if (!viz) return null;
-    var rows = buildInfoRows(viz);
+    var meta = _infoMeta(viz);
+    var cols = _infoCols(viz);
+    var dataRows = Array.isArray(viz.rows) ? viz.rows : [];
+    var MAXR = 100;
+
+    var activeFilters = {};
+    try { activeFilters = (window.__filterStore ? window.__filterStore.get() : {}) || {}; } catch (e) {}
+    var activeKeys = Object.keys(activeFilters);
+
+    function tabButton(id, label) {
+      var active = tab === id;
+      return h('button', {
+        key: id, type: 'button', onClick: function() { setTab(id); },
+        className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors '
+          + (active ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600')
+      }, label);
+    }
+
+    var metaBits = [];
+    if (meta.source) metaBits.push(meta.source);
+    if (meta.type) metaBits.push(meta.type);
+    if (meta.rowCount != null) metaBits.push(meta.rowCount + ' rows');
+    if (cols.length) metaBits.push(cols.length + ' cols');
+    if (meta.aggregation) metaBits.push('agg: ' + meta.aggregation);
+
+    // DATA tab — the actual rows + a compact metadata line
+    var dataBody = h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
+      metaBits.length ? h('div', { key: 'm', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')) : null,
+      activeKeys.length ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' },
+        'Filtered: ' + activeKeys.map(function(k) { return k + '=' + _infoFilterVal(activeFilters[k]); }).join(', ')) : null,
+      cols.length ? h('div', {
+        key: 'tbl', className: 'border border-slate-100 rounded-md overflow-auto', style: { maxHeight: 300 }
+      }, h('table', { className: 'border-collapse', style: { minWidth: '100%' } }, [
+        h('thead', { key: 'h' }, h('tr', {}, cols.map(function(c, i) {
+          return h('th', {
+            key: i,
+            className: 'text-left font-medium text-slate-500 bg-slate-50 px-2 py-1.5 border-b border-slate-100 whitespace-nowrap sticky top-0',
+            style: { fontSize: 11 }
+          }, c.header);
+        }))),
+        h('tbody', { key: 'b' }, dataRows.slice(0, MAXR).map(function(row, ri) {
+          return h('tr', { key: ri, className: ri % 2 ? 'bg-slate-50/40' : '' }, cols.map(function(c, ci) {
+            var cell = _infoCell(row[c.field]);
+            return h('td', {
+              key: ci, title: cell,
+              className: 'px-2 py-1 text-slate-700 whitespace-nowrap border-b border-slate-50',
+              style: { fontSize: 11, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }
+            }, cell);
+          }));
+        }))
+      ])) : h('div', { key: 'nd', className: 'text-xs text-slate-400 py-4 text-center' }, 'No data available'),
+      (dataRows.length > MAXR) ? h('div', { key: 'more', className: 'text-[10px] text-slate-400' },
+        'Showing ' + MAXR + ' of ' + dataRows.length + ' rows') : null
+    ]);
+
+    // CODE tab — the generating query
+    var codeBody = h('div', { key: 'code' }, viz.code
+      ? h('pre', {
+          className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md p-2 overflow-auto',
+          style: { maxHeight: 340, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
+        }, viz.code)
+      : h('div', { className: 'text-xs text-slate-400 py-4 text-center' }, 'No query available for this visualization.'));
 
     var panel = (open && pos) ? ReactDOM.createPortal(
       h('div', {
@@ -334,11 +433,11 @@
           position: 'fixed', left: pos.left,
           top: pos.top != null ? pos.top : undefined,
           bottom: pos.bottom != null ? pos.bottom : undefined,
-          width: pos.width, zIndex: 99999, maxHeight: '70vh',
+          width: pos.width, zIndex: 99999, maxHeight: '72vh',
           display: 'flex', flexDirection: 'column'
         }
       }, [
-        h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 py-2.5 border-b border-slate-100' }, [
+        h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 pt-2.5 pb-1' }, [
           h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 leading-snug' }, viz.title || 'Details'),
           h('button', {
             key: 'x', type: 'button', 'aria-label': 'Close',
@@ -347,25 +446,14 @@
           }, h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' },
             h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
         ]),
-        h('div', {
-          key: 'bd', className: 'px-3.5 py-3 overflow-auto',
-          style: { display: 'flex', flexDirection: 'column', gap: 10 }
-        }, rows.length ? rows.map(function(row, i) {
-          return h('div', { key: i }, [
-            h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, row.label),
-            row.code
-              ? h('pre', {
-                  key: 'v', className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md p-2 overflow-auto',
-                  style: { maxHeight: 168, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
-                }, row.value)
-              : h('div', {
-                  key: 'v',
-                  className: 'text-xs text-slate-700 leading-relaxed'
-                    + (row.mono ? ' font-mono break-all text-[11px]' : '')
-                    + (row.pre ? ' whitespace-pre-wrap' : '')
-                }, row.value)
-          ]);
-        }) : h('div', { className: 'text-xs text-slate-400' }, 'No details available'))
+        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100' }, [
+          tabButton('data', 'Data'),
+          tabButton('code', 'Code')
+        ]),
+        h('div', { key: 'bd', className: 'px-3.5 py-3 overflow-auto' }, tab === 'code' ? codeBody : dataBody),
+        viz.id ? h('div', {
+          key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-400 break-all'
+        }, 'ID  ' + viz.id) : null
       ]),
       document.body
     ) : null;
