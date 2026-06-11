@@ -196,6 +196,9 @@ pdf2image==1.17.0
 playwright==1.60.0
 playwright-stealth==2.0.3
 databricks-sql-connector==4.2.6
+# Spark Connect client (pure-Python gRPC; no local JVM). Reuses the already-pinned
+# grpcio / grpcio-status / pyarrow / pandas. Compatible with Spark 3.5+ servers.
+pyspark[connect]==3.5.3
 opentelemetry-api==1.29.0
 opentelemetry-sdk==1.29.0
 opentelemetry-instrumentation-fastapi==0.50b0
