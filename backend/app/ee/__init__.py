@@ -7,6 +7,8 @@ from app.ee.license import (
     get_license_info,
     require_enterprise,
     is_datasource_allowed,
+    get_max_users,
+    get_max_agents,
     LicenseInfo,
     ENTERPRISE_DATASOURCES,
 )
@@ -16,6 +18,8 @@ __all__ = [
     "get_license_info",
     "require_enterprise",
     "is_datasource_allowed",
+    "get_max_users",
+    "get_max_agents",
     "LicenseInfo",
     "ENTERPRISE_DATASOURCES",
 ]

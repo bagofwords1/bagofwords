@@ -243,6 +243,39 @@ class OrganizationService:
         return result.scalar_one_or_none()
     
 
+    async def _count_org_memberships(self, db: AsyncSession, organization_id) -> int:
+        """Count all memberships in an org — active members and pending invites alike.
+
+        Pending invites (user_id is NULL) count too, so the license seat cap can't be
+        bypassed by leaving invites unaccepted.
+        """
+        from sqlalchemy import func
+        result = await db.execute(
+            select(func.count(Membership.id)).where(
+                Membership.organization_id == organization_id
+            )
+        )
+        return result.scalar() or 0
+
+    async def _enforce_user_limit(self, db: AsyncSession, organization_id, adding: int = 1) -> None:
+        """Raise 402 if adding `adding` member(s) would exceed the license seat cap.
+
+        No-op when unlicensed/unset (max_users == -1 → unlimited).
+        """
+        from app.ee.license import get_max_users
+        max_users = get_max_users()
+        if max_users < 0:
+            return
+        current = await self._count_org_memberships(db, organization_id)
+        if current + adding > max_users:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"User limit reached for your license ({max_users}). "
+                    "Contact sales to increase your seat count."
+                ),
+            )
+
     async def add_member(self, db: AsyncSession, membership_data: MembershipCreate, current_user: User) -> MembershipSchema:
         #check if email is already a user
         # if it is, add user_id to membership and remove email
@@ -251,6 +284,11 @@ class OrganizationService:
         membership_exists = await self._is_email_already_in_organization(db, membership_data.email, membership_data.organization_id)
         if membership_exists:
             raise HTTPException(status_code=400, detail="Already a member with this email")
+
+        # Enforce per-organization seat cap from the enterprise license (if any).
+        # Checked after the duplicate guard so re-adding an existing email still
+        # 400s rather than being masked by a seat-limit 402.
+        await self._enforce_user_limit(db, membership_data.organization_id)
         
         user = await db.execute(select(User).where(User.email == membership_data.email))
         user = user.scalar_one_or_none()
@@ -609,6 +647,16 @@ class OrganizationService:
         report_rows: List[MembershipImportRow] = []
         summary = MembershipImportSummary()
 
+        # Enterprise license seat cap. We track a running projection of how many *new*
+        # members the import would create so the limit is reported up front — in the
+        # dry-run preview and the real run alike — instead of failing row-by-row only
+        # once writes start. -1 means unlimited. Existing members (updated/unchanged)
+        # don't consume a new seat, so only freshly-created rows count toward it.
+        from app.ee.license import get_max_users
+        max_users = get_max_users()
+        current_members = await self._count_org_memberships(db, organization.id) if max_users >= 0 else 0
+        projected_new = 0
+
         for idx, raw in enumerate(rows, start=2):  # data starts at row 2 (header is row 1)
             email = (raw.get("email") or "").strip()
             note = raw.get("note")
@@ -653,6 +701,20 @@ class OrganizationService:
                 continue
 
             # New email — invite as a new pending membership.
+            # Gate against the license seat cap using the running projection so the
+            # overflow is reported identically in dry-run and real runs.
+            if max_users >= 0 and current_members + projected_new >= max_users:
+                report_rows.append(MembershipImportRow(
+                    row=idx, email=email, note=note, status="error",
+                    error=(
+                        f"User limit reached for your license ({max_users}). "
+                        "Contact sales to increase your seat count."
+                    ),
+                ))
+                summary.errors += 1
+                continue
+            projected_new += 1
+
             if dry_run:
                 report_rows.append(MembershipImportRow(
                     row=idx, email=email, note=note, status="created",
