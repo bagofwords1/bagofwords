@@ -664,6 +664,19 @@ class SparkConnectConfig(BaseModel):
         description="Reject queries whose estimated scan size exceeds this many bytes (EXPLAIN-based pre-check, approximate; needs table stats). Keep blank to disable.",
         json_schema_extra={"ui:type": "number"}
     )
+    profile_partitions: bool = Field(
+        False,
+        title="Profile Partition Values",
+        description="Enrich partition columns with a bounded value summary (min/max/sample) from the metastore via SHOW PARTITIONS. Metadata only — no data scan. Skipped for tables with more partitions than the limit below.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    partition_profile_limit: int = Field(
+        1000,
+        ge=1,
+        title="Partition Profile Limit",
+        description="Max partitions to read when profiling partition values. Tables above this are flagged as partitioned but not value-profiled (keeps high-cardinality tables cheap).",
+        json_schema_extra={"ui:type": "number"}
+    )
 
 
 # OAuth Delegated Credentials (empty — user provides nothing, OAuth flow populates tokens)

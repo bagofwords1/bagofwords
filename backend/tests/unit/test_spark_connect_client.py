@@ -27,6 +27,8 @@ from app.data_sources.clients.spark_connect_client import (
     _parse_size_to_bytes,
     _max_scan_bytes_from_plan,
     _has_unfiltered_partition_scan,
+    _parse_partition_specs,
+    _partition_hint,
 )
 
 
@@ -51,11 +53,12 @@ PLAN_UNKNOWN = "Relation y, Statistics(sizeInBytes=8.0 EiB)"  # Long.MaxValue de
 # ---------- fake pyspark plumbing ---------- #
 
 
-def _column(name, dtype="string", description=None):
+def _column(name, dtype="string", description=None, is_partition=False):
     c = MagicMock()
     c.name = name
     c.dataType = dtype
     c.description = description
+    c.isPartition = is_partition  # set explicitly; MagicMock would auto-make it truthy
     return c
 
 
@@ -175,6 +178,57 @@ class TestQueryAndSchema:
         assert t.columns[0].dtype == "bigint"
         assert t.columns[0].description == "primary id"
 
+    def test_get_tables_flags_partitions(self, monkeypatch):
+        cols = [_column("id", "int"), _column("dt", "string", is_partition=True)]
+        spark, _ = _make_fake_spark(tables=["sales"], columns=cols, databases=("default",))
+        _install_fake_pyspark(monkeypatch, spark)
+        c = SparkConnectClient(host="h", database="default")  # profiling off
+        t = c.get_tables()[0]
+        by = {col.name: col for col in t.columns}
+        assert by["id"].metadata is None
+        assert by["dt"].metadata == {"is_partition": True, "partition_index": 0}
+        # profiling off -> no SHOW PARTITIONS issued
+        assert all(
+            not (call.args and str(call.args[0]).upper().startswith("SHOW PARTITIONS"))
+            for call in spark.sql.call_args_list
+        )
+
+    def test_get_tables_profiles_partitions(self, monkeypatch):
+        cols = [_column("amount", "double"), _column("dt", "string", is_partition=True)]
+        spark, _ = _make_fake_spark(tables=["sales"], columns=cols, databases=("default",))
+        part_rows = [("dt=2026-06-01",), ("dt=2026-06-03",), ("dt=2026-06-02",)]
+        show_df = MagicMock()
+        show_df.limit.return_value.collect.return_value = part_rows
+        spark.sql.side_effect = lambda q: (
+            show_df if str(q).upper().startswith("SHOW PARTITIONS") else MagicMock()
+        )
+        _install_fake_pyspark(monkeypatch, spark)
+        c = SparkConnectClient(host="h", database="default", profile_partitions=True)
+        dt = {col.name: col for col in c.get_tables()[0].columns}["dt"]
+        pv = dt.metadata["partition_values"]
+        assert pv["min"] == "2026-06-01" and pv["max"] == "2026-06-03"
+        assert pv["count"] == 3
+        assert pv["sample"] == ["2026-06-01", "2026-06-02", "2026-06-03"]
+        assert "partition values" in (dt.description or "")
+
+    def test_partition_profile_truncated(self, monkeypatch):
+        cols = [_column("dt", "string", is_partition=True)]
+        spark, _ = _make_fake_spark(tables=["t"], columns=cols, databases=("default",))
+        rows = [(f"dt=2026-06-{i:02d}",) for i in range(1, 6)]  # 5 > limit
+        show_df = MagicMock()
+        show_df.limit.return_value.collect.return_value = rows
+        spark.sql.side_effect = lambda q: (
+            show_df if str(q).upper().startswith("SHOW PARTITIONS") else MagicMock()
+        )
+        _install_fake_pyspark(monkeypatch, spark)
+        c = SparkConnectClient(host="h", database="default",
+                               profile_partitions=True, partition_profile_limit=3)
+        dt = {col.name: col for col in c.get_tables()[0].columns}["dt"]
+        pv = dt.metadata["partition_values"]
+        assert pv["count"] == ">=3"          # unknown true count
+        assert "min" not in pv and "max" not in pv  # unreliable when truncated
+        assert len(pv["sample"]) <= 5
+
     def test_get_tables_handles_nan_descriptions(self, monkeypatch):
         # Regression: Spark Connect's catalog API returns float('nan') (not None)
         # for absent table/column descriptions, which would fail Pydantic.
@@ -221,6 +275,45 @@ class TestCleanStr:
         assert _clean_str("") is None
         assert _clean_str("   ") is None
         assert _clean_str("  hello ") == "hello"
+
+
+class TestPartitionHelpers:
+    def test_parse_specs_single_level(self):
+        rows = [("dt=2026-06-01",), ("dt=2026-06-02",)]
+        assert _parse_partition_specs(rows, ["dt"]) == {"dt": ["2026-06-01", "2026-06-02"]}
+
+    def test_parse_specs_multi_level(self):
+        rows = [("year=2026/month=06/day=01",), ("year=2026/month=06/day=02",)]
+        out = _parse_partition_specs(rows, ["year", "month", "day"])
+        assert out["year"] == ["2026", "2026"]
+        assert out["day"] == ["01", "02"]
+
+    def test_partition_hint_full(self):
+        hint = _partition_hint({"min": "a", "max": "z", "sample": ["a", "b", "c", "d"], "count": 9})
+        assert "range a..z" in hint and "e.g. a, b, c" in hint and "9 partitions" in hint
+
+    def test_partition_hint_truncated(self):
+        hint = _partition_hint({"sample": ["a", "b"], "count": ">=3"})
+        assert "range" not in hint and ">=3 partitions" in hint
+
+
+class TestFormatterPartitionTag:
+    def test_partition_tag_rendered(self):
+        from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+        t = Table(
+            name="sales",
+            columns=[
+                TableColumn(name="id", dtype="int"),
+                TableColumn(name="dt", dtype="string",
+                            metadata={"is_partition": True, "partition_index": 0}),
+            ],
+            pks=[], fks=[],
+        )
+        out = TableFormatter([t]).table_str
+        assert "dt string [partition]" in out
+        # non-partition column is not tagged
+        id_line = next(ln for ln in out.splitlines() if ln.strip().startswith("id "))
+        assert "[partition]" not in id_line
 
 
 class TestPlanParsers:

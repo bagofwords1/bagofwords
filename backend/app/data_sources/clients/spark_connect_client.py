@@ -44,6 +44,35 @@ def _clean_str(value) -> Optional[str]:
     return s if s and s.lower() != "nan" else None
 
 
+def _parse_partition_specs(rows: List, part_cols: List[str]) -> dict:
+    """Group SHOW PARTITIONS specs into per-column value lists.
+
+    Each row's value looks like "dt=2026-06-01" or "year=2026/month=06/day=01".
+    """
+    per_col = {name: [] for name in part_cols}
+    for r in rows:
+        spec = r[0] if (hasattr(r, "__getitem__") and not isinstance(r, str)) else r
+        for part in str(spec).split("/"):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                if k in per_col:
+                    per_col[k].append(v)
+    return per_col
+
+
+def _partition_hint(profile: dict) -> str:
+    """Compact, prompt-friendly summary of a partition column's value profile."""
+    parts = []
+    if "min" in profile and "max" in profile:
+        parts.append(f"range {profile['min']}..{profile['max']}")
+    sample = profile.get("sample") or []
+    if sample:
+        parts.append("e.g. " + ", ".join(str(s) for s in sample[:3]))
+    if profile.get("count") is not None:
+        parts.append(f"{profile['count']} partitions")
+    return ("partition values: " + "; ".join(parts)) if parts else ""
+
+
 def _parse_size_to_bytes(value: str, unit: str) -> int:
     return int(float(value) * _SIZE_UNITS[unit])
 
@@ -91,6 +120,8 @@ class SparkConnectClient(DataSourceClient):
         database: Optional[str] = None,
         require_partition_filter: bool = False,
         max_scan_bytes: Optional[int] = None,
+        profile_partitions: bool = False,
+        partition_profile_limit: int = 1000,
     ):
         self.host = host
         self.port = int(port) if port is not None else 15002
@@ -104,6 +135,11 @@ class SparkConnectClient(DataSourceClient):
             else str(require_partition_filter).lower() in ("true", "1", "yes")
         )
         self.max_scan_bytes = int(max_scan_bytes) if max_scan_bytes else None
+        self.profile_partitions = (
+            profile_partitions if isinstance(profile_partitions, bool)
+            else str(profile_partitions).lower() in ("true", "1", "yes")
+        )
+        self.partition_profile_limit = int(partition_profile_limit or 1000)
 
         # Parse comma-separated databases (schemas) if provided
         self._databases: List[str] = []
@@ -257,17 +293,28 @@ class SparkConnectClient(DataSourceClient):
                     continue
                 for t in catalog_tables:
                     cols: List[TableColumn] = []
+                    part_cols: List[str] = []
                     try:
                         for c in spark.catalog.listColumns(t.name, db):
+                            meta = None
+                            if getattr(c, "isPartition", False):
+                                # Free metadata: which column is a partition key and
+                                # its order in the partition spec.
+                                meta = {"is_partition": True,
+                                        "partition_index": len(part_cols)}
+                                part_cols.append(c.name)
                             cols.append(TableColumn(
                                 name=c.name,
                                 dtype=_clean_str(getattr(c, "dataType", None)) or "unknown",
                                 description=_clean_str(getattr(c, "description", None)),
+                                metadata=meta,
                             ))
                     except Exception:
                         # Skip columns we can't introspect; keep the table listed
                         pass
                     fqn = f"{db}.{t.name}" if db else t.name
+                    if self.profile_partitions and part_cols:
+                        self._attach_partition_profiles(spark, fqn, part_cols, cols)
                     tables.append(Table(
                         name=fqn,
                         description=_clean_str(getattr(t, "description", None)),
@@ -277,6 +324,49 @@ class SparkConnectClient(DataSourceClient):
                         metadata_json={"schema": db, "catalog": self.catalog} if db else {},
                     ))
         return tables
+
+    def _attach_partition_profiles(self, spark, fqn: str, part_cols: List[str],
+                                   cols: List[TableColumn]) -> None:
+        """Enrich partition columns with a bounded value summary from the metastore.
+
+        Sourced from `SHOW PARTITIONS` (metastore metadata — no data scan). We
+        read at most `partition_profile_limit` (+1) specs: if the table has more,
+        it stays flagged as partitioned but is not value-profiled (avoids heavy
+        enumeration on high-cardinality tables). min/max are only reported when
+        the full set was read, since SHOW PARTITIONS order is not guaranteed.
+        Fails soft — profiling must never break schema discovery.
+        """
+        limit = self.partition_profile_limit
+        try:
+            rows = spark.sql(f"SHOW PARTITIONS {fqn}").limit(limit + 1).collect()
+        except Exception:
+            return  # not partitioned in metastore, or no permission — skip
+        truncated = len(rows) > limit
+        per_col = _parse_partition_specs(rows[:limit], part_cols)
+
+        profiles = {}
+        for name, vals in per_col.items():
+            if not vals:
+                continue
+            distinct = sorted(set(vals))
+            prof = {
+                "count": (f">={limit}" if truncated else len(distinct)),
+                "sample": distinct[:5],
+            }
+            if not truncated:
+                prof["min"], prof["max"] = distinct[0], distinct[-1]
+            profiles[name] = prof
+
+        for col in cols:
+            if not (isinstance(col.metadata, dict) and col.metadata.get("is_partition")):
+                continue
+            prof = profiles.get(col.name)
+            if not prof:
+                continue
+            col.metadata["partition_values"] = prof
+            hint = _partition_hint(prof)
+            if hint:
+                col.description = f"{col.description} | {hint}" if col.description else hint
 
     def get_schema(self, table_name: str) -> Table:
         """Deprecated — use get_tables() / get_schemas() instead."""
