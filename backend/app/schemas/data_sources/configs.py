@@ -255,6 +255,12 @@ class MssqlConfig(SQLConfig):
         description="Encrypt the connection. Disable for SQL Server 2008 without TLS support",
         json_schema_extra={"ui:type": "boolean"}
     )
+    additional_params: Optional[dict] = Field(
+        default_factory=dict,
+        title="Additional Connection Parameters",
+        description="Extra ODBC keywords sent as-is, e.g. ApplicationIntent=ReadOnly. Security keys (Encrypt, credentials, driver) cannot be overridden.",
+        json_schema_extra={"ui:type": "keyvalue"}
+    )
 
 
 class SybaseConfig(SQLConfig):
@@ -592,6 +598,84 @@ class DatabricksSqlConfig(BaseModel):
         title="Schema",
         description="Optional schema or comma-separated list of schemas. If empty, all schemas in the catalog will be discovered.",
         json_schema_extra={"ui:type": "string"}
+    )
+
+
+# Spark Connect
+class SparkConnectNoAuthCredentials(BaseModel):
+    """No auth — open/dev Spark Connect clusters that don't require a token."""
+    # Allow extra so creds provided without auth_type are preserved during validation
+    class Config:
+        extra = 'allow'
+
+
+class SparkConnectCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Bearer token for the Spark Connect server (sent over the sc:// connection).",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class SparkConnectConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Spark Connect server host (e.g., my-spark-host or localhost).",
+        json_schema_extra={"ui:type": "string"}
+    )
+    port: int = Field(
+        15002,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="Spark Connect server port (default 15002).",
+        json_schema_extra={"ui:type": "number"}
+    )
+    use_ssl: bool = Field(
+        False,
+        title="Use SSL",
+        description="Connect to the Spark Connect server over TLS (sc://...;use_ssl=true).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    catalog: Optional[str] = Field(
+        None,
+        title="Catalog",
+        description="Optional catalog to scope schema discovery to. If empty, the session default catalog is used.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    database: Optional[str] = Field(
+        None,
+        title="Database / Schema",
+        description="Optional database (schema) or comma-separated list. If empty, all databases are discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    require_partition_filter: bool = Field(
+        False,
+        title="Require Partition Filter",
+        description="Reject queries that scan a partitioned table without filtering on a partition column (checked via EXPLAIN before the query runs).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    max_scan_bytes: Optional[int] = Field(
+        None,
+        ge=0,
+        title="Max Scan Bytes",
+        description="Reject queries whose estimated scan size exceeds this many bytes (EXPLAIN-based pre-check, approximate; needs table stats). Keep blank to disable.",
+        json_schema_extra={"ui:type": "number"}
+    )
+    profile_partitions: bool = Field(
+        False,
+        title="Profile Partition Values",
+        description="Enrich partition columns with a bounded value summary (min/max/sample) from the metastore via SHOW PARTITIONS. Metadata only — no data scan. Skipped for tables with more partitions than the limit below.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    partition_profile_limit: int = Field(
+        1000,
+        ge=1,
+        title="Partition Profile Limit",
+        description="Max partitions to read when profiling partition values. Tables above this are flagged as partitioned but not value-profiled (keeps high-cardinality tables cheap).",
+        json_schema_extra={"ui:type": "number"}
     )
 
 
@@ -1263,6 +1347,10 @@ __all__ = [
     # Databricks SQL
     "DatabricksSqlCredentials",
     "DatabricksSqlConfig",
+    # Spark Connect
+    "SparkConnectNoAuthCredentials",
+    "SparkConnectCredentials",
+    "SparkConnectConfig",
     # Power BI
     "PowerBICredentials",
     "PowerBIConfig",

@@ -22,7 +22,9 @@ class DataSource(BaseSchema):
     # type, config, credentials, auth_policy, allowed_user_auth_modes are now on Connection
     last_synced_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    is_public = Column(Boolean, nullable=False, default=True)
+    # Data sources are private by default: only explicitly added members (plus
+    # admins) can see them. Sharing org-wide is an opt-in (set is_public=True).
+    is_public = Column(Boolean, nullable=False, default=False)
 
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)
     owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)

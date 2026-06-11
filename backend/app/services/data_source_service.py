@@ -491,6 +491,18 @@ class DataSourceService:
             additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
             if additional_user_ids:
                 await self._create_memberships(db, new_data_source, additional_user_ids)
+                # Notify each newly added member (delayed; only if SMTP configured).
+                try:
+                    from app.services.data_source_member_email import schedule_member_added_email
+                    for uid in additional_user_ids:
+                        schedule_member_added_email(
+                            data_source_id=str(new_data_source.id),
+                            user_id=str(uid),
+                            added_by_user_id=str(current_user.id),
+                            organization_id=str(organization.id),
+                        )
+                except Exception as e:
+                    logger.warning("Could not schedule member-added emails on create: %s", e)
 
         # Save tables (validation already passed above)
         # Note: Description, conversation starters, and instructions are generated
@@ -1745,9 +1757,24 @@ class DataSourceService:
         connection_changed = bool(connection_updates)
         
         # Handle membership updates
+        newly_added_member_ids: List[str] = []
         if 'member_user_ids' in update_data:
             member_user_ids = update_data.pop('member_user_ids')
             if member_user_ids is not None:
+                # Capture the current member set first so we can tell which of the
+                # incoming ids are genuinely *new* (this path replaces the whole
+                # membership list, so we must not re-notify existing members).
+                existing_result = await db.execute(
+                    select(DataSourceMembership.principal_id).where(
+                        DataSourceMembership.data_source_id == data_source_id,
+                        DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                    )
+                )
+                existing_member_ids = {str(r) for r in existing_result.scalars().all()}
+                newly_added_member_ids = [
+                    str(uid) for uid in member_user_ids
+                    if str(uid) not in existing_member_ids and str(uid) != str(current_user.id)
+                ]
                 # Delete existing data_source_memberships
                 await db.execute(
                     delete(DataSourceMembership).where(
@@ -1783,7 +1810,21 @@ class DataSourceService:
         
         try:
             await db.commit()
-            
+
+            # Notify users newly added to this data source (delayed; SMTP-gated).
+            if newly_added_member_ids:
+                try:
+                    from app.services.data_source_member_email import schedule_member_added_email
+                    for uid in newly_added_member_ids:
+                        schedule_member_added_email(
+                            data_source_id=str(data_source_id),
+                            user_id=str(uid),
+                            added_by_user_id=str(current_user.id),
+                            organization_id=str(organization.id),
+                        )
+                except Exception as e:
+                    logger.warning("Could not schedule member-added emails on update: %s", e)
+
             # Refresh tables if connection fields changed
             if connection_changed and data_source_db.connections:
                 conn = data_source_db.connections[0]
@@ -3200,6 +3241,20 @@ class DataSourceService:
 
         await db.commit()
         await db.refresh(membership)
+
+        # Notify the newly added user (delayed; only if SMTP is configured).
+        if member.principal_type == PRINCIPAL_TYPE_USER:
+            try:
+                from app.services.data_source_member_email import schedule_member_added_email
+                schedule_member_added_email(
+                    data_source_id=str(data_source_id),
+                    user_id=str(member.principal_id),
+                    added_by_user_id=str(current_user.id),
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.warning("Could not schedule member-added email: %s", e)
+
         return DataSourceMembershipSchema.from_orm(membership)
 
     async def remove_data_source_member(self, db: AsyncSession, data_source_id: str, user_id: str, organization: Organization, current_user: User):
@@ -3420,7 +3475,19 @@ class DataSourceService:
             additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
             if additional_user_ids:
                 await self._create_memberships(db, new_data_source, additional_user_ids)
-        
+                # Notify each newly added member (delayed; only if SMTP configured).
+                try:
+                    from app.services.data_source_member_email import schedule_member_added_email
+                    for uid in additional_user_ids:
+                        schedule_member_added_email(
+                            data_source_id=str(new_data_source.id),
+                            user_id=str(uid),
+                            added_by_user_id=str(current_user.id),
+                            organization_id=str(organization.id),
+                        )
+                except Exception as e:
+                    logger.warning("Could not schedule member-added emails on create: %s", e)
+
         # Sync domain tables from connection tables (onboarding: auto-select up to 20)
         await self.sync_domain_tables_from_connection(
             db, new_data_source, connection, 

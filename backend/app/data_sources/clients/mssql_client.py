@@ -15,9 +15,16 @@ logger = logging.getLogger(__name__)
 
 class MSSQLClient(DataSourceClient):
     SUPPORTED_ODBC_DRIVERS = {17, 18}
+    # ODBC keywords the client owns; user-supplied additional params can never
+    # override these (case-insensitive), so the escape hatch can't weaken TLS,
+    # repoint the driver, or swap credentials.
+    PROTECTED_ODBC_KEYS = {
+        "driver", "server", "database", "uid", "pwd",
+        "encrypt", "trustservercertificate",
+    }
 
     def __init__(self, host, port, database, user, password, schema: Optional[str] = None,
-                 odbc_driver: int = 18, encrypt: bool = True):
+                 odbc_driver: int = 18, encrypt: bool = True, additional_params: Optional[dict] = None):
         self.host = host
         self.port = port
         self.database = database
@@ -28,6 +35,7 @@ class MSSQLClient(DataSourceClient):
         if self.odbc_driver not in self.SUPPORTED_ODBC_DRIVERS:
             raise ValueError(f"Unsupported ODBC driver version: {self.odbc_driver}. Supported: {sorted(self.SUPPORTED_ODBC_DRIVERS)}")
         self.encrypt = encrypt
+        self.additional_params = additional_params or {}
         self._schemas = []
         if isinstance(self.schema, str) and self.schema.strip():
             parts = [s.strip() for s in self.schema.split(",") if s.strip()]
@@ -52,6 +60,13 @@ class MSSQLClient(DataSourceClient):
         )
         if not self.encrypt:
             params += "Encrypt=no;"
+        # Append user-supplied extra ODBC keywords (e.g. ApplicationIntent=ReadOnly),
+        # skipping any that would override the security-sensitive keys above.
+        for key, value in (self.additional_params or {}).items():
+            k = str(key).strip()
+            if not k or k.lower() in self.PROTECTED_ODBC_KEYS:
+                continue
+            params += f"{k}={value};"
         return f"mssql+pyodbc:///?odbc_connect={quote_plus(params)}"
 
     @contextmanager

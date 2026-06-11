@@ -100,6 +100,45 @@ async def update_member(
     return result
 
 
+@router.post("/organizations/{organization_id}/members/{membership_id}/resend", response_model=MembershipSchema)
+@requires_permission('manage_members')
+async def resend_invite(
+    organization_id: str,
+    membership_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    result = await organization_service.resend_invite(db, membership_id, organization_id)
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization_id,
+            action="member.invite_resent",
+            user_id=current_user.id,
+            resource_type="membership",
+            resource_id=membership_id,
+            details={"email_status": result.invite_email_status},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
+
+
+@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link")
+@requires_permission('manage_members')
+async def get_invite_link(
+    organization_id: str,
+    membership_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await organization_service.get_invite_link(db, membership_id, organization_id)
+
+
 @router.post("/organizations/{organization_id}/members/import", response_model=MembershipImportReport)
 @requires_permission('manage_members')
 async def import_members(

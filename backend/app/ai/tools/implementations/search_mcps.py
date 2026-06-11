@@ -5,6 +5,7 @@ from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.search_mcps import SearchMCPsInput, SearchMCPsOutput
 from app.ai.tools.schemas import ToolEvent, ToolStartEvent, ToolEndEvent
+from app.ai.tools.implementations._search_mcps_query import filter_tools_by_query
 
 
 class SearchMCPsTool(Tool):
@@ -23,6 +24,16 @@ IMPORTANT: Call this BEFORE execute_mcp to get a tool's exact input schema (the 
 argument names and types). The <mcp_tools> context lists only tool names and descriptions,
 not their argument schemas — do not guess argument names. Calling a tool with the wrong
 argument shape wastes a turn; fetch the schema here first.
+
+Query (all optional — the query is a relevance hint, never a hard filter):
+    - Omit query entirely to list ALL available tools with their schemas.
+    - Plain text is matched fuzzily by word: "contacts" or "search contacts" both
+      surface contact-related tools, ranked by relevance.
+    - Wildcards are supported: "search_*" matches every tool whose name starts with
+      "search_"; "*contact*" matches any tool mentioning "contact".
+    - If a query matches nothing, ALL tools are returned rather than an empty list —
+      so you always get schemas to work with. Prefer a short query (or none) over an
+      over-specific natural-language phrase.
 
 Use when:
     - You need to discover what external tools are available (Notion, Jira, Datadog, etc.)
@@ -131,28 +142,13 @@ Use when:
 
         # Filter by query if provided.
         #
-        # The query is a relevance hint, not a hard filter. A naive full-string
-        # substring match (`q in name or q in description`) returns ZERO tools
-        # for any natural-language or multi-word query (e.g. "contacts for a
-        # company", or an id), which silently defeats discovery — the agent
-        # gets no schemas and falls back to guessing argument shapes. Instead:
-        #   - tokenize the query and rank tools by how many tokens they match,
-        #   - keep only tools that match at least one token,
-        #   - but if nothing matches (over-specific/NL query), fall back to
-        #     returning all tools so discovery never yields an empty result
-        #     when tools actually exist.
-        if data.query:
-            import re
-            tokens = [tok for tok in re.split(r"[^a-z0-9_]+", data.query.lower()) if len(tok) >= 3]
-            if tokens:
-                def _score(t) -> int:
-                    hay = f"{t.name or ''} {t.description or ''}".lower()
-                    return sum(1 for tok in tokens if tok in hay)
-                scored = sorted(((_score(t), t) for t in tools), key=lambda x: -x[0])
-                matched = [t for s, t in scored if s > 0]
-                # Fall back to all tools when no token matched — better to return
-                # every schema than none.
-                tools = matched or tools
+        # The query is a relevance hint, not a hard filter — a naive substring
+        # match returns ZERO tools for natural-language/multi-word/id queries,
+        # which silently defeats discovery (the agent then guesses argument
+        # shapes). filter_tools_by_query handles plain token-ranking AND glob
+        # wildcards (e.g. "search_*", "*contact*"), and always falls back to
+        # returning all tools when nothing matches.
+        tools = filter_tools_by_query(tools, data.query)
 
         # Build output
         tool_previews = []

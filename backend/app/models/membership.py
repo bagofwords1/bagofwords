@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Table, String
+from sqlalchemy import Column, ForeignKey, Table, String, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -11,6 +11,9 @@ class Membership(BaseSchema):
     organization_id = Column(String(36), ForeignKey('organizations.id'), primary_key=True)
     email = Column(String, nullable=True)
     invite_token = Column(String(36), nullable=True, unique=True, default=lambda: str(uuid.uuid4()))
+    # When the invite link stops being accepted (pending invites only). NULL =
+    # no expiry enforced (legacy rows / non-invite memberships).
+    invite_expires_at = Column(DateTime, nullable=True)
     note = Column(String, nullable=True)
 
     user = relationship("User", back_populates="memberships")

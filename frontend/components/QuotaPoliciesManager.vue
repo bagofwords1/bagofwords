@@ -29,20 +29,20 @@
             </div>
         </div>
 
-        <div class="bg-white shadow-sm border border-gray-200 rounded-lg">
+        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
+                <table class="min-w-full divide-y divide-gray-100">
+                    <thead class="bg-gray-50/60">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colPolicy') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colLimits') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colAssignments') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colOverrides') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colStatus') }}</th>
-                            <th v-if="useCan('manage_settings')" class="px-6 py-3 text-start text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $t('quotaPolicies.colActions') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colPolicy') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colLimits') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colAssignments') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colOverrides') }}</th>
+                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colStatus') }}</th>
+                            <th v-if="useCan('manage_settings')" class="px-4 py-2 text-start text-xs font-medium text-gray-500">{{ $t('quotaPolicies.colActions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
+                    <tbody class="bg-white divide-y divide-gray-100">
                         <tr v-if="isLoading">
                             <td :colspan="useCan('manage_settings') ? 6 : 5" class="px-6 py-12 text-center">
                                 <div class="flex items-center justify-center text-gray-500">
@@ -52,8 +52,8 @@
                             </td>
                         </tr>
                         <template v-else>
-                            <tr v-for="policy in filteredPolicies" :key="policy.id" class="hover:bg-gray-50">
-                                <td class="px-6 py-4">
+                            <tr v-for="policy in filteredPolicies" :key="policy.id" class="hover:bg-gray-50/70 transition-colors">
+                                <td class="px-4 py-2">
                                     <div class="flex items-center gap-2">
                                         <Icon name="heroicons:chart-bar-square" class="h-5 w-5 text-gray-400" />
                                         <div>
@@ -62,7 +62,7 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4">
+                                <td class="px-4 py-2">
                                     <div class="flex flex-wrap gap-1">
                                         <UBadge size="xs" color="gray" variant="subtle">
                                             {{ $t('quotaPolicies.tokensShort') }}: {{ formatCountLimit(policy.monthly_token_limit) }}
@@ -75,7 +75,7 @@
                                         </UBadge>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4">
+                                <td class="px-4 py-2">
                                     <div class="flex gap-1 flex-wrap items-center">
                                         <UBadge
                                             v-for="item in assignmentSummary(policy)"
@@ -89,7 +89,7 @@
                                         <span v-if="policy.assignments.length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.none') }}</span>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4">
+                                <td class="px-4 py-2">
                                     <div class="flex gap-1 flex-wrap items-center">
                                         <UBadge
                                             v-for="label in policy.connection_overrides.map(formatOverride).slice(0, 2)"
@@ -111,7 +111,7 @@
                                         <span v-if="policy.connection_overrides.length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.none') }}</span>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
+                                <td class="px-4 py-2 whitespace-nowrap">
                                     <UBadge
                                         size="xs"
                                         :color="policy.enabled ? 'green' : 'gray'"
@@ -120,7 +120,7 @@
                                         {{ policy.enabled ? $t('quotaPolicies.enabled') : $t('quotaPolicies.disabled') }}
                                     </UBadge>
                                 </td>
-                                <td v-if="useCan('manage_settings')" class="px-6 py-4 whitespace-nowrap">
+                                <td v-if="useCan('manage_settings')" class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex gap-2">
                                         <UButton
                                             variant="ghost"

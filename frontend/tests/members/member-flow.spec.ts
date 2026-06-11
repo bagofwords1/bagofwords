@@ -89,7 +89,7 @@ test.describe.serial('Member Flow', () => {
   });
 
   test('step 2: invited user signs up and logs in', async ({ browser }) => {
-    const { member } = getTestUsers();
+    const { admin, member } = getTestUsers();
 
     // Create fresh context (no auth)
     const context = await browser.newContext();
@@ -117,15 +117,39 @@ test.describe.serial('Member Flow', () => {
       return;
     }
 
-    // Sign-in failed, need to sign up
-    
-    await page.goto('/users/sign-up');
+    // Sign-in failed, need to sign up — via the tokenized invite link, which the
+    // token gate now requires. Fetch the pending invite's link as the admin
+    // (mirrors the recipient clicking the link in the invite email).
+    let signupPath = '/users/sign-up';
+    try {
+      const login = await page.request
+        .post('/api/auth/jwt/login', { form: { username: admin.email, password: admin.password } })
+        .then((r) => r.json());
+      const auth = `Bearer ${login.access_token}`;
+      const orgs = await page.request.get('/api/organizations', { headers: { Authorization: auth } }).then((r) => r.json());
+      const orgId = orgs[0].id;
+      const members = await page.request
+        .get(`/api/organizations/${orgId}/members`, { headers: { Authorization: auth, 'X-Organization-Id': orgId } })
+        .then((r) => r.json());
+      const m = members.find((x: any) => x.email === member.email);
+      if (m) {
+        const link = await page.request
+          .get(`/api/organizations/${orgId}/members/${m.id}/invite-link`, { headers: { Authorization: auth, 'X-Organization-Id': orgId } })
+          .then((r) => r.json());
+        const u = new URL(link.url);
+        signupPath = u.pathname + u.search;
+      }
+    } catch {
+      // fall back to a bare sign-up (open-signups environments)
+    }
+    await page.goto(signupPath);
     await page.waitForLoadState('networkidle');
 
     // Wait for form to be visible
     await page.waitForSelector('#name', { state: 'visible', timeout: 30000 });
 
     // Fill the form with invited member's email - MUST match the invite
+    // (email is pre-filled from the link; set it explicitly to be safe)
     await page.fill('#name', member.name);
     await page.fill('#email', member.email);
     await page.fill('#password', member.password);

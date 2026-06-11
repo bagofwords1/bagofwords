@@ -69,9 +69,22 @@
                     </template>
                     <template v-if="recurInterval === 'week'">
                         <span>{{ $t('scheduledPrompt.on') }}</span>
-                        <select v-model="recurDay" class="rounded border border-gray-200 px-1.5 py-1 text-xs">
-                            <option v-for="d in weekdays" :key="d.value" :value="d.value">{{ d.label }}</option>
-                        </select>
+                        <div class="flex items-center gap-1">
+                            <button
+                                v-for="d in weekdays"
+                                :key="d.value"
+                                type="button"
+                                @click="toggleRecurDay(d.value)"
+                                :title="d.label"
+                                :aria-pressed="recurDays.includes(d.value)"
+                                class="flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-medium border transition-colors"
+                                :class="recurDays.includes(d.value)
+                                    ? 'bg-blue-500 text-white border-blue-500'
+                                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'"
+                            >
+                                {{ d.short }}
+                            </button>
+                        </div>
                     </template>
                     <template v-if="recurInterval === 'month'">
                         <span>{{ $t('scheduledPrompt.onDay') }}</span>
@@ -187,12 +200,27 @@ type RecurInterval = 'minutes' | 'hours' | 'day' | 'weekdays' | 'week' | 'month'
 const recurInterval = ref<RecurInterval>('day')
 const recurEveryN = ref(15)
 const recurHour = ref(8)
-const recurDay = ref(1)
+const recurDays = ref<number[]>([1])
 const recurDayOfMonth = ref(1)
 const weekdays = computed(() => [
-    { value: 0, label: t('scheduledPrompt.dowSun') }, { value: 1, label: t('scheduledPrompt.dowMon') }, { value: 2, label: t('scheduledPrompt.dowTue') },
-    { value: 3, label: t('scheduledPrompt.dowWed') }, { value: 4, label: t('scheduledPrompt.dowThu') }, { value: 5, label: t('scheduledPrompt.dowFri') }, { value: 6, label: t('scheduledPrompt.dowSat') },
+    { value: 0, label: t('scheduledPrompt.dowSun'), short: t('scheduledPrompt.dowSunShort') },
+    { value: 1, label: t('scheduledPrompt.dowMon'), short: t('scheduledPrompt.dowMonShort') },
+    { value: 2, label: t('scheduledPrompt.dowTue'), short: t('scheduledPrompt.dowTueShort') },
+    { value: 3, label: t('scheduledPrompt.dowWed'), short: t('scheduledPrompt.dowWedShort') },
+    { value: 4, label: t('scheduledPrompt.dowThu'), short: t('scheduledPrompt.dowThuShort') },
+    { value: 5, label: t('scheduledPrompt.dowFri'), short: t('scheduledPrompt.dowFriShort') },
+    { value: 6, label: t('scheduledPrompt.dowSat'), short: t('scheduledPrompt.dowSatShort') },
 ])
+
+function toggleRecurDay(value: number) {
+    const idx = recurDays.value.indexOf(value)
+    if (idx === -1) {
+        recurDays.value = [...recurDays.value, value].sort((a, b) => a - b)
+    } else if (recurDays.value.length > 1) {
+        // Keep at least one day selected so the cron stays valid.
+        recurDays.value = recurDays.value.filter((d) => d !== value)
+    }
+}
 
 function parseCronToStructured(cron: string) {
     if (!cron) return
@@ -215,10 +243,12 @@ function parseCronToStructured(cron: string) {
     } else if (dow !== '*') {
         recurInterval.value = 'week'
         recurHour.value = parseInt(hour) || 0
-        // Use the first day in a list ("0,6" -> 0) and guard NaN — but keep 0
-        // (Sunday), which `|| 1` would wrongly turn into Monday.
-        const parsedDow = parseInt(dow)
-        recurDay.value = Number.isNaN(parsedDow) ? 1 : parsedDow
+        // Parse a comma list of days ("1,3,5" -> [1,3,5]). Guard NaN but keep 0
+        // (Sunday). Fall back to Monday if nothing valid parsed.
+        const parsedDays = dow.split(',')
+            .map((d) => parseInt(d, 10))
+            .filter((d) => !Number.isNaN(d) && d >= 0 && d <= 6)
+        recurDays.value = parsedDays.length > 0 ? [...new Set(parsedDays)].sort((a, b) => a - b) : [1]
     } else {
         recurInterval.value = 'day'
         recurHour.value = parseInt(hour) || 0
@@ -236,7 +266,7 @@ watch(() => props.scheduledPrompt, (sp) => {
         recurInterval.value = 'day'
         recurEveryN.value = 15
         recurHour.value = 8
-        recurDay.value = 1
+        recurDays.value = [1]
         recurDayOfMonth.value = 1
     }
 })
@@ -273,7 +303,10 @@ function computeCronSchedule(): string {
     if (recurInterval.value === 'minutes') return `*/${recurEveryN.value} * * * *`
     if (recurInterval.value === 'hours') return `0 */${recurEveryN.value} * * *`
     if (recurInterval.value === 'weekdays') return `0 ${recurHour.value} * * 1-5`
-    if (recurInterval.value === 'week') return `0 ${recurHour.value} * * ${recurDay.value}`
+    if (recurInterval.value === 'week') {
+        const days = [...recurDays.value].sort((a, b) => a - b)
+        return `0 ${recurHour.value} * * ${(days.length > 0 ? days : [1]).join(',')}`
+    }
     if (recurInterval.value === 'month') return `0 ${recurHour.value} ${recurDayOfMonth.value} * *`
     return `0 ${recurHour.value} * * *`
 }
