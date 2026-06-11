@@ -472,3 +472,32 @@ def test_invite_link_requires_manage_members(test_client, create_user, login_use
         headers=_hdr(member_token, org_id),
     )
     assert resp.status_code == 403, resp.json()
+
+
+@pytest.mark.e2e
+def test_invite_link_regenerates_when_expired(test_client, create_user, login_user, whoami):
+    """Copy-link on an EXPIRED invite mints a fresh token + resets expiry."""
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    email = f"exp_{uuid.uuid4().hex[:8]}@test.com"
+    m = _invite(test_client, admin_token, org_id, email)
+    old_token = _pending_invite_token(email)
+    _set_invite_expiry_past(email)
+
+    resp = test_client.get(
+        f"/api/organizations/{org_id}/members/{m['id']}/invite-link",
+        headers=_hdr(admin_token, org_id),
+    )
+    assert resp.status_code == 200, resp.json()
+    data = resp.json()
+    assert data["regenerated"] is True
+    new_token = _pending_invite_token(email)
+    assert new_token and new_token != old_token and data["token"] == new_token
+    # Old link is dead, the freshly-copied one works.
+    assert test_client.post("/api/auth/register", json={
+        "name": "Exp", "email": email, "password": "test123", "invite_token": old_token,
+    }).status_code == 400
+    assert test_client.post("/api/auth/register", json={
+        "name": "Exp", "email": email, "password": "test123", "invite_token": new_token,
+    }).status_code == 201

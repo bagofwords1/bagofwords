@@ -1027,7 +1027,8 @@
       "inviteResentFailed": "Invitación actualizada, pero no se pudo enviar el correo",
       "copyLink": "Copiar enlace",
       "linkCopied": "Enlace de invitación copiado",
-      "failedToCopyLink": "No se pudo copiar el enlace"
+      "failedToCopyLink": "No se pudo copiar el enlace",
+      "linkRegenerated": "Enlace de invitación renovado y copiado"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",

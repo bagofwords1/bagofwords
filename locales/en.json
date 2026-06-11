@@ -1092,7 +1092,8 @@
       "inviteResentFailed": "Invite refreshed, but the email couldn't be sent",
       "copyLink": "Copy link",
       "linkCopied": "Invite link copied",
-      "failedToCopyLink": "Couldn't copy invite link"
+      "failedToCopyLink": "Couldn't copy invite link",
+      "linkRegenerated": "Invite link refreshed and copied"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",

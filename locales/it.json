@@ -950,7 +950,8 @@
       "inviteResentFailed": "Invito aggiornato, ma l'email non è stata inviata",
       "copyLink": "Copia link",
       "linkCopied": "Link d'invito copiato",
-      "failedToCopyLink": "Impossibile copiare il link"
+      "failedToCopyLink": "Impossibile copiare il link",
+      "linkRegenerated": "Link d'invito aggiornato e copiato"
     },
     "organizationName": "Nome dell'organizzazione",
     "organizationIcon": "Icona dell'organizzazione",

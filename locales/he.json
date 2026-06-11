@@ -1027,7 +1027,8 @@
       "inviteResentFailed": "ההזמנה רועננה, אך הדואל לא נשלח",
       "copyLink": "העתקת קישור",
       "linkCopied": "קישור ההזמנה הועתק",
-      "failedToCopyLink": "לא ניתן להעתיק את הקישור"
+      "failedToCopyLink": "לא ניתן להעתיק את הקישור",
+      "linkRegenerated": "קישור ההזמנה רוענן והועתק"
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",
