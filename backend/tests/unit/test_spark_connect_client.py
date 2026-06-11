@@ -20,7 +20,31 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from app.data_sources.clients.spark_connect_client import SparkConnectClient
+from app.data_sources.clients.spark_connect_client import (
+    SparkConnectClient,
+    SparkQueryGuardError,
+    _parse_size_to_bytes,
+    _max_scan_bytes_from_plan,
+    _has_unfiltered_partition_scan,
+)
+
+
+# Representative EXPLAIN COST fragments (shapes emitted by Spark 3.5).
+PLAN_UNFILTERED = (
+    "== Optimized Logical Plan ==\n"
+    "Aggregate ..., Statistics(sizeInBytes=12.0 GiB)\n"
+    "+- Relation default.sales[id#1,amount#2,dt#3] parquet\n"
+    "== Physical Plan ==\n"
+    "FileScan parquet default.sales[id#1,amount#2,dt#3] "
+    "Batched: true, PartitionFilters: [], PushedFilters: [], ..."
+)
+PLAN_FILTERED = (
+    "== Physical Plan ==\n"
+    "FileScan parquet default.sales[id#1,amount#2,dt#3] "
+    "Batched: true, PartitionFilters: [isnotnull(dt#3), (dt#3 = 2026-06-01)], ..."
+)
+PLAN_BIG = "Relation x, Statistics(sizeInBytes=3.0 TiB, rowCount=9.0E9)"
+PLAN_UNKNOWN = "Relation y, Statistics(sizeInBytes=8.0 EiB)"  # Long.MaxValue default
 
 
 # ---------- fake pyspark plumbing ---------- #
@@ -169,3 +193,100 @@ class TestQueryAndSchema:
         c = SparkConnectClient(host="h")
         with pytest.raises(NotImplementedError):
             c.get_schema("t")
+
+
+# ---------- EXPLAIN gate: pure parsers ---------- #
+
+
+class TestPlanParsers:
+    def test_parse_size_units(self):
+        assert _parse_size_to_bytes("1", "B") == 1
+        assert _parse_size_to_bytes("2", "KiB") == 2048
+        assert _parse_size_to_bytes("1.5", "GiB") == int(1.5 * 1024 ** 3)
+
+    def test_max_scan_bytes_picks_largest_known(self):
+        assert _max_scan_bytes_from_plan(PLAN_BIG) == 3 * 1024 ** 4
+
+    def test_max_scan_bytes_ignores_unknown_default(self):
+        # 8 EiB is Spark's no-stats default -> treated as unknown -> None
+        assert _max_scan_bytes_from_plan(PLAN_UNKNOWN) is None
+
+    def test_max_scan_bytes_none_when_no_sizes(self):
+        assert _max_scan_bytes_from_plan("no sizes here") is None
+
+    def test_unfiltered_partition_scan_detection(self):
+        assert _has_unfiltered_partition_scan(PLAN_UNFILTERED) is True
+        assert _has_unfiltered_partition_scan(PLAN_FILTERED) is False
+
+
+# ---------- EXPLAIN gate: end-to-end via execute_query ---------- #
+
+
+def _install_plan_aware_spark(monkeypatch, plan_text):
+    """Fake spark whose sql('EXPLAIN COST ...') returns plan_text, else data."""
+    spark = MagicMock()
+
+    def _sql(q):
+        res = MagicMock()
+        if q.strip().upper().startswith("EXPLAIN COST"):
+            res.collect.return_value = [(plan_text,)]
+        else:
+            res.toPandas.return_value = pd.DataFrame({"x": [1]})
+            res.collect.return_value = [MagicMock()]
+        return res
+
+    spark.sql.side_effect = _sql
+    _install_fake_pyspark(monkeypatch, spark)
+    return spark
+
+
+class TestExplainGate:
+    def test_partition_filter_required_rejects(self, monkeypatch):
+        _install_plan_aware_spark(monkeypatch, PLAN_UNFILTERED)
+        c = SparkConnectClient(host="h", require_partition_filter=True)
+        with pytest.raises(SparkQueryGuardError, match="partition"):
+            c.execute_query("SELECT * FROM sales")
+
+    def test_partition_filter_required_allows_filtered(self, monkeypatch):
+        _install_plan_aware_spark(monkeypatch, PLAN_FILTERED)
+        c = SparkConnectClient(host="h", require_partition_filter=True)
+        df = c.execute_query("SELECT * FROM sales WHERE dt = '2026-06-01'")
+        assert list(df["x"]) == [1]
+
+    def test_max_scan_bytes_rejects_over_limit(self, monkeypatch):
+        _install_plan_aware_spark(monkeypatch, PLAN_BIG)
+        c = SparkConnectClient(host="h", max_scan_bytes=1024 ** 3)  # 1 GiB cap
+        with pytest.raises(SparkQueryGuardError, match="scan size"):
+            c.execute_query("SELECT * FROM x")
+
+    def test_max_scan_bytes_unknown_fails_open(self, monkeypatch):
+        _install_plan_aware_spark(monkeypatch, PLAN_UNKNOWN)
+        c = SparkConnectClient(host="h", max_scan_bytes=1024 ** 3)
+        # no usable estimate -> do not block
+        assert list(c.execute_query("SELECT * FROM y")["x"]) == [1]
+
+    def test_guard_disabled_skips_explain(self, monkeypatch):
+        spark = _install_plan_aware_spark(monkeypatch, PLAN_UNFILTERED)
+        c = SparkConnectClient(host="h")  # no gate configured
+        c.execute_query("SELECT * FROM sales")
+        # only the real query ran; no EXPLAIN COST issued
+        assert all(
+            not call.args[0].upper().startswith("EXPLAIN")
+            for call in spark.sql.call_args_list
+        )
+
+    def test_explain_error_fails_open(self, monkeypatch):
+        spark = MagicMock()
+
+        def _sql(q):
+            if q.strip().upper().startswith("EXPLAIN COST"):
+                raise RuntimeError("cannot explain")
+            res = MagicMock()
+            res.toPandas.return_value = pd.DataFrame({"x": [1]})
+            return res
+
+        spark.sql.side_effect = _sql
+        _install_fake_pyspark(monkeypatch, spark)
+        c = SparkConnectClient(host="h", require_partition_filter=True)
+        # explain blew up -> query still runs
+        assert list(c.execute_query("SELECT * FROM sales")["x"]) == [1]

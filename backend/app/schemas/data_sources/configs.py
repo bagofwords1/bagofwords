@@ -651,6 +651,19 @@ class SparkConnectConfig(BaseModel):
         description="Optional database (schema) or comma-separated list. If empty, all databases are discovered.",
         json_schema_extra={"ui:type": "string"}
     )
+    require_partition_filter: bool = Field(
+        False,
+        title="Require Partition Filter",
+        description="Reject queries that scan a partitioned table without filtering on a partition column (checked via EXPLAIN before the query runs).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    max_scan_bytes: Optional[int] = Field(
+        None,
+        ge=0,
+        title="Max Scan Bytes",
+        description="Reject queries whose estimated scan size exceeds this many bytes (EXPLAIN-based pre-check, approximate; needs table stats). Keep blank to disable.",
+        json_schema_extra={"ui:type": "number"}
+    )
 
 
 # OAuth Delegated Credentials (empty — user provides nothing, OAuth flow populates tokens)

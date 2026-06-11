@@ -1,5 +1,6 @@
 from app.data_sources.clients.base import DataSourceClient
 
+import re
 import pandas as pd
 from contextlib import contextmanager
 from typing import Generator, List, Optional
@@ -7,6 +8,52 @@ from urllib.parse import quote
 
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
+
+
+class SparkQueryGuardError(RuntimeError):
+    """Raised when a query is rejected by the pre-flight EXPLAIN gate.
+
+    The message is intentionally actionable so the agent/LLM can self-correct
+    (e.g. add a partition filter or narrow the scanned range).
+    """
+
+
+# IEC byte units as printed by Spark's Utils.bytesToString (binary, 1024-based).
+_SIZE_UNITS = {"B": 1, "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3,
+               "TiB": 1024 ** 4, "PiB": 1024 ** 5, "EiB": 1024 ** 6}
+_SIZE_RE = re.compile(r"sizeInBytes=([\d.]+(?:E[+-]?\d+)?)\s*(B|KiB|MiB|GiB|TiB|PiB|EiB)")
+
+# Spark uses Long.MaxValue (~8.0 EiB) as the default size when a relation has no
+# stats. Treat anything at/above 1 EiB as "unknown" so the size gate fails open
+# instead of rejecting every unstatted scan.
+_UNKNOWN_SIZE_FLOOR = _SIZE_UNITS["EiB"]
+
+
+def _parse_size_to_bytes(value: str, unit: str) -> int:
+    return int(float(value) * _SIZE_UNITS[unit])
+
+
+def _max_scan_bytes_from_plan(plan: str) -> Optional[int]:
+    """Largest *known* sizeInBytes in an EXPLAIN COST plan, in bytes.
+
+    Returns None when no usable estimate exists (all sizes are the unknown
+    Long.MaxValue default), so callers can fail open on the size gate.
+    """
+    known = [
+        b for v, u in _SIZE_RE.findall(plan)
+        if (b := _parse_size_to_bytes(v, u)) < _UNKNOWN_SIZE_FLOOR
+    ]
+    return max(known) if known else None
+
+
+def _has_unfiltered_partition_scan(plan: str) -> bool:
+    """True if the plan scans a partitioned table with no partition predicate.
+
+    Structural (not statistical): Spark emits `PartitionFilters: []` on a file
+    scan only when the relation is partitioned but nothing pruned it. A scan
+    with pushed predicates shows them inside the brackets.
+    """
+    return bool(re.search(r"PartitionFilters:\s*\[\s*\]", plan))
 
 
 class SparkConnectClient(DataSourceClient):
@@ -27,6 +74,8 @@ class SparkConnectClient(DataSourceClient):
         use_ssl: bool = False,
         catalog: Optional[str] = None,
         database: Optional[str] = None,
+        require_partition_filter: bool = False,
+        max_scan_bytes: Optional[int] = None,
     ):
         self.host = host
         self.port = int(port) if port is not None else 15002
@@ -34,6 +83,12 @@ class SparkConnectClient(DataSourceClient):
         # config values may arrive as strings from JSON; coerce truthy strings
         self.use_ssl = use_ssl if isinstance(use_ssl, bool) else str(use_ssl).lower() in ("true", "1", "yes")
         self.catalog = catalog or None
+        # Pre-flight EXPLAIN gate knobs
+        self.require_partition_filter = (
+            require_partition_filter if isinstance(require_partition_filter, bool)
+            else str(require_partition_filter).lower() in ("true", "1", "yes")
+        )
+        self.max_scan_bytes = int(max_scan_bytes) if max_scan_bytes else None
 
         # Parse comma-separated databases (schemas) if provided
         self._databases: List[str] = []
@@ -68,6 +123,8 @@ class SparkConnectClient(DataSourceClient):
         from pyspark.sql import SparkSession
 
         spark = None
+        # Only connection setup is wrapped here; exceptions raised by the `with`
+        # body (e.g. the pre-flight guard) must propagate untouched.
         try:
             builder = SparkSession.builder.remote(self.remote_url)
             # `create()` forces a fresh session (avoids reusing a cached global
@@ -84,9 +141,10 @@ class SparkConnectClient(DataSourceClient):
                     # Not all catalog providers support setCurrentCatalog; schema
                     # discovery still scopes by catalog where it can.
                     pass
-            yield spark
         except Exception as e:
             raise RuntimeError(f"Error connecting to Spark Connect: {e}")
+        try:
+            yield spark
         finally:
             if spark is not None:
                 try:
@@ -95,12 +153,66 @@ class SparkConnectClient(DataSourceClient):
                     pass
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        """Execute SQL on the remote cluster and return the result as a DataFrame."""
+        """Execute SQL on the remote cluster and return the result as a DataFrame.
+
+        Runs the pre-flight EXPLAIN gate (if enabled) in the *same* session so
+        the planner's partition/file listing is cached and not paid twice.
+        """
         try:
             with self.connect() as spark:
+                self._run_guard(spark, sql)
                 return spark.sql(sql).toPandas()
+        except SparkQueryGuardError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Error executing SQL on Spark Connect: {e}")
+
+    @property
+    def _guard_enabled(self) -> bool:
+        return bool(self.require_partition_filter or self.max_scan_bytes)
+
+    def explain_cost(self, sql: str, spark=None) -> str:
+        """Return the `EXPLAIN COST` plan text for a query (planning only, no scan).
+
+        Uses `EXPLAIN COST <sql>` rather than DataFrame.explain() so the plan is
+        returned as a string over Spark Connect (explain() prints to stdout).
+        """
+        def _do(s):
+            rows = s.sql(f"EXPLAIN COST {sql}").collect()
+            return rows[0][0] if rows else ""
+        if spark is not None:
+            return _do(spark)
+        with self.connect() as s:
+            return _do(s)
+
+    def _run_guard(self, spark, sql: str) -> None:
+        """Reject the query before execution if it violates the configured gates.
+
+        Fails open if EXPLAIN itself errors (e.g. non-explainable statement): we
+        only block on a *positive* violation, never on an inability to estimate.
+        """
+        if not self._guard_enabled:
+            return
+        try:
+            plan = self.explain_cost(sql, spark=spark)
+        except Exception:
+            return  # can't explain -> don't block
+
+        if self.require_partition_filter and _has_unfiltered_partition_scan(plan):
+            raise SparkQueryGuardError(
+                "Query rejected: it scans a partitioned table without filtering on a "
+                "partition column, which would read all partitions. Add a predicate on "
+                "the table's partition column(s) and retry."
+            )
+
+        if self.max_scan_bytes:
+            est = _max_scan_bytes_from_plan(plan)
+            if est is not None and est > self.max_scan_bytes:
+                raise SparkQueryGuardError(
+                    f"Query rejected: estimated scan size {est:,} bytes exceeds the "
+                    f"configured limit of {self.max_scan_bytes:,} bytes. Narrow the query "
+                    "(filter partitions, select fewer columns, or add a WHERE clause) and retry."
+                )
 
     def _target_databases(self, spark) -> List[str]:
         """Resolve which databases to introspect."""
