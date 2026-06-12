@@ -506,7 +506,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "spark_connect": DataSourceRegistryEntry(
         type="spark_connect",
-        title="Spark Connect",
+        title="Spark",
         description="Run Spark SQL against a remote Spark cluster via Spark Connect (sc://). Compute runs on the cluster; BOW only sends SQL and receives results — no in-process engine on the BOW server.",
         config_schema=SparkConnectConfig,
         credentials_auth=AuthOptions(
