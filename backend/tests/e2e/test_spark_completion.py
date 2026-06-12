@@ -31,9 +31,9 @@ def _seed_spark():
 
 @pytest.mark.e2e
 def test_spark_connect_completion(
-    create_completion, get_completions, create_report,
-    create_user, login_user, whoami,
+    test_client, create_report, create_user, login_user, whoami,
     create_anthropic_provider_and_models, create_data_source,
+    refresh_schema, bulk_update_tables,
 ):
     if not os.getenv("ANTHROPIC_API_KEY_TEST"):
         pytest.skip("ANTHROPIC_API_KEY_TEST not set")
@@ -48,7 +48,13 @@ def test_spark_connect_completion(
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
-    create_anthropic_provider_and_models(token, org_id)
+    prov = create_anthropic_provider_and_models(token, org_id)
+    # find the Haiku model id to force the planner onto it
+    haiku_id = None
+    for mdl in (prov.get("models") or []):
+        if "haiku" in (mdl.get("model_id", "") + mdl.get("name", "")).lower():
+            haiku_id = mdl.get("id")
+    print("[llm] haiku model id:", haiku_id)
 
     ds = create_data_source(
         name="spark_sales", type="spark_connect",
@@ -56,17 +62,31 @@ def test_spark_connect_completion(
         credentials={}, auth_policy="system_only",
         user_token=token, org_id=org_id,
     )
-    print("[data_source] id:", ds.get("id"), "| status:", ds.get("status"))
+    print("[data_source] id:", ds.get("id"))
+
+    # index the Spark catalog into BOW, then activate the discovered tables
+    refresh_schema(data_source_id=ds["id"], user_token=token, org_id=org_id)
+    bulk_update_tables(data_source_id=ds["id"], action="activate", filter=None,
+                       user_token=token, org_id=org_id)
 
     report = create_report(title="Spark sales", user_token=token, org_id=org_id,
                            data_sources=[ds["id"]])
 
-    completions = create_completion(
-        report_id=report["id"],
-        prompt="From the sales table, what is the total amount for each region? "
-               "Filter to dt = '2024-01-05'. Return a small table.",
-        user_token=token, org_id=org_id, background=False,
+    payload = {"prompt": {
+        "content": "From the verify_db.sales table, what is the total amount for each "
+                   "region where dt = '2024-01-05'? Return a small table.",
+        "model_id": haiku_id,
+    }}
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/completions",
+        json=payload,
+        headers={"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)},
+        params={"background": False},
     )
+    assert resp.status_code == 200, resp.json()
+    completions = resp.json()
+    if isinstance(completions, dict):
+        completions = completions.get("completions") or completions.get("data") or []
 
     system = [c for c in completions if c.get("role") == "system"][-1]
     print("\n================ AGENT COMPLETION ================")
