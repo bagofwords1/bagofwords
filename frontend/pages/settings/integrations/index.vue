@@ -244,6 +244,8 @@
       <EmailIntegrationModal
         :integrated="emailIntegrated"
         :integration-data="emailIntegrationData"
+        :analyst-name="analystName"
+        :prefill-domains="signupDomains"
         @close="showEmailModal = false"
         @updated="fetchIntegrations"
       />
@@ -268,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
@@ -301,6 +303,19 @@ const showEmailModal = ref(false)
 const emailIntegrated = ref(false)
 const emailConfig = ref<{ from_address?: string; inbound_enabled?: boolean; capabilities?: string[] } | null>(null)
 const emailIntegrationData = ref<any>(null)
+// Prefill sources for the Email modal: the org's AI analyst name + signup domains.
+const analystName = computed<string>(() => (settings.value as any)?.config?.general?.ai_analyst_name || '')
+const signupDomains = ref<string[]>([])
+
+async function fetchSignupDomains() {
+  try {
+    const res = await useMyFetch('/organization/signup-policy')
+    const policy = res.data.value as any
+    if (policy?.allowed_domains?.length) signupDomains.value = policy.allowed_domains
+  } catch (e) {
+    // best-effort prefill; ignore failures
+  }
+}
 
 // MCP state
 const mcpEnabled = ref(false)
@@ -388,5 +403,6 @@ onMounted(() => {
   fetchIntegrations()
   loadMcpState()
   fetchOAuthClientCount()
+  fetchSignupDomains()
 })
 </script>

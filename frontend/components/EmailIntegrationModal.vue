@@ -169,9 +169,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
-const props = defineProps<{ integrated: boolean; integrationData?: any }>()
+const props = defineProps<{
+  integrated: boolean
+  integrationData?: any
+  analystName?: string
+  prefillDomains?: string[]
+}>()
 const emit = defineEmits(['close', 'updated'])
 const toast = useToast()
 
@@ -211,6 +216,20 @@ const requireAuthPass = ref(true)
 
 const submitting = ref(false)
 const testing = ref(false)
+
+// Prefill From name from the org's AI analyst name, and Allowed domains from the
+// signup policy domains — once, when those values become available, without
+// clobbering anything the admin has already typed.
+let prefilled = false
+function applyPrefill() {
+  if (prefilled) return
+  const hasData = !!props.analystName || (props.prefillDomains?.length || 0) > 0
+  if (!hasData) return
+  if (props.analystName) fromName.value = props.analystName
+  if (props.prefillDomains?.length) allowedDomains.value = props.prefillDomains.join(', ')
+  prefilled = true
+}
+watch(() => [props.analystName, props.prefillDomains], applyPrefill, { immediate: true })
 
 function authLabel(t?: string) {
   return t === 'microsoft' ? 'Microsoft 365 (OAuth)' : t === 'google' ? 'Google Workspace (service account)' : 'Password'
