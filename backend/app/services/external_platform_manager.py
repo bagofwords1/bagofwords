@@ -443,6 +443,25 @@ class ExternalPlatformManager:
                     channel_id=response_channel
                 )
 
+        # Teams reuses a single report per 1:1 conversation for up to 5 days, so
+        # a reused report can outlive changes to the user's data-source access:
+        # grants made after creation wouldn't appear, and revocations would still
+        # be queryable from the stale snapshot. Re-sync the report's attached
+        # sources to the user's current set on each message — but only for Teams
+        # (Slack DMs/channels mint a fresh report per top-level message) and only
+        # when reusing an existing report (a freshly created one is already current).
+        if platform_type == "teams" and report is not None and not created:
+            from app.services.report_service import ReportService
+            if channel_type == "channel":
+                fresh = await self.data_source_service.get_public_data_sources(db, organization)
+            else:
+                fresh = await self.data_source_service.get_active_data_sources(db, organization, user)
+            fresh_ids = [str(ds.id) for ds in fresh]
+            await ReportService().set_data_sources_for_report(
+                db, report, fresh_ids, user, organization
+            )
+            await db.commit()
+
         # Create completion data
         from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
 

@@ -6,7 +6,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
-from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics
+from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from app.models.step import Step
@@ -195,4 +195,15 @@ async def get_diagnosis_dashboard_metrics(
 ):
     """Get dashboard metrics for diagnosis page."""
     return await console_service.get_diagnosis_dashboard_metrics(db, organization, params)
+
+@router.get("/console/diagnosis/timeseries", response_model=DiagnosisTimeSeriesMetrics)
+@requires_permission("manage_settings")
+async def get_diagnosis_timeseries(
+    params: MetricsQueryParams = Depends(),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get agent executions bucketed daily by status for the diagnosis activity chart."""
+    return await console_service.get_diagnosis_timeseries(db, organization, params)
 

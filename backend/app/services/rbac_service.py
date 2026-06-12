@@ -15,6 +15,7 @@ from app.models.group_membership import GroupMembership
 from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.user import User
+from app.models.membership import Membership
 from app.core.permission_resolver import assert_full_admin_exists, FULL_ADMIN
 from app.schemas.rbac_schema import (
     RoleCreate, RoleUpdate, RoleSchema, RoleResourceGrantInput, RoleResourceGrantOutput,
@@ -193,21 +194,30 @@ class RBACService:
 
         group_ids = [g.id for g in groups]
         memberships_result = await db.execute(
-            select(GroupMembership.group_id, GroupMembership.user_id)
+            select(
+                GroupMembership.group_id,
+                GroupMembership.user_id,
+                GroupMembership.membership_id,
+            )
             .where(
                 GroupMembership.group_id.in_(group_ids),
                 GroupMembership.deleted_at.is_(None),
             )
         )
-        memberships_by_group: dict[str, list[str]] = {g.id: [] for g in groups}
-        for group_id, user_id in memberships_result.all():
-            memberships_by_group[group_id].append(user_id)
+        users_by_group: dict[str, list[str]] = {g.id: [] for g in groups}
+        pending_by_group: dict[str, list[str]] = {g.id: [] for g in groups}
+        for group_id, user_id, membership_id in memberships_result.all():
+            if user_id:
+                users_by_group[group_id].append(user_id)
+            elif membership_id:
+                pending_by_group[group_id].append(membership_id)
 
         schemas = []
         for g in groups:
             schema = GroupSchema.model_validate(g)
-            schema.member_user_ids = memberships_by_group[g.id]
-            schema.member_count = len(schema.member_user_ids)
+            schema.member_user_ids = users_by_group[g.id]
+            schema.member_membership_ids = pending_by_group[g.id]
+            schema.member_count = len(schema.member_user_ids) + len(schema.member_membership_ids)
             schemas.append(schema)
         return schemas
 
@@ -243,48 +253,80 @@ class RBACService:
         await self._get_group(db, org_id, group_id)
         result = await db.execute(
             select(GroupMembership)
-            .options(selectinload(GroupMembership.user))
+            .options(
+                selectinload(GroupMembership.user),
+                selectinload(GroupMembership.membership),
+            )
             .where(
                 GroupMembership.group_id == group_id,
                 GroupMembership.deleted_at.is_(None),
             )
         )
         memberships = result.scalars().all()
-        return [
-            GroupMemberSchema(
-                user_id=m.user_id,
-                user_name=m.user.name if m.user else None,
-                user_email=m.user.email if m.user else None,
-            )
-            for m in memberships
-        ]
+        out: List[GroupMemberSchema] = []
+        for m in memberships:
+            if m.user_id:
+                out.append(GroupMemberSchema(
+                    user_id=m.user_id,
+                    user_name=m.user.name if m.user else None,
+                    user_email=m.user.email if m.user else None,
+                    pending=False,
+                ))
+            elif m.membership_id:
+                out.append(GroupMemberSchema(
+                    membership_id=m.membership_id,
+                    user_email=m.membership.email if m.membership else None,
+                    pending=True,
+                ))
+        return out
 
-    async def add_group_member(self, db: AsyncSession, org_id: str, group_id: str, user_id: str) -> None:
+    async def add_group_member(
+        self, db: AsyncSession, org_id: str, group_id: str,
+        user_id: Optional[str] = None, membership_id: Optional[str] = None,
+    ) -> None:
         await self._get_group(db, org_id, group_id)
-        # Verify user exists
-        user = await db.execute(select(User).where(User.id == user_id))
-        if not user.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="User not found")
 
-        existing = await db.execute(
-            select(GroupMembership).where(
-                GroupMembership.group_id == group_id,
-                GroupMembership.user_id == user_id,
+        if bool(user_id) == bool(membership_id):
+            raise HTTPException(status_code=400, detail="Provide exactly one of user_id or membership_id")
+
+        if user_id:
+            user = await db.execute(select(User).where(User.id == user_id))
+            if not user.scalar_one_or_none():
+                raise HTTPException(status_code=404, detail="User not found")
+            existing = await db.execute(
+                select(GroupMembership).where(
+                    GroupMembership.group_id == group_id,
+                    GroupMembership.user_id == user_id,
+                )
             )
-        )
-        if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="User is already a member of this group")
+            if existing.scalar_one_or_none():
+                raise HTTPException(status_code=409, detail="User is already a member of this group")
+            db.add(GroupMembership(group_id=group_id, user_id=user_id))
+        else:
+            # Pending invite — must be an unregistered membership in this org.
+            await self._get_pending_membership(db, org_id, membership_id)
+            existing = await db.execute(
+                select(GroupMembership).where(
+                    GroupMembership.group_id == group_id,
+                    GroupMembership.membership_id == membership_id,
+                )
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(status_code=409, detail="Member is already in this group")
+            db.add(GroupMembership(group_id=group_id, membership_id=membership_id))
 
-        gm = GroupMembership(group_id=group_id, user_id=user_id)
-        db.add(gm)
         await db.commit()
 
-    async def remove_group_member(self, db: AsyncSession, org_id: str, group_id: str, user_id: str) -> None:
+    async def remove_group_member(self, db: AsyncSession, org_id: str, group_id: str, principal_id: str) -> None:
+        """Remove a group member by either user id or pending membership id."""
         await self._get_group(db, org_id, group_id)
         result = await db.execute(
             select(GroupMembership).where(
                 GroupMembership.group_id == group_id,
-                GroupMembership.user_id == user_id,
+                or_(
+                    GroupMembership.user_id == principal_id,
+                    GroupMembership.membership_id == principal_id,
+                ),
             )
         )
         gm = result.scalar_one_or_none()
@@ -292,6 +334,24 @@ class RBACService:
             raise HTTPException(status_code=404, detail="Group membership not found")
         await db.delete(gm)
         await db.commit()
+
+    async def _get_pending_membership(self, db: AsyncSession, org_id: str, membership_id: str) -> Membership:
+        """Return a pending (unregistered) membership in this org, or 404/400."""
+        result = await db.execute(
+            select(Membership).where(
+                Membership.id == membership_id,
+                Membership.organization_id == org_id,
+            )
+        )
+        membership = result.scalar_one_or_none()
+        if not membership:
+            raise HTTPException(status_code=404, detail="Membership not found")
+        if membership.user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Membership is already registered; use a user principal instead",
+            )
+        return membership
 
     async def _get_group(self, db: AsyncSession, org_id: str, group_id: str) -> Group:
         result = await db.execute(
@@ -345,6 +405,16 @@ class RBACService:
     ) -> RoleAssignmentSchema:
         # Verify role exists
         await self._get_role(db, org_id, data.role_id)
+
+        if data.principal_type not in ("user", "group", "membership"):
+            raise HTTPException(status_code=400, detail="Invalid principal_type")
+
+        # A "membership" principal must point at a pending (unregistered)
+        # invite in this org. Once the invitee registers the assignment is
+        # rewritten to a "user" principal, so a membership principal that
+        # already has a user_id is rejected as stale.
+        if data.principal_type == "membership":
+            await self._get_pending_membership(db, org_id, data.principal_id)
 
         # Check for duplicate
         existing = await db.execute(

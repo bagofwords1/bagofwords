@@ -20,6 +20,9 @@ from app.ai.llm.types import (
     ToolUseInputDeltaEvent,
     ToolUseStartEvent,
     UsageEvent,
+    WebSearchCompleteEvent,
+    WebSearchResultEvent,
+    WebSearchStartEvent,
 )
 
 
@@ -30,12 +33,31 @@ class OpenAIResponsesClient(LLMClient):
     Used for the main 'openai' provider. Supports native reasoning content
     streaming (reasoning_effort) and full conversation history via input[].
     Custom/compatible endpoints continue to use OpenAiClient (Chat Completions).
+
+    `base_url` lets this same client target an OpenAI-compatible Responses
+    endpoint — notably Azure OpenAI's v1 surface
+    (``https://<resource>.openai.azure.com/openai/v1/``), which serves the
+    Responses API (and the native ``web_search`` tool) using the plain OpenAI
+    client rather than the AzureOpenAI/Chat-Completions client.
+
+    `enable_web_search` turns on the provider-executed ``{"type": "web_search"}``
+    server tool. Results stream back inline (web_search_call items + url_citation
+    annotations) and never pass through our ToolRunner.
     """
 
-    def __init__(self, api_key: str):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        enable_web_search: bool = False,
+    ):
         super().__init__()
-        self.client = OpenAI(api_key=api_key)
-        self.async_client = AsyncOpenAI(api_key=api_key)
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self.client = OpenAI(**client_kwargs)
+        self.async_client = AsyncOpenAI(**client_kwargs)
+        self.enable_web_search = enable_web_search
 
     @staticmethod
     def _build_chat_content(prompt: str, images: Optional[list[ImageInput]] = None):
@@ -174,8 +196,15 @@ class OpenAIResponsesClient(LLMClient):
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        web_search: Optional[bool] = None,
+        web_search_domains: Optional[list] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         input_items = self._translate_messages(messages, images=images)
+        # Effective web-search gate: caller must request it (per-call, e.g. the
+        # org+provider gate the planner computes) AND the client must have been
+        # constructed web-search-capable. Default (None) = off, so non-planner
+        # call sites never trigger it.
+        use_web_search = bool(web_search) and self.enable_web_search
 
         request_kwargs: dict[str, Any] = {
             "model": model_id,
@@ -184,9 +213,23 @@ class OpenAIResponsesClient(LLMClient):
         }
         if system:
             request_kwargs["instructions"] = system
-        if tools:
-            request_kwargs["tools"] = self._translate_tools(tools)
-            if disable_parallel_tools:
+        request_tools: list[dict] = self._translate_tools(tools) if tools else []
+        if use_web_search:
+            # Provider-executed server tool. Runs inside the Responses API and
+            # streams web_search_call items + url_citation annotations inline.
+            # search_context_size="high" makes it search more thoroughly and
+            # open more results — measurably better recall on harder pages.
+            web_tool: dict[str, Any] = {"type": "web_search", "search_context_size": "high"}
+            if web_search_domains:
+                # Hard-scope to the user's domains. This makes the tool open/read
+                # those pages (open_page action) instead of snippet search.
+                web_tool["filters"] = {"allowed_domains": list(web_search_domains)[:20]}
+            request_tools.append(web_tool)
+        if request_tools:
+            request_kwargs["tools"] = request_tools
+            # Only constrain parallelism for our function tools; the server-side
+            # web_search tool is unaffected.
+            if tools and disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
         is_reasoning_model = (
             model_id.startswith(("o1", "o3", "o4", "gpt-5"))
@@ -233,6 +276,27 @@ class OpenAIResponsesClient(LLMClient):
                 elif itype == "reasoning":
                     reasoning_active = True
                     yield ReasoningStartEvent()
+                elif itype == "web_search_call":
+                    # Provider-executed search begins. The query is not populated
+                    # yet here — it arrives on the completed item (see done).
+                    item_id = getattr(item, "id", "") or ""
+                    action = getattr(item, "action", None)
+                    query = getattr(action, "query", None) if action else None
+                    yield WebSearchStartEvent(id=item_id, query=query)
+
+            elif etype == "response.output_text.annotation.added":
+                annotation = getattr(event, "annotation", None)
+                # Annotation is a dict-like (url_citation) on Azure/OpenAI.
+                if isinstance(annotation, dict):
+                    a_type = annotation.get("type")
+                    url = annotation.get("url")
+                    title = annotation.get("title")
+                else:
+                    a_type = getattr(annotation, "type", None)
+                    url = getattr(annotation, "url", None)
+                    title = getattr(annotation, "title", None)
+                if a_type == "url_citation" and url:
+                    yield WebSearchResultEvent(url=url, title=title)
 
             elif etype == "response.output_item.done":
                 item = getattr(event, "item", None)
@@ -242,6 +306,18 @@ class OpenAIResponsesClient(LLMClient):
                 if itype == "reasoning" and reasoning_active:
                     reasoning_active = False
                     yield ReasoningCompleteEvent(text="")
+                elif itype == "web_search_call":
+                    # Completed call — populated now. The action is one of
+                    # search (query/queries), open_page (url), or find (url).
+                    item_id = getattr(item, "id", "") or ""
+                    action = getattr(item, "action", None)
+                    a_url = getattr(action, "url", None) if action else None
+                    query = (getattr(action, "query", None) if action else None) or a_url
+                    queries = (getattr(action, "queries", None) if action else None)
+                    if not queries and a_url:
+                        queries = [a_url]
+                    status = getattr(item, "status", None)
+                    yield WebSearchCompleteEvent(id=item_id, query=query, queries=queries, status=status)
 
             elif etype == "response.output_text.delta":
                 text = getattr(event, "delta", "") or ""

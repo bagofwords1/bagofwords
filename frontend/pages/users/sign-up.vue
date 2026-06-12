@@ -108,6 +108,7 @@ layout: 'users'
 const name = ref('');
 const email = ref('');
 const password = ref('');
+const inviteToken = ref('');
 const error_message = ref('')
 
 // Access runtime configuration
@@ -161,6 +162,10 @@ onMounted(async () => {
   if (emailFromQuery) {
     email.value = emailFromQuery
   }
+  const tokenFromQuery = route.query.token as string
+  if (tokenFromQuery) {
+    inviteToken.value = tokenFromQuery
+  }
   // show spinner frame until mounted work finishes
   await nextTick()
   pageLoaded.value = true
@@ -203,10 +208,13 @@ async function signInWithCredentials(email: string, password: string) {
 async function submit() {
 isSubmitting.value = true
 error_message.value = ''
-const payload = {
+const payload: Record<string, string> = {
   name: name.value,
   email: email.value,
   password: password.value
+}
+if (inviteToken.value) {
+  payload.invite_token = inviteToken.value
 }
 
 try {

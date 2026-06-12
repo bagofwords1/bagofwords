@@ -257,6 +257,10 @@ class NotificationService:
         subject: str,
         body: str,
         subtype: str = "plain",
+        attachments: Optional[list] = None,
+        retries: int = 0,
+        retry_delay: float = 1.5,
+        timeout: Optional[float] = None,
         db=None,
         organization_id: Optional[str] = None,
     ) -> ChannelResult:
@@ -268,11 +272,45 @@ class NotificationService:
 
         When ``db`` + ``organization_id`` are supplied and the org has an Email
         integration, that mailbox is used (overriding the global SMTP client).
+
+        Reliability knobs (all opt-in, defaults preserve old behaviour):
+        - ``retries``: extra attempts on failure (total tries = retries + 1),
+          with linear backoff (``retry_delay`` × attempt number).
+        - ``timeout``: per-attempt ceiling (seconds) so a hung SMTP server
+          can't block the caller indefinitely.
+
+        ``attachments`` follows the fastapi-mail dict shape, e.g.
+        ``{"file": "/abs/path", "filename": "x.csv", "type": "text", "subtype": "csv"}``.
         """
         if subtype not in ("plain", "html"):
             subtype = "plain"
 
-        if settings.email_client is None and not (db is not None and organization_id):
+        # Prefer the org's Email integration mailbox when org context is given.
+        if db is not None and organization_id:
+            try:
+                ok = await self._resolved_send(
+                    recipients,
+                    subject,
+                    body,
+                    subtype=subtype,
+                    attachments=attachments,
+                    db=db,
+                    organization_id=organization_id,
+                )
+                if ok:
+                    logger.info("Custom email sent to %s", recipients)
+                    return ChannelResult(
+                        channel="email",
+                        status="sent",
+                        recipients=recipients,
+                    )
+                # Not sent via the resolver — fall through to the global path.
+            except Exception as e:
+                logger.error("Org-mailbox send failed, falling back to global: %s", e)
+
+        # Global fastapi-mail path with retries/timeout/attachments.
+        fm = settings.email_client
+        if not fm:
             return ChannelResult(
                 channel="email",
                 status="failed",
@@ -280,36 +318,44 @@ class NotificationService:
                 error="SMTP is not configured",
             )
 
-        try:
-            ok = await self._resolved_send(
-                recipients,
-                subject,
-                body,
-                subtype=subtype,
-                db=db,
-                organization_id=organization_id,
-            )
-            if not ok:
+        message_kwargs = dict(
+            subject=subject,
+            recipients=recipients,
+            body=body,
+            subtype=subtype,
+        )
+        if attachments:
+            message_kwargs["attachments"] = attachments
+        message = MessageSchema(**message_kwargs)
+
+        last_error: Optional[str] = None
+        for attempt in range(retries + 1):
+            try:
+                if timeout is not None:
+                    await asyncio.wait_for(fm.send_message(message), timeout=timeout)
+                else:
+                    await fm.send_message(message)
+                logger.info("Custom email sent to %s", recipients)
                 return ChannelResult(
                     channel="email",
-                    status="failed",
+                    status="sent",
                     recipients=recipients,
-                    error="SMTP send failed or not configured",
                 )
-            logger.info("Custom email sent to %s", recipients)
-            return ChannelResult(
-                channel="email",
-                status="sent",
-                recipients=recipients,
-            )
-        except Exception as e:
-            logger.error("Failed to send custom email: %s", e)
-            return ChannelResult(
-                channel="email",
-                status="failed",
-                recipients=recipients,
-                error=str(e),
-            )
+            except Exception as e:
+                last_error = str(e) or e.__class__.__name__
+                logger.error(
+                    "Failed to send custom email (attempt %d/%d): %s",
+                    attempt + 1, retries + 1, last_error,
+                )
+                if attempt < retries:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+
+        return ChannelResult(
+            channel="email",
+            status="failed",
+            recipients=recipients,
+            error=last_error,
+        )
 
     # ---- scheduled report results ----
 

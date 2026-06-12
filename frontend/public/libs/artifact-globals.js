@@ -198,6 +198,322 @@
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // InfoPopover — built-in provenance popup for prebuilt components.
+  // Pass a `viz` object (from useArtifactData().visualizations) to KPICard /
+  // SectionCard and a small "i" button appears that opens a clean panel showing
+  // the visualization's backing data: source, query, columns, filters, etc.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function _infoFilterVal(v) {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.join(', ');
+    if (typeof v === 'object') {
+      if (v.from != null || v.to != null) return (v.from || '…') + ' → ' + (v.to || '…');
+      try { return JSON.stringify(v); } catch (e) { return String(v); }
+    }
+    return String(v);
+  }
+
+  // Format a single cell value for the data table.
+  function _infoCell(v) {
+    if (v == null) return '—';
+    if (typeof v === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    if (typeof v === 'object') { try { return JSON.stringify(v); } catch (e) { return String(v); } }
+    return String(v);
+  }
+
+  // Normalize a viz's columns to { field, header, dtype }, falling back to row keys.
+  function _infoCols(viz, rows) {
+    var cols = viz.columns || [];
+    if (cols.length) {
+      return cols.map(function(c) {
+        if (typeof c === 'string') return { field: c, header: c };
+        return { field: c.field || c.headerName || c.name, header: c.headerName || c.field || c.name, dtype: c.dtype };
+      }).filter(function(c) { return c.field; });
+    }
+    var src = (rows && rows.length) ? rows : (viz.rows || []);
+    var r = src[0];
+    if (r && typeof r === 'object') return Object.keys(r).map(function(k) { return { field: k, header: k }; });
+    return [];
+  }
+
+  // Compact metadata summary for the Data tab header.
+  function _infoMeta(viz) {
+    var dm = viz.dataModel || {};
+    var view = viz.view || {};
+    var innerView = view.view || view;
+    var type = dm.type || innerView.type;
+    var rowCount = Array.isArray(viz.rows) ? viz.rows.length : (viz.row_count != null ? viz.row_count : null);
+    return {
+      source: viz.dataSource || null,
+      type: type ? String(type).replace(/_/g, ' ') : null,
+      rowCount: rowCount,
+      aggregation: innerView.aggregation || null
+    };
+  }
+
+  // Format the optional `calc` prop (string or structured object) into a
+  // human-readable formula, e.g. "SUM(UnitPrice × Quantity), grouped by Genre".
+  function _infoCalc(calc) {
+    if (!calc) return null;
+    if (typeof calc === 'string') return calc.trim() || null;
+    if (typeof calc === 'object') {
+      var agg = calc.agg || calc.fn || calc.aggregation;
+      var expr = calc.expr || calc.expression || calc.field || calc.value;
+      var s = '';
+      if (agg && expr) s = String(agg).toUpperCase() + '(' + expr + ')';
+      else if (expr) s = String(expr);
+      else if (agg) s = String(agg).toUpperCase();
+      var gb = calc.groupBy || calc.group_by;
+      if (gb) s += ', grouped by ' + gb;
+      if (calc.filter) s += ', where ' + calc.filter;
+      return s || null;
+    }
+    return null;
+  }
+
+  // Derive an ordered list of { label, value, ... } rows from a viz object.
+  function buildInfoRows(viz) {
+    if (!viz || typeof viz !== 'object') return [];
+    var rows = [];
+    var dm = viz.dataModel || {};
+    var view = viz.view || {};
+    var innerView = view.view || view;
+    var type = dm.type || innerView.type;
+
+    if (viz.dataSource) rows.push({ label: 'Source', value: String(viz.dataSource) });
+    if (type) rows.push({ label: 'Type', value: String(type).replace(/_/g, ' ') });
+
+    var rowCount = Array.isArray(viz.rows) ? viz.rows.length
+      : (viz.row_count != null ? viz.row_count : null);
+    if (rowCount != null) rows.push({ label: 'Rows', value: String(rowCount) });
+
+    var cols = viz.columns || [];
+    if (cols.length) {
+      var colText = cols.map(function(c) {
+        if (typeof c === 'string') return c;
+        var f = c.headerName || c.field || c.name || '';
+        var dt = c.dtype ? '  · ' + c.dtype : '';
+        return f + dt;
+      }).join('\n');
+      rows.push({ label: 'Columns (' + cols.length + ')', value: colText, pre: true });
+    }
+
+    var agg = innerView.aggregation;
+    if (agg) rows.push({ label: 'Aggregation', value: String(agg) });
+
+    var defFilters = innerView.defaultFilters || [];
+    if (defFilters.length) {
+      rows.push({
+        label: 'Default filters',
+        value: defFilters.map(function(f) {
+          return (f.column || '') + ' ' + (f.operator || '=') + ' ' + _infoFilterVal(f.value);
+        }).join('\n'),
+        pre: true
+      });
+    }
+
+    try {
+      var active = window.__filterStore ? window.__filterStore.get() : {};
+      var akeys = Object.keys(active || {});
+      if (akeys.length) {
+        rows.push({
+          label: 'Active filters',
+          value: akeys.map(function(k) { return k + ': ' + _infoFilterVal(active[k]); }).join('\n'),
+          pre: true
+        });
+      }
+    } catch (e) {}
+
+    if (viz.description) rows.push({ label: 'Description', value: String(viz.description) });
+    if (viz.code) rows.push({ label: 'Query', value: String(viz.code), code: true });
+    if (viz.id) rows.push({ label: 'ID', value: String(viz.id), mono: true });
+    return rows;
+  }
+  window.buildInfoRows = buildInfoRows;
+
+  window.InfoPopover = function(props) {
+    var viz = props.viz;
+    var _o = React.useState(false), open = _o[0], setOpen = _o[1];
+    var _p = React.useState(null), pos = _p[0], setPos = _p[1];
+    var _t = React.useState('data'), tab = _t[0], setTab = _t[1];
+    var btnRef = React.useRef(null);
+    var panelRef = React.useRef(null);
+
+    React.useEffect(function() {
+      if (!open) return;
+      function onDown(e) {
+        if (btnRef.current && btnRef.current.contains(e.target)) return;
+        if (panelRef.current && panelRef.current.contains(e.target)) return;
+        setOpen(false);
+      }
+      function onKey(e) { if (e.key === 'Escape') setOpen(false); }
+      document.addEventListener('mousedown', onDown);
+      document.addEventListener('keydown', onKey);
+      return function() {
+        document.removeEventListener('mousedown', onDown);
+        document.removeEventListener('keydown', onKey);
+      };
+    }, [open]);
+
+    React.useEffect(function() {
+      if (!open || !btnRef.current) return;
+      function reposition() {
+        if (!btnRef.current) return;
+        var r = btnRef.current.getBoundingClientRect();
+        var W = 400;
+        var left = Math.min(r.right - W, window.innerWidth - W - 8);
+        if (left < 8) left = 8;
+        var spaceBelow = window.innerHeight - r.bottom;
+        var below = spaceBelow > 240;
+        setPos({
+          left: left,
+          top: below ? r.bottom + 6 : null,
+          bottom: below ? null : (window.innerHeight - r.top + 6),
+          width: W
+        });
+      }
+      reposition();
+      window.addEventListener('scroll', reposition, true);
+      window.addEventListener('resize', reposition);
+      return function() {
+        window.removeEventListener('scroll', reposition, true);
+        window.removeEventListener('resize', reposition);
+      };
+    }, [open]);
+
+    if (!viz) return null;
+    var meta = _infoMeta(viz);
+    // Prefer the exact rows the component rendered (e.g. filterRows(...) output)
+    // when passed via the `rows` prop; otherwise fall back to the raw query rows.
+    var rawRows = Array.isArray(viz.rows) ? viz.rows : [];
+    var overrideRows = Array.isArray(props.rows) ? props.rows : null;
+    var dataRows = overrideRows != null ? overrideRows : rawRows;
+    var cols = _infoCols(viz, dataRows);
+    var rawCount = rawRows.length || (viz.row_count != null ? viz.row_count : 0);
+    var isFiltered = overrideRows != null && rawCount > 0 && overrideRows.length !== rawCount;
+    var MAXR = 100;
+
+    var activeFilters = {};
+    try { activeFilters = (window.__filterStore ? window.__filterStore.get() : {}) || {}; } catch (e) {}
+    // Only attribute a filter to this viz if it maps onto one of its columns —
+    // never claim a filter that doesn't actually touch this data.
+    var colFields = cols.map(function(c) { return c.field; });
+    var shownFilterKeys = Object.keys(activeFilters).filter(function(k) { return colFields.indexOf(k) !== -1; });
+
+    function tabButton(id, label) {
+      var active = tab === id;
+      return h('button', {
+        key: id, type: 'button', onClick: function() { setTab(id); },
+        className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors '
+          + (active ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600')
+      }, label);
+    }
+
+    var metaBits = [];
+    if (meta.source) metaBits.push(meta.source);
+    if (meta.type) metaBits.push(meta.type);
+    if (isFiltered) metaBits.push(dataRows.length + ' of ' + rawCount + ' rows (filtered)');
+    else metaBits.push((overrideRows != null ? dataRows.length : (meta.rowCount != null ? meta.rowCount : dataRows.length)) + ' rows');
+    if (cols.length) metaBits.push(cols.length + ' cols');
+    if (meta.aggregation) metaBits.push('agg: ' + meta.aggregation);
+
+    var filterNote = shownFilterKeys.length
+      ? 'Filters: ' + shownFilterKeys.map(function(k) { return k + '=' + _infoFilterVal(activeFilters[k]); }).join(', ')
+      : (isFiltered ? 'Filtered view' : null);
+
+    var calcText = _infoCalc(props.calc);
+
+    // DATA tab — calculation (if any) + the actual rows + a compact metadata line
+    var dataBody = h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
+      calcText ? h('div', { key: 'calc' }, [
+        h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, 'Calculation'),
+        h('div', { key: 'v', className: 'text-xs font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-2 py-1.5' }, calcText)
+      ]) : null,
+      metaBits.length ? h('div', { key: 'm', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')) : null,
+      filterNote ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' }, filterNote) : null,
+      cols.length ? h('div', {
+        key: 'tbl', className: 'border border-slate-100 rounded-md overflow-auto', style: { maxHeight: 300 }
+      }, h('table', { className: 'border-collapse', style: { minWidth: '100%' } }, [
+        h('thead', { key: 'h' }, h('tr', {}, cols.map(function(c, i) {
+          return h('th', {
+            key: i,
+            className: 'text-left font-medium text-slate-500 bg-slate-50 px-2 py-1.5 border-b border-slate-100 whitespace-nowrap sticky top-0',
+            style: { fontSize: 11 }
+          }, c.header);
+        }))),
+        h('tbody', { key: 'b' }, dataRows.slice(0, MAXR).map(function(row, ri) {
+          return h('tr', { key: ri, className: ri % 2 ? 'bg-slate-50/40' : '' }, cols.map(function(c, ci) {
+            var cell = _infoCell(row[c.field]);
+            return h('td', {
+              key: ci, title: cell,
+              className: 'px-2 py-1 text-slate-700 whitespace-nowrap border-b border-slate-50',
+              style: { fontSize: 11, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }
+            }, cell);
+          }));
+        }))
+      ])) : h('div', { key: 'nd', className: 'text-xs text-slate-400 py-4 text-center' }, 'No data available'),
+      (dataRows.length > MAXR) ? h('div', { key: 'more', className: 'text-[10px] text-slate-400' },
+        'Showing ' + MAXR + ' of ' + dataRows.length + ' rows') : null
+    ]);
+
+    // CODE tab — the generating query
+    var codeBody = h('div', { key: 'code' }, viz.code
+      ? h('pre', {
+          className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md p-2 overflow-auto',
+          style: { maxHeight: 340, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
+        }, viz.code)
+      : h('div', { className: 'text-xs text-slate-400 py-4 text-center' }, 'No query available for this visualization.'));
+
+    var panel = (open && pos) ? ReactDOM.createPortal(
+      h('div', {
+        ref: panelRef,
+        className: 'bg-white border border-slate-200 rounded-lg shadow-xl',
+        style: {
+          position: 'fixed', left: pos.left,
+          top: pos.top != null ? pos.top : undefined,
+          bottom: pos.bottom != null ? pos.bottom : undefined,
+          width: pos.width, zIndex: 99999, maxHeight: '72vh',
+          display: 'flex', flexDirection: 'column'
+        }
+      }, [
+        h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 pt-2.5 pb-1' }, [
+          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 leading-snug' }, viz.title || 'Details'),
+          h('button', {
+            key: 'x', type: 'button', 'aria-label': 'Close',
+            onClick: function() { setOpen(false); },
+            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600'
+          }, h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' },
+            h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
+        ]),
+        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100' }, [
+          tabButton('data', 'Data'),
+          tabButton('code', 'Code')
+        ]),
+        h('div', { key: 'bd', className: 'px-3.5 py-3 overflow-auto' }, tab === 'code' ? codeBody : dataBody),
+        viz.id ? h('div', {
+          key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-400 break-all'
+        }, 'ID  ' + viz.id) : null
+      ]),
+      document.body
+    ) : null;
+
+    return h('span', { className: 'inline-flex align-middle' }, [
+      h('button', {
+        key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
+        onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
+        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors '
+          + (open ? 'text-slate-600 bg-slate-100' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-100')
+      }, h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' }, [
+        h('circle', { key: 'c', cx: 8, cy: 8, r: 6.4, stroke: 'currentColor', strokeWidth: 1.2 }),
+        h('circle', { key: 'd', cx: 8, cy: 5.2, r: 0.95, fill: 'currentColor' }),
+        h('path', { key: 'b', d: 'M8 7.4v4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' })
+      ])),
+      panel
+    ]);
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // FIX 2: KPICard / SectionCard — additive className + style pass-through
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -212,6 +528,7 @@
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
       h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
+      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
       h('p', { key: 't', className: titleCls }, props.title),
       h('p', { key: 'v', className: 'text-2xl font-semibold' }, props.value),
       props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
@@ -219,14 +536,15 @@
   };
 
   window.SectionCard = function(props) {
-    var cls = 'rounded-2xl border shadow-sm p-6 bg-white border-slate-200'
+    var cls = 'relative rounded-2xl border shadow-sm p-6 bg-white border-slate-200'
       + (props.className ? ' ' + props.className : '');
     var titleCls = 'text-lg font-semibold text-slate-800'
       + (props.titleClassName ? ' ' + props.titleClassName : '');
     var subtitleCls = 'text-sm mt-1 text-slate-500'
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
-      props.title ? h('div', { key: 'hdr', className: 'mb-4' }, [
+      props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
+      props.title ? h('div', { key: 'hdr', className: 'mb-4 pr-6' }, [
         h('h2', { key: 't', className: titleCls }, props.title),
         props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
       ]) : null,

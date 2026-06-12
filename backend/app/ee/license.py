@@ -56,7 +56,12 @@ class LicenseInfo(BaseModel):
     license_id: Optional[str] = None
 
 
-# Cached license info (validated once at startup/first access)
+# Cached license info (the license key's signature is verified and decoded once).
+#
+# The expensive part — verifying the RS256 signature and decoding the JWT — runs only
+# at first access (or on force_refresh). The *expiry* decision, however, is re-evaluated
+# on every get_license_info() call (see _apply_live_expiry), so a license that lapses
+# while the process is running is reflected immediately, without a pod/container restart.
 _cached_license: Optional[LicenseInfo] = None
 _cache_initialized: bool = False
 
@@ -131,30 +136,58 @@ def _validate_license_key(key: str) -> LicenseInfo:
         return LicenseInfo(licensed=False, tier="community")
 
 
+def _apply_live_expiry(info: LicenseInfo) -> LicenseInfo:
+    """
+    Re-evaluate a cached LicenseInfo against the current time.
+
+    Signature verification happens once and is cached, but a license can lapse while the
+    process keeps running. If the cached info carries an expiry that is now in the past,
+    downgrade it to the "expired" state on the fly — so enforcement no longer waits for a
+    pod/container restart. Community/invalid licenses (no expiry) and already-expired ones
+    pass through unchanged.
+    """
+    if (
+        info.expires_at is not None
+        and info.expires_at < datetime.now(timezone.utc)
+        and (info.licensed or info.tier != "expired")
+    ):
+        return LicenseInfo(
+            licensed=False,
+            tier="expired",
+            org_name=info.org_name,
+            expires_at=info.expires_at,
+            license_id=info.license_id,
+        )
+    return info
+
+
 def get_license_info(force_refresh: bool = False) -> LicenseInfo:
     """
     Get current license information.
-    Results are cached after first validation.
+
+    The license key is verified and decoded once (cached), but the expiry check is
+    re-applied on every call. A license that expires while the process is running takes
+    effect immediately, rather than only after a pod/container restart.
     """
     global _cached_license, _cache_initialized
 
-    if _cache_initialized and not force_refresh:
-        return _cached_license
+    if not _cache_initialized or force_refresh:
+        key = _get_license_key()
+        if not key:
+            _cached_license = LicenseInfo(licensed=False, tier="community")
+        else:
+            _cached_license = _validate_license_key(key)
 
-    key = _get_license_key()
-    if not key:
-        _cached_license = LicenseInfo(licensed=False, tier="community")
-    else:
-        _cached_license = _validate_license_key(key)
+        _cache_initialized = True
 
-    _cache_initialized = True
+        # Log the resolved status once, at (re)initialization, to avoid per-call noise.
+        if _cached_license.licensed:
+            logger.info(f"Enterprise license active: {_cached_license.org_name}, tier: {_cached_license.tier}")
+        else:
+            logger.info(f"Running in community mode (tier: {_cached_license.tier})")
 
-    if _cached_license.licensed:
-        logger.info(f"Enterprise license active: {_cached_license.org_name}, tier: {_cached_license.tier}")
-    else:
-        logger.info(f"Running in community mode (tier: {_cached_license.tier})")
-
-    return _cached_license
+    # Re-derive the time-sensitive status on every call from the cached info.
+    return _apply_live_expiry(_cached_license)
 
 
 def is_enterprise_licensed() -> bool:

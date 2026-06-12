@@ -399,15 +399,18 @@ async def auto_provision_connection_credentials(
         if "oauth" not in allowed_modes:
             continue
 
-        # Check if user already has valid credentials
+        # Check if user already has a credential/preference row (any auth_mode, so a
+        # service-account marker row gets promoted rather than duplicated).
         existing_stmt = select(UserConnectionCredentials).where(
             UserConnectionCredentials.connection_id == connection.id,
             UserConnectionCredentials.user_id == str(user.id),
             UserConnectionCredentials.is_active == True,
-            UserConnectionCredentials.auth_mode == "oauth",
+        ).order_by(
+            UserConnectionCredentials.is_primary.desc(),
+            UserConnectionCredentials.updated_at.desc(),
         )
         existing = (await db.execute(existing_stmt)).scalars().first()
-        if existing and existing.expires_at:
+        if existing and existing.auth_mode == "oauth" and existing.expires_at:
             exp = existing.expires_at
             if exp.tzinfo is None:
                 exp = exp.replace(tzinfo=timezone.utc)
@@ -425,6 +428,9 @@ async def auto_provision_connection_credentials(
 
         # Upsert credentials
         if existing:
+            # Promote a preference-only marker row (auth_mode="service_account") to a
+            # real OAuth credential now that we have a delegated token.
+            existing.auth_mode = "oauth"
             existing.encrypt_credentials(tokens)
             existing.expires_at = parse_expires_at(tokens.get("expires_at"))
             db.add(existing)

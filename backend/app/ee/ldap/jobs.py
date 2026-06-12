@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 async def ldap_sync_all_organizations():
     """Background job: sync LDAP groups for all organizations."""
+    import asyncio
+    from app.core.scheduler import claim_scheduled_run
+    # Fires in every worker (shared job store); claim so only one syncs.
+    if not await asyncio.to_thread(claim_scheduled_run, "ldap_group_sync"):
+        return
+
     ldap_config = settings.bow_config.ldap
     if not ldap_config.enabled:
         return

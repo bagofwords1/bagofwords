@@ -26,6 +26,11 @@ from app.settings.logging_config import get_logger
 logger = get_logger(__name__)
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "qvd_cache"
+# Bumped whenever the qvd2parquet converter changes the Parquet schema, so old
+# caches are treated as missing and reconverted instead of served stale.
+#   v2: temporal columns ($date/$timestamp/$time) emitted as DATE/TIMESTAMP/TIME
+#       instead of raw Excel-style serial numbers.
+_PARQUET_SCHEMA_VERSION = 2
 _HEADER_END_TAG = b"</QvdTableHeader>"
 _HEADER_SCAN_LIMIT = 4 * 1024 * 1024
 
@@ -171,13 +176,16 @@ class QVDClient(DataSourceClient):
         abs_path = os.path.abspath(filepath)
         file_hash = hashlib.sha256(abs_path.encode("utf-8")).hexdigest()[:16]
         mtime_ns = os.stat(abs_path).st_mtime_ns
-        return file_hash, _CACHE_DIR / f"{file_hash}_{mtime_ns}.parquet"
+        return file_hash, _CACHE_DIR / f"{file_hash}_{mtime_ns}_v{_PARQUET_SCHEMA_VERSION}.parquet"
 
     @staticmethod
     def _find_any_parquet(file_hash: str) -> Path | None:
-        """Return the newest complete parquet for this file hash, any mtime."""
+        """Return the newest complete parquet for this file hash, any mtime.
+        Scoped to the current schema version so a stale (source changed) cache is
+        still served, but a parquet written by an older converter schema is not.
+        """
         candidates = sorted(
-            _CACHE_DIR.glob(f"{file_hash}_*.parquet"),
+            _CACHE_DIR.glob(f"{file_hash}_*_v{_PARQUET_SCHEMA_VERSION}.parquet"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -608,6 +616,13 @@ async def warm_all_qvd_caches() -> None:
     Parquet caches are warm. Designed to run on an APScheduler interval.
     A single module-level semaphore caps concurrent pyqvd parses at 1 per pod.
     """
+    import asyncio
+    from app.core.scheduler import claim_scheduled_run
+    # Every worker runs a scheduler against the shared job store, so this can
+    # fire in multiple workers at once. Claim the fire so only one warms.
+    if not await asyncio.to_thread(claim_scheduled_run, "qvd_warmup"):
+        return
+
     from sqlalchemy import select
 
     from app.dependencies import async_session_maker

@@ -3,12 +3,13 @@ from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.ai.prompt_language import build_language_directive
+from app.dependencies import async_session_maker
 from datetime import datetime
 
 class Answer:
 
     def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:
-        self.llm = LLM(model)
+        self.llm = LLM(model, usage_session_maker=async_session_maker)
         self.organization_settings = organization_settings
         self.code_reviewer = organization_settings.get_config("code_reviewer").value
         self.search_context = organization_settings.get_config("search_context").value
@@ -146,7 +147,7 @@ Now, provide your answer following these guidelines.
         chunk_buffer = ""
         chunk_count = 0
         
-        async for chunk in self.llm.inference_stream(prompt=text):
+        async for chunk in self.llm.inference_stream(prompt=text, usage_scope="answer"):
             if sigkill_event and sigkill_event.is_set():
                 break
             chunk_buffer += chunk

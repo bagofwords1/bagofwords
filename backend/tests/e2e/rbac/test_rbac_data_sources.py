@@ -264,6 +264,50 @@ def test_admin_does_not_auto_see_other_admins_data_source(
     assert detail.status_code == 200, detail.json()
 
 
+@pytest.mark.e2e
+def test_admin_show_all_reveals_private_data_source(
+    test_client, bootstrap_admin, invite_user_to_org, sqlite_data_source
+):
+    """show_all=true lets a full admin see a private DS they neither created
+    nor joined, flagged admin_only=true. A plain member's show_all is ignored
+    (no org-wide governance capability), and the admin's default list is
+    still scoped (admin_only never set without the toggle).
+    """
+    creator = bootstrap_admin("creator")
+    org_id = creator["org_id"]
+
+    ds = sqlite_data_source(name="creator_ds", user_token=creator["token"], org_id=org_id)
+    ds_id = ds["id"]
+
+    second_admin = invite_user_to_org(
+        org_id=org_id, admin_token=creator["token"], role="admin"
+    )
+    member = invite_user_to_org(org_id=org_id, admin_token=creator["token"])
+
+    # Default list (no toggle) still hides it from the second admin.
+    default_resp = test_client.get(
+        "/api/data_sources", headers=_hdr(second_admin["token"], org_id)
+    )
+    assert default_resp.status_code == 200, default_resp.json()
+    assert ds_id not in {d["id"] for d in default_resp.json()}
+
+    # show_all=true reveals it for the admin, flagged admin_only.
+    show_all_resp = test_client.get(
+        "/api/data_sources?show_all=true", headers=_hdr(second_admin["token"], org_id)
+    )
+    assert show_all_resp.status_code == 200, show_all_resp.json()
+    revealed = {d["id"]: d for d in show_all_resp.json()}
+    assert ds_id in revealed, f"show_all should reveal {ds_id}; got {revealed.keys()}"
+    assert revealed[ds_id]["admin_only"] is True
+
+    # A plain member without governance capability gets the toggle ignored.
+    member_resp = test_client.get(
+        "/api/data_sources?show_all=true", headers=_hdr(member["token"], org_id)
+    )
+    assert member_resp.status_code == 200, member_resp.json()
+    assert ds_id not in {d["id"] for d in member_resp.json()}
+
+
 # ────────────────────────────────────────────────────────────────────
 # Public DS visibility
 # ────────────────────────────────────────────────────────────────────
@@ -328,4 +372,71 @@ def test_outsider_cannot_see_other_orgs_data_source(test_client, ds_world):
     assert list_resp.status_code != 200 or all(
         d["id"] not in (ds_world["ds_a"]["id"], ds_world["ds_b"]["id"])
         for d in list_resp.json()
+    )
+
+
+# ────────────────────────────────────────────────────────────────────
+# Demo install: creator gets the RBAC manage grant, not just membership
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.e2e
+def test_demo_installer_gets_manage_grant(
+    test_client,
+    bootstrap_admin,
+    invite_user_to_org,
+    create_role,
+    assign_role,
+    install_demo_data_source,
+):
+    """A non-admin who installs a demo data source must receive the RBAC
+    `manage` grant — not just the legacy DataSourceMembership — so they can
+    actually manage the data source they created.
+
+    Regression: the demo-install path used to hand-roll only the membership
+    row, leaving a non-admin installer able to see the demo in their list
+    yet failing every `manage`-gated action on it (e.g. PUT). Admins never
+    hit this because full_admin_access bypasses resource checks, so we test
+    with a plain member holding only create_data_source.
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+
+    # A member who may create data sources but is NOT an org admin.
+    role_resp = create_role(
+        name="ds-creator",
+        permissions=["create_data_source"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert role_resp.status_code == 200, role_resp.json()
+    role_id = role_resp.json()["id"]
+
+    member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    assign_resp = assign_role(
+        role_id=role_id,
+        principal_type="user",
+        principal_id=member["user_id"],
+        user_token=admin["token"],
+        org_id=org_id,
+    )
+    assert assign_resp.status_code in (200, 201), assign_resp.json()
+
+    # Member installs the demo (gated by create_data_source).
+    result = install_demo_data_source(
+        demo_id="chinook", user_token=member["token"], org_id=org_id
+    )
+    assert result["success"] is True, result
+    ds_id = result["data_source_id"]
+
+    # The installer must be able to perform a `manage`-gated update on it.
+    # Without the manage grant this returns 403.
+    put_resp = test_client.put(
+        f"/api/data_sources/{ds_id}",
+        json={"description": "updated by installer"},
+        headers=_hdr(member["token"], org_id),
+    )
+    assert put_resp.status_code == 200, (
+        f"installer should hold manage on the demo they created; got "
+        f"{put_resp.status_code}: {put_resp.text}"
     )

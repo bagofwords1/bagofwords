@@ -20,26 +20,8 @@
       <section v-if="scheduledPrompts.length > 0">
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Scheduled Tasks</h3>
         <ul class="space-y-1.5">
-          <li
-            v-for="sp in scheduledPrompts"
-            :key="sp.id"
-            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow cursor-pointer transition-all"
-            @click="emit('editScheduledPrompt', sp)"
-          >
-            <Icon name="heroicons-clock" class="w-4 h-4 flex-shrink-0 text-gray-400" />
-            <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 truncate">{{ sp.prompt?.content || 'Untitled' }}</div>
-              <div class="flex items-center gap-2 mt-0.5">
-                <span class="text-[11px] text-gray-400">{{ getCronLabel(sp.cron_schedule) }}</span>
-                <span
-                  class="inline-flex items-center gap-1 text-[11px]"
-                  :class="sp.is_active ? 'text-green-500' : 'text-gray-400'"
-                >
-                  <span class="w-1.5 h-1.5 rounded-full" :class="sp.is_active ? 'bg-green-400' : 'bg-gray-300'" />
-                  {{ sp.is_active ? 'Active' : 'Paused' }}
-                </span>
-              </div>
-            </div>
+          <li v-for="sp in scheduledPrompts" :key="sp.id">
+            <ScheduledTaskCard :scheduled-prompt="sp" @click="emit('editScheduledPrompt', sp)" />
           </li>
         </ul>
       </section>
@@ -124,13 +106,56 @@
         </ul>
       </section>
 
+      <!-- Webhooks -->
+      <section v-if="webhooks.length > 0">
+        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Webhooks</h3>
+        <ul class="space-y-1.5">
+          <li
+            v-for="w in webhooks"
+            :key="w.id"
+            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white border border-gray-100 shadow-sm hover:shadow cursor-pointer transition-all"
+            @click="showWebhookModal = true"
+          >
+            <Icon :name="webhookIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-gray-400" />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-gray-700 truncate">{{ w.name }}</div>
+              <div class="flex items-center gap-2 mt-0.5">
+                <span class="text-[11px] text-gray-400">{{ w.source }} · {{ w.auth_mode }}</span>
+                <span v-if="w.classify_enabled" class="inline-flex items-center gap-1 text-[11px] text-blue-500">
+                  <Icon name="heroicons-sparkles" class="w-3 h-3" /> AI
+                </span>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
     </div>
+
+    <!-- Configure webhook (pinned at the bottom) -->
+    <div v-if="reportId" class="max-w-xl mx-auto px-4 pb-6">
+      <button
+        @click="showWebhookModal = true"
+        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-400 hover:text-gray-600 rounded-lg border border-dashed border-gray-200 hover:border-gray-300 transition-colors"
+      >
+        <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
+        Configure webhook
+      </button>
+    </div>
+
+    <WebhookConfigModal
+      v-if="reportId"
+      v-model="showWebhookModal"
+      :report-id="reportId"
+      @changed="loadWebhooks"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import WebhookConfigModal from '~/components/report/WebhookConfigModal.vue'
 
 const props = defineProps<{
   scheduledPrompts: any[]
@@ -146,7 +171,32 @@ const props = defineProps<{
   // The current pending build id, used to mark items as Pending vs Accepted.
   pendingBuildId?: string | null
   showClose?: boolean
+  // Report id — enables the Webhooks section + Configure webhook modal.
+  reportId?: string
 }>()
+
+// ---- Webhooks ----
+const showWebhookModal = ref(false)
+const webhooks = ref<any[]>([])
+
+function webhookIcon(source: string): string {
+  switch ((source || '').toLowerCase()) {
+    case 'github': return 'heroicons-code-bracket-square'
+    case 'jira': return 'heroicons-bug-ant'
+    default: return 'heroicons-bolt'
+  }
+}
+
+async function loadWebhooks() {
+  if (!props.reportId) return
+  try {
+    const { data } = await useMyFetch(`/reports/${props.reportId}/webhooks`)
+    webhooks.value = (data.value as any[]) || []
+  } catch { webhooks.value = [] }
+}
+
+onMounted(loadWebhooks)
+watch(() => props.reportId, loadWebhooks)
 
 const showAllArtifacts = ref(false)
 const visibleArtifacts = computed(() =>
@@ -197,44 +247,4 @@ const hasAnything = computed(() =>
   instructionsList.value.length > 0
 )
 
-function getCronLabel(cron?: string): string {
-  if (!cron) return ''
-  const parts = cron.split(' ')
-  if (parts.length < 5) return cron
-  const [min, hour, dom, mon, dow] = parts
-
-  // Handle step values like */2, */5
-  const isStep = (v: string) => v.startsWith('*/')
-  const stepVal = (v: string) => parseInt(v.slice(2))
-
-  // Every N minutes
-  if (isStep(min) && hour === '*') {
-    return `Every ${stepVal(min)} minutes`
-  }
-
-  // Every N hours
-  if (min !== '*' && isStep(hour)) {
-    return `Every ${stepVal(hour)} hours`
-  }
-
-  // Specific time
-  if (min !== '*' && hour !== '*' && !isStep(hour)) {
-    const h = parseInt(hour)
-    const ampm = h >= 12 ? 'PM' : 'AM'
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-    const time = `${h12}:${min.padStart(2, '0')} ${ampm}`
-
-    if (dow === '*' && dom === '*') return `Daily at ${time}`
-
-    if (dow !== '*') {
-      const dayNames: Record<string, string> = { '0': 'Sun', '1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat' }
-      const days = dow.split(',').map((d: string) => dayNames[d] || d).join(', ')
-      return `${days} at ${time}`
-    }
-
-    return `Monthly on day ${dom} at ${time}`
-  }
-
-  return cron
-}
 </script>

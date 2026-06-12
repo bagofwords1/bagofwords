@@ -130,6 +130,38 @@
                                 />
                             </div>
                         </div>
+                        <!-- Azure: Responses API opt-in (gates web search) -->
+                        <div class="" v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
+                            <div class="flex items-center gap-2">
+                                <UCheckbox v-model="selectedProvider.credentials.use_responses_api" />
+                                <label class="text-sm font-medium text-gray-700">Use Responses API</label>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">
+                                Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support the Responses API.
+                            </p>
+                            <div v-if="selectedProvider.credentials.use_responses_api" class="mt-3 ms-1">
+                                <div class="flex items-center gap-2">
+                                    <UCheckbox v-model="selectedProvider.credentials.enable_web_search" />
+                                    <label class="text-sm font-medium text-gray-700">Enable web search</label>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Native, provider-executed web search for facts not in your connected data. Requires the org-level Web Fetch setting to also be on.
+                                </p>
+                            </div>
+                        </div>
+                        <!-- OpenAI: Responses API is the default, so web search needs no extra toggle -->
+                        <div class="" v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
+                            <div class="flex items-center gap-2">
+                                <UCheckbox v-model="selectedProvider.credentials.enable_web_search" />
+                                <label class="text-sm font-medium text-gray-700">Enable web search</label>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">
+                                Lets the agent run native, provider-executed web searches for facts not in your connected data. Requires the org-level Web Fetch setting to also be on.
+                            </p>
+                            <p v-if="selectedProvider.credentials.base_url" class="text-xs text-gray-500 mt-1">
+                                Note: a custom base URL uses the Chat Completions API, which does not support web search. Clear it to use web search.
+                            </p>
+                        </div>
                         <div class="">
                             <label class="text-sm font-medium text-gray-700 mb-2">
                                 Models
@@ -290,6 +322,28 @@
                                         placeholder="e.g. https://my-openai-proxy.example.com/v1"
                                         class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                 </div>
+                            </div>
+                            <!-- Azure: Responses API opt-in gates web search -->
+                            <div v-if="providerForm.provider_type === 'azure'" class="mt-3">
+                                <div class="flex items-center gap-2">
+                                    <UCheckbox v-model="providerForm.credentials.use_responses_api" />
+                                    <label class="text-sm text-gray-700">Use Responses API</label>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support it.</p>
+                                <div v-if="providerForm.credentials.use_responses_api" class="mt-3 ms-1">
+                                    <div class="flex items-center gap-2">
+                                        <UCheckbox v-model="providerForm.credentials.enable_web_search" />
+                                        <label class="text-sm text-gray-700">Enable web search</label>
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
+                                </div>
+                            </div>
+                            <div v-if="providerForm.provider_type === 'openai'" class="mt-3">
+                                <div class="flex items-center gap-2">
+                                    <UCheckbox v-model="providerForm.credentials.enable_web_search" />
+                                    <label class="text-sm text-gray-700">Enable web search</label>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
                             </div>
                         </div>
                     </div>
@@ -490,7 +544,7 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     const providerType = providerForm.value.provider_type;
     const all = fieldsForProvider(providerType);
     // Exclude fields that have dedicated UI controls
-    let filtered = all.filter(f => f.key !== 'verify_ssl');
+    let filtered = all.filter(f => f.key !== 'verify_ssl' && f.key !== 'enable_web_search' && f.key !== 'use_responses_api');
     if (providerType === 'openai') {
         filtered = filtered.filter(f => f.key !== 'base_url');
     }
@@ -863,6 +917,14 @@ watch(selectedProvider, (newValue) => {
             if (newValue.credentials.endpoint_url === undefined) {
                 (newValue.credentials as any).endpoint_url = null;
             }
+        }
+        // Hydrate the native web-search opt-in from additional_config (OpenAI/Azure)
+        if ((newValue.provider_type === 'openai' || newValue.type === 'openai' || newValue.provider_type === 'azure' || newValue.type === 'azure')) {
+            (newValue.credentials as any).enable_web_search = !!(newValue as any)?.additional_config?.enable_web_search;
+        }
+        // Hydrate the Azure Responses-API opt-in from additional_config
+        if ((newValue.provider_type === 'azure' || newValue.type === 'azure')) {
+            (newValue.credentials as any).use_responses_api = !!(newValue as any)?.additional_config?.use_responses_api;
         }
         // Ensure base_url and verify_ssl fields exist for Custom so users can view/update them
         if ((newValue.provider_type === 'custom' || newValue.type === 'custom')) {

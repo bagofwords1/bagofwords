@@ -241,6 +241,8 @@
       "instructions": "Anweisungen"
     },
     "tooltips": {
+      "star": "Markieren",
+      "unstar": "Markierung entfernen",
       "hasPage": "Enthält Seiten-Artefakt",
       "hasSlides": "Enthält Folien-Artefakt",
       "chat": "Chat",
@@ -252,6 +254,7 @@
       "showing": "Zeige {from} bis {to} von {total} Berichten"
     },
     "toasts": {
+      "starFailed": "Markierung konnte nicht aktualisiert werden",
       "failedFetch": "Berichte konnten nicht geladen werden",
       "archived": "Bericht archiviert",
       "archivedDesc": "Bericht erfolgreich archiviert",
@@ -932,7 +935,23 @@
       "successInvited": "Einladung an {email} gesendet",
       "rolesUpdated": "Rollen aktualisiert",
       "failedToUpdateRoles": "Rollen konnten nicht aktualisiert werden",
-      "failedToRemoveRole": "Rolle konnte nicht entfernt werden"
+      "failedToRemoveRole": "Rolle konnte nicht entfernt werden",
+      "selected": "ausgewählt",
+      "bulkAddRole": "Rolle hinzufügen",
+      "bulkAddGroup": "Zur Gruppe hinzufügen",
+      "bulkClear": "Leeren",
+      "paginationOf": "von",
+      "statusExpired": "Abgelaufen",
+      "resend": "Erneut senden",
+      "resending": "Wird gesendet…",
+      "failedToResend": "Einladung konnte nicht erneut gesendet werden",
+      "inviteResent": "Einladung erneut gesendet",
+      "inviteResentNoSmtp": "Einladung aktualisiert (E-Mail nicht gesendet — SMTP nicht konfiguriert)",
+      "inviteResentFailed": "Einladung aktualisiert, aber E-Mail konnte nicht gesendet werden",
+      "copyLink": "Link kopieren",
+      "linkCopied": "Einladungslink kopiert",
+      "failedToCopyLink": "Link konnte nicht kopiert werden",
+      "linkRegenerated": "Einladungslink erneuert und kopiert"
     },
     "organizationName": "Organisationsname",
     "organizationIcon": "Organisationssymbol",
@@ -1054,7 +1073,17 @@
       "expiresSoon": "Ihre Lizenz läuft in {days} Tagen ab. Kontaktieren Sie uns zur Verlängerung.",
       "enterpriseInfo": "Schalten Sie Audit-Protokolle, erweiterte rollenbasierte Zugriffskontrolle und Datenaufbewahrungsrichtlinien mit einer Enterprise-Lizenz frei.",
       "activateHint": "Setzen Sie {envvar} und starten Sie neu, um zu aktivieren.",
-      "learnMore": "Mehr erfahren →"
+      "learnMore": "Mehr erfahren →",
+      "banner": {
+        "expiring": "Ihre Enterprise-Lizenz läuft in {days} Tagen ab – verlängern Sie, um Unterbrechungen zu vermeiden.",
+        "expired": "Ihre Enterprise-Lizenz ist abgelaufen – verlängern Sie, um Enterprise-Funktionen wiederherzustellen.",
+        "viewLicense": "Lizenz anzeigen"
+      },
+      "fieldTier": "Stufe",
+      "inDays": "noch {days} Tage",
+      "expiredNotice": "Ihre Enterprise-Lizenz ist abgelaufen. Enterprise-Funktionen sind bis zur Verlängerung deaktiviert.",
+      "enterpriseTitle": "Enterprise-Edition",
+      "renewInfo": "Verlängern Sie Ihre Lizenz, um Enterprise-Funktionen wie Audit-Logs, erweiterte Zugriffssteuerung und Datenaufbewahrungsrichtlinien wiederherzustellen."
     },
     "mcpModal": {
       "editTitle": "MCP-Verbindung bearbeiten",
@@ -1098,6 +1127,10 @@
     "agentsSubtitle": "Organisieren Sie Tabellen und Anweisungen in Agenten.",
     "searchAgents": "Datenagenten suchen …",
     "createAgent": "Datenagent erstellen",
+    "showAllAgents": "Alle anzeigen",
+    "showAllAgentsHint": "Admin-Ansicht: enthält private Datenagenten, in denen Sie kein Mitglied sind.",
+    "adminOnlyTag": "Admin",
+    "adminOnlyHint": "Privater Datenagent – für Sie als Admin sichtbar. Sie sind kein Mitglied.",
     "trySample": "Probieren Sie eine Beispieldatenbank:",
     "sampleTag": "Beispiel",
     "tables": "Tabellen",
@@ -2033,6 +2066,7 @@
     "onDay": "am Tag",
     "active": "Aktiv",
     "notifyAfterRun": "Nach jedem Lauf benachrichtigen",
+    "promptSendsEmailHint": "Deine Anweisung fordert bereits den Versand einer E-Mail an – die Aufgabe erledigt das selbst. Aktiviere dies nur, wenn du zusätzlich eine separate Zusammenfassung möchtest.",
     "emailOrMemberPlaceholder": "E-Mail oder Mitglied ...",
     "cancel": "Abbrechen",
     "update": "Aktualisieren",
@@ -2044,6 +2078,13 @@
     "dowThu": "Do",
     "dowFri": "Fr",
     "dowSat": "Sa",
+    "dowSunShort": "S",
+    "dowMonShort": "M",
+    "dowTueShort": "D",
+    "dowWedShort": "M",
+    "dowThuShort": "D",
+    "dowFriShort": "F",
+    "dowSatShort": "S",
     "unknownMember": "Unbekannt",
     "toastUpdated": "Geplanter Prompt aktualisiert",
     "toastScheduled": "Prompt geplant",

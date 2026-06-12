@@ -150,6 +150,11 @@ Do not use when:
             )
         )
         tool_record = tool_result.scalar_one_or_none()
+        # Capture the tool's declared input schema up front so that, on any
+        # downstream failure, we can hand the agent the *correct* argument shape
+        # in the observation. Without this the agent only learns what was wrong
+        # (e.g. "invalid search field") and keeps re-guessing argument names.
+        tool_input_schema = getattr(tool_record, "input_schema", None) if tool_record else None
         if tool_record and not tool_record.is_enabled:
             yield ToolEndEvent(
                 type="tool.end",
@@ -180,20 +185,14 @@ Do not use when:
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)
             yield ToolEndEvent(
                 type="tool.end",
-                payload={
-                    "output": {"success": False, "error_message": str(e)},
-                    "observation": {"summary": f"Tool call failed: {e}", "success": False},
-                },
+                payload=self._failure_payload(data.tool_name, str(e), tool_input_schema),
             )
             return
 
         if not result.get("success"):
             yield ToolEndEvent(
                 type="tool.end",
-                payload={
-                    "output": {"success": False, "error_message": result.get("error", "Unknown error")},
-                    "observation": {"summary": f"Tool returned error: {result.get('error')}", "success": False},
-                },
+                payload=self._failure_payload(data.tool_name, result.get("error", "Unknown error"), tool_input_schema),
             )
             return
 
@@ -294,13 +293,40 @@ Do not use when:
             },
         )
 
+    @staticmethod
+    def _failure_payload(tool_name: str, error: str, input_schema: Any) -> Dict[str, Any]:
+        """Build a tool.end payload for a failed MCP call that includes the
+        tool's declared input schema.
+
+        The schema is carried as a structured field on both the output and the
+        observation (so it survives planner past-observation compaction) and is
+        summarized in prose so the agent sees, in one round-trip, exactly which
+        arguments the tool accepts instead of re-guessing.
+        """
+        err = error or "Unknown error"
+        summary = f"Tool '{tool_name}' failed: {err}"
+        if input_schema:
+            props = (input_schema.get("properties") or {}) if isinstance(input_schema, dict) else {}
+            required = input_schema.get("required") or [] if isinstance(input_schema, dict) else []
+            if props:
+                def _fmt(name: str) -> str:
+                    spec = props.get(name) or {}
+                    typ = spec.get("type") or "any"
+                    return f"{name}*:{typ}" if name in required else f"{name}:{typ}"
+                arg_list = ", ".join(_fmt(n) for n in props.keys())
+                summary += f". Valid arguments for '{tool_name}': {{{arg_list}}} (* = required). Retry with these argument names."
+        return {
+            "output": {"success": False, "error_message": err, "input_schema": input_schema},
+            "observation": {"summary": summary, "success": False, "input_schema": input_schema},
+        }
+
     async def _materialize_to_csv(self, data: list, tool_name: str, runtime_ctx: dict):
         """Save tabular data as a CSV file, create a File record, and link to report."""
         import pandas as pd
         import aiofiles
         from uuid import uuid4
         from app.models.file import File
-        from app.services.file_preview import generate_csv_preview
+        from app.services.file_preview import generate_file_preview
 
         db = runtime_ctx.get("db")
         report = runtime_ctx.get("report")
@@ -315,36 +341,40 @@ Do not use when:
         # Write CSV
         df.to_csv(path, index=False)
 
-        # Generate preview
-        preview = None
-        try:
-            preview = generate_csv_preview(path)
-        except Exception:
-            pass
-
         # Create File record
         file = File(
             filename=f"{safe_name}.csv",
             path=path,
             content_type="text/csv",
-            preview=preview,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
-        db.add(file)
 
-        # Link to report if available
-        if report:
-            from app.models.report_file_association import report_file_association
-            from sqlalchemy import insert
-            await db.execute(
-                insert(report_file_association).values(
-                    report_id=str(report.id),
-                    file_id=str(file.id),
+        # Generate preview from the written file (reads path/content_type)
+        try:
+            file.preview = generate_file_preview(file)
+        except Exception:
+            pass
+
+        # Persist within a savepoint so a failure here rolls back cleanly
+        # instead of poisoning the shared agent-execution transaction.
+        async with db.begin_nested():
+            db.add(file)
+            # Flush first so file.id is populated before we link the association
+            # (the id is assigned by a Python-side default at flush time).
+            await db.flush()
+
+            # Link to report if available
+            if report:
+                from app.models.report_file_association import report_file_association
+                from sqlalchemy import insert
+                await db.execute(
+                    insert(report_file_association).values(
+                        report_id=str(report.id),
+                        file_id=str(file.id),
+                    )
                 )
-            )
 
-        await db.flush()
         return file
 
     async def _materialize_to_json(self, data: Any, tool_name: str, runtime_ctx: dict):
@@ -372,19 +402,25 @@ Do not use when:
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
-        db.add(file)
 
-        if report:
-            from app.models.report_file_association import report_file_association
-            from sqlalchemy import insert
-            await db.execute(
-                insert(report_file_association).values(
-                    report_id=str(report.id),
-                    file_id=str(file.id),
+        # Persist within a savepoint so a failure here rolls back cleanly
+        # instead of poisoning the shared agent-execution transaction.
+        async with db.begin_nested():
+            db.add(file)
+            # Flush first so file.id is populated before we link the association
+            # (the id is assigned by a Python-side default at flush time).
+            await db.flush()
+
+            if report:
+                from app.models.report_file_association import report_file_association
+                from sqlalchemy import insert
+                await db.execute(
+                    insert(report_file_association).values(
+                        report_id=str(report.id),
+                        file_id=str(file.id),
+                    )
                 )
-            )
 
-        await db.flush()
         return file
 
     async def _try_inprocess_mcp(

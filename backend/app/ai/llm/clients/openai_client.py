@@ -82,6 +82,11 @@ class OpenAi(LLMClient):
 
         if stream:
             params["stream"] = True
+            # Ask the API to emit a final usage chunk so we record provider-reported
+            # token counts instead of falling back to the char/4 estimate (which
+            # undercounts dense/structured content by ~25-30%). The usage chunk
+            # arrives after all content has streamed, so it adds no latency.
+            params["stream_options"] = {"include_usage": True}
 
         # Enable medium reasoning effort for reasoning-capable models.
         # Adjust this predicate as you add/change reasoning models.

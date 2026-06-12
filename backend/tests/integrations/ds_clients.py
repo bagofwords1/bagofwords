@@ -29,6 +29,7 @@ DATA_SOURCES = [
     "databricks_sql",
     "powerbi",
     "qvd",
+    "teradata",
 ]
 
 

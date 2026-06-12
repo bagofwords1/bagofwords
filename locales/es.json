@@ -248,6 +248,8 @@
       "instructions": "instrucciones"
     },
     "tooltips": {
+      "star": "Destacar",
+      "unstar": "Quitar destacado",
       "hasPage": "Tiene artefacto de página",
       "hasSlides": "Tiene artefacto de diapositivas",
       "chat": "Chat",
@@ -259,6 +261,7 @@
       "showing": "Mostrando {from} a {to} de {total} informes"
     },
     "toasts": {
+      "starFailed": "No se pudo actualizar el destacado",
       "failedFetch": "No se pudieron obtener los informes",
       "archived": "Informe archivado",
       "archivedDesc": "Informe archivado correctamente",
@@ -1009,7 +1012,23 @@
       "successInvited": "Invitación enviada a {email}",
       "rolesUpdated": "Roles actualizados",
       "failedToUpdateRoles": "No se pudieron actualizar los roles",
-      "failedToRemoveRole": "No se pudo eliminar el rol"
+      "failedToRemoveRole": "No se pudo eliminar el rol",
+      "selected": "seleccionados",
+      "bulkAddRole": "Añadir rol",
+      "bulkAddGroup": "Añadir al grupo",
+      "bulkClear": "Limpiar",
+      "paginationOf": "de",
+      "statusExpired": "Caducada",
+      "resend": "Reenviar",
+      "resending": "Reenviando…",
+      "failedToResend": "No se pudo reenviar la invitación",
+      "inviteResent": "Invitación reenviada",
+      "inviteResentNoSmtp": "Invitación actualizada (correo no enviado — SMTP no configurado)",
+      "inviteResentFailed": "Invitación actualizada, pero no se pudo enviar el correo",
+      "copyLink": "Copiar enlace",
+      "linkCopied": "Enlace de invitación copiado",
+      "failedToCopyLink": "No se pudo copiar el enlace",
+      "linkRegenerated": "Enlace de invitación renovado y copiado"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
@@ -1132,7 +1151,17 @@
       "expiresSoon": "Tu licencia caduca en {days} días. Contáctanos para renovarla.",
       "enterpriseInfo": "Desbloquea registros de auditoría, control avanzado de acceso por roles y políticas de retención de datos con una licencia Enterprise.",
       "activateHint": "Configura {envvar} y reinicia para activar.",
-      "learnMore": "Más información →"
+      "learnMore": "Más información →",
+      "banner": {
+        "expiring": "Tu licencia enterprise caduca en {days} días: renuévala para evitar interrupciones.",
+        "expired": "Tu licencia enterprise ha caducado: renuévala para restaurar las funciones enterprise.",
+        "viewLicense": "Ver licencia"
+      },
+      "fieldTier": "Nivel",
+      "inDays": "{days} días restantes",
+      "expiredNotice": "Tu licencia enterprise ha caducado. Las funciones enterprise están desactivadas hasta que la renueves.",
+      "enterpriseTitle": "Edición enterprise",
+      "renewInfo": "Renueva tu licencia para restaurar funciones enterprise como registros de auditoría, control de acceso avanzado y políticas de retención de datos."
     },
     "mcpModal": {
       "editTitle": "Editar conexión MCP",
@@ -1176,6 +1205,10 @@
     "agentsSubtitle": "Organice tablas e instrucciones en agentes.",
     "searchAgents": "Buscar agentes de datos…",
     "createAgent": "Crear agente de datos",
+    "showAllAgents": "Mostrar todo",
+    "showAllAgentsHint": "Vista de administrador: incluye agentes de datos privados de los que no eres miembro.",
+    "adminOnlyTag": "Admin",
+    "adminOnlyHint": "Agente de datos privado: visible para ti como administrador. No eres miembro.",
     "trySample": "Pruebe una base de datos de ejemplo:",
     "sampleTag": "muestra",
     "tables": "tablas",
@@ -2111,6 +2144,7 @@
     "onDay": "el día",
     "active": "Activo",
     "notifyAfterRun": "Notificar tras cada ejecución",
+    "promptSendsEmailHint": "Tu instrucción ya pide enviar un correo: la tarea lo hará por sí misma. Actívalo solo si también quieres un correo de resumen aparte.",
     "emailOrMemberPlaceholder": "Correo o miembro...",
     "cancel": "Cancelar",
     "update": "Actualizar",
@@ -2122,6 +2156,13 @@
     "dowThu": "Jue",
     "dowFri": "Vie",
     "dowSat": "Sáb",
+    "dowSunShort": "D",
+    "dowMonShort": "L",
+    "dowTueShort": "M",
+    "dowWedShort": "M",
+    "dowThuShort": "J",
+    "dowFriShort": "V",
+    "dowSatShort": "S",
     "unknownMember": "Desconocido",
     "toastUpdated": "Tarea programada actualizada",
     "toastScheduled": "Tarea programada",

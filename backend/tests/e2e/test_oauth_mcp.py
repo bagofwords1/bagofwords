@@ -82,6 +82,127 @@ def test_create_oauth_client(
 
 
 @pytest.mark.e2e
+def test_create_oauth_client_with_custom_redirect_uris(
+    create_oauth_client,
+    list_oauth_clients,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Custom redirect_uris are stored verbatim (no defaults appended) and
+    returned on both create and list."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    custom = [
+        "https://my-app.example.com/oauth/callback",
+        "https://my-app.example.com/oauth/callback/debug",
+    ]
+    client = create_oauth_client(
+        user_token=token, org_id=org_id, name="My App", redirect_uris=custom,
+    )
+    assert client["redirect_uris"] == custom
+
+    listed = list_oauth_clients(user_token=token, org_id=org_id)
+    match = next(c for c in listed if c["client_id"] == client["client_id"])
+    assert match["redirect_uris"] == custom
+
+
+@pytest.mark.e2e
+def test_update_oauth_client_redirect_uris(
+    create_oauth_client,
+    list_oauth_clients,
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """PATCH replaces a client's redirect URIs and persists them."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    client = create_oauth_client(user_token=token, org_id=org_id, name="My App")
+    new_uris = ["https://new.example.com/oauth/callback"]
+
+    resp = test_client.patch(
+        f"/api/oauth/clients/{client['id']}",
+        json={"redirect_uris": new_uris},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["redirect_uris"] == new_uris
+
+    listed = list_oauth_clients(user_token=token, org_id=org_id)
+    match = next(c for c in listed if c["client_id"] == client["client_id"])
+    assert match["redirect_uris"] == new_uris
+
+
+@pytest.mark.e2e
+def test_update_oauth_client_validations(
+    create_oauth_client,
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """PATCH rejects empty payloads / bad URIs, and 404s on unknown clients."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    client = create_oauth_client(user_token=token, org_id=org_id)
+
+    # Nothing to update
+    resp = test_client.patch(
+        f"/api/oauth/clients/{client['id']}", json={}, headers=headers,
+    )
+    assert resp.status_code == 400, resp.json()
+
+    # Bad redirect_uris
+    resp = test_client.patch(
+        f"/api/oauth/clients/{client['id']}",
+        json={"redirect_uris": []},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.json()
+
+    # Unknown client
+    resp = test_client.patch(
+        "/api/oauth/clients/does-not-exist",
+        json={"redirect_uris": ["https://x.example.com/cb"]},
+        headers=headers,
+    )
+    assert resp.status_code == 404, resp.json()
+
+
+@pytest.mark.e2e
+def test_create_oauth_client_rejects_empty_redirect_uris(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """An explicitly-provided redirect_uris list must be non-empty and contain
+    only non-blank strings."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    for bad in ([], ["  "], [123]):
+        resp = test_client.post(
+            "/api/oauth/clients",
+            json={"name": "Bad", "redirect_uris": bad},
+            headers=headers,
+        )
+        assert resp.status_code == 400, (bad, resp.json())
+
+
+@pytest.mark.e2e
 def test_list_oauth_clients(
     create_oauth_client,
     list_oauth_clients,

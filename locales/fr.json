@@ -241,6 +241,8 @@
       "instructions": "instructions"
     },
     "tooltips": {
+      "star": "Mettre en favori",
+      "unstar": "Retirer des favoris",
       "hasPage": "Contient un artefact Page",
       "hasSlides": "Contient un artefact Diapositives",
       "chat": "Conversation",
@@ -252,6 +254,7 @@
       "showing": "Affichage de {from} à {to} sur {total} rapports"
     },
     "toasts": {
+      "starFailed": "Échec de la mise à jour du favori",
       "failedFetch": "Échec du chargement des rapports",
       "archived": "Rapport archivé",
       "archivedDesc": "Rapport archivé avec succès",
@@ -932,7 +935,23 @@
       "successInvited": "Invitation envoyée à {email}",
       "rolesUpdated": "Rôles mis à jour",
       "failedToUpdateRoles": "Échec de la mise à jour des rôles",
-      "failedToRemoveRole": "Échec du retrait du rôle"
+      "failedToRemoveRole": "Échec du retrait du rôle",
+      "selected": "sélectionnés",
+      "bulkAddRole": "Ajouter un rôle",
+      "bulkAddGroup": "Ajouter au groupe",
+      "bulkClear": "Effacer",
+      "paginationOf": "sur",
+      "statusExpired": "Expirée",
+      "resend": "Renvoyer",
+      "resending": "Renvoi…",
+      "failedToResend": "Échec du renvoi de l'invitation",
+      "inviteResent": "Invitation renvoyée",
+      "inviteResentNoSmtp": "Invitation actualisée (e-mail non envoyé — SMTP non configuré)",
+      "inviteResentFailed": "Invitation actualisée, mais l'e-mail n'a pas pu être envoyé",
+      "copyLink": "Copier le lien",
+      "linkCopied": "Lien d'invitation copié",
+      "failedToCopyLink": "Impossible de copier le lien",
+      "linkRegenerated": "Lien d'invitation actualisé et copié"
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",
@@ -1054,7 +1073,17 @@
       "expiresSoon": "Votre licence expire dans {days} jours. Contactez-nous pour la renouveler.",
       "enterpriseInfo": "Débloquez les journaux d'audit, le contrôle d'accès avancé basé sur les rôles et les politiques de conservation des données avec une licence enterprise.",
       "activateHint": "Définissez {envvar} et redémarrez pour activer.",
-      "learnMore": "En savoir plus →"
+      "learnMore": "En savoir plus →",
+      "banner": {
+        "expiring": "Votre licence enterprise expire dans {days} jours — renouvelez-la pour éviter toute interruption.",
+        "expired": "Votre licence enterprise a expiré — renouvelez-la pour restaurer les fonctionnalités enterprise.",
+        "viewLicense": "Voir la licence"
+      },
+      "fieldTier": "Niveau",
+      "inDays": "{days} jours restants",
+      "expiredNotice": "Votre licence enterprise a expiré. Les fonctionnalités enterprise sont désactivées jusqu'au renouvellement.",
+      "enterpriseTitle": "Édition enterprise",
+      "renewInfo": "Renouvelez votre licence pour restaurer les fonctionnalités enterprise comme les journaux d'audit, le contrôle d'accès avancé et les politiques de rétention des données."
     },
     "mcpModal": {
       "editTitle": "Modifier la connexion MCP",
@@ -1098,6 +1127,10 @@
     "agentsSubtitle": "Organisez les tables et instructions en agents.",
     "searchAgents": "Rechercher des agents de données…",
     "createAgent": "Créer un agent de données",
+    "showAllAgents": "Tout afficher",
+    "showAllAgentsHint": "Vue administrateur : inclut les agents de données privés dont vous n'êtes pas membre.",
+    "adminOnlyTag": "Admin",
+    "adminOnlyHint": "Agent de données privé — visible en tant qu'administrateur. Vous n'en êtes pas membre.",
     "trySample": "Essayer une base de données d'exemple :",
     "sampleTag": "exemple",
     "tables": "tables",
@@ -2033,6 +2066,7 @@
     "onDay": "le jour",
     "active": "Active",
     "notifyAfterRun": "Notifier après chaque exécution",
+    "promptSendsEmailHint": "Votre instruction demande déjà l'envoi d'un e-mail — la tâche s'en chargera elle-même. Activez ceci uniquement si vous voulez aussi un e-mail de résumé distinct.",
     "emailOrMemberPlaceholder": "E-mail ou membre...",
     "cancel": "Annuler",
     "update": "Mettre à jour",
@@ -2044,6 +2078,13 @@
     "dowThu": "Jeu",
     "dowFri": "Ven",
     "dowSat": "Sam",
+    "dowSunShort": "D",
+    "dowMonShort": "L",
+    "dowTueShort": "M",
+    "dowWedShort": "M",
+    "dowThuShort": "J",
+    "dowFriShort": "V",
+    "dowSatShort": "S",
     "unknownMember": "Inconnu",
     "toastUpdated": "Requête planifiée mise à jour",
     "toastScheduled": "Requête planifiée",

@@ -93,6 +93,23 @@ async def build_codegen_context(
     except Exception:
         pass
 
+    # Loadable steps for this report (advertises load_step targets). Bounded;
+    # resolution can still load any default step by id/name.
+    loadables_context = ""
+    try:
+        from app.ai.code_execution.loadables import LoadablesResolver
+        resolver = LoadablesResolver(
+            db=runtime_ctx.get("db") if isinstance(runtime_ctx, dict) else None,
+            organization=runtime_ctx.get("organization") if isinstance(runtime_ctx, dict) else None,
+            report=runtime_ctx.get("report") if isinstance(runtime_ctx, dict) else None,
+            current_user=runtime_ctx.get("user") if isinstance(runtime_ctx, dict) else None,
+        )
+        if resolver.db is not None and resolver.report is not None:
+            section = await resolver.list_for_discovery()
+            loadables_context = section.render() if section else ""
+    except Exception:
+        loadables_context = ""
+
     # Render data sources/clients descriptions if available in runtime context
     # ds_clients keys are now "{domain_name}:{connection_name}"
     try:
@@ -136,6 +153,7 @@ async def build_codegen_context(
         instructions_context=instructions_context,
         mentions_context=mentions_context,
         entities_context=entities_context,
+        loadables_context=loadables_context,
         messages_context=messages_context,
         resources_context=resources_context,
         files_context=files_context,
@@ -293,6 +311,10 @@ class TableFormatter:
                 # Tableau: role (MEASURE/DIMENSION)
                 elif col.metadata.get("role"):
                     col_line += f" [{col.metadata['role'].lower()}]"
+                # Partition key (e.g. Spark/Hive partitioned tables): independent
+                # of role/kind, so checked separately rather than in the elif chain.
+                if col.metadata.get("is_partition"):
+                    col_line += " [partition]"
             if col.description:
                 col_line += f" -- {col.description}"
             table_fmt.append(col_line)

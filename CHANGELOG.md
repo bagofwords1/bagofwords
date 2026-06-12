@@ -1,5 +1,78 @@
 # Release Notes
 
+## Version 0.0.409 (June 11, 2026)
+- **Built-in info popover on dashboard components** — the prebuilt KPICard and SectionCard now carry a small ⓘ popover that surfaces a component's backing data. It opens on a **Data** tab (the actual visualization rows in a compact scrollable table) with a **Code** tab for the generating query, plus metadata above (source, type, row/column counts, active filters) and the viz id in a persistent footer. Both producers wire it automatically: deterministic "Add to Dashboard" codegen emits `viz={viz[N]}`, and the `create_artifact` / `edit_artifact` prompts instruct the model to do the same. The popover is **filter-aware** — when a component renders filtered rows it shows exactly what's on screen ("X of Y rows (filtered)") and only attributes filters that map onto the viz's columns, falling back to the full dataset otherwise.
+- **Spark Connect data source** — new connector for querying Spark via the Spark Connect protocol, with partition metadata in the schema, a pre-flight `EXPLAIN` gate (partition-filter + scan-size guard), and a Spark icon in the data-source picker.
+- **Scheduled tasks on specific days of the week** — recurring scheduled prompts can now target specific weekdays (e.g. Mon/Wed/Fri) instead of only daily/interval cadences, with localized day labels (including conventional Arabic/Hebrew day-of-week abbreviations).
+- **Copy invite link always returns a usable link** — copying a pending member's link now rotates the token and resets the 14-day window if the invite has expired (or had no token), clearing the **Expired** badge; a still-valid link is returned unchanged so an already-emailed link isn't invalidated. No email is sent (that's **Resend**).
+
+## Version 0.0.408 (June 10, 2026)
+- **Roles, groups & quotas for not-yet-registered members** — admins can now assign RBAC roles, add to groups, and set a usage-policy (quota) on a *pending* invite (a user who hasn't signed up yet). These are stored against the invite and automatically materialized onto the user when they register, so access is correct on their very first request. Invites can also be pre-assigned at invite time (role/group/quota fields in the Invite modal), and removing a pending member cleans up its role/group/quota assignments.
+- **Token-gated invites with expiry + resend** — invite links now carry a single-use token and expire after 14 days. On local/password sign-up the token is required: an invalid, expired, or missing token (for an invited email under closed signups) blocks account creation entirely. SSO/OIDC sign-up is unchanged (the IdP verifies identity, no token needed). A per-row **Resend** action (Members tab, requires `manage_members`) rotates the token, resets the 14-day window, and re-sends — the old link stops working immediately. Admins can also fetch a pending invite's link via an admin-only endpoint (handy when SMTP is off). Pending rows show an **Expired** status when the window lapses.
+- **Reliable, human invite & welcome emails** — the invite email is now sent synchronously with retries + a per-attempt timeout (no more silent fire-and-forget), and the outcome (`sent` / `failed` / `skipped_no_smtp`) is surfaced to the admin. New users get a plain-text **welcome email** summarizing the agents (data sources) they can access with a link in. Copy is plain-text and human (no buttons), signed "BOW".
+- **Members tab overhaul** — compact, cleaner table; checkbox selection with **bulk actions** (add role, add to group, remove); client-side **pagination**; row **Resend**; the **Actions column is frozen** to the right while the wide table scrolls; borderless inline Role/Quota selects; consistent role-name casing; collapsed group chips ("+N"); wider Note column with tooltip. The **Groups** and **Quotas** tabs now share the same compact styling.
+- **Private data sources by default (#364)** — newly created data sources / agents are now private by default (`is_public = false`); only explicitly-added members (and admins) can see them unless opted public. Adding a member to a data source now sends a **delayed "you've been added" email** (5-minute delay, re-validated at send time so an undone add never mails, claimed so exactly one worker sends).
+- **MCP search (#366)** — `search_mcps` supports wildcard queries (list everything) and ships a clearer tool description.
+
+## Version 0.0.407 (June 9, 2026)
+- Fix "Shared with me" reports linking to the owner's `/reports/:id` page (which renders blank for non-owners) — they now open the read-only shared conversation view at `/c/:token`. Shared reports without a share token are no longer clickable.
+
+## Version 0.0.406 (June 9, 2026)
+- SQL Server connections can now pass extra ODBC keywords (e.g. `ApplicationIntent=ReadOnly` to route to a read-only Always On replica) via a new optional **Additional Connection Parameters** key-value editor in the connect form. Security-sensitive keys (Encrypt, credentials, driver, server, database) cannot be overridden, and existing connections are unchanged.
+
+## Version 0.0.405 (June 9, 2026)
+- QVD date/timestamp/time fields now load as real DATE/TIMESTAMP/TIME columns instead of raw Excel-style serial numbers, so they filter, sort, and group as dates
+
+## Version 0.0.404 (June 8, 2026)
+- Fix duplicate scheduled emails/reports under multi-worker/replica deployments — each cron fire is now claimed once via a DB-backed lock so exactly one worker runs it (also covers cache warmups, payload purge, and LDAP sync)
+- License expiry now takes effect without a restart, plus a global expiry-countdown banner and a redesigned license settings page (tier/expiry details, expiring-soon and expired states, renew CTA)
+- Small (<10 row) create_data results are no longer sent to Slack/Teams and are auto-collapsed in the report UI, since the agent's text already states the values
+- Manage an agent's primary instruction from the agent page: edit, replace with an existing instruction, or start a training session
+- Many-series (>8) line/bar/area charts now use a scrollable vertical legend docked on the right instead of an overflowing horizontal one
+- Data-source and agent pickers grow to fit long names instead of truncating
+- Fix report auto-title silently not saving (mostly on Postgres) when the background task outlived its DB session
+
+## Version 0.0.403 (June 8, 2026)
+- **Teams** — a reused Teams 1:1 conversation report (up to 5 days old) now re-syncs its data sources to the user's current access on each message, so grants appear and revocations disappear without waiting out the window.
+- **UI** — the data-source members panel relabels the management column to "Management role" and the empty state to "Query only" (was "None"), and clarifies that everyone listed can query the agent and that Remove is what revokes access.
+
+## Version 0.0.402 (June 8, 2026)
+- Admin query-identity toggle for delegated (Entra ID / Microsoft Fabric OBO) connections — admins/owners can now choose, per connection, to run queries as the **service account** (the connection's principal) or as **themselves** (their own delegated/OBO token), from the connection detail modal. Default is "Me": the service principal is never used silently for an admin's interactive queries — if they have no personal token yet, the query is blocked and the UI prompts them to Connect. The selection is persisted per (user, connection) and applied consistently across the tables selector (overlay vs shared catalog), the agent's schema context, and query execution (inspect/create data).
+
+## Version 0.0.401 (June 7, 2026)
+- Agent run activity chart in /monitoring diagnosis — daily agent executions bucketed by status (success/error) with click-to-filter by day, backed by a new diagnosis timeseries endpoint
+- Add a `bagofwords` MCP skill template documenting the core analysis workflow (create report, run tracked queries, build dashboards) for use with the BOW MCP connector
+- MCP error handling: tool-level MCP failures (`isError`) now surface the server's real error message instead of `None`, so the agent can correct course instead of retrying blindly — and failed MCP calls no longer show a misleading green ✓ in the trace
+- MCP planner context: the `execute_mcp` digest now echoes which underlying tool was called and with what arguments (plus the real error on failure), so the planner stops looping through call variants
+- MCP tool UI: the tool card now shows the actual command/input invoked (tool + arguments for `execute_mcp`, query for `search_mcps`, code for `write_csv`), not just the result
+
+## Version 0.0.400 (June 7, 2026)
+- Teradata Vantage data source integration — connect Teradata as a data source, with sample queries included in the client description
+- Generated-code reuse via `load_step`/`load_entity` — the planner and coder now prefer loading a prior step's results over rebuilding from scratch, reducing redundant code generation
+- Fix LLM token-usage undercount in /monitoring (no added latency)
+
+## Version 0.0.399 (June 7, 2026)
+- Fix MCP tool results aborting the agent run: materializing a large/tabular MCP result to a file linked it to the report before the file's id was assigned, causing a foreign-key violation that poisoned the shared transaction (surfaced as "transaction is aborted" / agent execution errors). File linking now happens after the id is set and inside a savepoint, so a materialization failure degrades gracefully instead of failing the whole run. Also restores CSV preview generation, which was silently broken.
+
+## Version 0.0.398 (June 6, 2026)
+- Inbound webhooks for reports — connect GitHub, Jira, or any other service (Generic catch-all) so external events flow into a report's chat. Configure them from the report Summary tab; each report's webhook count shows in the reports list.
+  - Per-webhook signing key with three verification modes: token header (default — a shared secret, works with Jira Cloud and most legacy systems), HMAC signatures (GitHub-native or BOW's own scheme), and URL token (for senders that can only POST). Per-org delivery dedup and rate limiting, plus a one-time URL + key reveal on create/rotate.
+  - Optional small-model AI classifier decides whether an event warrants a response — guided by an optional per-webhook prompt plus your org instructions and the report's conversation — and, when it acts, authors the task the agent runs. The event entry shows a live 👀 (working) → ✅ (done) status; declined events are marked "no action needed".
+  - Gated org-wide by the new "Report Webhooks" setting (on by default), with org limits for max webhooks and delivery rate.
+
+## Version 0.0.396 (June 6, 2026)
+- Star (favorite) reports — starred reports are pinned to the top of /reports. Starring is per-user, so each person keeps their own favorites, and you can star reports shared with you read-only
+
+## Version 0.0.395 (June 6, 2026)
+- Native web search for OpenAI and Azure OpenAI (provider-executed, via the Responses API) — opt-in per provider and gated by the org Web Fetch setting, with a live "Searching the web" step (rendered as a tool with the query + cited sources) and source citations
+
+## Version 0.0.394 (June 6, 2026)
+- Fix scheduled tasks running one weekday late (cron day-of-week off-by-one vs the scheduler), and the schedule editor showing the wrong day
+- Conversation history now records scheduled-task and email actions (so the assistant can dedupe schedules, cancel the right task, and recall what it emailed)
+
+## Version 0.0.393 (June 6, 2026)
+- Scheduled tasks: ask the agent to run something on a recurring schedule (e.g. "email me once a week about ...") — new create/cancel scheduled-task tools, reusing the existing scheduled-prompt UI
+
 ## Version 0.0.392 (June 5, 2026)
 - Major performance & concurrency-reliability improvements (faster completions, fewer stalls under load)
 

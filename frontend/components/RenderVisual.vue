@@ -444,18 +444,46 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
         splitLine: showGrid ? { show: true, lineStyle: { color: gridColor, width: 1 } } : { show: false }
     }
 
-    // Only include legend when it should be shown
-    const legendConfig = legendShouldShow ? {
-        show: true,
-        data: series.map(s => (s as any).name),
-        right: 12,
-        top: 12,
-        itemWidth: 10,
-        itemHeight: 6,
-        icon: 'roundRect'
-    } : { show: false };
+    // Only include legend when it should be shown. With many series a single
+    // horizontal row is useless, so dock a scrollable vertical legend on the
+    // right and reserve grid space for it.
+    const manySeries = series.length > 8;
+    const legendConfig = legendShouldShow
+        ? (manySeries
+            ? {
+                show: true,
+                type: 'scroll',
+                orient: 'vertical' as const,
+                right: 8,
+                top: 8,
+                bottom: 8,
+                data: series.map(s => (s as any).name),
+                itemWidth: 10,
+                itemHeight: 6,
+                icon: 'roundRect',
+                textStyle: { fontSize: 11 },
+                pageButtonItemGap: 4
+            }
+            : {
+                show: true,
+                type: 'scroll',
+                data: series.map(s => (s as any).name),
+                right: 12,
+                top: 12,
+                itemWidth: 10,
+                itemHeight: 6,
+                icon: 'roundRect'
+            })
+        : { show: false };
+
+    // Reserve room on the right for the vertical legend (otherwise it overlaps
+    // the plot). Mirrors the base grid but widens the right gutter.
+    const gridOverride = (legendShouldShow && manySeries)
+        ? { containLabel: true, left: '3%', right: 150, bottom: '10%', top: '12%' }
+        : undefined;
 
     return {
+        ...(gridOverride ? { grid: gridOverride } : {}),
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } }

@@ -241,6 +241,8 @@
       "instructions": "تعليمات"
     },
     "tooltips": {
+      "star": "تمييز بنجمة",
+      "unstar": "إزالة النجمة",
       "hasPage": "يحتوي على عنصر صفحة",
       "hasSlides": "يحتوي على عنصر شرائح",
       "chat": "محادثة",
@@ -252,6 +254,7 @@
       "showing": "عرض {from} إلى {to} من إجمالي {total} تقرير"
     },
     "toasts": {
+      "starFailed": "فشل تحديث التمييز",
       "failedFetch": "تعذّر جلب التقارير",
       "archived": "تمت أرشفة التقرير",
       "archivedDesc": "تمت أرشفة التقرير بنجاح",
@@ -932,7 +935,23 @@
       "successInvited": "تم إرسال الدعوة إلى {email}",
       "rolesUpdated": "تم تحديث الأدوار",
       "failedToUpdateRoles": "تعذّر تحديث الأدوار",
-      "failedToRemoveRole": "تعذّر إزالة الدور"
+      "failedToRemoveRole": "تعذّر إزالة الدور",
+      "selected": "محدد",
+      "bulkAddRole": "إضافة دور",
+      "bulkAddGroup": "إضافة إلى المجموعة",
+      "bulkClear": "مسح",
+      "paginationOf": "من",
+      "statusExpired": "منتهية",
+      "resend": "إعادة الإرسال",
+      "resending": "جارٍ الإرسال…",
+      "failedToResend": "تعذّر إعادة إرسال الدعوة",
+      "inviteResent": "تمت إعادة إرسال الدعوة",
+      "inviteResentNoSmtp": "تم تحديث الدعوة (لم يُرسل البريد — SMTP غير مهيأ)",
+      "inviteResentFailed": "تم تحديث الدعوة، لكن تعذّر إرسال البريد",
+      "copyLink": "نسخ الرابط",
+      "linkCopied": "تم نسخ رابط الدعوة",
+      "failedToCopyLink": "تعذّر نسخ الرابط",
+      "linkRegenerated": "تم تحديث رابط الدعوة ونسخه"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
@@ -1054,7 +1073,17 @@
       "expiresSoon": "ينتهي ترخيصك خلال {days} يومًا. تواصل معنا للتجديد.",
       "enterpriseInfo": "احصل على سجلات التدقيق وإدارة الوصول المتقدمة المستندة إلى الأدوار وسياسات الاحتفاظ بالبيانات مع ترخيص enterprise.",
       "activateHint": "اضبط {envvar} وأعد التشغيل للتفعيل.",
-      "learnMore": "اعرف المزيد ←"
+      "learnMore": "اعرف المزيد ←",
+      "banner": {
+        "expiring": "ينتهي ترخيص enterprise الخاص بك خلال {days} يوم — جدّده لتجنب الانقطاع.",
+        "expired": "انتهت صلاحية ترخيص enterprise الخاص بك — جدّده لاستعادة ميزات enterprise.",
+        "viewLicense": "عرض الترخيص"
+      },
+      "fieldTier": "المستوى",
+      "inDays": "باقٍ {days} يوم",
+      "expiredNotice": "انتهت صلاحية ترخيص enterprise الخاص بك. ميزات enterprise معطّلة حتى التجديد.",
+      "enterpriseTitle": "إصدار enterprise",
+      "renewInfo": "جدّد ترخيصك لاستعادة ميزات enterprise مثل سجلات التدقيق والتحكم المتقدم في الوصول وسياسات الاحتفاظ بالبيانات."
     },
     "mcpModal": {
       "editTitle": "تعديل اتصال MCP",
@@ -1098,6 +1127,10 @@
     "agentsSubtitle": "نظّم الجداول والتعليمات في وكلاء.",
     "searchAgents": "ابحث في وكلاء البيانات…",
     "createAgent": "إنشاء وكيل بيانات",
+    "showAllAgents": "إظهار الكل",
+    "showAllAgentsHint": "عرض المسؤول: تضمين وكلاء البيانات الخاصين الذين لست عضوًا فيهم.",
+    "adminOnlyTag": "مسؤول",
+    "adminOnlyHint": "وكيل بيانات خاص — مرئي لك كمسؤول. لست عضوًا فيه.",
     "trySample": "جرّب قاعدة بيانات تجريبية:",
     "sampleTag": "تجريبي",
     "tables": "جداول",
@@ -2033,6 +2066,7 @@
     "onDay": "في اليوم",
     "active": "نشطة",
     "notifyAfterRun": "إشعار بعد كل تشغيل",
+    "promptSendsEmailHint": "طلبك يتضمن بالفعل إرسال بريد إلكتروني — ستتولى المهمة ذلك بنفسها. فعّل هذا فقط إذا كنت تريد أيضًا رسالة ملخص منفصلة.",
     "emailOrMemberPlaceholder": "بريد إلكتروني أو عضو...",
     "cancel": "إلغاء",
     "update": "تحديث",
@@ -2044,6 +2078,13 @@
     "dowThu": "الخميس",
     "dowFri": "الجمعة",
     "dowSat": "السبت",
+    "dowSunShort": "ح",
+    "dowMonShort": "ن",
+    "dowTueShort": "ث",
+    "dowWedShort": "ر",
+    "dowThuShort": "خ",
+    "dowFriShort": "ج",
+    "dowSatShort": "س",
     "unknownMember": "غير معروف",
     "toastUpdated": "تم تحديث الطلب المُجدوَل",
     "toastScheduled": "تمت جدولة الطلب",

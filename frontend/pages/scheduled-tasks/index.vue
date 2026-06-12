@@ -212,39 +212,7 @@ function formatRelativeTime(dateStr: string): string {
   return t('queries.timeDaysAgo', { n: days })
 }
 
-function getCronLabel(cron?: string): string {
-  if (!cron) return ''
-  const parts = cron.split(' ')
-  if (parts.length < 5) return cron
-  const [min, hour, dom, , dow] = parts
-
-  const isStep = (v: string) => v.startsWith('*/')
-  const stepVal = (v: string) => parseInt(v.slice(2))
-
-  if (isStep(min) && hour === '*') return t('scheduled.everyMinutes', { n: stepVal(min) })
-  if (min !== '*' && isStep(hour)) return t('scheduled.everyHours', { n: stepVal(hour) })
-
-  if (min !== '*' && hour !== '*' && !isStep(hour)) {
-    const h = parseInt(hour)
-    const ampm = h >= 12 ? 'PM' : 'AM'
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-    const time = `${h12}:${min.padStart(2, '0')} ${ampm}`
-
-    if (dow === '*' && dom === '*') return t('scheduled.dailyAt', { time })
-    if (dow !== '*') {
-      const dayKeys: Record<string, string> = {
-        '0': 'scheduled.daySun', '1': 'scheduled.dayMon', '2': 'scheduled.dayTue',
-        '3': 'scheduled.dayWed', '4': 'scheduled.dayThu', '5': 'scheduled.dayFri',
-        '6': 'scheduled.daySat',
-      }
-      const days = dow.split(',').map((d: string) => dayKeys[d] ? t(dayKeys[d]) : d).join(', ')
-      return t('scheduled.daysAt', { days, time })
-    }
-    return t('scheduled.monthlyOn', { day: dom, time })
-  }
-
-  return cron
-}
+const { getCronLabel } = useCronLabel()
 
 let _searchTimer: any = null
 watch(searchTerm, () => {

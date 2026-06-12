@@ -68,7 +68,7 @@
       <template #panel>
         <div class="overflow-visible">
           <!-- Agent list -->
-          <div class="w-56 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
+          <div class="w-max min-w-[14rem] max-w-[24rem] bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
             <div class="p-1.5">
               <div v-if="loading" class="flex items-center justify-center py-6">
                 <Spinner class="w-5 h-5 text-gray-400 animate-spin" />

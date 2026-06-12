@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+from app.ai.code_execution.loadables import extract_loadable_refs
 from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 from app.errors.app_error import AppError
@@ -563,9 +564,9 @@ class CodeExecutionManager:
     async def generate_and_execute_with_retries(self, *args, **kwargs):
         raise RuntimeError("CodeExecutionManager.generate_and_execute_with_retries is deprecated. Use StreamingCodeExecutor.generate_and_execute_stream.")
 
-    def execute_code(self, code: str, db_clients: Dict, excel_files: List):
+    def execute_code(self, code: str, db_clients: Dict, excel_files: List, loadables: Optional[Dict] = None):
         executor = StreamingCodeExecutor(organization_settings=self.organization_settings, logger=self.logger)
-        return executor.execute_code(code=code, ds_clients=db_clients, excel_files=excel_files)
+        return executor.execute_code(code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables)
 
     def format_df_for_widget(self, df: pd.DataFrame, max_rows: Optional[int] = None) -> Dict:
         executor = StreamingCodeExecutor(organization_settings=self.organization_settings, logger=self.logger)
@@ -590,7 +591,8 @@ class StreamingCodeExecutor:
 
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
                      captured_timings: Optional[List[dict]] = None,
-                     captured_queries: Optional[List[str]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                     captured_queries: Optional[List[str]] = None,
+                     loadables: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
 
         captured_timings: if provided, per-query wall-clock timings are appended to this list.
@@ -633,11 +635,17 @@ class StreamingCodeExecutor:
             # asyncio/threading/socket (all of which are AST-forbidden).
             http_client = self._build_http_client()
 
+            # Pre-resolved loadables (see loadables.py). Build pure in-memory
+            # lookup closures — no DB/I/O happens inside the sandbox thread.
+            load_step, load_entity = self._build_loadable_closures(loadables)
+
             local_namespace = {
                 'pd': pd,
                 'np': np,
                 'db_clients': wrapped_clients,
                 'excel_files': excel_files,
+                'load_step': load_step,
+                'load_entity': load_entity,
             }
             if http_client is not None:
                 local_namespace['http'] = http_client
@@ -658,7 +666,8 @@ class StreamingCodeExecutor:
                             if not generate_df:
                                 raise Exception("No generate_df function found in code")
                             df = self._invoke_generate_df(
-                                generate_df, wrapped_clients, excel_files, http_client
+                                generate_df, wrapped_clients, excel_files, http_client,
+                                load_step=load_step, load_entity=load_entity,
                             )
                         output_log = stdout_capture.getvalue()
                     lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - lock_acquired_at) * 1000.0, 3))
@@ -682,32 +691,69 @@ class StreamingCodeExecutor:
         return SafeHttpClient()
 
     @staticmethod
-    def _invoke_generate_df(
-        fn: Callable, wrapped_clients: Dict, excel_files: List, http_client: Optional[SafeHttpClient]
-    ):
-        """Call generate_df, passing `http` only when its signature accepts it.
+    def _build_loadable_closures(loadables: Optional[Dict]):
+        """Build pure-lookup `load_step` / `load_entity` over a resolved registry.
 
-        Keeps two-arg `generate_df(ds_clients, excel_files)` working for code
-        generated before the http-injection prompt update.
+        The registry maps the exact literal ref used in the code to a
+        DataFrame. A miss raises a clear error naming what's available — it
+        only fires for dynamic (non-literal) refs that bypassed pre-resolution.
         """
+        reg = loadables or {}
+        steps = reg.get("steps") or {}
+        entities = reg.get("entities") or {}
+
+        def load_step(id_or_name):
+            key = str(id_or_name)
+            if key in steps:
+                return steps[key].copy()
+            raise KeyError(
+                f"load_step({key!r}) is not available. "
+                f"Loadable steps: {list(steps.keys())}. "
+                f"Use a string-literal id or name so it can be pre-loaded."
+            )
+
+        def load_entity(id_or_name):
+            key = str(id_or_name)
+            if key in entities:
+                return entities[key].copy()
+            raise KeyError(
+                f"load_entity({key!r}) is not available. "
+                f"Loadable entities: {list(entities.keys())}. "
+                f"Use a string-literal id or name so it can be pre-loaded."
+            )
+
+        return load_step, load_entity
+
+    @staticmethod
+    def _invoke_generate_df(
+        fn: Callable, wrapped_clients: Dict, excel_files: List,
+        http_client: Optional[SafeHttpClient],
+        load_step: Optional[Callable] = None, load_entity: Optional[Callable] = None,
+    ):
+        """Call generate_df, binding injectables by parameter name.
+
+        `ds_clients` and `excel_files` are always passed positionally. Any of
+        `http`, `load_step`, `load_entity` are passed by keyword only when the
+        function declares a parameter of that name — so legacy two-arg
+        `(ds_clients, excel_files)` and three-arg `(…, http)` signatures keep
+        working unchanged.
+        """
+        injectables = {
+            "http": http_client,
+            "load_step": load_step,
+            "load_entity": load_entity,
+        }
         try:
-            sig = inspect.signature(fn)
-            params = list(sig.parameters.values())
-            # The prompt asks for `generate_df(ds_clients, excel_files, http)`
-            # — any function declaring a third positional parameter gets `http`.
-            accepts_http = sum(
-                1 for p in params
-                if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-            ) >= 3
+            names = set(inspect.signature(fn).parameters.keys())
         except (TypeError, ValueError):
-            accepts_http = False
-        if accepts_http:
-            return fn(wrapped_clients, excel_files, http_client)
-        return fn(wrapped_clients, excel_files)
+            names = set()
+        kwargs = {k: v for k, v in injectables.items() if k in names}
+        return fn(wrapped_clients, excel_files, **kwargs)
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
                                  captured_timings: Optional[List[dict]] = None,
-                                 captured_queries: Optional[List[str]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                                 captured_queries: Optional[List[str]] = None,
+                                 loadables: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Run execute_code in a thread so it doesn't block the event loop."""
         loop = asyncio.get_running_loop()
         if self.usage_context is not None:
@@ -726,6 +772,7 @@ class StreamingCodeExecutor:
                     excel_files=excel_files,
                     captured_timings=captured_timings,
                     captured_queries=captured_queries,
+                    loadables=loadables,
                 )
 
             result = await loop.run_in_executor(
@@ -1049,6 +1096,7 @@ class StreamingCodeExecutor:
         code_context_builder: Optional['CodeContextBuilder'] = None,
         code_generator_fn: Callable = None,
         sigkill_event=None,
+        loadable_resolver_fn: Optional[Callable] = None,
     ):
         """
         V2: Typed context-based generator. Yields the same event shapes as v1.
@@ -1110,6 +1158,32 @@ class StreamingCodeExecutor:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
+            # Pre-resolve load_step()/load_entity() references before exec. A
+            # resolution miss is folded into the error feedback so the coder
+            # regenerates (same path as a bad column), rather than failing the
+            # sandbox call.
+            loadables = None
+            if loadable_resolver_fn is not None and final_code:
+                try:
+                    step_refs, entity_refs = extract_loadable_refs(final_code)
+                    if step_refs or entity_refs:
+                        resolved = await loadable_resolver_fn(step_refs, entity_refs)
+                        loadables = {
+                            "steps": resolved.get("steps", {}),
+                            "entities": resolved.get("entities", {}),
+                        }
+                        resolve_errors = resolved.get("errors") or []
+                        if resolve_errors:
+                            msg = "Loadable resolution failed: " + " | ".join(resolve_errors)
+                            code_and_error_messages.append((final_code, msg))
+                            yield {"type": "stdout", "payload": msg}
+                            retries += 1
+                            if retries < max_retries:
+                                yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
+                            continue
+                except Exception as e:
+                    yield {"type": "stdout", "payload": f"Loadable resolution error: {str(e)}"}
+
             yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
@@ -1123,6 +1197,7 @@ class StreamingCodeExecutor:
                 exec_df, execution_log, _ = await self.execute_code_async(
                     code=final_code, ds_clients=ds_clients, excel_files=excel_files,
                     captured_timings=query_timings, captured_queries=executed_queries,
+                    loadables=loadables,
                 )
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
                 yield {

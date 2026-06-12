@@ -1,6 +1,8 @@
 import csv
 import io
 import re
+import uuid
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.organization import Organization
@@ -26,13 +28,16 @@ from app.services.llm_service import LLMService
 from app.services.test_suite_service import TestSuiteService
 from app.settings.config import settings
 from fastapi import Request
-from fastapi_mail import FastMail, MessageSchema
-import asyncio
 from typing import Optional
 from app.settings.logging_config import get_logger
 from app.core.telemetry import telemetry
 
 logger = get_logger(__name__)
+
+# How long an invite link stays valid. Resending rotates the token and resets
+# this window.
+INVITE_EXPIRY_DAYS = 14
+
 
 class OrganizationService:
 
@@ -138,65 +143,96 @@ class OrganizationService:
         for membership in memberships:
             schema = MembershipSchema.from_orm(membership)
             if membership.user_id:
-                # Direct role assignments
-                ra_result = await db.execute(
-                    select(RoleAssignment)
-                    .options(selectinload(RoleAssignment.role))
-                    .where(
-                        RoleAssignment.organization_id == organization.id,
-                        RoleAssignment.principal_type == "user",
-                        RoleAssignment.principal_id == membership.user_id,
-                        RoleAssignment.deleted_at.is_(None),
-                    )
+                # Registered user: direct ('user' principal) + group-inherited.
+                schema.roles = await self._resolve_member_roles(
+                    db, organization.id,
+                    direct_principal_type="user",
+                    direct_principal_id=membership.user_id,
+                    group_filter=GroupMembership.user_id == membership.user_id,
                 )
-                assignments = ra_result.scalars().all()
-                roles = [
-                    RoleSummarySchema(id=a.role.id, name=a.role.name, source="direct")
-                    for a in assignments if a.role
-                ]
-
-                # Group-inherited role assignments
-                gm_result = await db.execute(
-                    select(GroupMembership.group_id, Group.name)
-                    .join(Group, Group.id == GroupMembership.group_id)
-                    .where(
-                        GroupMembership.user_id == membership.user_id,
-                        Group.organization_id == organization.id,
-                        GroupMembership.deleted_at.is_(None),
-                        Group.deleted_at.is_(None),
-                    )
+            else:
+                # Pending invite: direct ('membership' principal) +
+                # group-inherited via pending group memberships.
+                schema.roles = await self._resolve_member_roles(
+                    db, organization.id,
+                    direct_principal_type="membership",
+                    direct_principal_id=membership.id,
+                    group_filter=GroupMembership.membership_id == membership.id,
                 )
-                user_groups = gm_result.all()  # [(group_id, group_name), ...]
-
-                if user_groups:
-                    group_ids = [g[0] for g in user_groups]
-                    group_names = {g[0]: g[1] for g in user_groups}
-                    direct_role_ids = {r.id for r in roles}
-
-                    group_ra_result = await db.execute(
-                        select(RoleAssignment)
-                        .options(selectinload(RoleAssignment.role))
-                        .where(
-                            RoleAssignment.organization_id == organization.id,
-                            RoleAssignment.principal_type == "group",
-                            RoleAssignment.principal_id.in_(group_ids),
-                            RoleAssignment.deleted_at.is_(None),
-                        )
-                    )
-                    group_assignments = group_ra_result.scalars().all()
-                    for a in group_assignments:
-                        if a.role and a.role.id not in direct_role_ids:
-                            group_name = group_names.get(a.principal_id, "unknown")
-                            roles.append(RoleSummarySchema(
-                                id=a.role.id,
-                                name=a.role.name,
-                                source=f"group:{group_name}",
-                            ))
-                            direct_role_ids.add(a.role.id)
-
-                schema.roles = roles
             schemas.append(schema)
         return schemas
+
+    async def _resolve_member_roles(
+        self, db: AsyncSession, organization_id: str,
+        direct_principal_type: str, direct_principal_id: str, group_filter,
+    ) -> List["RoleSummarySchema"]:
+        """Resolve a member's direct + group-inherited roles.
+
+        Works for both registered users (principal_type='user', groups joined
+        by user_id) and pending invites (principal_type='membership', groups
+        joined by membership_id).
+        """
+        from app.models.role_assignment import RoleAssignment
+        from app.models.group_membership import GroupMembership
+        from app.models.group import Group
+        from app.schemas.organization_schema import RoleSummarySchema
+
+        # Direct role assignments
+        ra_result = await db.execute(
+            select(RoleAssignment)
+            .options(selectinload(RoleAssignment.role))
+            .where(
+                RoleAssignment.organization_id == organization_id,
+                RoleAssignment.principal_type == direct_principal_type,
+                RoleAssignment.principal_id == direct_principal_id,
+                RoleAssignment.deleted_at.is_(None),
+            )
+        )
+        assignments = ra_result.scalars().all()
+        roles = [
+            RoleSummarySchema(id=a.role.id, name=a.role.name, source="direct")
+            for a in assignments if a.role
+        ]
+
+        # Group-inherited role assignments
+        gm_result = await db.execute(
+            select(GroupMembership.group_id, Group.name)
+            .join(Group, Group.id == GroupMembership.group_id)
+            .where(
+                group_filter,
+                Group.organization_id == organization_id,
+                GroupMembership.deleted_at.is_(None),
+                Group.deleted_at.is_(None),
+            )
+        )
+        member_groups = gm_result.all()  # [(group_id, group_name), ...]
+
+        if member_groups:
+            group_ids = [g[0] for g in member_groups]
+            group_names = {g[0]: g[1] for g in member_groups}
+            seen_role_ids = {r.id for r in roles}
+
+            group_ra_result = await db.execute(
+                select(RoleAssignment)
+                .options(selectinload(RoleAssignment.role))
+                .where(
+                    RoleAssignment.organization_id == organization_id,
+                    RoleAssignment.principal_type == "group",
+                    RoleAssignment.principal_id.in_(group_ids),
+                    RoleAssignment.deleted_at.is_(None),
+                )
+            )
+            for a in group_ra_result.scalars().all():
+                if a.role and a.role.id not in seen_role_ids:
+                    group_name = group_names.get(a.principal_id, "unknown")
+                    roles.append(RoleSummarySchema(
+                        id=a.role.id,
+                        name=a.role.name,
+                        source=f"group:{group_name}",
+                    ))
+                    seen_role_ids.add(a.role.id)
+
+        return roles
     
     async def get_member(self, db: AsyncSession, membership_id: str, organization_id: str, current_user: User) -> MembershipSchema:
         result = await db.execute(
@@ -227,6 +263,10 @@ class OrganizationService:
             membership_data.email = None
 
         membership = Membership(**membership_data.dict())
+        # Pending (unregistered) invite → stamp a 14-day expiry on the invite
+        # link. invite_token is auto-generated by the model default.
+        if membership.user_id is None:
+            membership.invite_expires_at = datetime.utcnow() + timedelta(days=INVITE_EXPIRY_DAYS)
 
         db.add(membership)
         await db.commit()
@@ -255,15 +295,29 @@ class OrganizationService:
         except Exception:
             pass
         
-        # Send invitation email if email client is configured
-        if hasattr(settings, 'email_client') and settings.email_client and invitation_email:
-            await self._send_invitation_email(membership_with_user, invitation_email)
+        # Send invitation email immediately, but reliably: awaited (so we know
+        # the real outcome), retried on transient SMTP errors, and timeout-bounded
+        # so a hung relay can't block the request. The outcome is surfaced on the
+        # response so the admin UI can warn instead of silently "succeeding".
+        # Only pending invites get a sign-up email (existing users already have
+        # an account). The link carries the invite token so the recipient can
+        # be verified at registration time.
+        invite_email_status: Optional[str] = None
+        if invitation_email and membership_with_user.user_id is None:
+            if not (hasattr(settings, 'email_client') and settings.email_client):
+                invite_email_status = "skipped_no_smtp"
+            else:
+                invite_email_status = await self._send_invitation_email(
+                    invitation_email, membership_with_user.invite_token
+                )
 
         # Create RBAC role_assignment if user_id is set
         if membership_with_user.user_id and membership_data.role:
             await self._assign_system_role(db, membership_data.organization_id, membership_with_user.user_id, membership_data.role)
 
-        return MembershipSchema.from_orm(membership_with_user)
+        schema = MembershipSchema.from_orm(membership_with_user)
+        schema.invite_email_status = invite_email_status
+        return schema
     
     async def get_user_organizations(self, db: AsyncSession, current_user: User) -> List[OrganizationAndRoleSchema]:
         from app.core.permission_resolver import resolve_permissions
@@ -337,6 +391,30 @@ class OrganizationService:
         if membership.user_id:
             # RBAC lockout prevention: ensure at least one user keeps full_admin_access
             await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
+        else:
+            # Pending invite: clean up any pre-assigned RBAC keyed by this
+            # membership. Done explicitly (not via FK cascade) so it holds on
+            # SQLite, where foreign-key enforcement is off by default.
+            from app.models.role_assignment import RoleAssignment
+            from app.models.group_membership import GroupMembership
+            from app.models.usage_policy import UsagePolicyAssignment
+            await db.execute(
+                delete(RoleAssignment).where(
+                    RoleAssignment.organization_id == organization_id,
+                    RoleAssignment.principal_type == "membership",
+                    RoleAssignment.principal_id == membership_id,
+                )
+            )
+            await db.execute(
+                delete(GroupMembership).where(GroupMembership.membership_id == membership_id)
+            )
+            await db.execute(
+                delete(UsagePolicyAssignment).where(
+                    UsagePolicyAssignment.organization_id == organization_id,
+                    UsagePolicyAssignment.principal_type == "membership",
+                    UsagePolicyAssignment.principal_id == membership_id,
+                )
+            )
 
         await db.execute(delete(Membership).where(Membership.id == membership_id))
         await db.commit()
@@ -368,6 +446,76 @@ class OrganizationService:
             .where(Membership.id == membership.id)
         )
         return MembershipSchema.from_orm(result.scalar_one())
+
+    async def resend_invite(self, db: AsyncSession, membership_id: str, organization_id: str) -> MembershipSchema:
+        """Rotate the invite token, reset the 14-day expiry, and re-send the email.
+
+        Pending invites only (a registered member has no invite to resend). The
+        old link stops working as soon as the token is rotated.
+        """
+        membership = await self.get_member(db, membership_id, organization_id, None)
+        if not membership:
+            raise HTTPException(status_code=404, detail="Membership not found")
+        if membership.user_id is not None or not membership.email:
+            raise HTTPException(status_code=400, detail="This member has already registered; nothing to resend")
+
+        membership.invite_token = str(uuid.uuid4())
+        membership.invite_expires_at = datetime.utcnow() + timedelta(days=INVITE_EXPIRY_DAYS)
+        await db.commit()
+        await db.refresh(membership)
+
+        status = None
+        if hasattr(settings, 'email_client') and settings.email_client:
+            status = await self._send_invitation_email(membership.email, membership.invite_token)
+        else:
+            status = "skipped_no_smtp"
+
+        result = await db.execute(
+            select(Membership).options(selectinload(Membership.user)).where(Membership.id == membership.id)
+        )
+        schema = MembershipSchema.from_orm(result.scalar_one())
+        schema.invite_email_status = status
+        return schema
+
+    async def get_invite_link(self, db: AsyncSession, membership_id: str, organization_id: str) -> dict:
+        """Return the tokenized sign-up link for a pending invite (admin use).
+
+        Lets an admin copy/share the link directly (handy when SMTP is off) and
+        is the proof-of-invite the recipient presents at registration. If the
+        invite has already expired, the token is regenerated and the 14-day
+        window reset so the copied link is always usable (no email is sent —
+        that's what Resend does). A still-valid link is returned untouched so we
+        don't invalidate one that was already emailed.
+        """
+        from urllib.parse import quote
+
+        membership = await self.get_member(db, membership_id, organization_id, None)
+        if not membership:
+            raise HTTPException(status_code=404, detail="Membership not found")
+        if membership.user_id is not None or not membership.email:
+            raise HTTPException(status_code=400, detail="This member has already registered; no invite link")
+
+        expires = membership.invite_expires_at
+        regenerated = False
+        if not membership.invite_token or (expires is not None and expires < datetime.utcnow()):
+            membership.invite_token = str(uuid.uuid4())
+            membership.invite_expires_at = datetime.utcnow() + timedelta(days=INVITE_EXPIRY_DAYS)
+            await db.commit()
+            await db.refresh(membership)
+            regenerated = True
+
+        token = membership.invite_token
+        url = (
+            f"{settings.bow_config.base_url}/users/sign-up"
+            f"?token={quote(token or '')}&email={quote(membership.email)}"
+        )
+        return {
+            "token": token,
+            "email": membership.email,
+            "url": url,
+            "invite_expires_at": membership.invite_expires_at,
+            "regenerated": regenerated,
+        }
 
     async def update_organization(self, db: AsyncSession, organization: Organization, data: OrganizationUpdate, current_user: User) -> OrganizationSchema:
         """Update organization basic fields like name/description."""
@@ -409,26 +557,34 @@ class OrganizationService:
                 count += 1
         return count
     
-    async def _send_invitation_email(self, membership: Membership, email: str):
-        sign_up_url = settings.bow_config.base_url + "/users/sign-up?email=" + email
+    async def _send_invitation_email(self, email: str, token: Optional[str] = None) -> str:
+        """Send the invite email now, reliably. Returns "sent" or "failed".
 
-        message = MessageSchema(
-            subject="You are invited to Bag of words",
+        Awaited (not fire-and-forget) so the caller knows the real outcome,
+        with a couple of retries for transient SMTP blips and a per-attempt
+        timeout so a hung relay can't stall the invite request. The link carries
+        the invite token (proof of inbox ownership at registration).
+        """
+        from urllib.parse import quote
+        from app.services.notification_service import notification_service
+        from app.services.email_copy import invite_email
+
+        params = f"email={quote(email)}"
+        if token:
+            params = f"token={quote(token)}&{params}"
+        sign_up_url = f"{settings.bow_config.base_url}/users/sign-up?{params}"
+        subject, body = invite_email(sign_up_url)
+        result = await notification_service.send_custom_email(
             recipients=[email],
-            body=f"You have been invited to join an organization on Bag of words. Click to sign up: <br /> {sign_up_url}",
-            subtype="html")
-        fm = settings.email_client
-        logger.info(f"Using email client: {fm}")
-
-        async def send_email():
-            logger.info(f"Sending invitation email to: {email}")
-            try:
-                await fm.send_message(message)
-                logger.info(f"Invitation email sent successfully to: {email}")
-            except Exception as e:
-                logger.error(f"Error sending invitation email: {e}")
-
-        asyncio.create_task(send_email())
+            subject=subject,
+            body=body,
+            subtype="plain",
+            retries=2,
+            timeout=15,
+        )
+        if result.status != "sent":
+            logger.error("Invitation email to %s failed: %s", email, result.error)
+        return result.status
 
 
     async def get_organization_members(self, db: AsyncSession, current_user: User, organization: Organization) -> List[UserSchema]:

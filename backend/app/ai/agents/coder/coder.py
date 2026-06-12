@@ -320,7 +320,9 @@ class Coder:
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
 
-        result = await asyncio.to_thread(self.llm.inference, text)
+        result = await asyncio.to_thread(
+            self.llm.inference, text, usage_scope="create_data.code_gen"
+        )
 
         # Remove markdown code fence (with optional language tag) if present
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
@@ -332,6 +334,42 @@ class Coder:
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
         return result
     
+    @staticmethod
+    def _build_reuse_directive(loadables_context: str, prompt_text: str) -> str:
+        """Force load_step reuse when the user refers to an available step.
+
+        Detected programmatically (not left to the model) so a weak model can't
+        drift back to writing SQL from scratch. Returns "" when nothing matches.
+        """
+        if not loadables_context:
+            return ""
+        import re as _re
+        titles = _re.findall(r'<step\b[^>]*\btitle="([^"]+)"', loadables_context)
+        if not titles:
+            return ""
+        low = (prompt_text or "").lower()
+        referenced = [t for t in titles if t and t.lower() in low]
+        reuse_words = (
+            "load_step", "reuse", "re-use", "the step", "that step", "you built",
+            "you just", "previous", "earlier", "existing", "already built",
+        )
+        has_reuse_language = any(w in low for w in reuse_words)
+        if referenced:
+            name = referenced[0]
+            return (
+                "**REUSE REQUIRED (do not write SQL from scratch):** The user is referring to the "
+                f'existing step "{name}" listed in <available_steps>. You MUST add `load_step` to your '
+                f'signature and start from `load_step("{name}")`, then transform that DataFrame to '
+                "answer the request. Do NOT re-query the database or fabricate/hardcode data to reconstruct it."
+            )
+        if has_reuse_language:
+            return (
+                "**PREFER REUSE:** The user appears to be referring to data already built in "
+                '<available_steps>. Prefer loading it with `load_step("<name>")` over re-querying or '
+                "rebuilding from scratch. Do NOT fabricate data."
+            )
+        return ""
+
     async def generate_code(
         self,
         data_model,  # kept for signature compatibility; ignored
@@ -357,6 +395,7 @@ class Coder:
             instructions_context = context.instructions_context or ""
             mentions_context = context.mentions_context or "<mentions>No mentions for this turn</mentions>"
             entities_context = context.entities_context or ""
+            loadables_context = context.loadables_context or ""
             messages_context = context.messages_context or ""
             resources_context = context.resources_context or ""
             files_context = context.files_context or ""
@@ -368,6 +407,13 @@ class Coder:
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
             data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            # If the user is clearly referring to a step we can load, force reuse
+            # via load_step instead of writing SQL from scratch. Detected here (not
+            # left to the model) so a weak model can't drift back to re-querying.
+            reuse_directive = self._build_reuse_directive(
+                loadables_context,
+                f"{context.user_prompt or ''}\n{context.interpreted_prompt or ''}",
+            )
             # Retrieve top successful snippets based on targeted tables if provided
             similar_successful_code_snippets = ""
             try:
@@ -407,6 +453,7 @@ class Coder:
 
             Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
             that produces a Pandas DataFrame grounded only in the provided schemas and resources.
+            {reuse_directive}
 
             **Organization Instructions** (authored by the user; apply them):
             {instructions_context}
@@ -444,6 +491,9 @@ class Coder:
             - Entities:
             {entities_context}
 
+            - Available steps (loadable via load_step):
+            {loadables_context}
+
             - Messages (recent):
             <messages>
             {messages_context}
@@ -471,6 +521,7 @@ class Coder:
             1. **Function Signature**: Implement either:
                `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
                `def generate_df(ds_clients, excel_files, http):` — when fetching URLs (see HTTP section below).
+               - You may also add `load_step` and/or `load_entity` parameters to reuse existing results (see section 2a), e.g. `def generate_df(ds_clients, excel_files, load_step):`.
                - The function should return the main dataframe that answers the user prompt.
 
             1a. **HTTP client (when the task involves URLs)**:
@@ -511,6 +562,20 @@ class Coder:
                - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
                - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
+            2a. **Reusing existing results (load_step / load_entity)** — IMPORTANT:
+               - When the user refers to data they already built (e.g. "the Customer Sales step", "the step you just built", "reuse ...") or asks you NOT to re-query, you MUST load that data with `load_step` rather than re-querying or inventing it. **NEVER fabricate, hardcode, or randomly generate rows** to stand in for real data — load the real step/entity instead.
+               - To use them, add the parameters to your signature, e.g. `def generate_df(ds_clients, excel_files, load_step, load_entity):` (any subset, in any order after `excel_files`).
+               - `load_step("<id or name>")` returns a pandas DataFrame for a prior step in THIS report. Choose one from the `<available_steps>` section above (match its `id`, `slug`, or `title` exactly).
+               - Do NOT reload a prior step's data with `pd.read_csv(...)` or by reading from `excel_files` — those are for user-uploaded files only. To reuse a previous step, use `load_step(...)`.
+               - `load_entity("<id or name>")` returns a pandas DataFrame for a published catalog entity from the `<entities>` section.
+               - **The argument MUST be a string literal** (e.g. `load_step("Customer Sales")`), not a variable — it is pre-resolved before your code runs.
+               - Returned data is a **cached snapshot**: it may be row-capped (~1000 rows) and date/decimal columns arrive as strings. Treat it as a reference/lookup table; use `pd.to_datetime(...)`/`.astype(...)` if you need typed values before joining.
+               - Example — add a column to a prior step without touching the database:
+                 `def generate_df(ds_clients, excel_files, load_step):`
+                 `    df = load_step("Customer Sales")`
+                 `    df["tier"] = df["TotalSales"].astype(float).apply(lambda v: "High" if v >= 40 else "Low")`
+                 `    return df`
+
             3. **Schema Adherence**:
                - Use only columns and relationships that exist in the provided schemas.
                - Do not invent columns that do not exist or cannot be derived.
@@ -550,6 +615,7 @@ class Coder:
                 span.set_attribute("coder.allow_llm_see_data", bool(self.enable_llm_see_data))
                 async for evt in self.llm.inference_stream_v2(
                     messages=[Message(role="user", content=text)],
+                    usage_scope="create_data.code_gen",
                 ):
                     if isinstance(evt, TextDeltaEvent):
                         chunks.append(evt.text)
@@ -678,6 +744,7 @@ class Coder:
         chunks: list[str] = []
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
+            usage_scope="create_data.inspection",
         ):
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)

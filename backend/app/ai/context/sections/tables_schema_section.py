@@ -165,6 +165,14 @@ class TablesSchemaContext(ContextSection):
                 if conn_id != 'default':
                     conn_attrs["id"] = conn_id
                 conn_parts.append(xml_tag("connection", "\n".join(tool_xmls), conn_attrs))
+            # Only tool names + descriptions are listed above — not argument
+            # schemas. Tell the agent to fetch the exact schema before calling,
+            # so it doesn't guess argument names and burn turns on failed calls.
+            conn_parts.append(
+                "<note>Only tool names and descriptions are shown above, not their argument schemas. "
+                "Call search_mcps to get a tool's full input schema (exact argument names and types) "
+                "before calling execute_mcp — do not guess arguments.</note>"
+            )
             return xml_tag("mcp_tools", "\n".join(conn_parts))
 
         def render(self) -> str:

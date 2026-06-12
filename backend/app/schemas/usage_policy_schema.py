@@ -10,8 +10,10 @@ class UsagePolicyAssignmentInput(BaseModel):
     @field_validator("principal_type")
     @classmethod
     def valid_principal_type(cls, value: str) -> str:
-        if value not in {"user", "group", "role"}:
-            raise ValueError("principal_type must be user, group, or role")
+        # "membership" targets a pending (unregistered) invite; it is rewritten
+        # to a "user" principal when the invitee registers.
+        if value not in {"user", "group", "role", "membership"}:
+            raise ValueError("principal_type must be user, group, role, or membership")
         return value
 
 

@@ -241,6 +241,8 @@
       "instructions": "instruktioner"
     },
     "tooltips": {
+      "star": "Stjärnmärk",
+      "unstar": "Ta bort stjärnmärkning",
       "hasPage": "Har sidartefakt",
       "hasSlides": "Har bildspelsartefakt",
       "chat": "Chatt",
@@ -252,6 +254,7 @@
       "showing": "Visar {from} till {to} av {total} rapporter"
     },
     "toasts": {
+      "starFailed": "Det gick inte att uppdatera stjärnmärkningen",
       "failedFetch": "Det gick inte att hämta rapporterna",
       "archived": "Rapport arkiverad",
       "archivedDesc": "Rapporten arkiverades",
@@ -932,7 +935,23 @@
       "successInvited": "Inbjudan skickad till {email}",
       "rolesUpdated": "Roller uppdaterade",
       "failedToUpdateRoles": "Det gick inte att uppdatera rollerna",
-      "failedToRemoveRole": "Det gick inte att ta bort rollen"
+      "failedToRemoveRole": "Det gick inte att ta bort rollen",
+      "selected": "valda",
+      "bulkAddRole": "Lägg till roll",
+      "bulkAddGroup": "Lägg till i grupp",
+      "bulkClear": "Rensa",
+      "paginationOf": "av",
+      "statusExpired": "Utgången",
+      "resend": "Skicka igen",
+      "resending": "Skickar…",
+      "failedToResend": "Det gick inte att skicka inbjudan igen",
+      "inviteResent": "Inbjudan skickad igen",
+      "inviteResentNoSmtp": "Inbjudan uppdaterad (e-post skickades inte — SMTP ej konfigurerat)",
+      "inviteResentFailed": "Inbjudan uppdaterad, men e-posten kunde inte skickas",
+      "copyLink": "Kopiera länk",
+      "linkCopied": "Inbjudningslänk kopierad",
+      "failedToCopyLink": "Det gick inte att kopiera länken",
+      "linkRegenerated": "Inbjudningslänk uppdaterad och kopierad"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
@@ -1054,7 +1073,17 @@
       "expiresSoon": "Din licens går ut om {days} dagar. Kontakta oss för att förnya.",
       "enterpriseInfo": "Lås upp granskningsloggar, avancerad rollbaserad åtkomstkontroll och datalagringspolicyer med en enterprise-licens.",
       "activateHint": "Ange {envvar} och starta om för att aktivera.",
-      "learnMore": "Läs mer →"
+      "learnMore": "Läs mer →",
+      "banner": {
+        "expiring": "Din enterprise-licens går ut om {days} dagar — förnya för att undvika avbrott.",
+        "expired": "Din enterprise-licens har gått ut — förnya för att återställa enterprise-funktioner.",
+        "viewLicense": "Visa licens"
+      },
+      "fieldTier": "Nivå",
+      "inDays": "{days} dagar kvar",
+      "expiredNotice": "Din enterprise-licens har gått ut. Enterprise-funktioner är inaktiverade tills du förnyar.",
+      "enterpriseTitle": "Enterprise-utgåva",
+      "renewInfo": "Förnya din licens för att återställa enterprise-funktioner som granskningsloggar, avancerad åtkomstkontroll och datalagringspolicyer."
     },
     "mcpModal": {
       "editTitle": "Redigera MCP-anslutning",
@@ -1098,6 +1127,10 @@
     "agentsSubtitle": "Organisera tabeller och instruktioner i agenter.",
     "searchAgents": "Sök dataagenter…",
     "createAgent": "Skapa dataagent",
+    "showAllAgents": "Visa alla",
+    "showAllAgentsHint": "Adminvy: inkludera privata dataagenter som du inte är medlem i.",
+    "adminOnlyTag": "Admin",
+    "adminOnlyHint": "Privat dataagent – synlig för dig som admin. Du är inte medlem.",
     "trySample": "Prova en exempeldatabas:",
     "sampleTag": "exempel",
     "tables": "tabeller",
@@ -2033,6 +2066,7 @@
     "onDay": "den dag",
     "active": "Aktiv",
     "notifyAfterRun": "Avisera efter varje körning",
+    "promptSendsEmailHint": "Din uppmaning ber redan om att skicka ett e-postmeddelande — uppgiften sköter det själv. Aktivera detta endast om du även vill ha ett separat sammanfattningsmejl.",
     "emailOrMemberPlaceholder": "E-post eller medlem...",
     "cancel": "Avbryt",
     "update": "Uppdatera",
@@ -2044,6 +2078,13 @@
     "dowThu": "Tor",
     "dowFri": "Fre",
     "dowSat": "Lör",
+    "dowSunShort": "S",
+    "dowMonShort": "M",
+    "dowTueShort": "T",
+    "dowWedShort": "O",
+    "dowThuShort": "T",
+    "dowFriShort": "F",
+    "dowSatShort": "L",
     "unknownMember": "Okänd",
     "toastUpdated": "Schemalagd prompt uppdaterad",
     "toastScheduled": "Prompt schemalagd",

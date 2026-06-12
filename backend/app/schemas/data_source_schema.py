@@ -64,6 +64,12 @@ class DataSourceUserStatus(BaseModel):
     effective_auth: Literal["user", "system", "none"] = "none"
     uses_fallback: bool = False
     credentials_id: Optional[str] = None
+    # Admin query-identity toggle (delegated/OBO connections only).
+    # query_identity: which identity the user's queries run under — "self" (their own
+    #   delegated token) or "service_account" (the connection's system/principal creds).
+    # can_switch_identity: whether this user (admin/owner) may flip the toggle.
+    query_identity: Optional[Literal["self", "service_account"]] = None
+    can_switch_identity: bool = False
 
 
 class ConnectionEmbedded(BaseModel):
@@ -190,6 +196,12 @@ class DataSourceListItemSchema(BaseModel):
     type: Optional[str] = None
     auth_policy: Optional[str] = None
     user_status: Optional[DataSourceUserStatus] = None
+
+    # True only when this private data source is visible solely because the
+    # caller used the admin "show all" view (full_admin_access /
+    # manage_connections) — i.e. it's not public and they hold no explicit
+    # membership. Lets the UI flag it as an admin-only/governance entry.
+    admin_only: bool = False
 
     class Config:
         from_attributes = True

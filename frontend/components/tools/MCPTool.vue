@@ -25,6 +25,23 @@
     <!-- Expandable content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-1.5">
+        <!-- Command (input) -->
+        <div v-if="command" class="group">
+          <div
+            class="flex items-center text-[11px] text-gray-500 cursor-pointer hover:text-gray-600 mb-0.5"
+            @click="showCommand = !showCommand"
+          >
+            <Icon
+              :name="showCommand ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+              class="w-2.5 h-2.5 me-1 text-gray-400 rtl-flip"
+            />
+            <span>{{ $t('tools.common.input') }}</span>
+          </div>
+          <div v-if="showCommand" class="max-h-28 overflow-auto rounded bg-gray-50 border border-gray-100">
+            <pre class="text-[10px] leading-tight text-gray-600 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ command }}</pre>
+          </div>
+        </div>
+
         <!-- Result preview -->
         <div v-if="preview" class="group">
           <div
@@ -72,6 +89,7 @@ const props = defineProps<{
 
 const isExpanded = ref(false)
 const showPreview = ref(true)
+const showCommand = ref(true)
 
 const status = computed(() => props.toolExecution?.status || '')
 const toolName = computed(() => props.toolExecution?.tool_name || '')
@@ -112,6 +130,29 @@ const doneLabel = computed(() => {
     return rows ? t('tools.common.rows', { n: rows }) : 'CSV'
   }
   return 'MCP tool'
+})
+
+// The actual call being made — surfaced so users can see WHAT was invoked,
+// not just the result. execute_mcp: the underlying tool + its arguments.
+// search_mcps / write_csv: the relevant query/code input.
+const command = computed(() => {
+  const a = args.value || {}
+  if (toolName.value === 'execute_mcp') {
+    const called = a.tool_name
+    if (!called) return ''
+    const toolArgs = a.arguments
+    if (toolArgs && Object.keys(toolArgs).length) {
+      return `${called}(${JSON.stringify(toolArgs, null, 2)})`
+    }
+    return `${called}()`
+  }
+  if (toolName.value === 'search_mcps') {
+    return a.query ? `query: ${a.query}` : ''
+  }
+  if (toolName.value === 'write_csv') {
+    return a.code || ''
+  }
+  return ''
 })
 
 const preview = computed(() => {

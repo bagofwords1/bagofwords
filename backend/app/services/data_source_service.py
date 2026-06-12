@@ -491,6 +491,18 @@ class DataSourceService:
             additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
             if additional_user_ids:
                 await self._create_memberships(db, new_data_source, additional_user_ids)
+                # Notify each newly added member (delayed; only if SMTP configured).
+                try:
+                    from app.services.data_source_member_email import schedule_member_added_email
+                    for uid in additional_user_ids:
+                        schedule_member_added_email(
+                            data_source_id=str(new_data_source.id),
+                            user_id=str(uid),
+                            added_by_user_id=str(current_user.id),
+                            organization_id=str(organization.id),
+                        )
+                except Exception as e:
+                    logger.warning("Could not schedule member-added emails on create: %s", e)
 
         # Save tables (validation already passed above)
         # Note: Description, conversation starters, and instructions are generated
@@ -875,18 +887,34 @@ class DataSourceService:
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return list_available_data_sources()
     
-    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceListItemSchema]:
+    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization, show_all: bool = False) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
         # Table count is fetched separately via COUNT query in _build_connections_list
-        # NOTE: scope this to *explicit* memberships even for admins so the
-        # default list isn't flooded with every DS in the org. Admins keep
-        # capability bypass and can still open any DS via direct URL.
-        from app.core.permission_resolver import get_member_data_source_ids
+        # NOTE: by default we scope this to *explicit* memberships even for
+        # admins so the list isn't flooded with every DS in the org. Admins
+        # keep capability bypass and can still open any DS via direct URL.
+        #
+        # When ``show_all`` is requested AND the caller holds org-wide
+        # data-source governance (full_admin_access / manage_connections), we
+        # drop the membership filter and return every DS in the org. This is
+        # the admin "show all" view on the agents page. Per-DS ``manage`` does
+        # NOT unlock this (see can_view_all_data_sources).
+        from app.core.permission_resolver import (
+            get_member_data_source_ids,
+            can_view_all_data_sources,
+        )
         member_ids = await get_member_data_source_ids(
             db, str(current_user.id), str(organization.id)
         )
+        member_id_set = {str(m) for m in member_ids}
+
+        show_all_effective = False
+        if show_all:
+            show_all_effective = await can_view_all_data_sources(
+                db, str(current_user.id), str(organization.id)
+            )
 
         # lazyload("*") suppresses the model-level lazy="selectin" cascade
         # (reports, instructions, entities, files, …); without it, listing
@@ -902,10 +930,11 @@ class DataSourceService:
             )
             .filter(DataSource.organization_id == organization.id)
         )
-        clauses = [DataSource.is_public == True]
-        if member_ids:
-            clauses.append(DataSource.id.in_(member_ids))
-        query = query.filter(or_(*clauses))
+        if not show_all_effective:
+            clauses = [DataSource.is_public == True]
+            if member_ids:
+                clauses.append(DataSource.id.in_(member_ids))
+            query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
         # Build list with connection info (no live test for list to keep it fast)
@@ -932,6 +961,13 @@ class DataSourceService:
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
                 user_status=connections_list[0].user_status if connections_list else None,
+                # Flag entries surfaced only by the admin "show all" view:
+                # private and not an explicit membership of the caller.
+                admin_only=(
+                    show_all_effective
+                    and not bool(d.is_public)
+                    and str(d.id) not in member_id_set
+                ),
             )
             schemas.append(s)
         return schemas
@@ -1396,57 +1432,12 @@ class DataSourceService:
         )
         row = row.scalars().first()
         if not row:
-            # Check connection-level credentials (stored by OAuth flow)
-            from app.models.user_connection_credentials import UserConnectionCredentials
-            conn_cred_result = await db.execute(
-                select(UserConnectionCredentials)
-                .where(
-                    UserConnectionCredentials.connection_id == str(conn.id),
-                    UserConnectionCredentials.user_id == str(current_user.id),
-                    UserConnectionCredentials.is_active == True,
-                )
-                .order_by(UserConnectionCredentials.is_primary.desc(), UserConnectionCredentials.updated_at.desc())
-            )
-            conn_cred = conn_cred_result.scalars().first()
-            if conn_cred:
-                if conn_cred.auth_mode == "oauth":
-                    try:
-                        from app.services.connection_oauth_service import maybe_refresh_oauth_credentials
-                        return await maybe_refresh_oauth_credentials(db, conn, conn_cred)
-                    except Exception:
-                        return conn_cred.decrypt_credentials()
-                return conn_cred.decrypt_credentials() or {}
-
-            # Owner/admin fallback: allow creator or admin to use system creds if present
-            try:
-                is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
-            except Exception:
-                is_owner = False
-            # Admin-level access gate: full_admin or per-DS `manage` grant
-            has_update_perm = False
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db,
-                    str(current_user.id),
-                    str(getattr(data_source, "organization_id", "")),
-                )
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
-                )
-            except Exception:
-                has_update_perm = False
-            if is_owner or has_update_perm:
-                # Owner/admin can use system credentials (or empty creds for data sources like SQLite)
-                if conn.credentials:
-                    try:
-                        return conn.decrypt_credentials() or {}
-                    except Exception:
-                        pass
-                # Return empty dict for data sources that don't require credentials (e.g., SQLite)
-                return {}
-            raise HTTPException(status_code=403, detail="User credentials required for this data source")
+            # No data-source-level creds — delegate to the connection-level resolver,
+            # the single source of truth for delegated/OBO tokens, the admin
+            # query-identity toggle, OAuth refresh, the legacy owner/admin system
+            # fallback, and the "connect required" 403.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, conn, current_user)
         return row.decrypt_credentials() or {}
 
     async def construct_client(self, db: AsyncSession, data_source: DataSource, current_user: User | None):
@@ -1488,6 +1479,47 @@ class DataSourceService:
         except Exception:
             allowed = params
         return ClientClass(**allowed)
+
+    async def filter_user_visible_data_sources(
+        self,
+        db: AsyncSession,
+        data_sources: list,
+        current_user: User | None,
+        organization: Organization,
+    ) -> list:
+        """Keep only data sources the user is allowed to SEE.
+
+        Visibility (public OR explicit member/grant OR org-wide DS governance)
+        is distinct from usability (credentials, handled by
+        filter_user_usable_data_sources). A report's attached data sources are
+        trusted input from whoever created it, so when a *different* user reads
+        that report's context over MCP we must re-filter by their visibility —
+        otherwise a private data source's schema leaks to a non-member.
+
+        With no current_user (system/scheduled contexts) nothing is filtered.
+        """
+        if current_user is None:
+            return list(data_sources or [])
+
+        from app.core.permission_resolver import (
+            get_member_data_source_ids,
+            can_view_all_data_sources,
+        )
+
+        if await can_view_all_data_sources(
+            db, str(current_user.id), str(organization.id)
+        ):
+            return list(data_sources or [])
+
+        member_ids = set(
+            await get_member_data_source_ids(
+                db, str(current_user.id), str(organization.id)
+            )
+        )
+        return [
+            ds for ds in (data_sources or [])
+            if getattr(ds, "is_public", False) or str(ds.id) in member_ids
+        ]
 
     async def filter_user_usable_data_sources(
         self,
@@ -1551,6 +1583,23 @@ class DataSourceService:
         """
         import inspect
         from typing import Dict, Any
+
+        # Access backstop: never build a credentialed client for a data source
+        # the requesting user can't access. This is the deepest chokepoint — every
+        # path (main agent, MCP create/inspect_data, file tools) builds clients
+        # here, so gating here makes execute_query unreachable for unauthorized
+        # sources regardless of what a (possibly stale or hand-crafted) report
+        # snapshot claims. `current_user is None` means a trusted system/scheduled
+        # context, which is not filtered (mirrors filter_user_*_data_sources).
+        if current_user is not None:
+            from app.core.permission_resolver import user_can_access_data_source
+            if not await user_can_access_data_source(
+                db, str(current_user.id), str(data_source.organization_id), data_source
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"You do not have access to data source '{data_source.name}'",
+                )
 
         if not data_source.connections:
             raise HTTPException(status_code=400, detail="Data source has no associated connections")
@@ -1641,8 +1690,9 @@ class DataSourceService:
         """
         auth_policy = connection.auth_policy or "system_only"
 
-        # For user_required, try to get user credentials first
+        # For user_required, resolve per-user credentials.
         if auth_policy == "user_required" and current_user:
+            # Data-source-level per-user creds (legacy user/pass keyed on the DS).
             from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
             u_svc = UserDataSourceCredentialsService()
             try:
@@ -1652,64 +1702,13 @@ class DataSourceService:
             except Exception:
                 pass
 
-            # Per-user sign-in (OBO / "Connect") saves credentials at the
-            # CONNECTION level (user_connection_credentials), not the data-source
-            # level. Resolve those via ConnectionService, which reads the right
-            # table and handles OAuth token refresh. Without this, a signed-in
-            # user's query would 403 here and the source gets silently skipped
-            # in the completion loop -> KeyError on the data source's name.
-            try:
-                from app.models.user_connection_credentials import UserConnectionCredentials
-                from sqlalchemy import select as _select
-                has_conn_creds = (await db.execute(
-                    _select(UserConnectionCredentials.id).where(
-                        UserConnectionCredentials.connection_id == str(connection.id),
-                        UserConnectionCredentials.user_id == str(current_user.id),
-                        UserConnectionCredentials.is_active == True,
-                    ).limit(1)
-                )).first() is not None
-                if has_conn_creds:
-                    from app.services.connection_service import ConnectionService
-                    return await ConnectionService().resolve_credentials(db, connection, current_user)
-            except HTTPException:
-                raise
-            except Exception:
-                pass
-
-            # Check if owner or admin can use system credentials
-            is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
-            has_update_perm = False
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db,
-                    str(current_user.id),
-                    str(getattr(data_source, "organization_id", "")),
-                )
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
-                )
-            except Exception:
-                pass
-
-            if is_owner or has_update_perm:
-                # Owner/admin fall back to the connection's stored credentials.
-                # Use decrypt_credentials(), NOT get_credentials() — the latter
-                # returns None for user_required, which strands OBO connectors:
-                # the stored service-principal client_id/secret would be dropped
-                # and MsFabricClient's ClientSecretCredential then fails with
-                # "client_id should be the id of a Microsoft Entra application".
-                # This mirrors ConnectionService.resolve_credentials so an
-                # owner/admin queries with the same SP creds that drive indexing
-                # (a regular user without their own token still 403s below and is
-                # routed to per-user OBO sign-in).
-                try:
-                    return connection.decrypt_credentials() or {}
-                except Exception:
-                    return {}
-
-            raise HTTPException(status_code=403, detail="User credentials required for this connection")
+            # Connection-level resolution. ConnectionService.resolve_credentials is the
+            # single source of truth: it handles delegated/OBO tokens, the admin
+            # query-identity toggle (service account vs self), OAuth refresh, the legacy
+            # owner/admin system fallback for non-delegated connections, and the
+            # "connect required" 403 for a self-identity user with no token.
+            from app.services.connection_service import ConnectionService
+            return await ConnectionService().resolve_credentials(db, connection, current_user)
 
         # For system_only or if no user, use system credentials
         return connection.get_credentials() if hasattr(connection, 'get_credentials') else {}
@@ -1758,9 +1757,24 @@ class DataSourceService:
         connection_changed = bool(connection_updates)
         
         # Handle membership updates
+        newly_added_member_ids: List[str] = []
         if 'member_user_ids' in update_data:
             member_user_ids = update_data.pop('member_user_ids')
             if member_user_ids is not None:
+                # Capture the current member set first so we can tell which of the
+                # incoming ids are genuinely *new* (this path replaces the whole
+                # membership list, so we must not re-notify existing members).
+                existing_result = await db.execute(
+                    select(DataSourceMembership.principal_id).where(
+                        DataSourceMembership.data_source_id == data_source_id,
+                        DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                    )
+                )
+                existing_member_ids = {str(r) for r in existing_result.scalars().all()}
+                newly_added_member_ids = [
+                    str(uid) for uid in member_user_ids
+                    if str(uid) not in existing_member_ids and str(uid) != str(current_user.id)
+                ]
                 # Delete existing data_source_memberships
                 await db.execute(
                     delete(DataSourceMembership).where(
@@ -1796,7 +1810,21 @@ class DataSourceService:
         
         try:
             await db.commit()
-            
+
+            # Notify users newly added to this data source (delayed; SMTP-gated).
+            if newly_added_member_ids:
+                try:
+                    from app.services.data_source_member_email import schedule_member_added_email
+                    for uid in newly_added_member_ids:
+                        schedule_member_added_email(
+                            data_source_id=str(data_source_id),
+                            user_id=str(uid),
+                            added_by_user_id=str(current_user.id),
+                            organization_id=str(organization.id),
+                        )
+                except Exception as e:
+                    logger.warning("Could not schedule member-added emails on update: %s", e)
+
             # Refresh tables if connection fields changed
             if connection_changed and data_source_db.connections:
                 conn = data_source_db.connections[0]
@@ -1996,7 +2024,9 @@ class DataSourceService:
         
         # Verify data source exists
         result = await db.execute(
-            select(DataSource).filter(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(
                 DataSource.id == data_source_id,
                 DataSource.organization_id == organization.id
             )
@@ -2004,16 +2034,43 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
-        
+
+        # Identity-aware scoping: for a user_required (delegated) source, the tables
+        # selector must show what the CURRENT effective identity can see — the same
+        # rule the agent's schema context and query execution follow:
+        #   'user'   (toggle = Me, has token) → only the user's overlay tables
+        #   'none'   (Me, not connected)      → nothing
+        #   'system' (toggle = Service account / admin SP) → full catalog
+        # `overlay_table_ids is None` means "no restriction" (full catalog).
+        overlay_table_ids = None
+        conn0 = data_source.connections[0] if getattr(data_source, "connections", None) else None
+        if current_user is not None and conn0 is not None and (conn0.auth_policy or "system_only") == "user_required":
+            eff_auth = await self._resolve_effective_auth(db, data_source, current_user)
+            if eff_auth == "user":
+                ov = await db.execute(
+                    select(UserOverlayTable.data_source_table_id).where(
+                        UserOverlayTable.data_source_id == str(data_source_id),
+                        UserOverlayTable.user_id == str(current_user.id),
+                        UserOverlayTable.is_accessible == True,
+                        UserOverlayTable.data_source_table_id.isnot(None),
+                    )
+                )
+                overlay_table_ids = [r[0] for r in ov.all()]
+            elif eff_auth == "none":
+                overlay_table_ids = []
+
+        def _scope(q):
+            return q if overlay_table_ids is None else q.where(DataSourceTable.id.in_(overlay_table_ids))
+
         # Get total_tables count first (no filters - for display purposes)
         total_tables_result = await db.execute(
-            select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)
+            _scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id))
         )
         total_tables = total_tables_result.scalar() or 0
-        
+
         # Build base query
-        base_query = select(DataSourceTable).where(DataSourceTable.datasource_id == data_source_id)
-        count_query = select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)
+        base_query = _scope(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source_id))
+        count_query = _scope(select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id))
         
         # Apply selected_state filter (takes precedence over include_inactive)
         if selected_state == 'selected':
@@ -3184,6 +3241,20 @@ class DataSourceService:
 
         await db.commit()
         await db.refresh(membership)
+
+        # Notify the newly added user (delayed; only if SMTP is configured).
+        if member.principal_type == PRINCIPAL_TYPE_USER:
+            try:
+                from app.services.data_source_member_email import schedule_member_added_email
+                schedule_member_added_email(
+                    data_source_id=str(data_source_id),
+                    user_id=str(member.principal_id),
+                    added_by_user_id=str(current_user.id),
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.warning("Could not schedule member-added email: %s", e)
+
         return DataSourceMembershipSchema.from_orm(membership)
 
     async def remove_data_source_member(self, db: AsyncSession, data_source_id: str, user_id: str, organization: Organization, current_user: User):
@@ -3404,7 +3475,19 @@ class DataSourceService:
             additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
             if additional_user_ids:
                 await self._create_memberships(db, new_data_source, additional_user_ids)
-        
+                # Notify each newly added member (delayed; only if SMTP configured).
+                try:
+                    from app.services.data_source_member_email import schedule_member_added_email
+                    for uid in additional_user_ids:
+                        schedule_member_added_email(
+                            data_source_id=str(new_data_source.id),
+                            user_id=str(uid),
+                            added_by_user_id=str(current_user.id),
+                            organization_id=str(organization.id),
+                        )
+                except Exception as e:
+                    logger.warning("Could not schedule member-added emails on create: %s", e)
+
         # Sync domain tables from connection tables (onboarding: auto-select up to 20)
         await self.sync_domain_tables_from_connection(
             db, new_data_source, connection, 

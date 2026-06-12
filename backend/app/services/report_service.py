@@ -19,14 +19,14 @@ from app.models.report_file_association import report_file_association
 from fastapi import HTTPException
 
 import uuid
-from sqlalchemy import select, or_, func, cast, delete, String as SAString
+from sqlalchemy import select, or_, func, cast, delete, case, String as SAString
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
 from logging import getLogger
 import asyncio
 
-from app.core.scheduler import scheduler
+from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
 from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.services.dashboard_layout_service import DashboardLayoutService
 from app.ee.audit.service import audit_service
@@ -294,7 +294,18 @@ class ReportService:
         report = result.unique().scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-        
+
+        # Per-user starred state (same source of truth as the list view)
+        from app.models.report_star import ReportStar
+        star_result = await db.execute(
+            select(ReportStar.id).where(
+                ReportStar.report_id == report.id,
+                ReportStar.user_id == current_user.id,
+                ReportStar.deleted_at.is_(None),
+            )
+        )
+        is_starred = star_result.scalar_one_or_none() is not None
+
         user_schema = UserSchema.from_orm(report.user)
 
         # Detect app version for routing
@@ -332,6 +343,8 @@ class ReportService:
             ],
             # Scheduled rerun notification subscribers
             notification_subscribers=getattr(report, "notification_subscribers", None),
+            # Per-user starred state
+            is_starred=is_starred,
         )
         # Summary counts (for auto-opening sidebar)
         report_schema.query_count = len(report.queries or [])
@@ -355,6 +368,17 @@ class ReportService:
             )
         )
         report_schema.instruction_count = ic_result.scalar() or 0
+
+        # Webhook count (active, non-deleted)
+        from app.models.webhook import Webhook
+        wh_result = await db.execute(
+            select(func.count(Webhook.id)).where(
+                Webhook.report_id == report.id,
+                Webhook.deleted_at == None,
+                Webhook.is_active == True,
+            )
+        )
+        report_schema.webhook_count = wh_result.scalar() or 0
 
         # Enrich fork lineage
         await self._enrich_fork_lineage(db, report, report_schema)
@@ -412,15 +436,26 @@ class ReportService:
                     selectinload(DataSource.data_source_memberships),
                     selectinload(DataSource.files),
                 )
-                .filter(DataSource.id.in_(data_source_ids))
+                .filter(
+                    DataSource.id.in_(data_source_ids),
+                    DataSource.organization_id == organization.id,
+                )
             )
             data_sources = ds_result.scalars().all()
+            # Access gate: only attach data sources the creator is actually
+            # allowed to see. Report attachments are a trusted snapshot consumed
+            # downstream without re-checking, so an unfiltered attach here lets a
+            # user pin a private source they have no access to and then query it.
+            from app.services.data_source_service import DataSourceService
+            ds_service = DataSourceService()
+            data_sources = await ds_service.filter_user_visible_data_sources(
+                db, list(data_sources), current_user, organization
+            )
             # Don't attach user_required sources the creator can't actually use
             # (no personal creds, no system fallback) — they'd only break
             # create/inspect-data tools at run time. Mirrors the per-execution
             # filtering in build_rich_context / get_context.
-            from app.services.data_source_service import DataSourceService
-            data_sources, _skipped_unconnected = await DataSourceService().filter_user_usable_data_sources(
+            data_sources, _skipped_unconnected = await ds_service.filter_user_usable_data_sources(
                 db, list(data_sources), current_user
             )
             report.data_sources.extend(data_sources)
@@ -507,7 +542,7 @@ class ReportService:
             report.mode = report_data.mode
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
-            await self.set_data_sources_for_report(db, report, report_data.data_sources)
+            await self.set_data_sources_for_report(db, report, report_data.data_sources, current_user, organization)
         
         #await self._set_slug_for_report(db, report)
 
@@ -713,6 +748,57 @@ class ReportService:
             pass
 
         return report
+
+    async def set_report_star(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        organization: Organization,
+        starred: bool,
+    ) -> dict:
+        """Star or unstar a report for the current user.
+
+        Starring is per-user, so each user maintains their own set of starred
+        reports independently. A report can be starred by any user who can view
+        it (including reports shared with them read-only). Returns the resulting
+        starred state.
+        """
+        from app.models.report_star import ReportStar
+
+        result = await db.execute(
+            select(Report).filter(
+                Report.id == report_id,
+                Report.organization_id == organization.id,
+                Report.report_type == 'regular',
+            )
+        )
+        report = result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Look up any existing star row, including soft-deleted ones, so we
+        # reuse it rather than violating the (report_id, user_id) uniqueness.
+        existing_result = await db.execute(
+            select(ReportStar).filter(
+                ReportStar.report_id == report_id,
+                ReportStar.user_id == current_user.id,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+
+        if starred:
+            if existing is None:
+                db.add(ReportStar(report_id=report_id, user_id=current_user.id))
+            elif existing.deleted_at is not None:
+                existing.deleted_at = None
+        else:
+            if existing is not None and existing.deleted_at is None:
+                existing.deleted_at = datetime.utcnow()
+
+        await db.commit()
+
+        return {"id": str(report_id), "is_starred": starred}
 
     async def get_public_report(self, db: AsyncSession, report_id: str, user=None) -> ReportSchema:
         result = await db.execute(select(Report).filter(Report.id == report_id))
@@ -1048,6 +1134,18 @@ class ReportService:
                     )
                 )
 
+            # Per-user starred reports: surface starred reports first.
+            # Computed in SQL (not client-side) because the list is paginated.
+            from app.models.report_star import ReportStar
+            starred_report_ids_subq = select(ReportStar.report_id).where(
+                ReportStar.user_id == current_user.id,
+                ReportStar.deleted_at.is_(None),
+            )
+            is_starred_order = case(
+                (Report.id.in_(starred_report_ids_subq), 1),
+                else_=0,
+            )
+
             # Base query for filtering
             base_query = select(Report).where(*base_conditions)
 
@@ -1070,7 +1168,7 @@ class ReportService:
                     selectinload(DataSource.connections).options(lazyload("*")),
                 ),
                 selectinload(Report.artifacts)
-            ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
+            ).order_by(is_starred_order.desc(), Report.created_at.desc()).offset(offset).limit(limit)
 
             result = await db.execute(query)
             span.add_event("query executed")
@@ -1079,6 +1177,19 @@ class ReportService:
 
             # Batch-fetch instruction counts for training reports
             report_ids = [str(r.id) for r in reports]
+
+            # Batch-fetch which of the loaded reports the user has starred
+            starred_ids: set[str] = set()
+            if report_ids:
+                starred_result = await db.execute(
+                    select(ReportStar.report_id).where(
+                        ReportStar.report_id.in_(report_ids),
+                        ReportStar.user_id == current_user.id,
+                        ReportStar.deleted_at.is_(None),
+                    )
+                )
+                starred_ids = {str(row[0]) for row in starred_result.all()}
+
             instruction_counts: dict[str, int] = {}
             if report_ids:
                 from app.models.instruction import Instruction
@@ -1097,6 +1208,21 @@ class ReportService:
                 )
                 ic_result = await db.execute(ic_query)
                 instruction_counts = {str(row[0]): row[1] for row in ic_result.all()}
+
+            webhook_counts: dict[str, int] = {}
+            if report_ids:
+                from app.models.webhook import Webhook
+                wh_query = (
+                    select(Webhook.report_id, func.count(Webhook.id))
+                    .where(
+                        Webhook.report_id.in_(report_ids),
+                        Webhook.deleted_at == None,
+                        Webhook.is_active == True,
+                    )
+                    .group_by(Webhook.report_id)
+                )
+                wh_result = await db.execute(wh_query)
+                webhook_counts = {str(row[0]): row[1] for row in wh_result.all()}
 
             # Convert to schemas
             report_schemas = []
@@ -1139,6 +1265,12 @@ class ReportService:
 
                 # Instruction count (from batch query)
                 report_schema.instruction_count = instruction_counts.get(str(report.id), 0)
+
+                # Webhook count (from batch query)
+                report_schema.webhook_count = webhook_counts.get(str(report.id), 0)
+
+                # Starred state for the current user
+                report_schema.is_starred = str(report.id) in starred_ids
 
                 # Compute unique artifact modes for this report
                 report_schema.artifact_modes = list(set(
@@ -1285,32 +1417,47 @@ class ReportService:
 
         return report
 
-    async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str]) -> Report:
-        """Replace a report's data source associations atomically with the provided ids."""
+    async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str], current_user: User = None, organization: Organization = None) -> Report:
+        """Replace a report's data source associations atomically with the provided ids.
+
+        When current_user/organization are provided, the requested ids are
+        filtered to the data sources that user is allowed to see — otherwise a
+        user could pin a private source they have no access to and query it.
+        """
         from sqlalchemy import delete
-        
+
         # Delete existing associations directly via SQL to avoid ORM state tracking issues
         await db.execute(
             delete(report_data_source_association).where(
                 report_data_source_association.c.report_id == report.id
             )
         )
-        
+
         # Expire and refresh the relationship so ORM sees it as empty (avoids MissingGreenlet on lazy load)
         db.expire(report, ["data_sources"])
         await db.refresh(report, ["data_sources"])
-        
+
         if data_source_ids:
-            # Load all requested data sources
+            # Load all requested data sources (scoped to the org when known)
+            ds_filters = [DataSource.id.in_(data_source_ids)]
+            if organization is not None:
+                ds_filters.append(DataSource.organization_id == organization.id)
             result = await db.execute(
                 select(DataSource)
                 .options(
                     selectinload(DataSource.data_source_memberships),
                     selectinload(DataSource.files),
                 )
-                .filter(DataSource.id.in_(data_source_ids))
+                .filter(*ds_filters)
             )
             new_data_sources = result.scalars().all()
+
+            # Access gate: drop sources the user isn't allowed to see.
+            if current_user is not None and organization is not None:
+                from app.services.data_source_service import DataSourceService
+                new_data_sources = await DataSourceService().filter_user_visible_data_sources(
+                    db, list(new_data_sources), current_user, organization
+                )
 
             # Add new associations
             report.data_sources.extend(new_data_sources)
@@ -1359,7 +1506,7 @@ class ReportService:
                 'hour': hour,
                 'day': day,
                 'month': month,
-                'day_of_week': day_of_week
+                'day_of_week': cron_dow_to_apscheduler(day_of_week)
             }
         elif len(parts) == 5:
             minute, hour, day, month, day_of_week = parts
@@ -1368,12 +1515,16 @@ class ReportService:
                 'hour': hour,
                 'day': day,
                 'month': month,
-                'day_of_week': day_of_week
+                'day_of_week': cron_dow_to_apscheduler(day_of_week)
             }
         else:
             raise ValueError("Invalid cron expression format")
     
     async def scheduled_rerun_report_steps(self, report_id: str, current_user_id: str, organization_id: str):
+        # Claim this fire so only one worker/replica reruns the report and emails
+        # subscribers (all workers run a scheduler against the shared job store).
+        if not await asyncio.to_thread(claim_scheduled_run, f"report_{report_id}"):
+            return
         from app.dependencies import async_session_maker
         async with async_session_maker() as db:
             # Load current_user and organization here

@@ -24,3 +24,7 @@ class PlannerStateV3:
     # Reasoning timing
     reasoning_start_time: Optional[float] = None
     reasoning_end_time: Optional[float] = None
+    # Native web search transparency: count of provider-executed searches this
+    # turn and the (deduped, ordered) citations the model surfaced.
+    web_search_count: int = 0
+    web_search_citations: list = field(default_factory=list)  # list[(title, url)]

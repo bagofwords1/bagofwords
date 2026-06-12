@@ -5,6 +5,7 @@ from app.ai.llm import LLM
 import pandas as pd
 import json
 from app.models.llm_model import LLMModel
+from app.dependencies import async_session_maker
 
 """
 
@@ -17,7 +18,7 @@ class ExcelAgent:
 
     def __init__(self, excel_file: File, model: LLMModel):
         self.excel_file = excel_file
-        self.llm = LLM(model)
+        self.llm = LLM(model, usage_session_maker=async_session_maker)
 
     
 
@@ -65,7 +66,7 @@ class ExcelAgent:
         and no markdown formatting.
         """
 
-        schema = self.llm.inference(prompt)
+        schema = self.llm.inference(prompt, usage_scope="excel.schema_infer")
 
         schema = json.loads(schema)
 

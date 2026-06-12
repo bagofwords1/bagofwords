@@ -1,6 +1,6 @@
 [package]
 name = "qvd2parquet"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Streaming QVD → Parquet converter (bounded RAM)"
 license = "MIT"

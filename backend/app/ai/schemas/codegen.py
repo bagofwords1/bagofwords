@@ -13,6 +13,7 @@ class CodeGenContext(BaseModel):
     instructions_context: str = ""
     mentions_context: str = "<mentions>No mentions for this turn</mentions>"
     entities_context: str = ""
+    loadables_context: str = ""
     messages_context: str = ""
     resources_context: str = ""
     files_context: str = ""

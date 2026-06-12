@@ -37,6 +37,14 @@ tracer = get_tracer(__name__)
 # can still schedule usage recording via run_coroutine_threadsafe.
 _MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
 
+# Strong references to in-flight usage-record tasks. asyncio only keeps a weak
+# reference to tasks created via loop.create_task(), so a fire-and-forget task
+# can be garbage-collected mid-execution before its DB commit lands — silently
+# dropping the usage record. Holding a reference here until the task completes
+# closes that gap. This adds no latency: the tasks still run in the background,
+# off the response path. The set is bounded by in-flight count and self-drains.
+_PENDING_RECORD_TASKS: set = set()
+
 
 class LLM:
     def __init__(
@@ -73,25 +81,40 @@ class LLM:
                 raise
         self._usage_session_maker = usage_session_maker
         self._usage_limit_context = usage_context
+        additional_config = self.model.provider.additional_config or {}
+        enable_web_search = bool(additional_config.get("enable_web_search", False))
         if self.provider == "openai":
-            base_url = None
-            if self.model.provider.additional_config:
-                base_url = self.model.provider.additional_config.get("base_url")
+            base_url = additional_config.get("base_url")
             if base_url:
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
                 self.client = OpenAi(api_key=self.api_key, base_url=base_url)
             else:
                 # Default OpenAI → Responses API (supports reasoning content)
-                self.client = OpenAIResponsesClient(api_key=self.api_key)
+                self.client = OpenAIResponsesClient(
+                    api_key=self.api_key,
+                    enable_web_search=enable_web_search,
+                )
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key)
         elif self.provider == "google":
             self.client = Google(api_key=self.api_key)
         elif self.provider == "azure":
-            endpoint_url = self.model.provider.additional_config.get("endpoint_url") if self.model.provider.additional_config else None
+            endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
-            self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
+            # Default to Chat Completions (AzureClient) — works in every region.
+            # Admins opt into the Responses API explicitly (use_responses_api),
+            # which is required for native web search and only available in some
+            # Azure regions. Web search is honored only on the Responses path.
+            use_responses_api = bool(additional_config.get("use_responses_api", False))
+            if use_responses_api:
+                self.client = OpenAIResponsesClient(
+                    api_key=self.api_key,
+                    base_url=self._azure_v1_base_url(endpoint_url),
+                    enable_web_search=enable_web_search,
+                )
+            else:
+                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
         elif self.provider == "custom":
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:
@@ -124,6 +147,23 @@ class LLM:
             self.client = BedrockClient(**bedrock_kwargs)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
+
+    @staticmethod
+    def _azure_v1_base_url(endpoint_url: str) -> str:
+        """Derive the Azure OpenAI v1 Responses base_url from a provider endpoint.
+
+        The AzureClient (Chat Completions) takes the resource root
+        (``https://<resource>.openai.azure.com``). The Responses API lives under
+        ``/openai/v1/`` on that same host. Accept either form so admins can paste
+        whichever they have, and normalize to the v1 base the OpenAI client wants.
+        """
+        base = (endpoint_url or "").rstrip("/")
+        if "/openai/v1" in base:
+            # Already a v1 base (possibly without trailing slash).
+            return base.split("/openai/v1")[0] + "/openai/v1/"
+        if base.endswith("/openai"):
+            return base + "/v1/"
+        return base + "/openai/v1/"
 
     def _validate_vision_support(self, images: Optional[list[ImageInput]]) -> None:
         """Validate that the model supports vision if images are provided."""
@@ -310,6 +350,8 @@ class LLM:
         images: Optional[list[ImageInput]] = None,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        web_search: Optional[bool] = None,
+        web_search_domains: Optional[list] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
@@ -345,6 +387,15 @@ class LLM:
             stream_start = time.monotonic()
             ttft_recorded = False
 
+            # `web_search` (native, provider-executed) is only honored by the
+            # OpenAI Responses client. Forward it just to that client so the
+            # other clients' signatures stay untouched.
+            client_kwargs: dict = {}
+            if web_search is not None and isinstance(self.client, OpenAIResponsesClient):
+                client_kwargs["web_search"] = web_search
+                if web_search_domains:
+                    client_kwargs["web_search_domains"] = web_search_domains
+
             try:
                 async for evt in self.client.inference_stream_v2(
                     model_id=target_model_id,
@@ -354,6 +405,7 @@ class LLM:
                     images=images,
                     thinking=thinking,
                     disable_parallel_tools=disable_parallel_tools,
+                    **client_kwargs,
                 ):
                     if not ttft_recorded and getattr(evt, "type", None) in (
                         "text_delta",
@@ -610,8 +662,19 @@ class LLM:
         cache_creation_tokens: int = 0,
         should_record: bool,
     ):
-        if not should_record or not scope or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
+        if not should_record or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
             return
+        # Safety net: a call that reaches here with tokens but no scope is a
+        # call site that forgot to label itself. Rather than silently dropping
+        # the record (the old behavior, which made tokens vanish from
+        # /monitoring), record it under "unscoped" and warn so it's visible.
+        if not scope:
+            logger.warning(
+                "LLM usage recorded without a usage_scope (provider=%s model=%s); "
+                "labeling as 'unscoped'. Add usage_scope at the call site.",
+                self.provider, self.model_id,
+            )
+            scope = "unscoped"
         session_maker = self._usage_session_maker
         if session_maker is None:
             return
@@ -653,7 +716,11 @@ class LLM:
                 logger.warning("Unable to schedule LLM usage recording (threadsafe): %s", exc)
             return
         try:
-            loop.create_task(_record_usage())
+            task = loop.create_task(_record_usage())
+            # Retain a strong reference until the task finishes so it can't be
+            # GC'd mid-flight (see _PENDING_RECORD_TASKS note above).
+            _PENDING_RECORD_TASKS.add(task)
+            task.add_done_callback(_PENDING_RECORD_TASKS.discard)
         except Exception as exc:
             logger.warning("Unable to schedule LLM usage recording: %s", exc)
 

@@ -40,6 +40,7 @@
 					<!-- Summary View -->
 					<div v-if="mobileView === 'summary'" class="h-full overflow-y-auto">
 						<ChatSummary
+							:reportId="report_id"
 							:scheduledPrompts="scheduledPrompts"
 							:artifactList="reportArtifacts"
 							:queryList="queryList"
@@ -156,6 +157,23 @@
 						<template v-else-if="m.scheduled_prompt_id && m.role === 'system' && !isScheduledSystemExpanded(m)">
 							<!-- collapsed -->
 						</template>
+
+						<!-- Inbound webhook event entry (compact) -->
+						<div v-else-if="m.role === 'external'" class="my-2">
+							<div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 bg-gray-50/50">
+								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+								<span class="text-xs text-gray-600 truncate flex-1">{{ m.prompt?.summary || m.prompt?.content }}</span>
+								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
+									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
+								</span>
+								<Icon v-else-if="m.status === 'success'" name="heroicons-check-circle" class="w-4 h-4 text-green-500" :title="webhookActed(m) ? 'Responded' : 'No action needed'" />
+								<Icon v-else-if="m.status === 'error'" name="heroicons-exclamation-circle" class="w-4 h-4 text-red-400" title="Error" />
+								<span v-if="m.created_at" class="text-[10px] text-gray-400 flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
+							</div>
+							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-[11px] text-gray-400 italic">
+								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
+							</div>
+						</div>
 
 						<!-- Regular message rendering -->
 						<div
@@ -286,6 +304,7 @@
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
 													@openInstruction="openInstructionById"
+													@openScheduledTask="openScheduledTaskById"
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
@@ -504,6 +523,7 @@
 					:report_id="report_id"
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
+					:textareaContent="prefillText"
 					:latestInProgressCompletion="isCompletionInProgress ? {} : undefined"
 					:isStopping="false"
 					:queryList="queryList"
@@ -601,6 +621,7 @@
 			<div v-if="rightPanelView === 'summary'" class="h-full flex flex-col">
 				<div class="flex-1 overflow-y-auto">
 					<ChatSummary
+							:reportId="report_id"
 						:scheduledPrompts="scheduledPrompts"
 						:artifactList="reportArtifacts"
 						:queryList="queryList"
@@ -726,8 +747,11 @@ import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
 import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import SendEmailTool from '~/components/tools/SendEmailTool.vue'
+import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.vue'
+import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
 import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
+import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
@@ -1164,6 +1188,22 @@ function formatMessageDate(date?: string) {
 	})
 }
 
+// ---- Inbound webhook event-entry helpers ----
+function webhookSourceIcon(source?: string): string {
+	switch ((source || '').toLowerCase()) {
+		case 'github': return 'heroicons-code-bracket-square'
+		case 'jira': return 'heroicons-bug-ant'
+		default: return 'heroicons-bolt'
+	}
+}
+function webhookDecision(m: any): any {
+	return m?.completion?.decision || null
+}
+function webhookActed(m: any): boolean {
+	const d = webhookDecision(m)
+	return !!(d && d.act)
+}
+
 function copyToClipboard(text?: string, messageId?: string) {
 	if (!text) return
 	navigator.clipboard.writeText(text)
@@ -1274,6 +1314,18 @@ function editScheduledPrompt(sp: any) {
     showEditScheduledPromptModal.value = true
 }
 
+// Open the edit modal for a task created/cancelled from a chat tool result.
+// The task may not be in the loaded list yet (just created), so refresh first.
+async function openScheduledTaskById(taskId: string) {
+    if (!taskId) return
+    let sp = scheduledPrompts.value.find((s: any) => s.id === taskId)
+    if (!sp) {
+        await loadScheduledPrompts()
+        sp = scheduledPrompts.value.find((s: any) => s.id === taskId)
+    }
+    if (sp) editScheduledPrompt(sp)
+}
+
 // Fork state — extract forked queries and artifact ref from the fork summary completion
 const forkedQueries = ref<any[]>([])
 
@@ -1332,6 +1384,8 @@ const initialPanelWidth = ref(0)
 
 // Live prompt mode (mirrors PromptBoxV2 selection; initialised from report once loaded)
 const currentPromptMode = ref<'chat' | 'deep' | 'training'>('chat')
+// Draft text pushed into the prompt box without auto-submitting (e.g. training session).
+const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m as any }, { immediate: true })
 
 // Right panel view mode
@@ -1479,6 +1533,10 @@ function getToolComponent(toolName: string) {
 			return EditInstructionTool
 		case 'send_email':
 			return SendEmailTool
+		case 'create_scheduled_task':
+			return CreateScheduledTaskTool
+		case 'cancel_scheduled_task':
+			return CancelScheduledTaskTool
 		case 'list_agent_executions':
 			return ListAgentExecutionsTool
 		case 'search_instructions':
@@ -1494,6 +1552,8 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'web_fetch':
 			return WebFetchTool
+		case 'web_search':
+			return WebSearchTool
 		case 'clarify':
 			return ClarifyTool
 		default:
@@ -2548,6 +2608,29 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 	}
 }
 
+// Live refresh for inbound webhook events: when a webhook-tagged completion is
+// inserted/updated server-side (event entry created, 👀 → ✅), refresh the
+// timeline. Guarded on `webhook_id` so a user's own messages never trigger it.
+const _rtConfig = useRuntimeConfig()
+let _webhookWs: WebSocket | null = null
+let _webhookReloadTimer: any = null
+function connectWebhookSocket() {
+	try {
+		const wsURL = (_rtConfig.public as any)?.wsURL
+		if (!wsURL || !report_id) return
+		_webhookWs = new WebSocket(`${wsURL}/reports/${report_id}`)
+		_webhookWs.onmessage = (event: MessageEvent) => {
+			try {
+				const data = JSON.parse(event.data)
+				if ((data.event === 'insert_completion' || data.event === 'update_completion') && data.webhook_id) {
+					if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
+					_webhookReloadTimer = setTimeout(() => loadCompletions({ skipEstimate: true }), 400)
+				}
+			} catch {}
+		}
+	} catch {}
+}
+
 async function loadCompletions({ skipEstimate = false } = {}) {
 	try {
 		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
@@ -2615,6 +2698,9 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				fork_asset_refs: c.fork_asset_refs,
 				// Scheduled prompt tag
 				scheduled_prompt_id: c.scheduled_prompt_id || null,
+				// Webhook event entry fields
+				external_platform: c.external_platform || null,
+				webhook_id: c.webhook_id || null,
 			}
 		})
 		// Update cursors
@@ -2945,6 +3031,8 @@ function stopResize() {
 }
 
 onUnmounted(() => {
+	try { _webhookWs?.close() } catch {}
+	if (_webhookReloadTimer) clearTimeout(_webhookReloadTimer)
 	if (import.meta.client) {
 		window.removeEventListener('resize', checkMobile)
 	}
@@ -3440,6 +3528,7 @@ onMounted(async () => {
 		loadReportInstructions()
 	])
 	const slowLoads = loadCompletions()
+	connectWebhookSocket()
 
 	await fastLoads
 
@@ -3470,6 +3559,9 @@ onMounted(async () => {
 		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
 		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
 		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined })
+	} else if (route.query.prompt && messages.value.length == 0) {
+		// Pre-fill the prompt box without submitting (e.g. a training session draft).
+		prefillText.value = route.query.prompt as string
 	}
 
 	// If a system message is still in progress (after refresh), begin polling until it finishes

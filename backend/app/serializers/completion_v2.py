@@ -184,8 +184,16 @@ def serialize_block_v2_sync(
             data_sources=data_sources or None,
         )
 
-    # seq primarily comes from decision.seq if available
-    seq = plan_decision.seq if plan_decision is not None else None
+    # seq primarily comes from decision.seq if available. Standalone tool blocks
+    # (e.g. native web search) have no plan_decision, so derive an ordering seq
+    # from block_index (= base_seq*100 ± offset) — this keeps web search cards
+    # sorted relative to the turn's answer block instead of falling to the end.
+    if plan_decision is not None:
+        seq = plan_decision.seq
+    elif getattr(block, "block_index", None) is not None:
+        seq = block.block_index // 100
+    else:
+        seq = None
 
     # Phase tag flows from the plan_decision (the harness tags its decisions)
     phase = getattr(plan_decision, "phase", None) if plan_decision is not None else None

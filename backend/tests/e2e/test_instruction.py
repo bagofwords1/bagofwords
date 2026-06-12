@@ -540,3 +540,50 @@ def test_create_instruction_verify_build_exists(
     instruction_ids_in_build = [c.get("instruction_id") for c in contents]
     assert instruction["id"] in instruction_ids_in_build, \
         "Created instruction should be in the main build contents"
+
+
+@pytest.mark.e2e
+def test_create_instruction_returns_503_when_finalize_fails(
+    test_client, create_user, login_user, whoami, monkeypatch
+):
+    """If the build can't be promoted (e.g. a concurrent transaction holds the
+    instruction_builds lock until lock_timeout fires), a synchronous create must
+    fail fast with a clean, retryable 503 — not hang, not 500, and not leave a
+    half-created instruction stranded out of the main build.
+
+    Regression test for the Postgres build-promotion deadlock fix. We simulate
+    the finalize failure directly (the real trigger is lock contention, which a
+    sequential test can't produce) by forcing _auto_finalize_build to report
+    failure.
+    """
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    from app.routes.instruction import instruction_service
+
+    async def _finalize_fails(db, build, current_user, user_permissions):
+        # Mimic the real failure path: roll back the poisoned transaction and
+        # report that promotion did not happen.
+        await db.rollback()
+        return False
+
+    monkeypatch.setattr(instruction_service, "_auto_finalize_build", _finalize_fails)
+
+    resp = test_client.post(
+        "/api/instructions/global",
+        json={"text": "finalize-fails-503", "status": "published", "category": "general"},
+        headers=headers,
+    )
+    assert resp.status_code == 503, resp.text
+
+    # No orphan: the half-created instruction must not be visible in the list.
+    list_resp = test_client.get(
+        "/api/instructions", params={"search": "finalize-fails-503"}, headers=headers
+    )
+    assert list_resp.status_code == 200, list_resp.text
+    body = list_resp.json()
+    items = body["items"] if isinstance(body, dict) and "items" in body else body
+    assert not any(i["text"] == "finalize-fails-503" for i in items), \
+        "failed create must not leave a visible orphan instruction"

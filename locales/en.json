@@ -226,7 +226,14 @@
       "schedule": "Schedule",
       "type": "Type",
       "dataSource": "Data Source",
-      "artifacts": "Artifacts"
+      "artifacts": "Artifacts",
+      "title": "Type",
+      "typeLabel": "Type",
+      "statusLabel": "Status",
+      "scheduleLabel": "Schedule",
+      "dataSourceLabel": "Agent",
+      "artifactsLabel": "Dashboard",
+      "clear": "Clear all"
     },
     "visibility": {
       "public": "Anyone with link",
@@ -251,6 +258,8 @@
       "instructions": "instructions"
     },
     "tooltips": {
+      "star": "Star",
+      "unstar": "Remove star",
       "hasPage": "Has Page artifact",
       "hasSlides": "Has Slides artifact",
       "chat": "Chat",
@@ -259,9 +268,12 @@
       "runningOnSchedule": "Running on a schedule"
     },
     "pagination": {
-      "showing": "Showing {from} to {to} of {total} reports"
+      "showing": "Showing {from} to {to} of {total} reports",
+      "rowsPerPage": "Rows per page",
+      "page": "Page {page}"
     },
     "toasts": {
+      "starFailed": "Failed to update star",
       "failedFetch": "Failed to fetch reports",
       "archived": "Report archived",
       "archivedDesc": "Report archived successfully",
@@ -290,10 +302,26 @@
     "trainingEmptyTipLabel": "How it works:",
     "trainingEmptyBody": "Ask questions and review the AI's responses. Approve or edit answers to teach the AI Analyst how to handle similar queries in the future.",
     "trainingStarters": [
-      { "title": "Find Instructions Conflicts", "prompt": "Identify contradictions or gaps between existing training instructions that may cause inconsistent AI responses." },
-      { "title": "Show Low Confidence Responses", "prompt": "List recent AI responses where the model expressed uncertainty or produced low-quality answers that need review." },
-      { "title": "Show Negative Feedback Responses", "prompt": "Review responses that received negative feedback from users to identify patterns and areas for improvement." }
-    ]
+      {
+        "title": "Find Instructions Conflicts",
+        "prompt": "Identify contradictions or gaps between existing training instructions that may cause inconsistent AI responses."
+      },
+      {
+        "title": "Show Low Confidence Responses",
+        "prompt": "List recent AI responses where the model expressed uncertainty or produced low-quality answers that need review."
+      },
+      {
+        "title": "Show Negative Feedback Responses",
+        "prompt": "Review responses that received negative feedback from users to identify patterns and areas for improvement."
+      }
+    ],
+    "filtersButton": "Filters",
+    "type": {
+      "chat": "Chat",
+      "dashboard": "Dashboard",
+      "slides": "Slides",
+      "deep": "Deep Analytics"
+    }
   },
   "traceModal": {
     "title": "Agent Execution",
@@ -1049,7 +1077,23 @@
       "successInvited": "Invitation sent to {email}",
       "rolesUpdated": "Roles updated",
       "failedToUpdateRoles": "Failed to update roles",
-      "failedToRemoveRole": "Failed to remove role"
+      "failedToRemoveRole": "Failed to remove role",
+      "selected": "selected",
+      "bulkAddRole": "Add role",
+      "bulkAddGroup": "Add to group",
+      "bulkClear": "Clear",
+      "paginationOf": "of",
+      "statusExpired": "Expired",
+      "resend": "Resend",
+      "resending": "Resending…",
+      "failedToResend": "Failed to resend invite",
+      "inviteResent": "Invite resent",
+      "inviteResentNoSmtp": "Invite refreshed (email not sent — SMTP not configured)",
+      "inviteResentFailed": "Invite refreshed, but the email couldn't be sent",
+      "copyLink": "Copy link",
+      "linkCopied": "Invite link copied",
+      "failedToCopyLink": "Couldn't copy invite link",
+      "linkRegenerated": "Invite link refreshed and copied"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",
@@ -1172,7 +1216,17 @@
       "expiresSoon": "Your license expires in {days} days. Contact us to renew.",
       "enterpriseInfo": "Unlock audit logs, advanced role-based access control, and data retention policies with an enterprise license.",
       "activateHint": "Set {envvar} and restart to activate.",
-      "learnMore": "Learn more →"
+      "learnMore": "Learn more →",
+      "banner": {
+        "expiring": "Your enterprise license expires in {days} days — renew to avoid interruption.",
+        "expired": "Your enterprise license has expired — renew to restore enterprise features.",
+        "viewLicense": "View license"
+      },
+      "fieldTier": "Tier",
+      "inDays": "{days} days left",
+      "expiredNotice": "Your enterprise license has expired. Enterprise features are now disabled until you renew.",
+      "enterpriseTitle": "Enterprise edition",
+      "renewInfo": "Renew your license to restore enterprise features like audit logs, advanced role-based access control, and data retention policies."
     },
     "mcpModal": {
       "editTitle": "Edit MCP Connection",
@@ -1219,6 +1273,10 @@
     "agentsSubtitle": "Organize tables and instructions into agents.",
     "searchAgents": "Search data agents…",
     "createAgent": "Create Data Agent",
+    "showAllAgents": "Show all",
+    "showAllAgentsHint": "Admin view: include private data agents you're not a member of.",
+    "adminOnlyTag": "Admin",
+    "adminOnlyHint": "Private data agent — visible to you as an admin. You're not a member.",
     "trySample": "Try a sample database:",
     "sampleTag": "sample",
     "tables": "tables",
@@ -1280,7 +1338,15 @@
     "impactAgentsOne": "This will impact {count} agent",
     "impactAgentsMany": "This will impact {count} agents",
     "andMore": "and {n} more",
-    "tablesRemovedNote": "All tables from this connection will be removed from these agents."
+    "tablesRemovedNote": "All tables from this connection will be removed from these agents.",
+    "runQueriesAs": "Run queries as",
+    "serviceAccount": "Service account",
+    "me": "Me",
+    "connectToQueryAsYou": "Connect your account to query as yourself.",
+    "disconnecting": "Disconnecting…",
+    "disconnect": "Disconnect",
+    "serviceAccountNote": "Queries run with the connection's service account.",
+    "switchIdentityFailed": "Failed to switch query identity"
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -1859,7 +1925,15 @@
       "paginationRange": "Showing {start} to {end} of {total} results",
       "previous": "Previous",
       "next": "Next",
-      "periodAllTime": "All Time"
+      "periodAllTime": "All Time",
+      "activityChartTitle": "Agent Run Activity",
+      "activityChartSubtitle": "Daily agent executions by status",
+      "activityChartLoading": "Loading activity…",
+      "activityChartEmpty": "No activity for the selected period.",
+      "activityChartSuccess": "Success",
+      "activityChartError": "Error",
+      "activityChartTotal": "Total",
+      "dayFilterLabel": "Showing {date}"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",
@@ -2176,7 +2250,8 @@
     "on": "on",
     "onDay": "on day",
     "active": "Active",
-    "notifyAfterRun": "Notify after each run",
+    "notifyAfterRun": "Email a summary after each run",
+    "promptSendsEmailHint": "Your prompt already asks to send an email — the task will handle that itself. Enable this only if you also want a separate summary email.",
     "emailOrMemberPlaceholder": "Email or member...",
     "cancel": "Cancel",
     "update": "Update",
@@ -2188,6 +2263,13 @@
     "dowThu": "Thu",
     "dowFri": "Fri",
     "dowSat": "Sat",
+    "dowSunShort": "S",
+    "dowMonShort": "M",
+    "dowTueShort": "T",
+    "dowWedShort": "W",
+    "dowThuShort": "T",
+    "dowFriShort": "F",
+    "dowSatShort": "S",
     "unknownMember": "Unknown",
     "toastUpdated": "Scheduled prompt updated",
     "toastScheduled": "Prompt scheduled",

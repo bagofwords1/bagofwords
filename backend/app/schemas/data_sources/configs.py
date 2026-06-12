@@ -255,6 +255,12 @@ class MssqlConfig(SQLConfig):
         description="Encrypt the connection. Disable for SQL Server 2008 without TLS support",
         json_schema_extra={"ui:type": "boolean"}
     )
+    additional_params: Optional[dict] = Field(
+        default_factory=dict,
+        title="Additional Connection Parameters",
+        description="Extra ODBC keywords sent as-is, e.g. ApplicationIntent=ReadOnly. Security keys (Encrypt, credentials, driver) cannot be overridden.",
+        json_schema_extra={"ui:type": "keyvalue"}
+    )
 
 
 class SybaseConfig(SQLConfig):
@@ -341,6 +347,29 @@ class VerticaConfig(BaseModel):
     port: int = Field(5433, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
     schema: str = Field("public", title="Schema", description="", json_schema_extra={"ui:type": "string"})
+
+
+# Teradata
+class TeradataCredentials(BaseModel):
+    user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class TeradataConfig(BaseModel):
+    host: str = Field(..., title="Host", description="Teradata system hostname or IP (e.g. the TPA/COP name)", json_schema_extra={"ui:type": "string"})
+    port: int = Field(1025, ge=1, le=65535, title="Port", description="Teradata listener port (default 1025)", json_schema_extra={"ui:type": "number"})
+    database: str = Field(
+        ...,
+        title="Database",
+        description="Database to query. In Teradata a database is the namespace (≈ schema). Can be a comma-separated list.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    logmech: str = Field(
+        "TD2",
+        title="Logon Mechanism",
+        description="Authentication mechanism. TD2 (default) for native users; LDAP/KRB5/TDNEGO for directory-based logon (common on-prem).",
+        json_schema_extra={"ui:type": "select", "ui:options": ["TD2", "LDAP", "KRB5", "TDNEGO"]},
+    )
 
 
 # AWS Redshift
@@ -569,6 +598,64 @@ class DatabricksSqlConfig(BaseModel):
         title="Schema",
         description="Optional schema or comma-separated list of schemas. If empty, all schemas in the catalog will be discovered.",
         json_schema_extra={"ui:type": "string"}
+    )
+
+
+# Spark Connect
+class SparkConnectNoAuthCredentials(BaseModel):
+    """No auth — open/dev Spark Connect clusters that don't require a token."""
+    # Allow extra so creds provided without auth_type are preserved during validation
+    class Config:
+        extra = 'allow'
+
+
+class SparkConnectCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Bearer token for the Spark Connect server (sent over the sc:// connection).",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class SparkConnectConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Spark Connect server host (e.g., my-spark-host or localhost).",
+        json_schema_extra={"ui:type": "string"}
+    )
+    port: int = Field(
+        15002,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="Spark Connect server port (default 15002).",
+        json_schema_extra={"ui:type": "number"}
+    )
+    use_ssl: bool = Field(
+        False,
+        title="Use SSL",
+        description="Connect to the Spark Connect server over TLS (sc://...;use_ssl=true).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    catalog: Optional[str] = Field(
+        None,
+        title="Catalog",
+        description="Optional catalog to scope schema discovery to. If empty, the session default catalog is used.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    database: Optional[str] = Field(
+        None,
+        title="Database / Schema",
+        description="Optional database (schema) or comma-separated list. If empty, all databases are discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    require_partition_filter: bool = Field(
+        False,
+        title="Require Partition Filter",
+        description="Reject queries that scan a partitioned table without filtering on a partition column (checked via EXPLAIN before the query runs).",
+        json_schema_extra={"ui:type": "boolean"}
     )
 
 
@@ -1240,6 +1327,10 @@ __all__ = [
     # Databricks SQL
     "DatabricksSqlCredentials",
     "DatabricksSqlConfig",
+    # Spark Connect
+    "SparkConnectNoAuthCredentials",
+    "SparkConnectCredentials",
+    "SparkConnectConfig",
     # Power BI
     "PowerBICredentials",
     "PowerBIConfig",
@@ -1262,6 +1353,9 @@ __all__ = [
     "GoogleDriveConfig",
     # Sybase SQL Anywhere
     "SybaseConfig",
+    # Teradata
+    "TeradataCredentials",
+    "TeradataConfig",
     # Timbr
     "TimbrTokenCredentials",
     "TimbrConfig",

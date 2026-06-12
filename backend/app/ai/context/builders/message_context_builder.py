@@ -158,6 +158,107 @@ def _digest_eval_tool(tool_execution) -> str:
     return ""
 
 
+def _digest_web_search(tool_execution) -> str:
+    """Digest for native (provider-executed) web search.
+
+    Summarizes what was searched and what came back so later turns have the
+    context. arguments_json carries the query/queries; result_json carries the
+    turn's cited sources (attached to the last search of the turn) or none.
+    Returns "" for other tools so callers fall through.
+    """
+    if getattr(tool_execution, 'tool_name', None) != 'web_search':
+        return ""
+    # Some callers (e.g. token estimation) pass lightweight projections that may
+    # not carry every column — read defensively.
+    args = getattr(tool_execution, 'arguments_json', None) or {}
+    rj = getattr(tool_execution, 'result_json', None) or {}
+    if not isinstance(args, dict):
+        args = {}
+    if not isinstance(rj, dict):
+        rj = {}
+    queries = args.get('queries') or ([args.get('query')] if args.get('query') else [])
+    queries = [q for q in queries if q]
+    parts = []
+    if queries:
+        head = f'"{str(queries[0])[:80]}"'
+        if len(queries) > 1:
+            head += f" (+{len(queries)-1} more)"
+        parts.append(head)
+    sources = rj.get('sources') or []
+    if isinstance(sources, list) and sources:
+        titles = "; ".join((s.get('title') or s.get('url') or '')[:50] for s in sources[:3] if isinstance(s, dict))
+        more = f" (+{len(sources)-3} more)" if len(sources) > 3 else ""
+        parts.append(f"{len(sources)} sources: {titles}{more}")
+    elif getattr(tool_execution, 'status', None) not in ('success', 'completed'):
+        parts.append("failed")
+    return "web search " + " — ".join(parts) if parts else ""
+
+
+def _digest_execute_mcp(tool_execution) -> str:
+    """Digest for execute_mcp so the planner sees WHAT it called, not just the result.
+
+    Without the input (which MCP tool + arguments) the planner can't tell which
+    calls it already tried and loops through variants — and a tool-level failure
+    used to surface only as "Tool returned error: None". Include the called tool
+    name, a compact argument echo, and the real error message on failure so the
+    next turn can correct course instead of guessing. Returns "" for other tools.
+    """
+    if getattr(tool_execution, 'tool_name', None) != 'execute_mcp':
+        return ""
+    rj = tool_execution.result_json or {}
+    obs = rj.get('observation') or rj
+    args = getattr(tool_execution, 'arguments_json', None) or {}
+    if not isinstance(args, dict):
+        args = {}
+    digest_parts = []
+
+    # Echo the call: which underlying MCP tool, with what arguments.
+    called = args.get('tool_name')
+    if called:
+        call_str = f"called: {called}"
+        tool_args = args.get('arguments')
+        if tool_args is not None:
+            try:
+                args_str = json.dumps(tool_args, default=str)
+            except Exception:
+                args_str = str(tool_args)
+            if len(args_str) > 300:
+                args_str = args_str[:300] + '…'
+            call_str += f"({args_str})"
+        digest_parts.append(call_str)
+
+    # Failure: surface the real error and mark it clearly so the planner adapts.
+    failed = obs.get('success') is False or rj.get('success') is False
+    if failed:
+        err = obs.get('error_message') or rj.get('error_message') or obs.get('summary') or 'unknown error'
+        digest_parts.append(f"FAILED: {str(err)[:300]}")
+        # Surface the tool's valid argument names so a later turn corrects the
+        # call instead of re-guessing (execute_mcp attaches input_schema on
+        # failure).
+        schema = obs.get('input_schema') or rj.get('input_schema')
+        if isinstance(schema, dict):
+            props = schema.get('properties') or {}
+            if props:
+                required = set(schema.get('required') or [])
+                arg_list = ", ".join(f"{n}*" if n in required else n for n in props.keys())
+                digest_parts.append(f"valid args: {{{arg_list}}}")
+        return "; ".join(digest_parts)
+
+    summary = obs.get('summary') or ''
+    if summary:
+        digest_parts.append(summary)
+    ct = obs.get('content_type') or rj.get('content_type')
+    if ct:
+        digest_parts.append(f"type: {ct}")
+    fid = obs.get('file_id') or rj.get('file_id')
+    if fid:
+        digest_parts.append(f"file_id: {fid}")
+    rc = obs.get('row_count') or rj.get('row_count')
+    if rc:
+        digest_parts.append(f"{rc} rows")
+    return "; ".join(digest_parts)
+
+
 def _digest_excel_tool(tool_execution) -> str:
     """Digest for Excel bridge tools.
 
@@ -258,6 +359,66 @@ def _digest_excel_tool(tool_execution) -> str:
             parts.append("TRUNCATED")
         return "; ".join(parts)
 
+    return ""
+
+
+def _digest_scheduled_tool(tool_execution) -> str:
+    """One-line digest for scheduled-task tools.
+
+    Records in the conversation history what was scheduled / cancelled (task id
+    + cron), so the planner can dedupe new schedules and cancel the right task
+    on a follow-up turn. Returns an empty string for other tools so callers can
+    fall through to the next elif. The active tasks themselves are listed in the
+    <scheduled_tasks> context section.
+    """
+    name = tool_execution.tool_name
+    rj = tool_execution.result_json or {}
+    if name == 'create_scheduled_task':
+        parts = []
+        if rj.get('task_id'):
+            parts.append(f"task_id: {rj.get('task_id')}")
+        if rj.get('cron_schedule'):
+            parts.append(f"cron: {rj.get('cron_schedule')}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts)
+    if name == 'cancel_scheduled_task':
+        parts = []
+        if rj.get('task_id'):
+            parts.append(f"task_id: {rj.get('task_id')}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts) if parts else "cancelled"
+    return ""
+
+
+def _digest_notification_tool(tool_execution) -> str:
+    """One-line digest for notification tools (send_email today; Slack/Teams
+    later) so the conversation history records that the user was notified, with
+    recipient + subject. Returns an empty string for other tools so callers can
+    fall through to the next elif.
+    """
+    name = tool_execution.tool_name
+    rj = tool_execution.result_json or {}
+    if name == 'send_email':
+        parts = []
+        if rj.get('recipient'):
+            parts.append(f"to: {rj.get('recipient')}")
+        if rj.get('subject'):
+            subj = str(rj.get('subject'))
+            parts.append(f"subject: {subj[:80]}{'…' if len(subj) > 80 else ''}")
+        atts = rj.get('attachments') or []
+        if atts:
+            sent = [a for a in atts if a.get('success')]
+            failed = [a for a in atts if not a.get('success')]
+            names = ", ".join((a.get('filename') or a.get('ref_id') or '?') for a in sent[:5])
+            if names:
+                parts.append(f"attached: {names}")
+            if failed:
+                parts.append(f"attach_failed: {len(failed)}")
+        if rj.get('error'):
+            parts.append(f"error: {rj.get('error')}")
+        return "; ".join(parts)
     return ""
 
 
@@ -684,23 +845,9 @@ class MessageContextBuilder:
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    obs = rj.get('observation') or rj
-                                    digest_parts = []
-                                    summary = obs.get('summary') or ''
-                                    if summary:
-                                        digest_parts.append(summary)
-                                    ct = obs.get('content_type') or rj.get('content_type')
-                                    if ct:
-                                        digest_parts.append(f"type: {ct}")
-                                    fid = obs.get('file_id') or rj.get('file_id')
-                                    if fid:
-                                        digest_parts.append(f"file_id: {fid}")
-                                    rc = obs.get('row_count') or rj.get('row_count')
-                                    if rc:
-                                        digest_parts.append(f"{rc} rows")
-                                    if digest_parts:
-                                        tool_info += " - " + "; ".join(digest_parts)
+                                    digest = _digest_execute_mcp(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                     digest = _digest_knowledge_tool(tool_execution)
                                     if digest:
@@ -711,6 +858,14 @@ class MessageContextBuilder:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
                                     digest = _digest_excel_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task') and tool_execution.result_json:
+                                    digest = _digest_scheduled_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                                    digest = _digest_notification_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
@@ -776,6 +931,10 @@ class MessageContextBuilder:
                                         digest_parts.append(summary)
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'web_search':
+                                    digest = _digest_web_search(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
                                 elif tool_execution.created_widget_id:
                                     # Only the title is used — project it instead of
                                     # loading the full Widget row.
@@ -1282,23 +1441,9 @@ class MessageContextBuilder:
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                obs = rj.get('observation') or rj
-                                digest_parts = []
-                                summary = obs.get('summary') or ''
-                                if summary:
-                                    digest_parts.append(summary)
-                                ct = obs.get('content_type') or rj.get('content_type')
-                                if ct:
-                                    digest_parts.append(f"type: {ct}")
-                                fid = obs.get('file_id') or rj.get('file_id')
-                                if fid:
-                                    digest_parts.append(f"file_id: {fid}")
-                                rc = obs.get('row_count') or rj.get('row_count')
-                                if rc:
-                                    digest_parts.append(f"{rc} rows")
-                                if digest_parts:
-                                    tool_info += " - " + "; ".join(digest_parts)
+                                digest = _digest_execute_mcp(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
                             elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
                                 digest = _digest_knowledge_tool(tool_execution)
                                 if digest:
@@ -1309,6 +1454,14 @@ class MessageContextBuilder:
                                     tool_info += " - " + digest
                             elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
                                 digest = _digest_excel_tool(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.tool_name in ('create_scheduled_task', 'cancel_scheduled_task') and tool_execution.result_json:
+                                digest = _digest_scheduled_tool(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
+                            elif tool_execution.tool_name == 'send_email' and tool_execution.result_json:
+                                digest = _digest_notification_tool(tool_execution)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.tool_name in ('write_csv', 'materialize') and tool_execution.result_json:
@@ -1374,6 +1527,10 @@ class MessageContextBuilder:
                                     digest_parts.append(summary)
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name == 'web_search':
+                                digest = _digest_web_search(tool_execution)
+                                if digest:
+                                    tool_info += " - " + digest
                             elif tool_execution.status == 'error' and tool_execution.error_message:
                                 error = tool_execution.error_message
                                 if len(error) > 50:

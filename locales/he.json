@@ -248,6 +248,8 @@
       "instructions": "הנחיות"
     },
     "tooltips": {
+      "star": "סמן בכוכב",
+      "unstar": "הסר כוכב",
       "hasPage": "מכיל תוצר עמוד",
       "hasSlides": "מכיל תוצר מצגת",
       "chat": "צ׳אט",
@@ -259,6 +261,7 @@
       "showing": "מציג {from} עד {to} מתוך {total} דוחות"
     },
     "toasts": {
+      "starFailed": "עדכון הכוכב נכשל",
       "failedFetch": "נכשלה שליפת הדוחות",
       "archived": "הדוח הועבר לארכיון",
       "archivedDesc": "הדוח הועבר לארכיון בהצלחה",
@@ -1009,7 +1012,23 @@
       "successInvited": "הזמנה נשלחה אל {email}",
       "rolesUpdated": "התפקידים עודכנו",
       "failedToUpdateRoles": "עדכון התפקידים נכשל",
-      "failedToRemoveRole": "הסרת התפקיד נכשלה"
+      "failedToRemoveRole": "הסרת התפקיד נכשלה",
+      "selected": "נבחרו",
+      "bulkAddRole": "הוספת תפקיד",
+      "bulkAddGroup": "הוספה לקבוצה",
+      "bulkClear": "ניקוי",
+      "paginationOf": "מתוך",
+      "statusExpired": "פג תוקף",
+      "resend": "שליחה מחדש",
+      "resending": "שולח מחדש…",
+      "failedToResend": "שליחת ההזמנה מחדש נכשלה",
+      "inviteResent": "ההזמנה נשלחה מחדש",
+      "inviteResentNoSmtp": "ההזמנה רועננה (דואל לא נשלח — SMTP לא מוגדר)",
+      "inviteResentFailed": "ההזמנה רועננה, אך הדואל לא נשלח",
+      "copyLink": "העתקת קישור",
+      "linkCopied": "קישור ההזמנה הועתק",
+      "failedToCopyLink": "לא ניתן להעתיק את הקישור",
+      "linkRegenerated": "קישור ההזמנה רוענן והועתק"
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",
@@ -1132,7 +1151,17 @@
       "expiresSoon": "הרישיון שלך יפוג בעוד {days} ימים. צור איתנו קשר לחידוש.",
       "enterpriseInfo": "פתח יומני ביקורת, בקרת גישה מתקדמת מבוססת תפקידים ומדיניות שמירת נתונים עם רישיון Enterprise.",
       "activateHint": "הגדר את {envvar} והפעל מחדש כדי להפעיל.",
-      "learnMore": "למידע נוסף →"
+      "learnMore": "למידע נוסף →",
+      "banner": {
+        "expiring": "רישיון ה-enterprise שלך יפוג בעוד {days} ימים — חדש אותו כדי למנוע הפרעה.",
+        "expired": "רישיון ה-enterprise שלך פג — חדש אותו כדי לשחזר את תכונות ה-enterprise.",
+        "viewLicense": "הצג רישיון"
+      },
+      "fieldTier": "דרגה",
+      "inDays": "נותרו {days} ימים",
+      "expiredNotice": "רישיון ה-enterprise שלך פג. תכונות ה-enterprise מושבתות עד לחידוש.",
+      "enterpriseTitle": "מהדורת enterprise",
+      "renewInfo": "חדש את הרישיון כדי לשחזר תכונות enterprise כמו יומני ביקורת, בקרת גישה מתקדמת ומדיניות שמירת נתונים."
     },
     "mcpModal": {
       "editTitle": "עריכת חיבור MCP",
@@ -1176,6 +1205,10 @@
     "agentsSubtitle": "ארגנו טבלאות והנחיות לסוכנים.",
     "searchAgents": "חיפוש סוכני נתונים…",
     "createAgent": "יצירת סוכן נתונים",
+    "showAllAgents": "הצג הכול",
+    "showAllAgentsHint": "תצוגת מנהל: כלול סוכני נתונים פרטיים שאינך חבר בהם.",
+    "adminOnlyTag": "מנהל",
+    "adminOnlyHint": "סוכן נתונים פרטי — גלוי לך כמנהל. אינך חבר בו.",
     "trySample": "נסו מסד נתונים לדוגמה:",
     "sampleTag": "דוגמה",
     "tables": "טבלאות",
@@ -2111,6 +2144,7 @@
     "onDay": "ביום",
     "active": "פעיל",
     "notifyAfterRun": "התראה לאחר כל הרצה",
+    "promptSendsEmailHint": "ההנחיה שלך כבר מבקשת לשלוח אימייל — המשימה תטפל בכך בעצמה. הפעל זאת רק אם תרצה גם אימייל סיכום נפרד.",
     "emailOrMemberPlaceholder": "אימייל או חבר...",
     "cancel": "ביטול",
     "update": "עדכן",
@@ -2122,6 +2156,13 @@
     "dowThu": "ה׳",
     "dowFri": "ו׳",
     "dowSat": "ש׳",
+    "dowSunShort": "א׳",
+    "dowMonShort": "ב׳",
+    "dowTueShort": "ג׳",
+    "dowWedShort": "ד׳",
+    "dowThuShort": "ה׳",
+    "dowFriShort": "ו׳",
+    "dowSatShort": "ש׳",
     "unknownMember": "לא ידוע",
     "toastUpdated": "המשימה המתוזמנת עודכנה",
     "toastScheduled": "המשימה תוזמנה",

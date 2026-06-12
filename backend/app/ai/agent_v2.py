@@ -58,6 +58,42 @@ def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
     return any(kw in p for kw in THINKING_TRIGGERS)
 
 
+def _observation_failed(observation) -> bool:
+    """True when a tool observation signals failure.
+
+    Tools report failure in two ways: a truthy ``error`` payload, or an explicit
+    ``success: False`` with no ``error`` key (e.g. execute_mcp on a tool-level
+    MCP error). Checking only ``error`` mislabels the latter as success, which is
+    why failed MCP calls used to show a green ✓ in the trace. Treat either as a
+    failure.
+    """
+    if not observation:
+        return False
+    if observation.get("error"):
+        return True
+    if observation.get("success") is False:
+        return True
+    return False
+
+
+def _observation_error_message(observation) -> Optional[str]:
+    """Best-effort human-readable error string from a failed observation.
+
+    Handles both the structured ``error: {message: ...}`` shape and the flatter
+    ``success: False`` + ``summary`` shape that execute_mcp and friends emit.
+    """
+    if not observation:
+        return None
+    err = observation.get("error")
+    if isinstance(err, dict):
+        return err.get("message") or None
+    if isinstance(err, str) and err.strip():
+        return err
+    if observation.get("success") is False:
+        return observation.get("error_message") or observation.get("summary") or None
+    return None
+
+
 def _resolve_reasoning_effort(
     *,
     per_completion: Optional[str],
@@ -179,6 +215,23 @@ class AgentV2:
             # Handle case where data_sources or files might be None
             self.data_sources = getattr(report, 'data_sources', []) or []
             self.clients = clients
+            # Drop data sources that produced no client. The caller builds
+            # `clients` via DataSourceService.construct_clients, which now 403s
+            # for sources the running user can't access — so a source still on
+            # the report's (possibly stale) snapshot that the user lost access
+            # to has no client. Without this, its schema would still flow into
+            # the agent context and the agent would try to query a source it
+            # can't reach, erroring mid-run. Silently dropping it keeps the
+            # context aligned with what's actually queryable. Only filter when
+            # clients were supplied (some non-query callers pass none).
+            if clients:
+                def _has_client(ds):
+                    name = getattr(ds, 'name', None)
+                    if not name:
+                        return False
+                    prefix = f"{name}:"
+                    return any(k == name or k.startswith(prefix) for k in clients)
+                self.data_sources = [ds for ds in self.data_sources if _has_client(ds)]
             all_files = getattr(report, 'files', []) or []
             # Split files: images go to LLM vision, everything else goes through existing flow
             self.image_files = [f for f in all_files if (getattr(f, 'content_type', '') or '').startswith('image/')]
@@ -346,6 +399,14 @@ class AgentV2:
             model=self.small_model,
             organization_settings=self.organization_settings,
             instruction_context_builder=self.context_hub.instruction_builder,
+            usage_session_maker=async_session_maker,
+            # Do NOT pass usage_context here. The Judge scores via
+            # asyncio.to_thread(llm.inference) (a worker thread), which routes the
+            # sync quota check through UsageLimitContext.run_blocking(). With no
+            # loop bound on the context that spins up a throwaway event loop and
+            # contends for the context's _cache_lock (created on the main loop),
+            # raising "Lock is bound to a different event loop" mid-run. Token
+            # recording still works via usage_session_maker.
         )
 
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
@@ -375,6 +436,27 @@ class AgentV2:
         except Exception:
             user_note = None
         return user_name, user_note
+
+    async def _build_available_steps_context(self) -> str:
+        """Render this report's loadable steps for the planner prompt.
+
+        Mirrors the coder's <available_steps> so the planner knows create_data
+        can reuse prior results via load_step instead of re-deriving them.
+        """
+        if not self.report:
+            return ""
+        try:
+            from app.ai.code_execution.loadables import LoadablesResolver
+            resolver = LoadablesResolver(
+                self.db,
+                self.organization,
+                self.report,
+                getattr(self.head_completion, 'user', None) if self.head_completion else None,
+            )
+            section = await resolver.list_for_discovery()
+            return section.render() if section else ""
+        except Exception:
+            return ""
 
     async def _get_active_artifact(self) -> Optional[dict]:
         """Get the most recent artifact for the current report, enriched with
@@ -578,7 +660,14 @@ class AgentV2:
             # sit inside the DB retry loop below — a locked-SQLite write should
             # only retry the write, never re-run the model.
             if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                judge = Judge(
+                    model=self.model,
+                    organization_settings=self.organization_settings,
+                    usage_session_maker=async_session_maker,
+                    # No usage_context: Judge runs in a worker thread; routing the
+                    # sync quota check through run_blocking() would contend for the
+                    # context's asyncio.Lock across event loops. See note above.
+                )
                 instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
             else:
                 instructions_score = 3
@@ -600,7 +689,12 @@ class AgentV2:
             # Score once, up-front — keep the Judge LLM call out of the DB retry
             # loop so a locked-SQLite write never triggers a redundant model call.
             if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
-                judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                judge = Judge(
+                    model=self.model,
+                    organization_settings=self.organization_settings,
+                    usage_session_maker=async_session_maker,
+                    # No usage_context: see note above (cross-loop _cache_lock).
+                )
                 original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
                 response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
             else:
@@ -944,8 +1038,8 @@ class AgentV2:
                         tool_execution=tool_execution,
                         result_model=tool_output,
                         summary=observation.get("summary", "") if observation else "",
-                        error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
-                        success=bool(observation and not observation.get("error") and not _is_stopped),
+                        error_message=_observation_error_message(observation),
+                        success=bool(observation and not _observation_failed(observation) and not _is_stopped),
                     )
                 except Exception as _fin_err:
                     logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
@@ -978,7 +1072,7 @@ class AgentV2:
 
                 try:
                     _is_stopped = bool(observation and observation.get("stopped"))
-                    _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
+                    _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
                     seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
                     safe_result_json = None
                     if tool_output is not None:
@@ -1138,8 +1232,18 @@ class AgentV2:
             # Restore the original mode
             self.mode = prior_mode
 
-    async def _generate_title_background(self, messages_context: str, plan_info: list):
-        """Generate report title in background after completion.finished is sent."""
+    async def _generate_title_background(self, messages_context: str, plan_info: list, report_id: str):
+        """Generate report title in background after completion.finished is sent.
+
+        `report_id` is passed in as a plain string (captured while the request's
+        session is still alive). We must NOT read it off `self.report` here: this
+        runs as a fire-and-forget task that can outlive the request, at which point
+        `self.report` is detached from its (now-closed) session and any attribute
+        access raises "Instance is not bound to a Session". That silently skipped
+        title generation — most visibly on Postgres, whose pooled connections
+        return/expire faster than SQLite's, so the session was reliably gone by the
+        time this task ran.
+        """
         import logging
         logger = logging.getLogger(__name__)
         try:
@@ -1154,14 +1258,14 @@ class AgentV2:
                     # lazyload("*") suppresses Report's lazy="selectin" cascade (14 rels +
                     # downstream DS/widget/query graph) — update_report_title only touches title.
                     from sqlalchemy.orm import lazyload as _lazyload
-                    stmt = select(Report).where(Report.id == self.report.id).options(_lazyload("*"))
+                    stmt = select(Report).where(Report.id == report_id).options(_lazyload("*"))
                     result = await session.execute(stmt)
                     report = result.scalar_one_or_none()
                     if report:
                         await self.project_manager.update_report_title(session, report, title)
                         logger.info(f"Report title updated to: {title}")
                     else:
-                        logger.warning(f"Report not found for title update: {self.report.id}")
+                        logger.warning(f"Report not found for title update: {report_id}")
                 except Exception as e:
                     logger.error(f"Failed to generate/update report title: {e}")
         except Exception as e:
@@ -1784,7 +1888,7 @@ class AgentV2:
             observation: Optional[dict] = None
             active_artifact = await self._get_active_artifact()
             # Training mode needs more iterations for thorough exploration
-            step_limit = 100 if self.mode == "training" else 20
+            step_limit = 100 if self.mode == "training" else 100
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -1872,6 +1976,10 @@ class AgentV2:
                     mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
                     # Entities context (catalog entities relevant to this turn)
                     entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
+                    # Active scheduled tasks for this report (for dedupe + cancellation)
+                    scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+                    # Loadable prior steps (so the planner prefers reuse via load_step)
+                    available_steps_context = await self._build_available_steps_context()
 
                     # Load user-uploaded images for vision models (only on first loop iteration)
                     user_images = await self._load_images_as_input() if loop_index == 0 else []
@@ -1905,6 +2013,8 @@ class AgentV2:
                         files_context=files_context,
                         mentions_context=mentions_context,
                         entities_context=entities_context,
+                        available_steps_context=available_steps_context,
+                        scheduled_tasks_context=scheduled_tasks_context,
                         history_summary=history_summary,
                         messages_context=messages_context,
                         resources_context=resources_context,
@@ -1920,6 +2030,8 @@ class AgentV2:
                         limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                         mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                         web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+                        web_search_enabled=self._web_search_enabled(),
+                        web_search_domains=self._web_search_domains(),
                         scheduled_context=await self._build_scheduled_context(),
                         user_name=user_name,
                         user_note=user_note,
@@ -2053,6 +2165,8 @@ class AgentV2:
                     except Exception as _cexc:
                         logger.debug(f"[agent] cancel_skeleton emit failed: {_cexc!r}")
 
+                _ws_block_count = 0  # native web-search tool blocks emitted this turn
+                _ws_tool_execs = []  # (tool_execution, block) per web search, for citation backfill
                 async for evt in self._iter_planner_events_with_span(planner_input, loop_index):
                     if self.sigkill_event.is_set():
                         await _cancel_skeleton_block("sigkill")
@@ -2062,7 +2176,65 @@ class AgentV2:
                     if evt.type == "planner.tokens":
                         # Do not forward raw JSON tokens; deltas will be emitted from decision partials
                         continue
-                        
+
+                    elif evt.type == "planner.web_search":
+                        # Native (provider-executed) web search finished during
+                        # planning. Record it as a real tool execution + block so
+                        # it renders like other tools (query in arguments_json).
+                        try:
+                            _q = evt.query or (", ".join(evt.queries) if evt.queries else "")
+                            _queries = evt.queries or ([evt.query] if evt.query else [])
+                            _te = await self.project_manager.start_tool_execution(
+                                self.db,
+                                agent_execution=self.current_execution,
+                                plan_decision_id=None,
+                                tool_name="web_search",
+                                tool_action="search",
+                                arguments_json={"query": _q, "queries": _queries},
+                            )
+                            # The provider reports per-call status; treat anything
+                            # other than 'completed' (e.g. 'failed', 'incomplete')
+                            # as an error so it doesn't render as a silent success.
+                            _ws_ok = (evt.status or "completed") == "completed"
+                            await self.project_manager.finish_tool_execution(
+                                self.db,
+                                tool_execution=_te,
+                                status="success" if _ws_ok else "error",
+                                success=_ws_ok,
+                                result_summary=(f"Searched: {_q}" if _q else "Web search") if _ws_ok else f"Web search {evt.status or 'failed'}",
+                                error_message=None if _ws_ok else f"web search {evt.status or 'failed'}",
+                                result_json={"query": _q, "queries": _queries, "status": evt.status},
+                            )
+                            # Order the searches just before the planning/answer
+                            # block of this turn (which sits at decision_seq*100),
+                            # in execution order (first search on top).
+                            _base_seq = decision_seq if decision_seq is not None else 1
+                            _ws_bi = int(_base_seq) * 100 - 50 + _ws_block_count
+                            _ws_block_count += 1
+                            _ws_block = await self.project_manager.insert_standalone_tool_block(
+                                self.db,
+                                completion=self.system_completion,
+                                agent_execution=self.current_execution,
+                                tool_execution=_te,
+                                loop_index=loop_index,
+                                title="Web search",
+                                icon="🔍",
+                                block_index=_ws_bi,
+                            )
+                            _ws_schema = await serialize_block_v2(self.db, _ws_block)
+                            _ws_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="block.upsert",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=_ws_seq,
+                                data={"block": _ws_schema.model_dump()},
+                            ))
+                            _ws_tool_execs.append((_te, _ws_block))
+                        except Exception as _ws_exc:
+                            logger.warning(f"[agent] web_search tool block failed: {_ws_exc!r}")
+                        continue
+
                     elif evt.type == "planner.decision.partial":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
 
@@ -2312,6 +2484,35 @@ class AgentV2:
                                     exc_info=True,
                                 )
                                 block = None
+
+                            # Backfill web-search results: native web search only
+                            # surfaces the cited sources at the END of the turn
+                            # (annotations on the answer), so attach them to the
+                            # last search record now that the turn is complete.
+                            try:
+                                if _ws_tool_execs:
+                                    _cites = getattr(decision, "web_search_citations", None) or []
+                                    _last_te, _last_blk = _ws_tool_execs[-1]
+                                    _last_te.result_json = {
+                                        **(_last_te.result_json or {}),
+                                        "sources": _cites,
+                                    }
+                                    _last_te.result_summary = (
+                                        f"{len(_cites)} source(s) found" if _cites else "No results found"
+                                    )
+                                    self.db.add(_last_te)
+                                    await self.db.commit()
+                                    _bs = await serialize_block_v2(self.db, _last_blk)
+                                    _bseq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.upsert",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=_bseq,
+                                        data={"block": _bs.model_dump()},
+                                    ))
+                            except Exception as _ws_cite_exc:
+                                logger.warning(f"[agent] web_search citation backfill failed: {_ws_cite_exc!r}")
 
                             # Rebuild transcript. Single-writer mode runs sync
                             # on self._writes; legacy mode schedules a bg task
@@ -2638,7 +2839,7 @@ class AgentV2:
                             await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
 
                             # Circuit breaker: track repeated tool failures
-                            if observation and observation.get("error"):
+                            if _observation_failed(observation):
                                 failed_tool_count[tool_name] = failed_tool_count.get(tool_name, 0) + 1
                                 if failed_tool_count[tool_name] >= max_tool_failures:
                                     analysis_done = True
@@ -2775,13 +2976,10 @@ class AgentV2:
                             # DB writes and the block.upsert SSE.
                             _success_flag = bool(
                                 observation
-                                and not observation.get("error")
+                                and not _observation_failed(observation)
                                 and not (observation and observation.get("stopped"))
                             )
-                            _error_msg = (
-                                observation.get("error", {}).get("message")
-                                if observation and observation.get("error") else None
-                            )
+                            _error_msg = _observation_error_message(observation)
                             _summary = observation.get("summary", "") if observation else ""
 
                             # Mutate the in-memory tool_execution synchronously so
@@ -2852,7 +3050,7 @@ class AgentV2:
                                     {
                                         "agent_execution_id": str(self.current_execution.id),
                                         "tool_name": tool_name,
-                                        "status": "success" if observation and not observation.get("error") else "error",
+                                        "status": "error" if _observation_failed(observation) else "success",
                                         "duration_ms": getattr(tool_execution, "duration_ms", None),
                                     },
                                     user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
@@ -2969,7 +3167,7 @@ class AgentV2:
 
                             # Emit tool.finished with result
                             _is_stopped = bool(observation and observation.get("stopped"))
-                            _tool_status = "stopped" if _is_stopped else ("success" if observation and not observation.get("error") else "error")
+                            _tool_status = "stopped" if _is_stopped else ("error" if _observation_failed(observation) else "success")
                             seq_fin = await self.project_manager.next_seq(self.db, self.current_execution)
                             safe_result_json = None
                             if tool_output is not None:
@@ -3129,15 +3327,22 @@ class AgentV2:
                         # Generate title in background to not block completion
                         messages_section = await self.context_hub.message_builder.build(max_messages=5)
                         messages_context = messages_section.render()
-                        
+
                         # Extract plan information from current execution
                         plan_info = []
                         if current_plan_decision:
                             if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
                                 plan_info.append({"action": current_plan_decision.action_name})
-                        
+
+                        # Capture the report id as a plain string NOW, while self.db is
+                        # still open. The background task can outlive the request, and
+                        # reading self.report.id after the session closes raises
+                        # "Instance is not bound to a Session" (the bug that silently
+                        # skipped title generation, esp. on Postgres).
+                        report_id_for_title = str(self.report.id)
+
                         # Run title generation in background
-                        asyncio.create_task(self._generate_title_background(messages_context, plan_info))
+                        asyncio.create_task(self._generate_title_background(messages_context, plan_info, report_id_for_title))
             except Exception as e:
                 # Don't fail the entire execution if title generation fails
                 import logging
@@ -3317,6 +3522,8 @@ class AgentV2:
         files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
         mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
+        scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+        available_steps_context = await self._build_available_steps_context()
 
         user_message = (self.head_completion.prompt or {}).get("content", "")
 
@@ -3334,6 +3541,8 @@ class AgentV2:
             files_context=files_context,
             mentions_context=mentions_context,
             entities_context=entities_context,
+            available_steps_context=available_steps_context,
+            scheduled_tasks_context=scheduled_tasks_context,
             history_summary=history_summary,
             messages_context=messages_context,
             resources_context=resources_context,
@@ -3347,6 +3556,8 @@ class AgentV2:
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+            web_search_enabled=self._web_search_enabled(),
+            web_search_domains=self._web_search_domains(),
             scheduled_context=await self._build_scheduled_context(),
             user_name=user_name,
             user_note=user_note,
@@ -3552,6 +3763,65 @@ class AgentV2:
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
             return {"decision": False, "conditions": []}
+
+    def _web_search_enabled(self) -> bool:
+        """Effective gate for native, provider-executed web search.
+
+        Two layers must agree (per the agreed design):
+          1) Org master switch — reuse the existing `enable_web_fetch` setting,
+             which governs all outbound web egress for the org.
+          2) Per-provider opt-in — `additional_config.enable_web_search`, set by
+             an admin only on a provider whose endpoint actually supports the
+             Responses `web_search` tool.
+
+        Plus a capability guard: the tool only exists on the OpenAI Responses
+        path. That's OpenAI (no custom base_url → Responses client) or Azure
+        (routed to the Responses client when enable_web_search is set). Any other
+        provider — or an OpenAI provider pinned to a Chat Completions base_url —
+        cannot serve it, so we report it disabled to keep the planner directive
+        honest.
+        """
+        try:
+            settings = self.organization_settings
+            if not settings:
+                return False
+            org_cfg = settings.get_config("enable_web_fetch")
+            if not bool(getattr(org_cfg, "value", False)):
+                return False
+            provider = getattr(self.model, "provider", None)
+            if not provider:
+                return False
+            add = getattr(provider, "additional_config", None) or {}
+            if not bool(add.get("enable_web_search", False)):
+                return False
+            ptype = getattr(provider, "provider_type", None)
+            if ptype == "azure":
+                # Web search needs the Responses API, which the admin opts into.
+                return bool(add.get("use_responses_api"))
+            if ptype == "openai":
+                return not bool(add.get("base_url"))
+            return False
+        except Exception:
+            return False
+
+    def _web_search_domains(self) -> list:
+        """Domains parsed from URLs in the current user turn, passed to web
+        search as filters.allowed_domains so it opens/reads those pages directly
+        (open_page) instead of relying on snippet search. Empty when no URL."""
+        try:
+            head = getattr(self, "head_completion", None)
+            msg = (getattr(head, "prompt", None) or {}).get("content", "") if head else ""
+            if not msg or "http" not in msg:
+                return []
+            import re as _re
+            hosts = []
+            for m in _re.findall(r"https?://([^/\s\"'>]+)", msg):
+                h = m.strip().lower()
+                if h and h not in hosts:
+                    hosts.append(h)
+            return hosts[:20]
+        except Exception:
+            return []
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.
@@ -3926,7 +4196,7 @@ class AgentV2:
         same agent run then died. By scoping this whole block to a fresh
         session, a transport death here can't poison the rest of the run.
         """
-        if not observation or observation.get("error"):
+        if not observation or _observation_failed(observation):
             return  # Don't process failed tool executions
 
         # All ORM references that come into this method (self.current_step,
