@@ -1160,7 +1160,9 @@ async function editTrainingInstruction(inst: { instructionId: string }) {
 }
 
 function visibleInstructions(m: ChatMessage) {
-	return (m._loaded_instructions || []).filter((ins: any) => ins.category !== 'system')
+	// Show every loaded instruction (including system-category ones) so the
+	// count and popover match the agent trace modal, which lists all of them.
+	return m._loaded_instructions || []
 }
 
 function isScheduledSystemExpanded(msg: ChatMessage): boolean {
