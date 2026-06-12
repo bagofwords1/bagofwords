@@ -185,19 +185,6 @@ class CreateScheduledTaskTool(Tool):
         try:
             from app.services.scheduled_prompt_service import scheduled_prompt_service
             from app.schemas.scheduled_prompt_schema import ScheduledPromptCreate
-            from app.schemas.notification_schema import NotificationSubscriber
-            from app.ai.tools.utils import prompt_requests_email
-
-            # Decide email delivery for this task. If the prompt already asks to
-            # email/notify the user, the agent's send_email tool handles it during
-            # the run, so we leave the static summary off to avoid double-sending.
-            # Otherwise, default to a static summary email to the creating user.
-            if prompt_requests_email(data.task_prompt):
-                notification_subscribers = None
-            else:
-                notification_subscribers = [
-                    NotificationSubscriber(type="user", id=str(user.id))
-                ]
 
             sp = await scheduled_prompt_service.create_scheduled_prompt(
                 db=db,
@@ -206,7 +193,7 @@ class CreateScheduledTaskTool(Tool):
                     prompt={"content": data.task_prompt},
                     cron_schedule=data.cron_schedule,
                     is_active=True,
-                    notification_subscribers=notification_subscribers,
+                    notification_subscribers=None,
                 ),
                 current_user=user,
                 organization=organization,

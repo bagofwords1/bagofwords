@@ -2,35 +2,8 @@
 Tool utility functions for formatting and display.
 """
 import json
-import re
 from typing import List, Dict, Any
 from app.schemas.ai.planner import ToolDescriptor
-
-
-# Phrases that signal the prompt itself asks to email/notify the user. When a
-# scheduled task's prompt contains one of these, the agent's send_email tool
-# will deliver the message during the run, so we must NOT also attach a static
-# summary email — otherwise the user receives two emails for one run.
-_EMAIL_INTENT_RE = re.compile(
-    r"\b("
-    r"e-?mail\s+(me|us|to\s+me)|"
-    r"(send|mail|notify|alert|ping|message|text)\s+(me|us)\b|"
-    r"let\s+(me|us)\s+know|"
-    r"(send|shoot|drop)\s+.{0,40}?\be-?mail\b|"
-    r"\be-?mail\b.{0,40}?\b(summary|report|results?|me|us)\b"
-    r")",
-    re.IGNORECASE,
-)
-
-
-def prompt_requests_email(task_prompt: str) -> bool:
-    """Return True if the prompt looks like it already asks to email/notify the user.
-
-    Used to decide whether a scheduled task should attach a static summary email.
-    If the prompt expresses email intent (handled dynamically by the send_email
-    tool), we skip the static summary to avoid double-sending.
-    """
-    return bool(_EMAIL_INTENT_RE.search(task_prompt or ""))
 
 
 def format_tool_schemas(tool_catalog: List[ToolDescriptor]) -> str:
