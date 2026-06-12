@@ -2066,6 +2066,7 @@
     "onDay": "no dia",
     "active": "Ativa",
     "notifyAfterRun": "Notificar após cada execução",
+    "promptSendsEmailHint": "Sua instrução já pede para enviar um e-mail — a tarefa fará isso sozinha. Ative isto apenas se também quiser um e-mail de resumo separado.",
     "emailOrMemberPlaceholder": "E-mail ou membro...",
     "cancel": "Cancelar",
     "update": "Atualizar",

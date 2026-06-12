@@ -2066,6 +2066,7 @@
     "onDay": "il giorno",
     "active": "Attiva",
     "notifyAfterRun": "Notifica dopo ogni esecuzione",
+    "promptSendsEmailHint": "La tua richiesta chiede già di inviare un'email — l'attività lo farà da sola. Attiva questa opzione solo se vuoi anche un'email di riepilogo separata.",
     "emailOrMemberPlaceholder": "E-mail o membro...",
     "cancel": "Annulla",
     "update": "Aggiorna",
