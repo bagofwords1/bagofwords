@@ -346,7 +346,7 @@ def _install_plan_aware_spark(monkeypatch, plan_text):
 
     def _sql(q):
         res = MagicMock()
-        if q.strip().upper().startswith("EXPLAIN COST"):
+        if q.strip().upper().startswith("EXPLAIN"):
             res.collect.return_value = [(plan_text,)]
         else:
             res.toPandas.return_value = pd.DataFrame({"x": [1]})
@@ -397,7 +397,7 @@ class TestExplainGate:
         spark = MagicMock()
 
         def _sql(q):
-            if q.strip().upper().startswith("EXPLAIN COST"):
+            if q.strip().upper().startswith("EXPLAIN"):
                 raise RuntimeError("cannot explain")
             res = MagicMock()
             res.toPandas.return_value = pd.DataFrame({"x": [1]})
