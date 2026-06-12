@@ -147,7 +147,9 @@ async def test_create_happy_path():
             _ctx(),
         )
         mock_create.assert_awaited_once()
-        # The stored prompt is the task_prompt verbatim, no email subscribers.
+        # The stored prompt is the task_prompt verbatim. This prompt asks to
+        # "email me a summary", so the agent's send_email tool handles delivery
+        # and we attach NO static summary subscribers (avoids double-sending).
         kwargs = mock_create.await_args.kwargs
         assert kwargs["report_id"] == "report-1"
         assert kwargs["data"].prompt == {"content": "Check for weird activity and email me a summary."}
@@ -159,6 +161,53 @@ async def test_create_happy_path():
     assert payload["output"]["task_id"] == "sp-123"
     assert payload["output"]["cron_schedule"] == "0 9 * * 1"
     assert payload["observation"]["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_attaches_summary_email_when_no_intent():
+    """A prompt with no email intent gets a static summary email to the creator."""
+    tool = CreateScheduledTaskTool()
+    fake_sp = SimpleNamespace(id="sp-456")
+    with patch(
+        "app.services.scheduled_prompt_service.scheduled_prompt_service.create_scheduled_prompt",
+        new=AsyncMock(return_value=fake_sp),
+    ) as mock_create:
+        events = await _collect(
+            tool,
+            {
+                "task_prompt": "Refresh the revenue dashboard with the latest data.",
+                "cron_schedule": "0 7 * * *",
+            },
+            _ctx(),
+        )
+        mock_create.assert_awaited_once()
+        subs = mock_create.await_args.kwargs["data"].notification_subscribers
+        assert subs is not None and len(subs) == 1
+        assert subs[0].type == "user"
+        assert subs[0].id == "user-1"
+
+    assert _end_payload(events)["output"]["success"] is True
+
+
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        ("Check activity this week and email me a short summary", True),
+        ("Pull yesterday's signups and email me the count", True),
+        ("Notify me if revenue drops below target", True),
+        ("Let me know if anything looks off", True),
+        ("Ping me when the sync finishes", True),
+        ("Refresh the revenue dashboard with the latest data.", False),
+        ("Run the daily report", False),
+        ("Send the data to the warehouse", False),
+        ("Summarize the emails in the support queue", False),
+        ("", False),
+    ],
+)
+def test_prompt_requests_email(prompt, expected):
+    from app.ai.tools.utils import prompt_requests_email
+
+    assert prompt_requests_email(prompt) is expected
 
 
 # --- cancel: guards ---------------------------------------------------------

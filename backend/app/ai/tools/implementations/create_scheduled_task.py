@@ -3,8 +3,14 @@
 This is a thin wrapper over ScheduledPromptService. It stores ``task_prompt`` as
 a recurring prompt and registers an APScheduler cron job. When the job fires, the
 agent re-runs that prompt autonomously and picks whatever tools it needs —
-including send_email — so the email content is whatever the agent decides to
-write, exactly like a live chat. Nothing email-specific is baked in here.
+including send_email.
+
+Email delivery is decided once, here, based on the prompt:
+- If ``task_prompt`` already expresses email intent ("email me a summary",
+  "notify me if ..."), the agent's send_email tool handles delivery dynamically
+  during the run and we attach NO static summary email (avoids double-sending).
+- Otherwise we default to a static summary email to the creating user after each
+  run (via ``notification_subscribers``).
 
 The recipient/owner is always the requesting user, and the task always belongs to
 the current report (both resolved from runtime context).
@@ -61,9 +67,16 @@ class CreateScheduledTaskTool(Tool):
                 "right now, use send_email instead; this tool is only for recurring work.\n\n"
                 "How it runs: on each scheduled fire, the agent re-runs your "
                 "'task_prompt' on this report with NO user present, and uses whatever "
-                "tools it needs autonomously. So if the user wants to be notified, write "
-                "that into task_prompt explicitly (e.g. '...and email me a short summary'). "
-                "send_email will be available during the run and the agent will call it.\n\n"
+                "tools it needs autonomously.\n\n"
+                "Email delivery (automatic — do NOT manage it yourself): if your "
+                "task_prompt asks to email/notify the user (e.g. 'email me a summary', "
+                "'notify me if something is off'), the agent will call send_email during "
+                "the run and deliver exactly that. If your task_prompt does NOT mention "
+                "email, the user is automatically sent a static summary email of the "
+                "results after each run. Either way the user gets one email — you do not "
+                "need to add anything email-specific just to ensure notification. Only "
+                "write email instructions into task_prompt when you want the agent to "
+                "decide the content conditionally (e.g. alert only when a threshold is hit).\n\n"
                 "Schedule: provide a 5-field cron expression "
                 "(minute hour day-of-month month day-of-week). The minute field must be a "
                 "single number — schedules more frequent than hourly are rejected.\n\n"
@@ -185,6 +198,19 @@ class CreateScheduledTaskTool(Tool):
         try:
             from app.services.scheduled_prompt_service import scheduled_prompt_service
             from app.schemas.scheduled_prompt_schema import ScheduledPromptCreate
+            from app.schemas.notification_schema import NotificationSubscriber
+            from app.ai.tools.utils import prompt_requests_email
+
+            # Decide email delivery for this task. If the prompt already asks to
+            # email/notify the user, the agent's send_email tool handles it during
+            # the run, so we leave the static summary off to avoid double-sending.
+            # Otherwise, default to a static summary email to the creating user.
+            if prompt_requests_email(data.task_prompt):
+                notification_subscribers = None
+            else:
+                notification_subscribers = [
+                    NotificationSubscriber(type="user", id=str(user.id))
+                ]
 
             sp = await scheduled_prompt_service.create_scheduled_prompt(
                 db=db,
@@ -193,7 +219,7 @@ class CreateScheduledTaskTool(Tool):
                     prompt={"content": data.task_prompt},
                     cron_schedule=data.cron_schedule,
                     is_active=True,
-                    notification_subscribers=None,
+                    notification_subscribers=notification_subscribers,
                 ),
                 current_user=user,
                 organization=organization,

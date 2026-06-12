@@ -2066,6 +2066,7 @@
     "onDay": "den dag",
     "active": "Aktiv",
     "notifyAfterRun": "Avisera efter varje körning",
+    "promptSendsEmailHint": "Din uppmaning ber redan om att skicka ett e-postmeddelande — uppgiften sköter det själv. Aktivera detta endast om du även vill ha ett separat sammanfattningsmejl.",
     "emailOrMemberPlaceholder": "E-post eller medlem...",
     "cancel": "Avbryt",
     "update": "Uppdatera",
