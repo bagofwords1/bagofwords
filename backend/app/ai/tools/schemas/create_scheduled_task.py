@@ -7,11 +7,7 @@ class CreateScheduledTaskInput(BaseModel):
 
     Schedules a recurring task on the current report. When the task fires, the
     agent re-runs ``task_prompt`` autonomously (with no user present) and uses
-    whatever tools the task needs.
-
-    Email is automatic: prompts that ask to email/notify the user are delivered
-    by the send_email tool during the run; prompts that don't get a static
-    summary email of the results. Either way the user is notified once.
+    whatever tools the task needs — including send_email to notify the user.
     """
 
     task_prompt: str = Field(
@@ -20,11 +16,10 @@ class CreateScheduledTaskInput(BaseModel):
         description=(
             "The full, self-contained instruction to run on each scheduled "
             "execution. There is no user present when it runs, so write it as a "
-            "complete task, not a chat reply. You do NOT need to add 'email me' "
-            "just to notify the user — that happens automatically. Only state "
-            "email intent explicitly when the message should be CONDITIONAL on the "
-            "result (e.g. 'check for unusual activity this week and email me only "
-            "if something looks off'); the agent will then handle it via send_email."
+            "complete task, not a chat reply. If the user wants to be notified, "
+            "say so explicitly here (e.g. 'check for unusual activity in the last "
+            "week and email me a short summary of anything notable'). The agent "
+            "will pick the tools it needs (including send_email) on its own."
         ),
     )
     cron_schedule: str = Field(
