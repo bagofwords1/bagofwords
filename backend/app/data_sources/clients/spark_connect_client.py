@@ -222,14 +222,18 @@ class SparkConnectClient(DataSourceClient):
     def _guard_enabled(self) -> bool:
         return bool(self.require_partition_filter or self.max_scan_bytes)
 
-    def explain_cost(self, sql: str, spark=None) -> str:
-        """Return the `EXPLAIN COST` plan text for a query (planning only, no scan).
+    def explain_cost(self, sql: str, spark=None, cost: bool = True) -> str:
+        """Return the EXPLAIN plan text for a query (planning only, no scan).
 
-        Uses `EXPLAIN COST <sql>` rather than DataFrame.explain() so the plan is
-        returned as a string over Spark Connect (explain() prints to stdout).
+        Uses a SQL `EXPLAIN` statement rather than DataFrame.explain() so the plan
+        is returned as a string over Spark Connect (explain() prints to stdout).
+        `cost=True` adds size statistics (needed only for a byte-size gate); the
+        partition-filter check needs just the physical plan, so it uses plain
+        `EXPLAIN`, which skips the stats work and is cheaper.
         """
+        stmt = "EXPLAIN COST" if cost else "EXPLAIN"
         def _do(s):
-            rows = s.sql(f"EXPLAIN COST {sql}").collect()
+            rows = s.sql(f"{stmt} {sql}").collect()
             return rows[0][0] if rows else ""
         if spark is not None:
             return _do(spark)
@@ -245,7 +249,9 @@ class SparkConnectClient(DataSourceClient):
         if not self._guard_enabled:
             return
         try:
-            plan = self.explain_cost(sql, spark=spark)
+            # COST stats only needed for the byte-size gate; partition-filter
+            # check works off the plain (cheaper) physical plan.
+            plan = self.explain_cost(sql, spark=spark, cost=bool(self.max_scan_bytes))
         except Exception:
             return  # can't explain -> don't block
 
