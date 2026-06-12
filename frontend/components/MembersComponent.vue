@@ -1257,12 +1257,22 @@ async function copyInviteLink(member: Member) {
             toast.add({ title: t('settings.members.failedToCopyLink'), color: 'red' })
             return
         }
+        const regenerated = (data.value as any)?.regenerated
         try {
             await navigator.clipboard.writeText(url)
-            toast.add({ title: t('settings.members.linkCopied'), color: 'green' })
+            toast.add({
+                title: regenerated ? t('settings.members.linkRegenerated') : t('settings.members.linkCopied'),
+                color: 'green',
+            })
         } catch {
             // Clipboard blocked (insecure context) — show the link so it can be copied manually.
             window.prompt(t('settings.members.copyLink'), url)
+        }
+        // If we minted a fresh token (expired invite), refresh so the row drops
+        // its Expired badge and shows the new window.
+        if (regenerated) {
+            const refreshed = await useMyFetch(`/organizations/${organizationId}/members`)
+            members.value = (refreshed.data.value || []) as Member[]
         }
     } catch (e: any) {
         toast.add({ title: e?.data?.detail || t('settings.members.failedToCopyLink'), color: 'red' })

@@ -761,6 +761,7 @@ async function fetchData(artifactId?: string) {
 
   try {
     // Fetch report info
+    let reportDataSources: any[] = [];
     const { data: reportRes } = await useMyFetch(`/api/reports/${props.reportId}`);
     if (reportRes.value) {
       reportData.value = {
@@ -768,7 +769,12 @@ async function fetchData(artifactId?: string) {
         title: (reportRes.value as any).title,
         theme: (reportRes.value as any).theme_name || (reportRes.value as any).report_theme_name
       };
+      reportDataSources = (reportRes.value as any).data_sources || [];
     }
+    // If the report uses a single data source, surface its name on every viz.
+    const singleDataSourceName = reportDataSources.length === 1
+      ? (reportDataSources[0]?.name || reportDataSources[0]?.title || null)
+      : null;
 
     // Fetch queries with visualizations - filter by artifact_id if provided
     const queryParams = artifactId ? `?report_id=${props.reportId}&artifact_id=${artifactId}` : `?report_id=${props.reportId}`;
@@ -792,7 +798,11 @@ async function fetchData(artifactId?: string) {
           rows: step?.data?.rows || [],
           columns: step?.data?.columns || [],
           dataModel: step?.data_model || {},
-          stepStatus: step?.status
+          stepStatus: step?.status,
+          // Provenance surfaced in the built-in InfoPopover on prebuilt comps
+          code: step?.code || '',
+          description: viz.description || query.description || step?.description || '',
+          dataSource: singleDataSourceName,
         });
       }
     }

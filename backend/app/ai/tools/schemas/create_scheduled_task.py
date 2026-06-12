@@ -27,8 +27,11 @@ class CreateScheduledTaskInput(BaseModel):
         description=(
             "A standard 5-field cron expression: 'minute hour day month day_of_week'. "
             "The minute field MUST be a single number (0-59) — sub-hourly schedules "
-            "are not allowed (minimum interval is 1 hour). Examples: "
+            "are not allowed (minimum interval is 1 hour). The day_of_week field "
+            "accepts a comma-separated list or range (0=Sunday ... 6=Saturday) to "
+            "target specific days. Examples: "
             "'0 9 * * 1' = every Monday at 09:00, '0 8 * * *' = every day at 08:00, "
+            "'0 9 * * 1,3,5' = Mon/Wed/Fri at 09:00, '0 8 * * 1-5' = weekdays at 08:00, "
             "'30 7 1 * *' = 07:30 on the 1st of every month, '0 * * * *' = hourly."
         ),
     )

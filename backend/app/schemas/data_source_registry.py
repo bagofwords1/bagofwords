@@ -40,6 +40,10 @@ from app.schemas.data_sources.configs import (
     # Databricks SQL
     DatabricksSqlConfig,
     DatabricksSqlCredentials,
+    # Spark Connect
+    SparkConnectConfig,
+    SparkConnectCredentials,
+    SparkConnectNoAuthCredentials,
     # Power BI
     PowerBIConfig,
     PowerBICredentials,
@@ -499,6 +503,28 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.databricks_sql_client.DatabricksSqlClient",
+    ),
+    "spark_connect": DataSourceRegistryEntry(
+        type="spark_connect",
+        title="Spark",
+        description="Run Spark SQL against a remote Spark cluster via Spark Connect (sc://). Compute runs on the cluster; BOW only sends SQL and receives results — no in-process engine on the BOW server.",
+        config_schema=SparkConnectConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth (network-gated, e.g. Tailscale/VPN)",
+                    schema=SparkConnectNoAuthCredentials,
+                    scopes=["system"]
+                ),
+                "token": AuthVariant(
+                    title="Bearer Token",
+                    schema=SparkConnectCredentials,
+                    scopes=["system", "user"]
+                ),
+            }
+        ),
+        client_path="app.data_sources.clients.spark_connect_client.SparkConnectClient",
     ),
     "powerbi": DataSourceRegistryEntry(
         type="powerbi",

@@ -64,8 +64,15 @@ class CreateScheduledTaskTool(Tool):
                 "tools it needs autonomously. So if the user wants to be notified, write "
                 "that into task_prompt explicitly (e.g. '...and email me a short summary'). "
                 "send_email will be available during the run and the agent will call it.\n\n"
-                "Schedule: provide a 5-field cron expression. The minute field must be a "
+                "Schedule: provide a 5-field cron expression "
+                "(minute hour day-of-month month day-of-week). The minute field must be a "
                 "single number — schedules more frequent than hourly are rejected.\n\n"
+                "Specific days of the week: the day-of-week field (5th) accepts a "
+                "comma-separated list, where 0=Sunday, 1=Monday ... 6=Saturday. So "
+                "'0 9 * * 1,3,5' runs Mon/Wed/Fri at 9am, '0 8 * * 1-5' runs every "
+                "weekday at 8am, and '0 17 * * 5' runs only Fridays at 5pm. Use this "
+                "whenever the user names particular days ('every Monday and Thursday', "
+                "'on weekdays', 'each Friday').\n\n"
                 "Before creating, check the <scheduled_tasks> context block so you don't "
                 "create a duplicate of an existing task."
             ),
@@ -96,6 +103,15 @@ class CreateScheduledTaskTool(Tool):
                         "cron_schedule": "0 7 * * *",
                     },
                     "description": "Daily dashboard refresh (no email needed).",
+                },
+                {
+                    "input": {
+                        "task_prompt": (
+                            "Pull yesterday's signups and email me the count."
+                        ),
+                        "cron_schedule": "0 8 * * 1,3,5",
+                    },
+                    "description": "Runs only on Mon/Wed/Fri at 8am (specific days).",
                 },
             ],
         )

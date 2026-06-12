@@ -601,6 +601,64 @@ class DatabricksSqlConfig(BaseModel):
     )
 
 
+# Spark Connect
+class SparkConnectNoAuthCredentials(BaseModel):
+    """No auth — open/dev Spark Connect clusters that don't require a token."""
+    # Allow extra so creds provided without auth_type are preserved during validation
+    class Config:
+        extra = 'allow'
+
+
+class SparkConnectCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Bearer Token",
+        description="Bearer token for the Spark Connect server (sent over the sc:// connection).",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class SparkConnectConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Spark Connect server host (e.g., my-spark-host or localhost).",
+        json_schema_extra={"ui:type": "string"}
+    )
+    port: int = Field(
+        15002,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="Spark Connect server port (default 15002).",
+        json_schema_extra={"ui:type": "number"}
+    )
+    use_ssl: bool = Field(
+        False,
+        title="Use SSL",
+        description="Connect to the Spark Connect server over TLS (sc://...;use_ssl=true).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    catalog: Optional[str] = Field(
+        None,
+        title="Catalog",
+        description="Optional catalog to scope schema discovery to. If empty, the session default catalog is used.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    database: Optional[str] = Field(
+        None,
+        title="Database / Schema",
+        description="Optional database (schema) or comma-separated list. If empty, all databases are discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    require_partition_filter: bool = Field(
+        False,
+        title="Require Partition Filter",
+        description="Reject queries that scan a partitioned table without filtering on a partition column (checked via EXPLAIN before the query runs).",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
 # OAuth Delegated Credentials (empty — user provides nothing, OAuth flow populates tokens)
 class OAuthDelegatedCredentials(BaseModel):
     """No user input needed. The OAuth authorization code flow populates tokens automatically."""
@@ -1269,6 +1327,10 @@ __all__ = [
     # Databricks SQL
     "DatabricksSqlCredentials",
     "DatabricksSqlConfig",
+    # Spark Connect
+    "SparkConnectNoAuthCredentials",
+    "SparkConnectCredentials",
+    "SparkConnectConfig",
     # Power BI
     "PowerBICredentials",
     "PowerBIConfig",

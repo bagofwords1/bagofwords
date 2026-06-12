@@ -238,7 +238,7 @@ def _build_metric_card(data_model: dict, viz_index: int) -> str:
         f"  const val = typeof raw === 'number'\n"
         f"    ? (raw % 1 === 0 ? raw.toLocaleString() : raw.toLocaleString(undefined, {{minimumFractionDigits: 1, maximumFractionDigits: 2}}))\n"
         f"    : String(raw ?? '');\n"
-        f"  return <KPICard title=\"{name}\" value={{val}} />;\n"
+        f"  return <KPICard title=\"{name}\" value={{val}} viz={{{v}}} />;\n"
         f"}})()"
     )
 
@@ -326,7 +326,7 @@ def generate_jsx_section(title: str, data_model: dict, viz_index: int) -> str:
 
     safe_title = _js_str(title)
     return (
-        f'<SectionCard title="{safe_title}">\n'
+        f'<SectionCard title="{safe_title}" viz={{viz[{viz_index}]}}>\n'
         f"        {{{jsx_expr}}}\n"
         f"      </SectionCard>"
     )
@@ -340,11 +340,11 @@ generate_table_jsx = generate_jsx_section
 # JSX wrappers
 # ---------------------------------------------------------------------------
 
-def generate_section_jsx(title: str, option_code: str, height: int = 350) -> str:
+def generate_section_jsx(title: str, option_code: str, viz_index: int = 0, height: int = 350) -> str:
     """Wrap an ECharts option expression in a <SectionCard><EChart /> block."""
     safe_title = _js_str(title)
     return (
-        f'<SectionCard title="{safe_title}">\n'
+        f'<SectionCard title="{safe_title}" viz={{viz[{viz_index}]}}>\n'
         f"        <EChart height={{{height}}} option={{{option_code}}} />\n"
         f"      </SectionCard>"
     )
@@ -406,7 +406,7 @@ def inject_section_into_code(
         body = (
             f"    var _opt = {option_code};\n"
             f"    return <div className=\"space-y-6\">\n"
-            f'      <SectionCard title="{safe_title}">\n'
+            f'      <SectionCard title="{safe_title}" viz={{viz[{viz_index}]}}>\n'
             f"        <EChart height={{350}} option={{_opt}} />\n"
             f"      </SectionCard>\n"
             f"    </div>;\n"
