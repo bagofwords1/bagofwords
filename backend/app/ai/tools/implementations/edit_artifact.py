@@ -438,7 +438,7 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<FilterSearch>`, `<FilterDateRange>` — `className` replaces default theme.
 - `fmt()`, `<LoadingSpinner>`
 - All components are fully themeable. When the user's design calls for something these can't express — build custom React + Tailwind.
-- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{viz[N]}}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). When adding new cards from a visualization, pass `viz={{viz[N]}}`. When an edit touches an existing card that lacks it, add `viz={{viz[N]}}` too. If the card renders FILTERED rows (`filterRows(viz[N].rows)`), also pass `rows={{<filtered rows>}}` so the popover's Data tab matches what's shown.
+- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{viz[N]}}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). When adding new cards from a visualization, pass `viz={{viz[N]}}`. When an edit touches an existing card that lacks it, add `viz={{viz[N]}}` too. If the card renders FILTERED rows (`filterRows(viz[N].rows)`), also pass `rows={{<filtered rows>}}` so the popover's Data tab matches what's shown. If the card aggregates/derives its value, also pass `calc="<formula>"` (e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`) — shown as a "Calculation" line in the popover.
 
 DATA-CAPABILITY CHECK — DO THIS FIRST, BEFORE GENERATING DIFFS:
 Before producing any SEARCH/REPLACE blocks, verify the edit is achievable with the visualization data available. An edit that adds a filter/chart/KPI referencing a column that doesn't exist in any viz will silently break — surfacing the gap is far better than producing a broken diff.

@@ -252,6 +252,26 @@
     };
   }
 
+  // Format the optional `calc` prop (string or structured object) into a
+  // human-readable formula, e.g. "SUM(UnitPrice × Quantity), grouped by Genre".
+  function _infoCalc(calc) {
+    if (!calc) return null;
+    if (typeof calc === 'string') return calc.trim() || null;
+    if (typeof calc === 'object') {
+      var agg = calc.agg || calc.fn || calc.aggregation;
+      var expr = calc.expr || calc.expression || calc.field || calc.value;
+      var s = '';
+      if (agg && expr) s = String(agg).toUpperCase() + '(' + expr + ')';
+      else if (expr) s = String(expr);
+      else if (agg) s = String(agg).toUpperCase();
+      var gb = calc.groupBy || calc.group_by;
+      if (gb) s += ', grouped by ' + gb;
+      if (calc.filter) s += ', where ' + calc.filter;
+      return s || null;
+    }
+    return null;
+  }
+
   // Derive an ordered list of { label, value, ... } rows from a viz object.
   function buildInfoRows(viz) {
     if (!viz || typeof viz !== 'object') return [];
@@ -402,8 +422,14 @@
       ? 'Filters: ' + shownFilterKeys.map(function(k) { return k + '=' + _infoFilterVal(activeFilters[k]); }).join(', ')
       : (isFiltered ? 'Filtered view' : null);
 
-    // DATA tab — the actual rows + a compact metadata line
+    var calcText = _infoCalc(props.calc);
+
+    // DATA tab — calculation (if any) + the actual rows + a compact metadata line
     var dataBody = h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
+      calcText ? h('div', { key: 'calc' }, [
+        h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, 'Calculation'),
+        h('div', { key: 'v', className: 'text-xs font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-2 py-1.5' }, calcText)
+      ]) : null,
       metaBits.length ? h('div', { key: 'm', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')) : null,
       filterNote ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' }, filterNote) : null,
       cols.length ? h('div', {
@@ -502,7 +528,7 @@
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
       h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
-      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows })) : null,
+      props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 right-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
       h('p', { key: 't', className: titleCls }, props.title),
       h('p', { key: 'v', className: 'text-2xl font-semibold' }, props.value),
       props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
@@ -517,7 +543,7 @@
     var subtitleCls = 'text-sm mt-1 text-slate-500'
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
-      props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows })) : null,
+      props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
       props.title ? h('div', { key: 'hdr', className: 'mb-4 pr-6' }, [
         h('h2', { key: 't', className: titleCls }, props.title),
         props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
