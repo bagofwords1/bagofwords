@@ -43,6 +43,7 @@ from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.data_sources.clients.powerbi_report_server_client import warm_all_pbirs_caches
+from app.services.scheduled_reindex import sweep_due_reindexes
 from app.core.otel import setup_telemetry, instrument_app
 from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
@@ -431,6 +432,26 @@ async def startup_event():
             logger.info("Scheduled job: pbirs_warmup every 1 hour")
         except Exception as e:
             logger.error(f"Failed to schedule PBIRS warmup job: {e}")
+
+    # Periodic schema auto-reload: re-index connection schemas whose tables are
+    # stale past their per-connection interval (enterprise `scheduled_reindex`).
+    # A frequent, cheap sweep + staleness gate keeps reindex work proportional
+    # to N/interval rather than O(N) per tick; the sweep no-ops without license.
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                sweep_due_reindexes,
+                trigger="interval",
+                minutes=10,
+                id="schema_reindex_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=600,
+            )
+            logger.info("Scheduled job: schema_reindex_sweep every 10 minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule schema reindex sweep job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):
