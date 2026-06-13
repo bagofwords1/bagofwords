@@ -272,13 +272,13 @@ class ExternalPlatformService:
     
     @staticmethod
     def _email_provider_defaults(auth_type: str) -> dict:
-        """Default SMTP/IMAP hosts for the OAuth providers."""
-        if auth_type == "microsoft":
+        """Default SMTP/IMAP hosts for the OAuth providers (app-only + delegated)."""
+        if auth_type in ("microsoft", "microsoft_delegated"):
             return {
                 "smtp_host": "smtp.office365.com", "smtp_port": 587, "smtp_security": "starttls",
                 "imap_host": "outlook.office365.com", "imap_port": 993, "imap_use_ssl": True,
             }
-        if auth_type == "google":
+        if auth_type in ("google", "google_delegated"):
             return {
                 "smtp_host": "smtp.gmail.com", "smtp_port": 587, "smtp_security": "starttls",
                 "imap_host": "imap.gmail.com", "imap_port": 993, "imap_use_ssl": True,
@@ -307,9 +307,10 @@ class ExternalPlatformService:
         auth_type = creds.get("auth_type") or cfg.get("auth_type") or "password"
         oauth = OAuthSettings.from_credentials(creds, cfg)
 
-        # Mint the token once (reused for SMTP + IMAP) for OAuth auth types.
+        # Mint the token once (reused for SMTP + IMAP) for OAuth auth types
+        # (app-only and delegated).
         sasl = None
-        if auth_type in ("microsoft", "google"):
+        if oauth is not None:
             try:
                 sasl = await get_xoauth2_string(oauth)
             except Exception as e:
@@ -448,11 +449,16 @@ class ExternalPlatformService:
             "imap_port": imap_port,
             "imap_username": imap_username,
             "imap_password": data.imap_password,
-            # OAuth secrets
+            # OAuth secrets (app-only)
             "ms_tenant_id": data.ms_tenant_id,
             "ms_client_id": data.ms_client_id,
             "ms_client_secret": data.ms_client_secret,
             "google_service_account_info": google_sa,
+            # OAuth secrets (delegated / refresh-token)
+            "ms_refresh_token": data.ms_refresh_token,
+            "google_client_id": data.google_client_id,
+            "google_client_secret": data.google_client_secret,
+            "google_refresh_token": data.google_refresh_token,
         }
 
         # Validate connectivity before persisting.

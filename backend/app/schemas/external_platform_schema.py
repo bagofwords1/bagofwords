@@ -92,14 +92,19 @@ class EmailConfig(BaseModel):
     imap_mailbox: str = "INBOX"
     inbound_enabled: bool = False  # explicit toggle; also inferred from imap creds
 
-    # --- Microsoft 365 app-only OAuth ---
+    # --- Microsoft 365 OAuth (app-only and delegated) ---
     ms_tenant_id: Optional[str] = None
     ms_client_id: Optional[str] = None
-    ms_client_secret: Optional[str] = None
+    ms_client_secret: Optional[str] = None  # optional for delegated public client
+    ms_refresh_token: Optional[str] = None  # delegated (no PowerShell) path
 
-    # --- Google Workspace service account (DWD) ---
-    # The full service-account JSON, as an object or a JSON string.
+    # --- Google Workspace OAuth ---
+    # Service account JSON (DWD), as an object or a JSON string.
     google_service_account_json: Optional[Any] = None
+    # Delegated (OAuth client + refresh token) path.
+    google_client_id: Optional[str] = None
+    google_client_secret: Optional[str] = None
+    google_refresh_token: Optional[str] = None
 
     # --- Channel behavior / security ---
     allowed_domains: List[str] = Field(default_factory=list)

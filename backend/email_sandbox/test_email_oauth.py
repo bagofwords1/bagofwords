@@ -131,3 +131,52 @@ async def test_google_token_dispatch(monkeypatch):
 async def test_unknown_provider_raises():
     with pytest.raises(ValueError):
         await get_access_token(OAuthSettings(provider="aol", mailbox="x@y"))
+
+
+# ---------- Delegated (refresh-token) flows ----------
+
+
+def test_oauth_settings_microsoft_delegated():
+    o = OAuthSettings.from_credentials({
+        "auth_type": "microsoft_delegated", "from_address": "analyst@acme.com",
+        "ms_tenant_id": "t", "ms_client_id": "c", "ms_refresh_token": "rt",
+    })
+    assert o.provider == "microsoft_delegated"
+    assert o.refresh_token == "rt"
+    assert o.tenant_id == "t"
+
+
+def test_oauth_settings_google_delegated():
+    o = OAuthSettings.from_credentials({
+        "auth_type": "google_delegated", "from_address": "analyst@acme.com",
+        "google_client_id": "gc", "google_client_secret": "gs", "google_refresh_token": "grt",
+    })
+    assert o.provider == "google_delegated"
+    assert o.refresh_token == "grt"
+
+
+async def test_ms_delegated_token_mocked(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.content.decode()
+        return httpx.Response(200, json={"access_token": "DELEG", "refresh_token": "new"})
+
+    _patch_httpx(monkeypatch, handler)
+    o = OAuthSettings(provider="microsoft_delegated", mailbox="a@acme.com",
+                      tenant_id="t", client_id="c", refresh_token="rt")
+    token = await get_access_token(o)
+    assert token == "DELEG"
+    assert "grant_type=refresh_token" in captured["body"]
+    assert "refresh_token=rt" in captured["body"]
+
+
+async def test_google_delegated_token_mocked(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"access_token": "GDELEG"})
+
+    _patch_httpx(monkeypatch, handler)
+    o = OAuthSettings(provider="google_delegated", mailbox="a@acme.com",
+                      client_id="gc", client_secret="gs", refresh_token="grt")
+    token = await get_access_token(o)
+    assert token == "GDELEG"

@@ -58,19 +58,36 @@ def _build_creds_and_config():
         "smtp_security": os.environ.get("EMAIL_SMTP_SECURITY", "starttls"),
     }
     config = {}
+    ms_hosts = dict(smtp_host="smtp.office365.com", smtp_port=587, smtp_security="starttls",
+                    imap_host="outlook.office365.com", imap_port=993, imap_use_ssl=True)
+    google_hosts = dict(smtp_host="smtp.gmail.com", smtp_port=587, smtp_security="starttls",
+                        imap_host="imap.gmail.com", imap_port=993, imap_use_ssl=True)
     if auth == "microsoft":
         creds.update(
             ms_tenant_id=os.environ["EMAIL_MS_TENANT"],
             ms_client_id=os.environ["EMAIL_MS_CLIENT_ID"],
             ms_client_secret=os.environ["EMAIL_MS_CLIENT_SECRET"],
         )
-        config.update(smtp_host="smtp.office365.com", smtp_port=587, smtp_security="starttls",
-                      imap_host="outlook.office365.com", imap_port=993, imap_use_ssl=True)
+        config.update(ms_hosts)
+    elif auth == "microsoft_delegated":
+        creds.update(
+            ms_tenant_id=os.environ["EMAIL_MS_TENANT"],
+            ms_client_id=os.environ["EMAIL_MS_CLIENT_ID"],
+            ms_client_secret=os.environ.get("EMAIL_MS_CLIENT_SECRET"),  # optional (public client)
+            ms_refresh_token=os.environ["EMAIL_MS_REFRESH_TOKEN"],
+        )
+        config.update(ms_hosts)
     elif auth == "google":
         with open(os.environ["EMAIL_GOOGLE_SA_JSON"]) as f:
             creds["google_service_account_info"] = json.load(f)
-        config.update(smtp_host="smtp.gmail.com", smtp_port=587, smtp_security="starttls",
-                      imap_host="imap.gmail.com", imap_port=993, imap_use_ssl=True)
+        config.update(google_hosts)
+    elif auth == "google_delegated":
+        creds.update(
+            google_client_id=os.environ["EMAIL_GOOGLE_CLIENT_ID"],
+            google_client_secret=os.environ["EMAIL_GOOGLE_CLIENT_SECRET"],
+            google_refresh_token=os.environ["EMAIL_GOOGLE_REFRESH_TOKEN"],
+        )
+        config.update(google_hosts)
     return auth, mailbox, creds, config
 
 
@@ -83,7 +100,7 @@ async def main():
     print(f"[1] auth={auth} mailbox={mailbox}")
     print(f"    SMTP {smtp.host}:{smtp.port} ({smtp.security}) | IMAP {imap.host}:{imap.port}")
 
-    if auth in ("microsoft", "google"):
+    if auth != "password":
         try:
             sasl = await get_xoauth2_string(smtp.oauth)
             print(f"[2] OAuth token minted OK (XOAUTH2 string {len(sasl)} chars)")

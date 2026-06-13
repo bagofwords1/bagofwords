@@ -105,7 +105,7 @@ class ImapMailboxReader(MailboxReader):
             conn = imaplib.IMAP4_SSL(cfg.host, cfg.port)
         else:
             conn = imaplib.IMAP4(cfg.host, cfg.port)
-        if cfg.auth_type in ("microsoft", "google"):
+        if cfg.oauth is not None:
             # SASL XOAUTH2: the token string is minted in the async layer and
             # passed in; imaplib hands the server our initial response.
             if not xoauth2:
@@ -116,7 +116,7 @@ class ImapMailboxReader(MailboxReader):
         return conn
 
     async def _xoauth2_string(self) -> Optional[str]:
-        if self.config.auth_type in ("microsoft", "google") and self.config.oauth:
+        if self.config.oauth is not None:
             from app.services.email.oauth import get_xoauth2_string
 
             return await get_xoauth2_string(self.config.oauth)

@@ -133,7 +133,7 @@ async def send_message(cfg: SmtpConfig, msg: EmailMessage) -> bool:
         return False
 
     try:
-        if cfg.auth_type in ("microsoft", "google") and cfg.oauth:
+        if cfg.oauth is not None:
             return await _send_xoauth2(cfg, msg)
 
         use_tls = cfg.security == "ssl"

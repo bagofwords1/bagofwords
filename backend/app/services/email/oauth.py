@@ -38,7 +38,7 @@ GOOGLE_SCOPE = "https://mail.google.com/"
 class OAuthSettings:
     """Everything needed to mint an XOAUTH2 token for one mailbox."""
 
-    provider: str  # "microsoft" | "google"
+    provider: str  # "microsoft" | "google" | "microsoft_delegated" | "google_delegated"
     mailbox: str
     # Microsoft (client-credentials)
     tenant_id: Optional[str] = None
@@ -46,6 +46,8 @@ class OAuthSettings:
     client_secret: Optional[str] = None
     # Google (service account + DWD)
     service_account_info: Optional[dict] = None
+    # Delegated flows (refresh-token based; no PowerShell / no app-only perms)
+    refresh_token: Optional[str] = None
 
     @classmethod
     def from_credentials(cls, creds: dict, config: Optional[dict] = None) -> Optional["OAuthSettings"]:
@@ -67,11 +69,28 @@ class OAuthSettings:
                 client_id=creds.get("ms_client_id") or config.get("ms_client_id"),
                 client_secret=creds.get("ms_client_secret"),
             )
+        if auth_type == "microsoft_delegated":
+            return cls(
+                provider="microsoft_delegated",
+                mailbox=mailbox,
+                tenant_id=creds.get("ms_tenant_id") or config.get("ms_tenant_id"),
+                client_id=creds.get("ms_client_id") or config.get("ms_client_id"),
+                client_secret=creds.get("ms_client_secret"),  # optional (public client)
+                refresh_token=creds.get("ms_refresh_token"),
+            )
         if auth_type == "google":
             return cls(
                 provider="google",
                 mailbox=mailbox,
                 service_account_info=creds.get("google_service_account_info"),
+            )
+        if auth_type == "google_delegated":
+            return cls(
+                provider="google_delegated",
+                mailbox=mailbox,
+                client_id=creds.get("google_client_id") or config.get("google_client_id"),
+                client_secret=creds.get("google_client_secret"),
+                refresh_token=creds.get("google_refresh_token"),
             )
         return None
 
@@ -134,12 +153,71 @@ async def get_google_dwd_token(service_account_info: dict, subject: str, scope: 
     return await asyncio.to_thread(_get_google_dwd_token_blocking, service_account_info, subject, scope)
 
 
+async def get_ms_delegated_token(
+    tenant_id: str,
+    client_id: str,
+    refresh_token: str,
+    client_secret: Optional[str] = None,
+    scope: str = MS_SCOPE,
+) -> str:
+    """Refresh a delegated (user-consented) access token for IMAP/SMTP.
+
+    Works with a public client (no secret, device-code/PKCE) or a confidential
+    client (with secret). No PowerShell / app-only permissions needed.
+    """
+    if not (tenant_id and client_id and refresh_token):
+        raise ValueError("microsoft_delegated requires tenant_id, client_id, refresh_token")
+    data = {
+        "client_id": client_id,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": scope,
+    }
+    if client_secret:
+        data["client_secret"] = client_secret
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(_ms_token_url(tenant_id), data=data)
+        resp.raise_for_status()
+        token = resp.json().get("access_token")
+        if not token:
+            raise ValueError("microsoft_delegated token response had no access_token")
+        return token
+
+
+async def get_google_delegated_token(client_id: str, client_secret: str, refresh_token: str) -> str:
+    """Refresh a delegated Google access token (OAuth client + stored refresh token)."""
+    if not (client_id and client_secret and refresh_token):
+        raise ValueError("google_delegated requires client_id, client_secret, refresh_token")
+    url = os.environ.get("BOW_GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
+    data = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(url, data=data)
+        resp.raise_for_status()
+        token = resp.json().get("access_token")
+        if not token:
+            raise ValueError("google_delegated token response had no access_token")
+        return token
+
+
 async def get_access_token(oauth: OAuthSettings) -> str:
     """Mint an access token for the configured provider/mailbox."""
     if oauth.provider == "microsoft":
         return await get_ms_app_token(oauth.tenant_id, oauth.client_id, oauth.client_secret)
+    if oauth.provider == "microsoft_delegated":
+        return await get_ms_delegated_token(
+            oauth.tenant_id, oauth.client_id, oauth.refresh_token, oauth.client_secret
+        )
     if oauth.provider == "google":
         return await get_google_dwd_token(oauth.service_account_info, oauth.mailbox)
+    if oauth.provider == "google_delegated":
+        return await get_google_delegated_token(
+            oauth.client_id, oauth.client_secret, oauth.refresh_token
+        )
     raise ValueError(f"unsupported oauth provider: {oauth.provider}")
 
 
