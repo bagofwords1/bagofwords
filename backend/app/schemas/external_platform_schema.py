@@ -108,6 +108,8 @@ class EmailConfig(BaseModel):
 
     # --- Channel behavior / security ---
     allowed_domains: List[str] = Field(default_factory=list)
-    auto_link_by_email: bool = True
+    # Verify-first by default: an unmatched/first-contact sender gets a
+    # verification link rather than being auto-linked on the (spoofable) From.
+    auto_link_by_email: bool = False
     require_auth_pass: bool = True
     webhook_endpoint: Optional[str] = None

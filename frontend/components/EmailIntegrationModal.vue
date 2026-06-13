@@ -2,11 +2,13 @@
   <div class="p-4">
     <div class="flex items-center gap-2 mb-2">
       <UIcon name="i-heroicons-envelope" class="w-5 h-5 text-gray-700" />
-      <h1 class="text-lg font-semibold">Email Integration</h1>
+      <h1 class="text-lg font-semibold">AI Mailbox</h1>
     </div>
     <p class="text-sm text-gray-500">
-      Give the AI analyst its own mailbox. BOW connects to it outbound‑only to
-      send replies and (optionally) receive questions.
+      The AI analyst's own mailbox — it sends answers/replies from here and
+      (optionally) receives questions here. This is separate from the
+      <strong>SMTP Server</strong>, which only sends system notifications
+      (shares, scheduled reports, invites) and is never used by the analyst.
     </p>
     <hr class="my-4" />
 
@@ -132,7 +134,7 @@
             <p class="text-xs text-gray-500 mt-1">Comma‑separated. Blank = rely on an internal‑only mailbox + auth checks.</p>
           </div>
           <label class="flex items-center gap-2 mb-2 cursor-pointer">
-            <UToggle v-model="autoLink" /><span class="text-sm">Auto‑link senders to existing members</span>
+            <UToggle v-model="autoLink" /><span class="text-sm">Auto‑verify members by email — <span class="text-gray-500">off (recommended): first email gets a verification link to click</span></span>
           </label>
           <label class="flex items-center gap-2 mb-4 cursor-pointer">
             <UToggle v-model="requireAuthPass" /><span class="text-sm">Require DMARC/DKIM pass (recommended)</span>
@@ -225,7 +227,7 @@ const imapPort = ref(993)
 const imapUsername = ref('')
 const imapPassword = ref('')
 const allowedDomains = ref('')
-const autoLink = ref(true)
+const autoLink = ref(false)  // verify-first by default
 const requireAuthPass = ref(true)
 
 const submitting = ref(false)
