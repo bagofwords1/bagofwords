@@ -164,6 +164,26 @@ class ExternalPlatformManager:
                 print(f"Auto-link by email failed, falling back to verification: {e}")
 
         if block_message:
+            # Email from a non-member: ignore it (no reply — avoid backscatter to
+            # possibly-spoofed senders) and record it in the audit trail.
+            if platform.platform_type == "email":
+                try:
+                    from app.ee.audit.service import audit_service
+                    await audit_service.log(
+                        db=db,
+                        organization_id=platform.organization_id,
+                        action="email.ignored_non_member",
+                        user_id=None,
+                        resource_type="email_integration",
+                        resource_id=str(platform.id),
+                        details={
+                            "from_address": external_user_id,
+                            "reason": "sender is not a linked organization member",
+                        },
+                    )
+                except Exception as e:
+                    print(f"Failed to audit ignored email: {e}")
+                return None
             try:
                 await adapter.send_dm(external_user_id, block_message)
             except Exception as e:

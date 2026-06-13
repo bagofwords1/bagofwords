@@ -111,6 +111,9 @@ class NotificationService:
         attachments: Optional[list] = None,
         db=None,
         organization_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        references: Optional[list] = None,
     ) -> bool:
         """Send mail, preferring the org's Email integration mailbox.
 
@@ -119,6 +122,9 @@ class NotificationService:
         the org's outbound mail — overriding the global ``settings.email_client``.
         Falls back to the global client when no integration is configured or no
         org context is available.
+
+        ``message_id`` / ``in_reply_to`` / ``references`` thread the message so a
+        reply can be re-attached to a report (integration path only).
         """
         resolved = None
         if db is not None and organization_id:
@@ -131,18 +137,31 @@ class NotificationService:
                 resolved = None
 
         if resolved and resolved.uses_integration:
+            import os
+            import re as _re
             from app.services.email.message_builder import build_email
             from app.services.email.sender import send_message
+
+            def _to_tuple(att: dict):
+                """Normalize either attachment dict shape to (filename, bytes, mime)."""
+                path = att.get("file")
+                with open(path, "rb") as f:
+                    content = f.read()
+                filename = att.get("filename")
+                if not filename:
+                    cd = (att.get("headers") or {}).get("Content-Disposition", "")
+                    m = _re.search(r'filename\*?="?([^";]+)"?', cd)
+                    filename = m.group(1) if m else os.path.basename(path)
+                if att.get("mime_type"):
+                    mime = f"{att.get('mime_type')}/{att.get('mime_subtype', 'octet-stream')}"
+                else:
+                    mime = f"{att.get('type', 'application')}/{att.get('subtype', 'octet-stream')}"
+                return (filename, content, mime)
 
             built_attachments = []
             for att in attachments or []:
                 try:
-                    path = att.get("file")
-                    with open(path, "rb") as f:
-                        built_attachments.append(
-                            (att.get("filename") or "attachment", f.read(),
-                             f"{att.get('type', 'application')}/{att.get('subtype', 'octet-stream')}")
-                        )
+                    built_attachments.append(_to_tuple(att))
                 except Exception:  # noqa: BLE001
                     continue
 
@@ -155,6 +174,9 @@ class NotificationService:
                     subject=subject,
                     body=body,
                     body_subtype=subtype,
+                    message_id=message_id,
+                    in_reply_to=in_reply_to,
+                    references=references,
                     attachments=built_attachments or None,
                 )
                 ok = await send_message(resolved.smtp_config, msg)
@@ -263,6 +285,9 @@ class NotificationService:
         timeout: Optional[float] = None,
         db=None,
         organization_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+        references: Optional[list] = None,
     ) -> ChannelResult:
         """Send a free-form email with arbitrary subject/body.
 
@@ -296,6 +321,9 @@ class NotificationService:
                     attachments=attachments,
                     db=db,
                     organization_id=organization_id,
+                    message_id=message_id,
+                    in_reply_to=in_reply_to,
+                    references=references,
                 )
                 if ok:
                     logger.info("Custom email sent to %s", recipients)
