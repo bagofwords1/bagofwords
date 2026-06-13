@@ -105,6 +105,10 @@ async def _send_xoauth2(cfg: SmtpConfig, msg: EmailMessage) -> bool:
     )
     await client.connect()
     try:
+        # Re-EHLO in the (post-STARTTLS) session; the low-level execute_command
+        # below skips aiosmtplib's automatic helo, so do it explicitly or the
+        # server answers "503 Send hello first".
+        await client.ehlo()
         # AUTH XOAUTH2 <base64 initial response>
         code, message = await client.execute_command(
             b"AUTH", b"XOAUTH2", sasl.encode("ascii")

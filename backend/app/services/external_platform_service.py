@@ -333,6 +333,7 @@ class ExternalPlatformService:
             )
             await client.connect()
             if sasl is not None:
+                await client.ehlo()  # re-EHLO before low-level AUTH (503 otherwise)
                 code, msg = await client.execute_command(b"AUTH", b"XOAUTH2", sasl.encode("ascii"))
                 if code != 235:
                     return {"success": False, "smtp": f"xoauth2 rejected ({code})", "imap": None}
