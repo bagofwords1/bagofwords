@@ -28,6 +28,9 @@ SCOPE = os.environ.get(
     "https://outlook.office365.com/SMTP.Send offline_access",
 )
 BASE = os.environ.get("BOW_MS_LOGIN_BASE", "https://login.microsoftonline.com")
+# Confidential clients (no "Allow public client flows") require the secret at
+# the token step; public clients can omit it.
+CLIENT_SECRET = os.environ.get("EMAIL_MS_CLIENT_SECRET")
 
 
 def main():
@@ -48,13 +51,16 @@ def main():
         deadline = time.time() + int(d.get("expires_in", 900))
         while time.time() < deadline:
             time.sleep(interval)
+            token_data = {
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "client_id": CLIENT_ID,
+                "device_code": d["device_code"],
+            }
+            if CLIENT_SECRET:
+                token_data["client_secret"] = CLIENT_SECRET
             tr = c.post(
                 f"{BASE}/{TENANT}/oauth2/v2.0/token",
-                data={
-                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                    "client_id": CLIENT_ID,
-                    "device_code": d["device_code"],
-                },
+                data=token_data,
             )
             body = tr.json()
             if tr.status_code == 200:
