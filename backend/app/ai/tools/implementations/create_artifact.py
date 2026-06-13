@@ -280,7 +280,7 @@ class CreateArtifactTool(Tool):
   <script>
     window.ARTIFACT_DATA = {data_json};
     window.__ARTIFACT_RENDER_COMPLETE__ = false;
-    window.__BOW_INSPECTOR = false;
+    window.__BOW_INFO = false;
   {SC}
 
   {code}
@@ -1489,6 +1489,8 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 All components are fully themeable via `className`/`titleClassName`/`subtitleClassName`/`style`. Don't leave default white/slate styling when your design calls for something different. If the design needs something these can't express — build custom React + Tailwind.
 
 **INFO POPOVER (required):** Pass `viz={{viz[N]}}` to every `<KPICard>` and `<SectionCard>` you build from a visualization. This renders a small built-in "ⓘ" button that lets users inspect the data behind each component (Data tab with rows, Code tab with the query). Use the index of the visualization the card is derived from (the primary one if it combines several). When a card renders FILTERED rows (you called `filterRows(viz[N].rows)`), ALSO pass `rows={{<those filtered rows>}}` so the popover shows the filtered view that matches the component, not the full dataset. When a card AGGREGATES or derives its value client-side, ALSO pass `calc="<formula>"` describing the math with real column names, e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"` or `calc="COUNT(DISTINCT CustomerId)"` — the popover shows it as a "Calculation" line. If you render a chart with a bare `<EChart>` that is NOT inside a `<SectionCard>`, pass `viz={{viz[N]}}` (and `rows`/`calc` if relevant) to the `<EChart>` itself so it still gets the popover.
+
+**CUSTOM MARKUP — add `data-bow-*` attributes (required):** Whenever you build your OWN containers instead of `<KPICard>`/`<SectionCard>`/`<EChart>` (custom `<div>` KPI tiles, chart wrappers, tables), annotate each item's outer element with `data-bow-viz="N"` (source visualization index) and `data-bow-calc="<formula>"` when the value is derived. A global overlay then renders the same Data/Code/Calc popover on each item. Example: `<div data-bow-viz={{0}} data-bow-calc="SUM(UnitPrice × Quantity)">...custom tile...</div>`. EVERY metric, chart, and table must be reachable via either a prebuilt component's `viz` prop OR a `data-bow-viz` attribute — never leave an item with no way to inspect its data.
 
 DATA ACCESS:
 

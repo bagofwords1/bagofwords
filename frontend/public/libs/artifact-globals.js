@@ -835,117 +835,139 @@
   window.addEventListener('resize', window.resizeAllCharts);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // DataInspector — always-on, LLM-independent fallback.
-  // A floating "Data" button (bottom-right) that lists EVERY visualization in
-  // window.ARTIFACT_DATA with the same Data/Code tabs, regardless of which
-  // components (if any) the generated dashboard used. Guarantees data/query
-  // access even for fully custom dashboards that never touch KPICard/SectionCard.
+  // InfoOverlay — per-item info popover for ANY markup, via data attributes.
+  // The dashboard (including fully custom divs) annotates each metric/chart/
+  // table container with data-bow-viz="<index>" and optional data-bow-calc.
+  // A single body-level overlay reads those attributes, draws a small "ⓘ" at
+  // each element's corner, and on click shows the same Data/Code/Calc popover.
+  // It NEVER mutates the dashboard's own DOM (no React reconciliation conflicts).
   // ═══════════════════════════════════════════════════════════════════════════
 
-  window.DataInspector = function() {
-    var _o = React.useState(false), open = _o[0], setOpen = _o[1];
-    var _i = React.useState(0), idx = _i[0], setIdx = _i[1];
-    var _t = React.useState('data'), tab = _t[0], setTab = _t[1];
+  window.InfoOverlay = function() {
+    var _tick = React.useState(0), setTick = _tick[1];
+    var _open = React.useState(null), openT = _open[0], setOpenT = _open[1]; // {vizIndex, calc, title, rect}
+    var _tab = React.useState('data'), tab = _tab[0], setTab = _tab[1];
     var panelRef = React.useRef(null);
-    var btnRef = React.useRef(null);
 
+    // Re-render (recompute positions) on layout/structure changes.
     React.useEffect(function() {
-      if (!open) return;
+      var raf = null;
+      function ping() { if (raf) return; raf = requestAnimationFrame(function() { raf = null; setTick(function(c) { return c + 1; }); }); }
+      var root = document.getElementById('root') || document.body;
+      var mo = new MutationObserver(ping);
+      mo.observe(root, { childList: true, subtree: true, attributes: true });
+      window.addEventListener('scroll', ping, true);
+      window.addEventListener('resize', ping);
+      var t1 = setTimeout(ping, 150), t2 = setTimeout(ping, 600), t3 = setTimeout(ping, 1500);
+      return function() {
+        mo.disconnect();
+        window.removeEventListener('scroll', ping, true);
+        window.removeEventListener('resize', ping);
+        clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+        if (raf) cancelAnimationFrame(raf);
+      };
+    }, []);
+
+    // Close popover on outside click / Escape.
+    React.useEffect(function() {
+      if (!openT) return;
       function onDown(e) {
-        if (btnRef.current && btnRef.current.contains(e.target)) return;
-        if (panelRef.current && panelRef.current.contains(e.target)) return;
-        setOpen(false);
+        if (e.target && e.target.closest && e.target.closest('[data-bow-ibtn], [data-bow-panel]')) return;
+        setOpenT(null);
       }
-      function onKey(e) { if (e.key === 'Escape') setOpen(false); }
+      function onKey(e) { if (e.key === 'Escape') setOpenT(null); }
       document.addEventListener('mousedown', onDown);
       document.addEventListener('keydown', onKey);
-      return function() {
-        document.removeEventListener('mousedown', onDown);
-        document.removeEventListener('keydown', onKey);
-      };
-    }, [open]);
+      return function() { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+    }, [openT]);
 
     var data = window.ARTIFACT_DATA || {};
     var vizs = Array.isArray(data.visualizations) ? data.visualizations : [];
-    if (!vizs.length) return null;
 
-    var safeIdx = Math.min(idx, vizs.length - 1);
-    var viz = vizs[safeIdx] || {};
-
-    function tabButton(id, label) {
-      var active = tab === id;
-      return h('button', {
-        key: id, type: 'button', onClick: function() { setTab(id); },
-        className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors '
-          + (active ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600')
-      }, label);
+    // Collect annotated targets and their on-screen rects.
+    var targets = [];
+    var els = document.querySelectorAll('[data-bow-viz]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var r = el.getBoundingClientRect();
+      if ((r.width === 0 && r.height === 0) || r.bottom < 0 || r.top > window.innerHeight) continue;
+      targets.push({
+        rect: r,
+        vizIndex: parseInt(el.getAttribute('data-bow-viz'), 10) || 0,
+        calc: el.getAttribute('data-bow-calc') || null,
+        title: el.getAttribute('data-bow-title') || null
+      });
     }
 
-    var panel = open ? h('div', {
-      ref: panelRef,
-      className: 'bg-white border border-slate-200 rounded-xl shadow-2xl',
-      style: {
-        position: 'fixed', right: 16, bottom: 60, width: 440, maxWidth: 'calc(100vw - 32px)',
-        zIndex: 99999, maxHeight: '78vh', display: 'flex', flexDirection: 'column'
+    // ⓘ markers (fixed, top-right of each annotated element).
+    var markers = targets.map(function(t, i) {
+      return h('button', {
+        key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'aria-label': 'Details',
+        onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
+        style: { position: 'fixed', top: Math.max(2, t.rect.top + 6), left: t.rect.right - 24, zIndex: 99998 },
+        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/80 backdrop-blur text-slate-400 hover:text-slate-700 hover:bg-white shadow-sm border border-slate-200/70 transition-colors'
+      }, h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none' }, [
+        h('circle', { key: 'c', cx: 8, cy: 8, r: 6.4, stroke: 'currentColor', strokeWidth: 1.2 }),
+        h('circle', { key: 'd', cx: 8, cy: 5.2, r: 0.95, fill: 'currentColor' }),
+        h('path', { key: 'b', d: 'M8 7.4v4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' })
+      ]));
+    });
+
+    // Popover panel for the open target.
+    var panel = null;
+    if (openT) {
+      var viz = vizs[openT.vizIndex] || {};
+      var W = 400;
+      var left = Math.min(openT.rect.right - W, window.innerWidth - W - 8); if (left < 8) left = 8;
+      var spaceBelow = window.innerHeight - openT.rect.top;
+      var below = spaceBelow > 260;
+      var vTitle = openT.title || viz.title || 'Details';
+      function tabButton(id, label) {
+        var active = tab === id;
+        return h('button', { key: id, type: 'button', onClick: function() { setTab(id); },
+          className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ' + (active ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600') }, label);
       }
-    }, [
-      h('div', { key: 'hd', className: 'flex items-center justify-between gap-2 px-3.5 pt-3 pb-2 border-b border-slate-100' }, [
-        h('div', { key: 't', className: 'text-xs font-semibold text-slate-800' },
-          'Dashboard data' + (data.report && data.report.title ? ' · ' + data.report.title : '')),
-        h('button', {
-          key: 'x', type: 'button', 'aria-label': 'Close', onClick: function() { setOpen(false); },
-          className: 'shrink-0 text-slate-400 hover:text-slate-600'
-        }, h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' },
-          h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
-      ]),
-      // visualization selector
-      vizs.length > 1 ? h('div', { key: 'sel', className: 'px-3.5 py-2 border-b border-slate-100' },
-        h('select', {
-          value: String(safeIdx),
-          onChange: function(e) { setIdx(parseInt(e.target.value, 10)); },
-          className: 'w-full text-xs border border-slate-200 rounded-md px-2 py-1.5 bg-white text-slate-700 outline-none'
-        }, vizs.map(function(v, i) {
-          return h('option', { key: i, value: String(i) }, (i + 1) + '. ' + (v.title || ('Visualization ' + (i + 1))));
-        }))
-      ) : null,
-      h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100' }, [
-        tabButton('data', 'Data'),
-        tabButton('code', 'Code')
-      ]),
-      h('div', { key: 'bd', className: 'px-3.5 py-3 overflow-auto' }, tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, {})),
-      viz.id ? h('div', {
-        key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-400 break-all'
-      }, 'ID  ' + viz.id) : null
-    ]) : null;
+      panel = h('div', {
+        ref: panelRef, 'data-bow-panel': '1',
+        className: 'bg-white border border-slate-200 rounded-lg shadow-xl',
+        style: {
+          position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh',
+          top: below ? (openT.rect.top + 28) : undefined,
+          bottom: below ? undefined : (window.innerHeight - openT.rect.top + 6),
+          display: 'flex', flexDirection: 'column'
+        }
+      }, [
+        h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 pt-2.5 pb-1' }, [
+          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 leading-snug' }, vTitle),
+          h('button', { key: 'x', type: 'button', 'aria-label': 'Close', onClick: function() { setOpenT(null); },
+            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600' },
+            h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' }, h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
+        ]),
+        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100' }, [tabButton('data', 'Data'), tabButton('code', 'Code')]),
+        h('div', { key: 'bd', className: 'px-3.5 py-3 overflow-auto' }, tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { calc: openT.calc })),
+        viz.id ? h('div', { key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-400 break-all' }, 'ID  ' + viz.id) : null
+      ]);
+    }
 
-    var button = h('button', {
-      key: 'btn', ref: btnRef, type: 'button',
-      onClick: function() { setOpen(function(o) { return !o; }); },
-      title: 'Inspect dashboard data',
-      className: 'fixed bottom-4 right-4 z-[99998] inline-flex items-center gap-1.5 rounded-full border shadow-lg px-3 py-2 text-xs font-medium transition-colors '
-        + (open ? 'bg-slate-800 text-white border-slate-800' : 'bg-white/90 backdrop-blur text-slate-600 border-slate-200 hover:text-slate-900')
-    }, [
-      h('svg', { key: 'i', width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none' }, [
-        h('rect', { key: 'r', x: 2, y: 2.5, width: 12, height: 11, rx: 1.5, stroke: 'currentColor', strokeWidth: 1.2 }),
-        h('path', { key: 'l1', d: 'M2 6.5h12M6 6.5v7', stroke: 'currentColor', strokeWidth: 1.2 })
-      ]),
-      h('span', { key: 's' }, 'Data')
-    ]);
-
-    return h('span', null, [button, panel]);
+    if (!markers.length && !panel) return null;
+    return h('div', { style: { position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 99998 } },
+      markers.concat(panel ? [panel] : []).map(function(node, i) {
+        return h('div', { key: i, style: { pointerEvents: 'auto' } }, node);
+      })
+    );
   };
 
-  // Auto-mount the inspector once, unless explicitly disabled (e.g. thumbnails).
-  (function mountInspector() {
-    if (window.__BOW_INSPECTOR === false) return;
-    if (window.__bowInspectorMounted) return;
-    window.__bowInspectorMounted = true;
+  // Auto-mount the overlay once, unless explicitly disabled (e.g. thumbnails).
+  (function mountInfoOverlay() {
+    if (window.__BOW_INFO === false) return;
+    if (window.__bowInfoMounted) return;
+    window.__bowInfoMounted = true;
     try {
       var host = document.createElement('div');
-      host.id = '__bow_inspector';
+      host.id = '__bow_info_overlay';
       document.body.appendChild(host);
-      if (ReactDOM.createRoot) ReactDOM.createRoot(host).render(h(window.DataInspector));
-      else ReactDOM.render(h(window.DataInspector), host);
+      if (ReactDOM.createRoot) ReactDOM.createRoot(host).render(h(window.InfoOverlay));
+      else ReactDOM.render(h(window.InfoOverlay), host);
     } catch (e) { /* non-fatal */ }
   })();
 
