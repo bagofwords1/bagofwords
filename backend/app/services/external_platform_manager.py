@@ -119,7 +119,43 @@ class ExternalPlatformManager:
         # vouched by the workspace IdP).
         allow_auto_provision = platform.platform_type in ("slack", "teams")
 
-        if auto_link_enabled and platform.platform_type in ("slack", "teams", "email"):
+        # Email identity (verify-first). The From address is spoofable, so we
+        # only engage senders the org already knows. A matched member is either
+        # auto-verified (if auto-link is explicitly enabled) or sent a one-time
+        # verification link (the default); everyone else is ignored + audited.
+        # (Invite / registration-link rungs for not-yet-members are a TODO —
+        # see docs/design/email-identity-and-transport.md.)
+        if platform.platform_type == "email":
+            matched = await self.mapping_service.find_user_by_email(
+                db, platform.organization_id, external_user_id
+            )
+            if not matched:
+                try:
+                    from app.ee.audit.service import audit_service
+                    await audit_service.log(
+                        db=db,
+                        organization_id=platform.organization_id,
+                        action="email.ignored_non_member",
+                        user_id=None,
+                        resource_type="email_integration",
+                        resource_id=str(platform.id),
+                        details={
+                            "from_address": external_user_id,
+                            "reason": "sender is not a linked organization member",
+                        },
+                    )
+                except Exception as e:
+                    print(f"Failed to audit ignored email: {e}")
+                return None
+            if auto_link_enabled:
+                # Auto-verify: link immediately (DMARC-gated convenience).
+                auto_linked_user = matched
+                auto_linked_email = external_user_id
+                auto_linked_name = getattr(matched, "name", None)
+            # else: matched member with verify-first -> fall through to create an
+            # unverified mapping; handle_incoming_message sends the verify link.
+
+        if auto_link_enabled and platform.platform_type in ("slack", "teams"):
             try:
                 user_info = await adapter.get_user_info(
                     external_user_id,
