@@ -55,7 +55,8 @@
           :key="ch.id"
           :class="[
             '-mx-1.5 rounded border border-gray-150 bg-gray-50',
-            !isBuildPublished && !selectedIds.has(ch.id) ? 'opacity-50' : ''
+            resolutionFor(ch) === 'rejected' ? 'opacity-50' : '',
+            !isBuildPublished && !resolutionFor(ch) && !selectedIds.has(ch.id) ? 'opacity-50' : ''
           ]"
         >
           <div
@@ -63,7 +64,7 @@
             @click="toggleChangeExpanded(ch.id)"
           >
             <UCheckbox
-              v-if="!isBuildPublished"
+              v-if="!isBuildPublished && !resolutionFor(ch)"
               :model-value="selectedIds.has(ch.id)"
               color="blue"
               @update:model-value="toggleSelection(ch.id, $event)"
@@ -89,6 +90,12 @@
                 </span>
                 <span v-if="ch.added > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
                 <span v-if="ch.removed > 0" class="text-[10px] font-mono text-red-500 shrink-0">−{{ ch.removed }}</span>
+                <span v-if="resolutionFor(ch) === 'accepted'" class="inline-flex items-center gap-0.5 text-[10px] text-green-600 shrink-0">
+                  <Icon name="heroicons:check-circle" class="w-3 h-3" />Accepted
+                </span>
+                <span v-else-if="resolutionFor(ch) === 'rejected'" class="inline-flex items-center gap-0.5 text-[10px] text-gray-400 shrink-0">
+                  <Icon name="heroicons:x-circle" class="w-3 h-3" />Rejected
+                </span>
               </div>
               <div v-if="!expandedChangeIds.has(ch.id)" class="text-[11px] text-gray-400 line-clamp-1 mt-0.5">
                 {{ ch.preview }}
@@ -124,7 +131,7 @@
         </div>
 
         <!-- Publish button -->
-        <div v-if="changes.length > 0 && !isBuildPublished && canCreateInstructions" class="pt-1">
+        <div v-if="hasUnresolvedChanges && !isBuildPublished && canCreateInstructions" class="pt-1">
           <button
             class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors disabled:opacity-50"
             :disabled="isPublishingBuild || selectedIds.size === 0"
@@ -151,12 +158,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import DiffMatchPatch from 'diff-match-patch'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
-import type { DiffOp, DiffOpType } from '~/composables/useTrackedChanges'
+import {
+  dispatchInstructionResolved,
+  INSTRUCTION_RESOLVED_EVENT,
+  type DiffOp,
+  type DiffOpType,
+} from '~/composables/useTrackedChanges'
 
 interface ToolExecution {
   id: string
@@ -371,6 +383,84 @@ const isBuildPublished = computed(() => {
   return b.is_main === true || b.status === 'approved'
 })
 
+// Per-instruction resolution, keyed by instructionId. Lets the card reflect a
+// *partial* publish (e.g. accepting a single change from the promptbox pill),
+// which never flips the build-level status to approved/main.
+const resolutionByInstr = ref<Record<string, 'accepted' | 'rejected'>>({})
+
+function resolutionFor(ch: Change): 'accepted' | 'rejected' | null {
+  if (!ch.instructionId) return null
+  return resolutionByInstr.value[ch.instructionId] || null
+}
+
+const hasUnresolvedChanges = computed(() =>
+  changes.value.some(c => !resolutionFor(c))
+)
+
+function setResolution(instructionId: string, value: 'accepted' | 'rejected') {
+  resolutionByInstr.value = { ...resolutionByInstr.value, [instructionId]: value }
+  // A resolved change is no longer publishable from this card.
+  const ch = changes.value.find(c => c.instructionId === instructionId)
+  if (ch && selectedIds.value.has(ch.id)) toggleSelection(ch.id, false)
+}
+
+// Determine accepted vs rejected for a change whose build is no longer pending.
+// Mirrors the tool-card logic: a create that still exists = accepted (deleted =
+// rejected); an edit = accepted only if the live text matches what we proposed.
+async function refreshChangeResolution(ch: Change) {
+  const id = ch.instructionId
+  if (!id || !ch.buildId) return
+  const { data: pendingData } = await useMyFetch(`/instructions/${id}/pending-builds`)
+  const builds = Array.isArray(pendingData.value) ? pendingData.value : []
+  if (builds.some((b: any) => b.build_id === ch.buildId)) return // still pending
+  const { data: instData, error } = await useMyFetch(`/instructions/${id}`)
+  if (error.value || !instData.value) {
+    setResolution(id, 'rejected')
+    return
+  }
+  if (ch.type === 'create') {
+    setResolution(id, 'accepted')
+    return
+  }
+  const liveText = ((instData.value as any).text || '').trim()
+  const proposed = (ch.nextText || '').trim()
+  setResolution(id, proposed && liveText === proposed ? 'accepted' : 'rejected')
+}
+
+// Derive initial state once per instruction so a refresh (or arriving mid-way)
+// doesn't show already-accepted changes as still-pending.
+const derivedInstrIds = new Set<string>()
+function deriveInitialResolutions() {
+  for (const ch of changes.value) {
+    if (!ch.instructionId || !ch.buildId) continue
+    if (derivedInstrIds.has(ch.instructionId)) continue
+    derivedInstrIds.add(ch.instructionId)
+    refreshChangeResolution(ch)
+  }
+}
+
+watch(changes, () => {
+  if (!isLoading.value) deriveInitialResolutions()
+}, { immediate: true })
+
+// React when a resolution happens elsewhere (promptbox pill, modal, tool card).
+function onExternalResolution(e: Event) {
+  const detail = (e as CustomEvent).detail
+  if (!detail?.instructionId) return
+  const ch = changes.value.find(c => c.instructionId === detail.instructionId)
+  if (ch) refreshChangeResolution(ch)
+}
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener(INSTRUCTION_RESOLVED_EVENT, onExternalResolution)
+  }
+})
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener(INSTRUCTION_RESOLVED_EVENT, onExternalResolution)
+  }
+})
+
 const publishButtonText = computed(() => {
   const n = selectedIds.value.size
   if (n === 0) return 'Publish Changes'
@@ -408,12 +498,12 @@ function diffOpsForChange(ch: Change): DiffOp[] {
   return ops.map(([type, text]) => ({ type: type as DiffOpType, text }))
 }
 
-// Select all new changes by default
+// Select all new (unresolved) changes by default
 watch(changes, (newCh, oldCh) => {
   const oldIds = new Set((oldCh || []).map(c => c.id))
   const next = new Set(selectedIds.value)
   for (const c of newCh) {
-    if (!oldIds.has(c.id)) next.add(c.id)
+    if (!oldIds.has(c.id) && !resolutionFor(c)) next.add(c.id)
   }
   for (const id of selectedIds.value) {
     if (!newCh.some(c => c.id === id)) next.delete(id)
@@ -457,6 +547,12 @@ const handlePublishBuild = async () => {
       body: { instruction_ids: selectedInstructionIds },
     })
     if (response.status.value === 'success') {
+      // Reflect locally and notify other open views (pill, tool cards, modal)
+      // so they update without waiting for a full reload.
+      for (const id of selectedInstructionIds) {
+        setResolution(id, 'accepted')
+        dispatchInstructionResolved({ instructionId: id, buildId: targetBuildId, action: 'accept' })
+      }
       toast.add({ title: 'Success', description: 'Changes published', color: 'green' })
       emit('published')
     } else {
