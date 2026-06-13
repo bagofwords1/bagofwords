@@ -78,6 +78,7 @@ def _org_smtp_resolved(org_smtp: Optional[dict]) -> Optional[ResolvedOutbound]:
             username=org_smtp.get("username"),
             password=org_smtp.get("password"),
             security=org_smtp.get("security") or "starttls",
+            validate_certs=bool(org_smtp.get("validate_certs", True)),
         ),
         from_address=(org_smtp.get("from_address") or org_smtp.get("username")),
         from_name=org_smtp.get("from_name"),

@@ -197,10 +197,18 @@ class OrgSmtpSchema(BaseModel):
     password_set: bool = False
     from_address: Optional[str] = None
     from_name: Optional[str] = None
+    # Advanced TLS: when False, skip certificate verification (self-signed /
+    # internal CA relays). Mirrors bow-config's global SMTP ``validate_certs``.
+    validate_certs: bool = True
 
 
 class OrgSmtpUpdate(BaseModel):
-    """Write shape; ``password`` is only sent when (re)setting it."""
+    """Write shape; ``password`` is only sent when (re)setting it.
+
+    Username/password are optional — relays that accept unauthenticated mail
+    from trusted hosts (mirroring bow-config's ``use_credentials=False``) just
+    leave them blank and BOW skips SMTP AUTH.
+    """
     enabled: bool = False
     host: Optional[str] = None
     port: int = 587
@@ -209,3 +217,4 @@ class OrgSmtpUpdate(BaseModel):
     password: Optional[str] = None
     from_address: Optional[str] = None
     from_name: Optional[str] = None
+    validate_certs: bool = True

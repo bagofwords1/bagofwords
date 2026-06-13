@@ -73,6 +73,45 @@ def test_org_smtp_override_backward_and_encryption(create_user, login_user, whoa
 
 
 @pytest.mark.e2e
+def test_org_smtp_noauth_and_validate_certs(create_user, login_user, whoami):
+    """Relays with no auth + advanced TLS (validate_certs) round-trip end to end."""
+    email = _unique_email()
+    create_user(email=email)
+    token = login_user(email, "test123")
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    from main import app
+    from fastapi.testclient import TestClient
+    from app.dependencies import async_session_maker
+    from app.services.email_client_resolver import resolve_outbound
+
+    client = TestClient(app)
+    H = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+    # Open relay: no username/password, self-signed cert (validate_certs off).
+    put = client.put("/api/organization/smtp", json={
+        "enabled": True, "host": "internal-relay.acme.local", "port": 25,
+        "security": "none", "from_address": "noreply@acme.local",
+        "validate_certs": False,
+    }, headers=H)
+    assert put.status_code == 200, put.text
+    got = put.json()
+    assert got["password_set"] is False
+    assert got["validate_certs"] is False
+
+    async def resolve():
+        async with async_session_maker() as db:
+            return await resolve_outbound(db, org_id, purpose="system")
+
+    r = asyncio.run(resolve())
+    assert r.source == "org_smtp"
+    assert r.smtp_config.host == "internal-relay.acme.local"
+    assert r.smtp_config.username is None  # no-auth relay
+    assert r.smtp_config.password is None
+    assert r.smtp_config.validate_certs is False
+
+
+@pytest.mark.e2e
 def test_password_enc_not_plaintext_in_config(create_user, login_user, whoami):
     """The SMTP password must be Fernet-encrypted at rest, not plaintext JSON."""
     email = _unique_email()

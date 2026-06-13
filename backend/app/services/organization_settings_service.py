@@ -530,6 +530,7 @@ class OrganizationSettingsService:
             password_set=bool(raw.get("password_enc")),
             from_address=raw.get("from_address"),
             from_name=raw.get("from_name"),
+            validate_certs=bool(raw.get("validate_certs", True)),
         )
 
     async def update_smtp(self, db: AsyncSession, organization: Organization, current_user: User, data):
@@ -551,6 +552,7 @@ class OrganizationSettingsService:
             "username": (data.username or "").strip() or None,
             "from_address": (data.from_address or "").strip() or None,
             "from_name": data.from_name,
+            "validate_certs": bool(data.validate_certs),
             # Keep the existing encrypted password unless a new one is supplied.
             "password_enc": existing.get("password_enc"),
         }
@@ -583,7 +585,7 @@ class OrganizationSettingsService:
     async def test_smtp(self, db: AsyncSession, organization: Organization, current_user: User) -> dict:
         """Probe the org's saved SMTP server (connect + auth, no send)."""
         from app.services.email_client_resolver import get_org_smtp
-        from app.services.email.sender import SmtpConfig
+        from app.services.email.sender import SmtpConfig, _tls_context
         import aiosmtplib
 
         smtp = await get_org_smtp(db, organization.id)
@@ -593,13 +595,18 @@ class OrganizationSettingsService:
             host=smtp["host"], port=int(smtp.get("port") or 587),
             username=smtp.get("username"), password=smtp.get("password"),
             security=smtp.get("security") or "starttls",
+            validate_certs=bool(smtp.get("validate_certs", True)),
         ).resolved()
         try:
-            client = aiosmtplib.SMTP(
+            kwargs = dict(
                 hostname=cfg.host, port=cfg.port,
                 use_tls=(cfg.security == "ssl"),
                 start_tls=(cfg.security == "starttls"), timeout=15,
             )
+            tls_context = _tls_context(cfg)
+            if tls_context is not None:
+                kwargs["tls_context"] = tls_context
+            client = aiosmtplib.SMTP(**kwargs)
             await client.connect()
             if cfg.username and cfg.password:
                 await client.login(cfg.username, cfg.password)

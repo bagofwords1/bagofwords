@@ -45,19 +45,20 @@
             <input v-model.number="form.port" type="number" class="w-full border rounded px-2 py-1" />
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-3 mb-3">
+        <div class="grid grid-cols-2 gap-3 mb-1">
           <div>
-            <label class="block text-sm font-medium mb-1">Username</label>
+            <label class="block text-sm font-medium mb-1">Username <span class="text-gray-400 font-normal">(optional)</span></label>
             <input v-model="form.username" type="text" class="w-full border rounded px-2 py-1" />
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1">Password</label>
+            <label class="block text-sm font-medium mb-1">Password <span class="text-gray-400 font-normal">(optional)</span></label>
             <input v-model="form.password" type="password" class="w-full border rounded px-2 py-1"
               :placeholder="passwordSet ? '•••••••• (unchanged)' : ''" />
             <p v-if="passwordSet" class="text-xs text-gray-500 mt-1">Leave blank to keep the saved password.</p>
           </div>
         </div>
-        <div class="mb-4">
+        <p class="text-xs text-gray-500 mb-3">Leave username &amp; password empty for an open relay that doesn't require authentication.</p>
+        <div class="mb-3">
           <label class="block text-sm font-medium mb-1">Security</label>
           <select v-model="form.security" class="w-full border rounded px-2 py-1">
             <option value="starttls">STARTTLS (587)</option>
@@ -65,6 +66,11 @@
             <option value="none">None</option>
           </select>
         </div>
+        <label v-if="form.security !== 'none'" class="flex items-center gap-2 mb-4 cursor-pointer">
+          <UToggle v-model="form.validate_certs" />
+          <span class="text-sm text-gray-700">Validate TLS certificates</span>
+          <span class="text-xs text-gray-400">— turn off for self-signed / internal-CA relays</span>
+        </label>
       </div>
 
       <div class="flex items-center gap-2">
@@ -94,7 +100,7 @@ const toast = useToast()
 
 const form = reactive({
   enabled: false, host: '', port: 587, security: 'starttls',
-  username: '', password: '', from_address: '', from_name: '',
+  username: '', password: '', from_address: '', from_name: '', validate_certs: true,
 })
 const passwordSet = ref(false)
 const saving = ref(false)
@@ -113,6 +119,7 @@ onMounted(async () => {
       form.username = s.username || ''
       form.from_address = s.from_address || ''
       form.from_name = s.from_name || ''
+      form.validate_certs = s.validate_certs !== false
       passwordSet.value = !!s.password_set
     }
   } catch (e) { /* ignore */ }
@@ -122,6 +129,7 @@ function payload() {
   const p: any = {
     enabled: form.enabled, host: form.host, port: form.port, security: form.security,
     username: form.username, from_address: form.from_address, from_name: form.from_name,
+    validate_certs: form.validate_certs,
   }
   if (form.password) p.password = form.password  // only send when (re)setting
   return p
