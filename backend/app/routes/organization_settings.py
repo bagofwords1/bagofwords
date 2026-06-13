@@ -8,6 +8,8 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.schemas.organization_settings_schema import (
+    OrgSmtpSchema,
+    OrgSmtpUpdate,
     OrganizationSettingsSchema,
     OrganizationSettingsUpdate,
     SignupPolicySchema,
@@ -112,3 +114,34 @@ async def update_signup_policy(
     organization: Organization = Depends(get_current_organization),
 ):
     return await settings_service.update_signup_policy(db, organization, current_user, policy)
+
+
+@router.get("/organization/smtp", response_model=OrgSmtpSchema)
+@requires_permission('manage_settings')
+async def get_org_smtp(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.get_smtp(db, organization, current_user)
+
+
+@router.put("/organization/smtp", response_model=OrgSmtpSchema)
+@requires_permission('manage_settings')
+async def update_org_smtp(
+    data: OrgSmtpUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.update_smtp(db, organization, current_user, data)
+
+
+@router.post("/organization/smtp/test", response_model=dict)
+@requires_permission('manage_settings')
+async def test_org_smtp(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.test_smtp(db, organization, current_user)

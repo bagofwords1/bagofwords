@@ -102,18 +102,22 @@ def test_create_smtp_only_integration_and_resolver(
     )
     assert any(i["platform_type"] == "email" for i in listing.json())
 
-    # The resolver now prefers the integration mailbox over the global client.
+    # Analyst mail uses the AI mailbox; system mail does NOT (it uses org
+    # SMTP/global), per the purpose-aware resolver.
     from app.dependencies import async_session_maker
     from app.services.email_client_resolver import resolve_outbound
 
-    async def _check():
+    async def _check(purpose):
         async with async_session_maker() as db:
-            return await resolve_outbound(db, org_id)
+            return await resolve_outbound(db, org_id, purpose=purpose)
 
-    resolved = asyncio.run(_check())
-    assert resolved.uses_integration is True
-    assert resolved.from_address == "analyst@bow.test"
-    assert resolved.smtp_config.host == host
+    analyst = asyncio.run(_check("analyst"))
+    assert analyst.source == "ai_mailbox"
+    assert analyst.from_address == "analyst@bow.test"
+    assert analyst.smtp_config.host == host
+
+    system = asyncio.run(_check("system"))
+    assert system.source != "ai_mailbox"  # system never uses the AI mailbox
 
 
 # ---------------------------------------------------------------------------

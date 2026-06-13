@@ -58,13 +58,16 @@ async def test_smtp_only_sends_and_overrides_global(smtp_sink, make_email_adapte
     cfg["inbound_enabled"] = False
     adapter = make_email_adapter(_creds(host, port), cfg)
 
-    # It resolves as the org transport (overriding any global client).
+    # Analyst mail resolves to the AI mailbox.
     resolved = choose_outbound(
+        "analyst",
         {"smtp_host": host, "from_address": "analyst@bow.test", "from_name": "BOW Analyst"},
         _creds(host, port),
-        global_client_present=True,
+        None,
+        global_present=True,
     )
-    assert resolved.uses_integration is True
+    assert resolved.uses_smtp_config is True
+    assert resolved.source == "ai_mailbox"
 
     ok = await adapter.send_dm("alice@acme.com", "Your scheduled report is ready.")
     assert ok is True

@@ -178,6 +178,7 @@ class EmailSendService:
                 attachments=attachment_dicts or None,
                 db=db,
                 organization_id=org_id,
+                purpose="analyst",
                 message_id=message_id,
                 in_reply_to=in_reply_to,
                 references=references,

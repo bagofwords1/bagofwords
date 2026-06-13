@@ -184,4 +184,28 @@ class SignupPolicySchema(BaseModel):
     """Read/write shape for the per-org signup policy."""
     enabled: bool = False
     allowed_domains: List[str] = []
-    auto_invite_role: str = "member" 
+    auto_invite_role: str = "member"
+
+
+class OrgSmtpSchema(BaseModel):
+    """Read shape for the org's SMTP server (the password is never returned)."""
+    enabled: bool = False
+    host: Optional[str] = None
+    port: int = 587
+    security: str = "starttls"  # "starttls" | "ssl" | "none"
+    username: Optional[str] = None
+    password_set: bool = False
+    from_address: Optional[str] = None
+    from_name: Optional[str] = None
+
+
+class OrgSmtpUpdate(BaseModel):
+    """Write shape; ``password`` is only sent when (re)setting it."""
+    enabled: bool = False
+    host: Optional[str] = None
+    port: int = 587
+    security: str = "starttls"
+    username: Optional[str] = None
+    password: Optional[str] = None
+    from_address: Optional[str] = None
+    from_name: Optional[str] = None

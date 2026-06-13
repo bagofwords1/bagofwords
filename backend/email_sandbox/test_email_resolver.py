@@ -1,78 +1,73 @@
-"""Outbound resolution: org Email integration overrides the global SMTP client.
+"""Purpose-aware outbound resolution: analyst vs system, org SMTP override.
 
-This is the heart of the "if you configure email it becomes the org's SMTP
-client and overrides the config" requirement, and of the SMTP-only vs full
-capability distinction.
+Covers the requirements: backward orgs (no DB SMTP) fall back to global; orgs
+that set DB SMTP use it even when the global bow-config SMTP is empty; analyst
+mail always uses the AI mailbox.
 """
 from app.services.email_client_resolver import choose_outbound
 
 
-SMTP_ONLY_CONFIG = {
-    "from_address": "analyst@acme.com",
-    "from_name": "Acme Analyst",
-    "smtp_host": "smtp.acme.com",
-    "smtp_port": 587,
-    "inbound_enabled": False,
-    "capabilities": ["send"],
-}
-SMTP_ONLY_CREDS = {
-    "smtp_host": "smtp.acme.com",
-    "smtp_port": 587,
-    "smtp_username": "analyst@acme.com",
-    "smtp_password": "secret",
-    "from_address": "analyst@acme.com",
-}
+AI_CONFIG = {"from_address": "analyst@acme.com", "from_name": "Acme Analyst", "smtp_host": "smtp.acme.com"}
+AI_CREDS = {"smtp_host": "smtp.acme.com", "smtp_port": 587, "smtp_username": "analyst@acme.com",
+            "smtp_password": "x", "from_address": "analyst@acme.com"}
 
-FULL_CONFIG = {**SMTP_ONLY_CONFIG, "inbound_enabled": True, "imap_host": "imap.acme.com",
-               "capabilities": ["send", "receive"]}
-FULL_CREDS = {**SMTP_ONLY_CREDS, "imap_host": "imap.acme.com", "imap_username": "analyst@acme.com",
-              "imap_password": "secret"}
+ORG_SMTP = {"enabled": True, "host": "relay.acme.com", "port": 587, "security": "starttls",
+            "username": "noreply@acme.com", "password": "secret",
+            "from_address": "noreply@acme.com", "from_name": "Acme"}
 
 
-def test_integration_overrides_global_when_smtp_present():
-    r = choose_outbound(SMTP_ONLY_CONFIG, SMTP_ONLY_CREDS, global_client_present=True)
-    assert r.uses_integration is True
-    assert r.source == "integration"
+# ---- analyst mail ----
+
+def test_analyst_uses_ai_mailbox():
+    r = choose_outbound("analyst", AI_CONFIG, AI_CREDS, ORG_SMTP, global_present=True)
+    assert r.source == "ai_mailbox"
     assert r.from_address == "analyst@acme.com"
-    assert r.from_name == "Acme Analyst"
     assert r.smtp_config.host == "smtp.acme.com"
-    assert r.smtp_config.username == "analyst@acme.com"
+    assert r.uses_smtp_config
 
 
-def test_smtp_only_still_overrides_global():
-    # SMTP-only (no IMAP) must still be the org's outbound transport.
-    r = choose_outbound(SMTP_ONLY_CONFIG, SMTP_ONLY_CREDS, global_client_present=True)
-    assert r.uses_integration is True
+def test_analyst_without_ai_mailbox_falls_through():
+    # No AI mailbox -> analyst mail still goes out via system precedence.
+    r = choose_outbound("analyst", None, None, ORG_SMTP, global_present=True)
+    assert r.source == "org_smtp"
 
 
-def test_full_integration_also_resolves_outbound():
-    r = choose_outbound(FULL_CONFIG, FULL_CREDS, global_client_present=False)
-    assert r.uses_integration is True
-    assert r.smtp_config.host == "smtp.acme.com"
+# ---- system mail ----
+
+def test_system_never_uses_ai_mailbox():
+    # Even though an AI mailbox exists, system mail must NOT use it.
+    r = choose_outbound("system", AI_CONFIG, AI_CREDS, ORG_SMTP, global_present=True)
+    assert r.source == "org_smtp"
+    assert r.from_address == "noreply@acme.com"
 
 
-def test_falls_back_to_global_when_no_integration():
-    r = choose_outbound(None, None, global_client_present=True)
-    assert r.uses_integration is False
+def test_system_org_smtp_overrides_global():
+    r = choose_outbound("system", None, None, ORG_SMTP, global_present=True)
+    assert r.source == "org_smtp"
+    assert r.smtp_config.host == "relay.acme.com"
+    assert r.smtp_config.password == "secret"
+
+
+def test_system_org_smtp_works_when_global_empty():
+    # Org set DB SMTP, bow-config global is empty -> still use org SMTP.
+    r = choose_outbound("system", None, None, ORG_SMTP, global_present=False)
+    assert r.source == "org_smtp"
+
+
+def test_backward_no_org_smtp_falls_back_to_global():
+    r = choose_outbound("system", None, None, None, global_present=True)
+    assert r.source == "global"
+    assert not r.uses_smtp_config
+    assert r.uses_global
+
+
+def test_system_disabled_org_smtp_falls_back_to_global():
+    disabled = {**ORG_SMTP, "enabled": False}
+    r = choose_outbound("system", None, None, disabled, global_present=True)
     assert r.source == "global"
 
 
-def test_no_transport_when_neither_present():
-    r = choose_outbound(None, None, global_client_present=False)
-    assert r.uses_integration is False
+def test_nothing_configured_is_none():
+    r = choose_outbound("system", None, None, None, global_present=False)
     assert r.source == "none"
-
-
-def test_from_address_defaults_to_smtp_username():
-    creds = {**SMTP_ONLY_CREDS}
-    creds.pop("from_address")
-    cfg = {**SMTP_ONLY_CONFIG}
-    cfg.pop("from_address")
-    r = choose_outbound(cfg, creds, global_client_present=False)
-    assert r.from_address == "analyst@acme.com"
-
-
-def test_capabilities_reflect_inbound_flag():
-    # Capability is derived from config — SMTP-only => send; +IMAP => send+receive.
-    assert SMTP_ONLY_CONFIG["capabilities"] == ["send"]
-    assert FULL_CONFIG["capabilities"] == ["send", "receive"]
+    assert not r.uses_smtp_config
