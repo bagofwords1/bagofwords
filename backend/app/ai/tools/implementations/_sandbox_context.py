@@ -28,8 +28,9 @@ references to any of them:
   - Full ECharts option API supported: bar, line, pie, scatter, radar, treemap, sunburst, heatmap, gauge, funnel, sankey, parallel, calendar, graph, etc.
 
 • **`<EChart>`** — Global React wrapper for ECharts (handles init/dispose/resize)
-  - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string)
+  - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string), and optional `viz`/`rows`/`calc`
   - Usage: `<EChart height={400} option={{ xAxis: {...}, series: [...] }} />`
+  - When a chart is NOT wrapped in a SectionCard, pass `viz={visualizations[N]}` (and `rows`/`calc` if applicable) directly to `<EChart>` so it still shows the built-in "ⓘ" info popover.
   - Supports ALL ECharts chart types — pass any valid ECharts option object
   - Auto-resizes via ResizeObserver
   - Uses 'bow' theme: colors, tooltip, grid, axis styling, rounded corners all pre-configured
