@@ -332,6 +332,81 @@
   }
   window.buildInfoRows = buildInfoRows;
 
+  // Shared renderer for the "Data" tab body (calculation + meta + rows table).
+  // Used by both the per-component InfoPopover and the global DataInspector.
+  function _dataTabBody(viz, opts) {
+    opts = opts || {};
+    var meta = _infoMeta(viz);
+    var rawRows = Array.isArray(viz.rows) ? viz.rows : [];
+    var overrideRows = Array.isArray(opts.rows) ? opts.rows : null;
+    var dataRows = overrideRows != null ? overrideRows : rawRows;
+    var cols = _infoCols(viz, dataRows);
+    var rawCount = rawRows.length || (viz.row_count != null ? viz.row_count : 0);
+    var isFiltered = overrideRows != null && rawCount > 0 && overrideRows.length !== rawCount;
+    var MAXR = 100;
+
+    var activeFilters = {};
+    try { activeFilters = (window.__filterStore ? window.__filterStore.get() : {}) || {}; } catch (e) {}
+    var colFields = cols.map(function(c) { return c.field; });
+    var shownFilterKeys = Object.keys(activeFilters).filter(function(k) { return colFields.indexOf(k) !== -1; });
+
+    var metaBits = [];
+    if (meta.source) metaBits.push(meta.source);
+    if (meta.type) metaBits.push(meta.type);
+    if (isFiltered) metaBits.push(dataRows.length + ' of ' + rawCount + ' rows (filtered)');
+    else metaBits.push((overrideRows != null ? dataRows.length : (meta.rowCount != null ? meta.rowCount : dataRows.length)) + ' rows');
+    if (cols.length) metaBits.push(cols.length + ' cols');
+    if (meta.aggregation) metaBits.push('agg: ' + meta.aggregation);
+
+    var filterNote = shownFilterKeys.length
+      ? 'Filters: ' + shownFilterKeys.map(function(k) { return k + '=' + _infoFilterVal(activeFilters[k]); }).join(', ')
+      : (isFiltered ? 'Filtered view' : null);
+
+    var calcText = _infoCalc(opts.calc);
+
+    return h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
+      calcText ? h('div', { key: 'calc' }, [
+        h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, 'Calculation'),
+        h('div', { key: 'v', className: 'text-xs font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-2 py-1.5' }, calcText)
+      ]) : null,
+      metaBits.length ? h('div', { key: 'm', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')) : null,
+      filterNote ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' }, filterNote) : null,
+      cols.length ? h('div', {
+        key: 'tbl', className: 'border border-slate-100 rounded-md overflow-auto', style: { maxHeight: 300 }
+      }, h('table', { className: 'border-collapse', style: { minWidth: '100%' } }, [
+        h('thead', { key: 'h' }, h('tr', {}, cols.map(function(c, i) {
+          return h('th', {
+            key: i,
+            className: 'text-left font-medium text-slate-500 bg-slate-50 px-2 py-1.5 border-b border-slate-100 whitespace-nowrap sticky top-0',
+            style: { fontSize: 11 }
+          }, c.header);
+        }))),
+        h('tbody', { key: 'b' }, dataRows.slice(0, MAXR).map(function(row, ri) {
+          return h('tr', { key: ri, className: ri % 2 ? 'bg-slate-50/40' : '' }, cols.map(function(c, ci) {
+            var cell = _infoCell(row[c.field]);
+            return h('td', {
+              key: ci, title: cell,
+              className: 'px-2 py-1 text-slate-700 whitespace-nowrap border-b border-slate-50',
+              style: { fontSize: 11, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }
+            }, cell);
+          }));
+        }))
+      ])) : h('div', { key: 'nd', className: 'text-xs text-slate-400 py-4 text-center' }, 'No data available'),
+      (dataRows.length > MAXR) ? h('div', { key: 'more', className: 'text-[10px] text-slate-400' },
+        'Showing ' + MAXR + ' of ' + dataRows.length + ' rows') : null
+    ]);
+  }
+
+  // Shared renderer for the "Code" tab body (the generating query).
+  function _codeTabBody(viz) {
+    return h('div', { key: 'code' }, viz.code
+      ? h('pre', {
+          className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md p-2 overflow-auto',
+          style: { maxHeight: 340, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
+        }, viz.code)
+      : h('div', { className: 'text-xs text-slate-400 py-4 text-center' }, 'No query available for this visualization.'));
+  }
+
   window.InfoPopover = function(props) {
     var viz = props.viz;
     var _o = React.useState(false), open = _o[0], setOpen = _o[1];
@@ -383,23 +458,6 @@
     }, [open]);
 
     if (!viz) return null;
-    var meta = _infoMeta(viz);
-    // Prefer the exact rows the component rendered (e.g. filterRows(...) output)
-    // when passed via the `rows` prop; otherwise fall back to the raw query rows.
-    var rawRows = Array.isArray(viz.rows) ? viz.rows : [];
-    var overrideRows = Array.isArray(props.rows) ? props.rows : null;
-    var dataRows = overrideRows != null ? overrideRows : rawRows;
-    var cols = _infoCols(viz, dataRows);
-    var rawCount = rawRows.length || (viz.row_count != null ? viz.row_count : 0);
-    var isFiltered = overrideRows != null && rawCount > 0 && overrideRows.length !== rawCount;
-    var MAXR = 100;
-
-    var activeFilters = {};
-    try { activeFilters = (window.__filterStore ? window.__filterStore.get() : {}) || {}; } catch (e) {}
-    // Only attribute a filter to this viz if it maps onto one of its columns —
-    // never claim a filter that doesn't actually touch this data.
-    var colFields = cols.map(function(c) { return c.field; });
-    var shownFilterKeys = Object.keys(activeFilters).filter(function(k) { return colFields.indexOf(k) !== -1; });
 
     function tabButton(id, label) {
       var active = tab === id;
@@ -410,60 +468,8 @@
       }, label);
     }
 
-    var metaBits = [];
-    if (meta.source) metaBits.push(meta.source);
-    if (meta.type) metaBits.push(meta.type);
-    if (isFiltered) metaBits.push(dataRows.length + ' of ' + rawCount + ' rows (filtered)');
-    else metaBits.push((overrideRows != null ? dataRows.length : (meta.rowCount != null ? meta.rowCount : dataRows.length)) + ' rows');
-    if (cols.length) metaBits.push(cols.length + ' cols');
-    if (meta.aggregation) metaBits.push('agg: ' + meta.aggregation);
-
-    var filterNote = shownFilterKeys.length
-      ? 'Filters: ' + shownFilterKeys.map(function(k) { return k + '=' + _infoFilterVal(activeFilters[k]); }).join(', ')
-      : (isFiltered ? 'Filtered view' : null);
-
-    var calcText = _infoCalc(props.calc);
-
-    // DATA tab — calculation (if any) + the actual rows + a compact metadata line
-    var dataBody = h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
-      calcText ? h('div', { key: 'calc' }, [
-        h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, 'Calculation'),
-        h('div', { key: 'v', className: 'text-xs font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-2 py-1.5' }, calcText)
-      ]) : null,
-      metaBits.length ? h('div', { key: 'm', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')) : null,
-      filterNote ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' }, filterNote) : null,
-      cols.length ? h('div', {
-        key: 'tbl', className: 'border border-slate-100 rounded-md overflow-auto', style: { maxHeight: 300 }
-      }, h('table', { className: 'border-collapse', style: { minWidth: '100%' } }, [
-        h('thead', { key: 'h' }, h('tr', {}, cols.map(function(c, i) {
-          return h('th', {
-            key: i,
-            className: 'text-left font-medium text-slate-500 bg-slate-50 px-2 py-1.5 border-b border-slate-100 whitespace-nowrap sticky top-0',
-            style: { fontSize: 11 }
-          }, c.header);
-        }))),
-        h('tbody', { key: 'b' }, dataRows.slice(0, MAXR).map(function(row, ri) {
-          return h('tr', { key: ri, className: ri % 2 ? 'bg-slate-50/40' : '' }, cols.map(function(c, ci) {
-            var cell = _infoCell(row[c.field]);
-            return h('td', {
-              key: ci, title: cell,
-              className: 'px-2 py-1 text-slate-700 whitespace-nowrap border-b border-slate-50',
-              style: { fontSize: 11, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }
-            }, cell);
-          }));
-        }))
-      ])) : h('div', { key: 'nd', className: 'text-xs text-slate-400 py-4 text-center' }, 'No data available'),
-      (dataRows.length > MAXR) ? h('div', { key: 'more', className: 'text-[10px] text-slate-400' },
-        'Showing ' + MAXR + ' of ' + dataRows.length + ' rows') : null
-    ]);
-
-    // CODE tab — the generating query
-    var codeBody = h('div', { key: 'code' }, viz.code
-      ? h('pre', {
-          className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md p-2 overflow-auto',
-          style: { maxHeight: 340, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
-        }, viz.code)
-      : h('div', { className: 'text-xs text-slate-400 py-4 text-center' }, 'No query available for this visualization.'));
+    var dataBody = _dataTabBody(viz, { rows: props.rows, calc: props.calc });
+    var codeBody = _codeTabBody(viz);
 
     var panel = (open && pos) ? ReactDOM.createPortal(
       h('div', {
@@ -799,11 +805,19 @@
         chartRef.current.setOption(safeOption(props.option), true);
       }
     }, [props.option]);
-    return h('div', {
+    var chart = h('div', {
       ref: ref,
       style: { width: '100%', height: ht },
       className: props.className || ''
     });
+    // When a `viz` is supplied, overlay the built-in info popover so even a bare
+    // <EChart> (outside a SectionCard) exposes its data / query / calc.
+    if (!props.viz) return chart;
+    return h('div', { className: 'relative', style: { width: '100%' } }, [
+      h('div', { key: 'info', className: 'absolute top-2 right-2 z-10' },
+        h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })),
+      chart
+    ]);
   };
 
   // ── resizeAllCharts ─────────────────────────────────────────────────────────
@@ -819,5 +833,142 @@
   setTimeout(window.resizeAllCharts, 100);
   setTimeout(window.resizeAllCharts, 500);
   window.addEventListener('resize', window.resizeAllCharts);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // InfoOverlay — per-item info popover for ANY markup, via data attributes.
+  // The dashboard (including fully custom divs) annotates each metric/chart/
+  // table container with data-bow-viz="<index>" and optional data-bow-calc.
+  // A single body-level overlay reads those attributes, draws a small "ⓘ" at
+  // each element's corner, and on click shows the same Data/Code/Calc popover.
+  // It NEVER mutates the dashboard's own DOM (no React reconciliation conflicts).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  window.InfoOverlay = function() {
+    var _tick = React.useState(0), setTick = _tick[1];
+    var _open = React.useState(null), openT = _open[0], setOpenT = _open[1]; // {vizIndex, calc, title, rect}
+    var _tab = React.useState('data'), tab = _tab[0], setTab = _tab[1];
+    var panelRef = React.useRef(null);
+
+    // Re-render (recompute positions) on layout/structure changes.
+    React.useEffect(function() {
+      var raf = null;
+      function ping() { if (raf) return; raf = requestAnimationFrame(function() { raf = null; setTick(function(c) { return c + 1; }); }); }
+      var root = document.getElementById('root') || document.body;
+      var mo = new MutationObserver(ping);
+      mo.observe(root, { childList: true, subtree: true, attributes: true });
+      window.addEventListener('scroll', ping, true);
+      window.addEventListener('resize', ping);
+      var t1 = setTimeout(ping, 150), t2 = setTimeout(ping, 600), t3 = setTimeout(ping, 1500);
+      return function() {
+        mo.disconnect();
+        window.removeEventListener('scroll', ping, true);
+        window.removeEventListener('resize', ping);
+        clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+        if (raf) cancelAnimationFrame(raf);
+      };
+    }, []);
+
+    // Close popover on outside click / Escape.
+    React.useEffect(function() {
+      if (!openT) return;
+      function onDown(e) {
+        if (e.target && e.target.closest && e.target.closest('[data-bow-ibtn], [data-bow-panel]')) return;
+        setOpenT(null);
+      }
+      function onKey(e) { if (e.key === 'Escape') setOpenT(null); }
+      document.addEventListener('mousedown', onDown);
+      document.addEventListener('keydown', onKey);
+      return function() { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+    }, [openT]);
+
+    var data = window.ARTIFACT_DATA || {};
+    var vizs = Array.isArray(data.visualizations) ? data.visualizations : [];
+
+    // Collect annotated targets and their on-screen rects.
+    var targets = [];
+    var els = document.querySelectorAll('[data-bow-viz]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var r = el.getBoundingClientRect();
+      if ((r.width === 0 && r.height === 0) || r.bottom < 0 || r.top > window.innerHeight) continue;
+      targets.push({
+        rect: r,
+        vizIndex: parseInt(el.getAttribute('data-bow-viz'), 10) || 0,
+        calc: el.getAttribute('data-bow-calc') || null,
+        title: el.getAttribute('data-bow-title') || null
+      });
+    }
+
+    // ⓘ markers (fixed, top-right of each annotated element).
+    var markers = targets.map(function(t, i) {
+      return h('button', {
+        key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'aria-label': 'Details',
+        onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
+        style: { position: 'fixed', top: Math.max(2, t.rect.top + 6), left: t.rect.right - 24, zIndex: 99998 },
+        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/80 backdrop-blur text-slate-400 hover:text-slate-700 hover:bg-white shadow-sm border border-slate-200/70 transition-colors'
+      }, h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none' }, [
+        h('circle', { key: 'c', cx: 8, cy: 8, r: 6.4, stroke: 'currentColor', strokeWidth: 1.2 }),
+        h('circle', { key: 'd', cx: 8, cy: 5.2, r: 0.95, fill: 'currentColor' }),
+        h('path', { key: 'b', d: 'M8 7.4v4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' })
+      ]));
+    });
+
+    // Popover panel for the open target.
+    var panel = null;
+    if (openT) {
+      var viz = vizs[openT.vizIndex] || {};
+      var W = 400;
+      var left = Math.min(openT.rect.right - W, window.innerWidth - W - 8); if (left < 8) left = 8;
+      var spaceBelow = window.innerHeight - openT.rect.top;
+      var below = spaceBelow > 260;
+      var vTitle = openT.title || viz.title || 'Details';
+      function tabButton(id, label) {
+        var active = tab === id;
+        return h('button', { key: id, type: 'button', onClick: function() { setTab(id); },
+          className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ' + (active ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600') }, label);
+      }
+      panel = h('div', {
+        ref: panelRef, 'data-bow-panel': '1',
+        className: 'bg-white border border-slate-200 rounded-lg shadow-xl',
+        style: {
+          position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh',
+          top: below ? (openT.rect.top + 28) : undefined,
+          bottom: below ? undefined : (window.innerHeight - openT.rect.top + 6),
+          display: 'flex', flexDirection: 'column'
+        }
+      }, [
+        h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 pt-2.5 pb-1' }, [
+          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 leading-snug' }, vTitle),
+          h('button', { key: 'x', type: 'button', 'aria-label': 'Close', onClick: function() { setOpenT(null); },
+            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600' },
+            h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' }, h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
+        ]),
+        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100' }, [tabButton('data', 'Data'), tabButton('code', 'Code')]),
+        h('div', { key: 'bd', className: 'px-3.5 py-3 overflow-auto' }, tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { calc: openT.calc })),
+        viz.id ? h('div', { key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-400 break-all' }, 'ID  ' + viz.id) : null
+      ]);
+    }
+
+    if (!markers.length && !panel) return null;
+    return h('div', { style: { position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 99998 } },
+      markers.concat(panel ? [panel] : []).map(function(node, i) {
+        return h('div', { key: i, style: { pointerEvents: 'auto' } }, node);
+      })
+    );
+  };
+
+  // Auto-mount the overlay once, unless explicitly disabled (e.g. thumbnails).
+  (function mountInfoOverlay() {
+    if (window.__BOW_INFO === false) return;
+    if (window.__bowInfoMounted) return;
+    window.__bowInfoMounted = true;
+    try {
+      var host = document.createElement('div');
+      host.id = '__bow_info_overlay';
+      document.body.appendChild(host);
+      if (ReactDOM.createRoot) ReactDOM.createRoot(host).render(h(window.InfoOverlay));
+      else ReactDOM.render(h(window.InfoOverlay), host);
+    } catch (e) { /* non-fatal */ }
+  })();
 
 })();

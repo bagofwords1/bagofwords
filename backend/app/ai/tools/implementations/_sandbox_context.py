@@ -28,8 +28,9 @@ references to any of them:
   - Full ECharts option API supported: bar, line, pie, scatter, radar, treemap, sunburst, heatmap, gauge, funnel, sankey, parallel, calendar, graph, etc.
 
 • **`<EChart>`** — Global React wrapper for ECharts (handles init/dispose/resize)
-  - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string)
+  - Props: `option` (ECharts option object), `height` (number, default 400), `className` (string), and optional `viz`/`rows`/`calc`
   - Usage: `<EChart height={400} option={{ xAxis: {...}, series: [...] }} />`
+  - When a chart is NOT wrapped in a SectionCard, pass `viz={visualizations[N]}` (and `rows`/`calc` if applicable) directly to `<EChart>` so it still shows the built-in "ⓘ" info popover.
   - Supports ALL ECharts chart types — pass any valid ECharts option object
   - Auto-resizes via ResizeObserver
   - Uses 'bow' theme: colors, tooltip, grid, axis styling, rounded corners all pre-configured
@@ -71,6 +72,14 @@ references to any of them:
   - **`viz` prop (KPICard & SectionCard)** — pass the source visualization object and the card automatically shows a small "ⓘ" button that opens a clean popover with that viz's provenance (a Data tab with the rows, a Code tab with the query, plus source/columns/row count/aggregation/id). ALWAYS pass `viz={visualizations[N]}` for the visualization a card is built from. For a card derived from multiple vizs, pass its primary one. No extra markup needed — the popover is built in.
   - **`rows` prop (filter-aware popover)** — when a card renders FILTERED rows (i.e. you computed `filterRows(visualizations[N].rows)` for it), ALSO pass those same rows: `rows={filteredRows}`. The popover's Data tab then shows exactly what the component displays (and labels it "X of Y rows (filtered)") instead of the full unfiltered dataset. If a card uses the raw rows unchanged, omit `rows` — the popover falls back to the full dataset.
   - **`calc` prop (calculation/formula)** — when a card aggregates or DERIVES its value(s) client-side (a `reduce`, group-by, ratio, count-distinct, etc.), pass a short `calc` describing the math with REAL column names, e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`, `calc="COUNT(DISTINCT CustomerId)"`, or `calc="AVG(Total) where Country = selected"`. The popover surfaces it as a "Calculation" line so users see how the displayed number was computed. Omit it for cards that show raw values unchanged.
+
+• **PER-ITEM INFO ON CUSTOM MARKUP (`data-bow-*` attributes)** — IMPORTANT for custom dashboards.
+  When you build your OWN containers (custom `<div>` KPI tiles, chart wrappers, tables) instead of `<KPICard>`/`<SectionCard>`/`<EChart>`, those don't get the built-in "ⓘ" popover. To give every item its popover anyway, annotate the item's outermost element with data attributes — keep your exact design, just add the attributes:
+  - `data-bow-viz="N"` — index of the source visualization the item is derived from (required to enable the ⓘ).
+  - `data-bow-calc="<formula>"` — the calculation, e.g. `data-bow-calc="SUM(UnitPrice × Quantity) grouped by GenreName"`.
+  - `data-bow-title="<label>"` — optional title shown in the popover header (defaults to the viz title).
+  Example: `<div data-bow-viz="0" data-bow-calc="SUM(UnitPrice × Quantity)"><span>Total Revenue</span><span>{fmt(total)}</span></div>`.
+  A global overlay reads these attributes and renders the same Data/Code/Calc popover at each item's corner. ALWAYS add `data-bow-viz` (and `data-bow-calc` when the value is derived) to EVERY metric tile, chart container, and table you build with custom markup.
   - `<FilterSelect label="" options={[]} selected={[]} onChange={fn} searchable={bool} className="" style={{}} />` — multi-select dropdown with checkboxes, portaled to document.body (always renders above other content). Built-in search auto-enabled at 8+ options (override with `searchable` prop). `options`: unique values from viz column. `selected`: `filters[field] || []`. `onChange`: `arr => setFilter(field, arr)`. className replaces default theme (bg-white border-slate-200 text-slate-900) — for dark themes pass className="bg-slate-900 border-slate-700 text-slate-100". style={{}} also supported for overrides.
   - `<FilterSearch label="" value="" onChange={e => setFilter(field, e.target.value)} placeholder="Search..." className="" style={{}} />` — text search input (standard DOM event). Use for columns with mostly unique values (titles, names). className replaces default theme. style={{}} for overrides.
   - `<FilterDateRange label="" value={filters[field] || {}} onChange={val => setFilter(field, val)} type="date" className="" style={{}} />` — from/to date range picker. `value`/`onChange` use `{ from, to }` object. `type`: "date" (default), "month", or "datetime-local". className replaces default theme. style={{}} for overrides.
