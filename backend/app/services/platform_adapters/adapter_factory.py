@@ -3,6 +3,7 @@ from .base_adapter import PlatformAdapter
 from .slack_adapter import SlackAdapter
 from .teams_adapter import TeamsAdapter
 from .whatsapp_adapter import WhatsAppAdapter
+from .email_adapter import EmailAdapter
 from app.models.external_platform import ExternalPlatform
 
 class PlatformAdapterFactory:
@@ -12,7 +13,7 @@ class PlatformAdapterFactory:
         "slack": SlackAdapter,
         "teams": TeamsAdapter,
         "whatsapp": WhatsAppAdapter,
-        # "email": EmailAdapter,  # Future
+        "email": EmailAdapter,
     }
     
     @classmethod

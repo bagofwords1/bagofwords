@@ -16,6 +16,7 @@ from app.schemas.external_platform_schema import (
     SlackConfig,
     TeamsConfig,
     WhatsAppConfig,
+    EmailConfig,
 )
 from app.models.external_platform import ExternalPlatform
 from app.ee.audit.service import audit_service
@@ -159,6 +160,54 @@ async def create_whatsapp_integration(
             resource_type="integration",
             resource_id=result.id if hasattr(result, "id") else None,
             details={"type": "whatsapp"},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
+
+@router.post("/settings/integrations/email/test", response_model=dict)
+@requires_permission('manage_settings')
+async def test_email_config(
+    data: EmailConfig,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Test email credentials WITHOUT saving the integration.
+
+    Backs the setup form's pre-save "Test connection" button. Returns
+    ``{success, smtp, imap}``.
+    """
+    return await external_platform_service.test_email_config(data)
+
+@router.post("/settings/integrations/email", response_model=ExternalPlatformSchema)
+@requires_permission('manage_settings')
+async def create_email_integration(
+    data: EmailConfig,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Create a new Email integration.
+
+    SMTP-only configures the org's outbound mail transport. Providing IMAP
+    fields additionally turns the analyst into an email channel users can write
+    to and get answers from.
+    """
+    result = await external_platform_service.create_email_platform(
+        db, organization, data, current_user,
+    )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.created",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=result.id if hasattr(result, "id") else None,
+            details={"type": "email", "inbound": bool(data.imap_host)},
             request=request,
         )
     except Exception:

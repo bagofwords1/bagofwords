@@ -100,6 +100,73 @@
       </button>
     </div>
 
+    <!-- AI Mailbox Integration Row -->
+    <div
+      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+      @click="showEmailModal = true"
+    >
+      <div class="flex items-center">
+        <div class="w-8 h-8 me-4 flex items-center justify-center rounded bg-gray-100">
+          <UIcon name="i-heroicons-sparkles" class="w-5 h-5 text-gray-700" />
+        </div>
+        <div>
+          <div class="font-medium">AI Mailbox</div>
+          <div class="text-sm text-gray-500">
+            <span v-if="emailIntegrated">
+              <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
+            </span>
+            <span v-else>
+              <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
+            </span>
+            <span class="ms-2">— a mailbox the AI analyst sends replies from and (optionally) receives questions at</span>
+          </div>
+          <div v-if="emailConfig && emailIntegrated" class="text-xs text-gray-400 mt-1">
+            <span>{{ emailConfig.from_address }}</span>
+            <span class="ms-2">{{ emailConfig.inbound_enabled ? 'send + receive' : 'send only' }}</span>
+          </div>
+        </div>
+      </div>
+      <button
+        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+        @click.stop="showEmailModal = true"
+      >
+        {{ emailIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
+      </button>
+    </div>
+
+    <!-- SMTP Server Row -->
+    <div
+      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
+      @click="showSmtpModal = true"
+    >
+      <div class="flex items-center">
+        <div class="w-8 h-8 me-4 flex items-center justify-center rounded bg-gray-100">
+          <UIcon name="i-heroicons-paper-airplane" class="w-5 h-5 text-gray-700" />
+        </div>
+        <div>
+          <div class="font-medium">SMTP Server</div>
+          <div class="text-sm text-gray-500">
+            <span v-if="smtpEnabled">
+              <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
+            </span>
+            <span v-else>
+              <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
+            </span>
+            <span class="ms-2">— the server used for system emails (shares, scheduled reports, invites); overrides the global SMTP</span>
+          </div>
+          <div v-if="smtpEnabled && smtpHostLabel" class="text-xs text-gray-400 mt-1">
+            <span>{{ smtpHostLabel }}</span>
+          </div>
+        </div>
+      </div>
+      <button
+        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
+        @click.stop="showSmtpModal = true"
+      >
+        {{ smtpEnabled ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
+      </button>
+    </div>
+
     <!-- Excel Add-in Integration Row -->
     <div
       v-if="excelAddinEnabled"
@@ -205,6 +272,26 @@
       />
     </UModal>
 
+    <!-- AI Mailbox Modal -->
+    <UModal v-model="showEmailModal" :ui="{ width: 'max-w-lg' }">
+      <EmailIntegrationModal
+        :integrated="emailIntegrated"
+        :integration-data="emailIntegrationData"
+        :analyst-name="analystName"
+        :prefill-domains="signupDomains"
+        @close="showEmailModal = false"
+        @updated="fetchIntegrations"
+      />
+    </UModal>
+
+    <!-- SMTP Server Modal -->
+    <UModal v-model="showSmtpModal" :ui="{ width: 'max-w-lg' }">
+      <SmtpServerModal
+        @close="showSmtpModal = false"
+        @updated="fetchSmtp"
+      />
+    </UModal>
+
     <!-- Excel Add-in Modal -->
     <UModal v-model="showExcelModal" :ui="{ width: 'sm:max-w-3xl' }">
       <ExcelAddinModal
@@ -224,10 +311,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
+import EmailIntegrationModal from '~/components/EmailIntegrationModal.vue'
+import SmtpServerModal from '~/components/SmtpServerModal.vue'
 import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
 import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -251,6 +340,39 @@ const showWhatsAppModal = ref(false)
 const whatsappIntegrated = ref(false)
 const whatsappConfig = ref<{ phone_number_id?: string; display_phone_number?: string; verified_name?: string; waba_id?: string } | null>(null)
 const whatsappIntegrationData = ref<any>(null)
+
+const showSmtpModal = ref(false)
+const smtpEnabled = ref(false)
+const smtpHostLabel = ref('')
+
+async function fetchSmtp() {
+  try {
+    const res = await useMyFetch('/api/organization/smtp')
+    const s = res.data.value as any
+    smtpEnabled.value = !!s?.enabled
+    smtpHostLabel.value = s?.host ? `${s.host}:${s.port || 587}` : ''
+  } catch (e) {
+    smtpEnabled.value = false
+  }
+}
+
+const showEmailModal = ref(false)
+const emailIntegrated = ref(false)
+const emailConfig = ref<{ from_address?: string; inbound_enabled?: boolean; capabilities?: string[] } | null>(null)
+const emailIntegrationData = ref<any>(null)
+// Prefill sources for the Email modal: the org's AI analyst name + signup domains.
+const analystName = computed<string>(() => (settings.value as any)?.config?.general?.ai_analyst_name || '')
+const signupDomains = ref<string[]>([])
+
+async function fetchSignupDomains() {
+  try {
+    const res = await useMyFetch('/organization/signup-policy')
+    const policy = res.data.value as any
+    if (policy?.allowed_domains?.length) signupDomains.value = policy.allowed_domains
+  } catch (e) {
+    // best-effort prefill; ignore failures
+  }
+}
 
 // MCP state
 const mcpEnabled = ref(false)
@@ -280,6 +402,11 @@ async function fetchIntegrations() {
   whatsappIntegrated.value = !!whatsapp
   whatsappConfig.value = whatsapp?.platform_config || null
   whatsappIntegrationData.value = whatsapp || null
+
+  const email = integrations.find((i: any) => i.platform_type === 'email' && i.is_active)
+  emailIntegrated.value = !!email
+  emailConfig.value = email?.platform_config || null
+  emailIntegrationData.value = email || null
 }
 
 async function loadMcpState() {
@@ -333,5 +460,7 @@ onMounted(() => {
   fetchIntegrations()
   loadMcpState()
   fetchOAuthClientCount()
+  fetchSignupDomains()
+  fetchSmtp()
 })
 </script>

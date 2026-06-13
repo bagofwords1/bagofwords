@@ -1,5 +1,6 @@
 aiofiles==24.1.0
 aiosmtplib==2.0.2
+aiosmtpd==1.4.6
 aiosqlite==0.20.0
 alembic==1.13.1
 altgraph==0.17.4

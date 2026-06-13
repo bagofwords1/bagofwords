@@ -270,9 +270,243 @@ class ExternalPlatformService:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
+    @staticmethod
+    def _email_provider_defaults(auth_type: str) -> dict:
+        """Default SMTP/IMAP hosts for the OAuth providers (app-only + delegated)."""
+        if auth_type in ("microsoft", "microsoft_delegated"):
+            return {
+                "smtp_host": "smtp.office365.com", "smtp_port": 587, "smtp_security": "starttls",
+                "imap_host": "outlook.office365.com", "imap_port": 993, "imap_use_ssl": True,
+            }
+        if auth_type in ("google", "google_delegated"):
+            return {
+                "smtp_host": "smtp.gmail.com", "smtp_port": 587, "smtp_security": "starttls",
+                "imap_host": "imap.gmail.com", "imap_port": 993, "imap_use_ssl": True,
+            }
+        return {}
+
     async def _test_email_connection(self, platform: ExternalPlatform) -> dict:
-        """Test Email connection (placeholder)"""
-        return {"success": False, "error": "Email integration not yet implemented"}
+        """Test Email connection: verify SMTP, and IMAP if inbound is configured."""
+        creds = platform.decrypt_credentials()
+        cfg = platform.platform_config or {}
+        return await self._test_email_credentials(creds, cfg)
+
+    async def _test_email_credentials(self, creds: dict, cfg: dict) -> dict:
+        """Validate SMTP (always) and IMAP (if inbound) connectivity.
+
+        For OAuth auth types this mints a real token and authenticates with
+        XOAUTH2 (SMTP AUTH XOAUTH2 / IMAP AUTHENTICATE XOAUTH2) without sending.
+        """
+        import asyncio
+        import aiosmtplib
+        from app.services.email.sender import SmtpConfig
+        from app.services.email.mailbox_reader import ImapConfig
+        from app.services.email.oauth import (
+            OAuthSettings, get_access_token, build_xoauth2, build_xoauth2_raw,
+        )
+
+        result = {"success": True, "smtp": None, "imap": None}
+        auth_type = creds.get("auth_type") or cfg.get("auth_type") or "password"
+        oauth = OAuthSettings.from_credentials(creds, cfg)
+
+        # Mint the token once (reused for SMTP + IMAP). SMTP wants the base64
+        # SASL; imaplib base64-encodes itself, so IMAP needs the raw string.
+        sasl = None
+        sasl_raw = None
+        if oauth is not None:
+            try:
+                token = await get_access_token(oauth)
+                sasl = build_xoauth2(oauth.mailbox, token)
+                sasl_raw = build_xoauth2_raw(oauth.mailbox, token)
+            except Exception as e:
+                return {"success": False, "smtp": f"oauth token failed: {e}", "imap": None}
+
+        # SMTP probe. Negotiate TLS via start_tls in the constructor (a manual
+        # starttls() after connect double-negotiates -> "already using TLS").
+        try:
+            smtp = SmtpConfig.from_credentials(creds, cfg).resolved()
+            client = aiosmtplib.SMTP(
+                hostname=smtp.host, port=smtp.port,
+                use_tls=(smtp.security == "ssl"),
+                start_tls=(smtp.security == "starttls"),
+                timeout=15,
+            )
+            await client.connect()
+            if sasl is not None:
+                await client.ehlo()  # re-EHLO before low-level AUTH (503 otherwise)
+                code, msg = await client.execute_command(b"AUTH", b"XOAUTH2", sasl.encode("ascii"))
+                if code != 235:
+                    return {"success": False, "smtp": f"xoauth2 rejected ({code})", "imap": None}
+            elif smtp.auth_type == "password" and smtp.username and smtp.password:
+                await client.login(smtp.username, smtp.password)
+            await client.quit()
+            result["smtp"] = "ok"
+        except Exception as e:
+            return {"success": False, "smtp": f"failed: {e}", "imap": None}
+
+        # IMAP probe (only if inbound configured).
+        imap = ImapConfig.from_credentials(creds, cfg)
+        if imap.host and (cfg.get("inbound_enabled") or auth_type == "password"):
+            try:
+                def _probe():
+                    import imaplib
+                    conn = (
+                        imaplib.IMAP4_SSL(imap.host, imap.port)
+                        if imap.use_ssl else imaplib.IMAP4(imap.host, imap.port)
+                    )
+                    if sasl_raw is not None:
+                        conn.authenticate("XOAUTH2", lambda _c: sasl_raw.encode("ascii"))
+                    else:
+                        conn.login(imap.username, imap.password)
+                    conn.select(imap.mailbox)
+                    conn.logout()
+
+                await asyncio.to_thread(_probe)
+                result["imap"] = "ok"
+            except Exception as e:
+                return {"success": False, "smtp": "ok", "imap": f"failed: {e}"}
+
+        return result
+
+    def _email_creds_and_config(self, data) -> tuple:
+        """Build (platform_config, credentials) from an EmailConfig payload.
+
+        Shared by create + test so both apply the same provider host defaults,
+        capability derivation, and secret layout.
+        """
+        auth_type = data.auth_type or "password"
+        defaults = self._email_provider_defaults(auth_type)
+        from_address = data.from_address or data.smtp_username or data.imap_username
+
+        smtp_host = data.smtp_host or defaults.get("smtp_host")
+        smtp_port = data.smtp_port or defaults.get("smtp_port") or 587
+        smtp_security = data.smtp_security or defaults.get("smtp_security") or "starttls"
+        imap_host = data.imap_host or defaults.get("imap_host")
+        imap_port = data.imap_port or defaults.get("imap_port") or 993
+        imap_use_ssl = data.imap_use_ssl if data.imap_use_ssl is not None else True
+
+        smtp_username = data.smtp_username or (from_address if auth_type != "password" else None)
+        imap_username = data.imap_username or (from_address if auth_type != "password" else None)
+
+        if auth_type == "password":
+            inbound_enabled = bool(imap_host and imap_username) or bool(data.inbound_enabled)
+        else:
+            inbound_enabled = bool(data.inbound_enabled)
+
+        google_sa = data.google_service_account_json
+        if isinstance(google_sa, str) and google_sa.strip():
+            try:
+                google_sa = json.loads(google_sa)
+            except Exception:
+                raise HTTPException(status_code=400, detail="google_service_account_json is not valid JSON")
+
+        platform_config = {
+            "from_address": from_address,
+            "from_name": data.from_name,
+            "auth_type": auth_type,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_security": smtp_security,
+            "imap_host": imap_host if inbound_enabled else None,
+            "imap_port": imap_port,
+            "imap_use_ssl": imap_use_ssl,
+            "imap_mailbox": data.imap_mailbox,
+            "inbound_enabled": inbound_enabled,
+            "allowed_domains": data.allowed_domains,
+            "auto_link_by_email": data.auto_link_by_email,
+            "require_auth_pass": data.require_auth_pass,
+            "ms_tenant_id": data.ms_tenant_id,
+            "ms_client_id": data.ms_client_id,
+            "capabilities": ["send", "receive"] if inbound_enabled else ["send"],
+        }
+        credentials = {
+            "auth_type": auth_type,
+            "from_address": from_address,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_security": smtp_security,
+            "smtp_username": smtp_username,
+            "smtp_password": data.smtp_password,
+            "imap_host": imap_host,
+            "imap_port": imap_port,
+            "imap_username": imap_username,
+            "imap_password": data.imap_password,
+            "ms_tenant_id": data.ms_tenant_id,
+            "ms_client_id": data.ms_client_id,
+            "ms_client_secret": data.ms_client_secret,
+            "google_service_account_info": google_sa,
+            "ms_refresh_token": data.ms_refresh_token,
+            "google_client_id": data.google_client_id,
+            "google_client_secret": data.google_client_secret,
+            "google_refresh_token": data.google_refresh_token,
+        }
+        return platform_config, credentials
+
+    async def test_email_config(self, data) -> dict:
+        """Validate an EmailConfig payload's connectivity WITHOUT persisting it.
+
+        Backs the form's "Test connection" button: mints a token (for OAuth),
+        authenticates SMTP (+IMAP if inbound), and returns the per-protocol
+        result — nothing is saved.
+        """
+        platform_config, credentials = self._email_creds_and_config(data)
+        return await self._test_email_credentials(credentials, platform_config)
+
+    async def create_email_platform(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        data,
+        current_user: User,
+    ) -> ExternalPlatformSchema:
+        """Create an Email integration.
+
+        SMTP-only -> outbound transport (SEND). Adding IMAP -> conversational
+        channel (SEND + RECEIVE). Connectivity is validated before saving.
+        """
+        existing_platform = await self.get_platform_by_type(db, organization.id, "email")
+        if existing_platform:
+            raise HTTPException(
+                status_code=400,
+                detail="Email integration already exists for this organization",
+            )
+
+        platform_config, credentials = self._email_creds_and_config(data)
+
+        # Validate connectivity before persisting.
+        test = await self._test_email_credentials(credentials, platform_config)
+        if not test.get("success"):
+            detail = test.get("smtp") if test.get("smtp") not in (None, "ok") else test.get("imap")
+            raise HTTPException(status_code=400, detail=f"Email connection failed: {detail}")
+
+        platform = ExternalPlatform(
+            organization_id=organization.id,
+            platform_type="email",
+            platform_config=platform_config,
+            is_active=True,
+        )
+        platform.encrypt_credentials(credentials)
+
+        db.add(platform)
+        await db.commit()
+        await db.refresh(platform)
+
+        try:
+            await telemetry.capture(
+                "external_platform_created",
+                {
+                    "platform_id": str(platform.id),
+                    "platform_type": "email",
+                    "is_active": True,
+                    "inbound_enabled": inbound_enabled,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
+        return ExternalPlatformSchema.from_orm(platform)
 
     async def create_slack_platform(
         self,

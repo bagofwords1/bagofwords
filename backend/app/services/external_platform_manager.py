@@ -112,6 +112,49 @@ class ExternalPlatformManager:
         auto_linked_name = None
         block_message = None
 
+        # Email is intentionally conservative: the inbound address is only as
+        # trustworthy as the DMARC/DKIM verdict the poller already enforced, so
+        # we auto-link to an *existing* member but never auto-provision a new
+        # account from an inbound email (unlike Slack/Teams, whose identity is
+        # vouched by the workspace IdP).
+        allow_auto_provision = platform.platform_type in ("slack", "teams")
+
+        # Email identity (verify-first). The From address is spoofable, so we
+        # only engage senders the org already knows. A matched member is either
+        # auto-verified (if auto-link is explicitly enabled) or sent a one-time
+        # verification link (the default); everyone else is ignored + audited.
+        # (Invite / registration-link rungs for not-yet-members are a TODO —
+        # see docs/design/email-identity-and-transport.md.)
+        if platform.platform_type == "email":
+            matched = await self.mapping_service.find_user_by_email(
+                db, platform.organization_id, external_user_id
+            )
+            if not matched:
+                try:
+                    from app.ee.audit.service import audit_service
+                    await audit_service.log(
+                        db=db,
+                        organization_id=platform.organization_id,
+                        action="email.ignored_non_member",
+                        user_id=None,
+                        resource_type="email_integration",
+                        resource_id=str(platform.id),
+                        details={
+                            "from_address": external_user_id,
+                            "reason": "sender is not a linked organization member",
+                        },
+                    )
+                except Exception as e:
+                    print(f"Failed to audit ignored email: {e}")
+                return None
+            if auto_link_enabled:
+                # Auto-verify: link immediately (DMARC-gated convenience).
+                auto_linked_user = matched
+                auto_linked_email = external_user_id
+                auto_linked_name = getattr(matched, "name", None)
+            # else: matched member with verify-first -> fall through to create an
+            # unverified mapping; handle_incoming_message sends the verify link.
+
         if auto_link_enabled and platform.platform_type in ("slack", "teams"):
             try:
                 user_info = await adapter.get_user_info(
@@ -132,7 +175,7 @@ class ExternalPlatformManager:
                     )
                     if matched:
                         auto_linked_user = matched
-                    else:
+                    elif allow_auto_provision:
                         provisioned = await auto_provision_user_for_org(
                             db, platform.organization_id, email, name=display_name
                         )
@@ -144,6 +187,12 @@ class ExternalPlatformManager:
                                 f"in this workspace. Ask your admin to invite you, "
                                 f"then try again."
                             )
+                    else:
+                        block_message = (
+                            f"Your email {email} isn't linked to a Bag of words "
+                            f"account in this workspace. Ask your admin to invite "
+                            f"you, then email again."
+                        )
                     if auto_linked_user:
                         auto_linked_email = email
                         auto_linked_name = display_name
@@ -151,6 +200,26 @@ class ExternalPlatformManager:
                 print(f"Auto-link by email failed, falling back to verification: {e}")
 
         if block_message:
+            # Email from a non-member: ignore it (no reply — avoid backscatter to
+            # possibly-spoofed senders) and record it in the audit trail.
+            if platform.platform_type == "email":
+                try:
+                    from app.ee.audit.service import audit_service
+                    await audit_service.log(
+                        db=db,
+                        organization_id=platform.organization_id,
+                        action="email.ignored_non_member",
+                        user_id=None,
+                        resource_type="email_integration",
+                        resource_id=str(platform.id),
+                        details={
+                            "from_address": external_user_id,
+                            "reason": "sender is not a linked organization member",
+                        },
+                    )
+                except Exception as e:
+                    print(f"Failed to audit ignored email: {e}")
+                return None
             try:
                 await adapter.send_dm(external_user_id, block_message)
             except Exception as e:
@@ -408,13 +477,18 @@ class ExternalPlatformManager:
                 # For channel mentions, respond in the channel; for DMs, open a DM
                 # Slack DMs: None (adapter opens DM by user_id)
                 # Teams: always use conversation ID (required for all Teams messages)
-                if processed_data.get("platform_type") == "teams":
+                if processed_data.get("platform_type") in ("teams", "email"):
+                    # Teams requires the conversation id; email routes by the
+                    # sender address (which is the channel_id for email).
                     response_channel = channel_id
                 else:
                     response_channel = channel_id if channel_type == "channel" else None
-                # Format link based on platform (Slack uses <url|text>, Teams uses markdown)
+                # Format link based on platform (Slack uses <url|text>, Teams uses
+                # markdown, email is plain text).
                 if processed_data.get("platform_type") == "teams":
                     report_link = f"[{report.title}]({report_url})"
+                elif processed_data.get("platform_type") == "email":
+                    report_link = f"{report.title} ({report_url})"
                 else:
                     report_link = f"<{report_url}|{report.title}>"
 
@@ -444,12 +518,48 @@ class ExternalPlatformManager:
             )
             await db.commit()
 
+        # Ingest inbound email attachments as report files (within size limits)
+        # so the agent can read them. They surface via report.files in context.
+        message_text = processed_data.get("message_text") or ""
+        attachments = processed_data.get("attachments") or []
+        attachments_skipped = processed_data.get("attachments_skipped") or []
+        saved_names = []
+        if attachments and platform_type == "email":
+            from app.services.file_service import FileService
+            file_service = FileService()
+            for att in attachments:
+                try:
+                    saved = await file_service.save_bytes_as_file(
+                        db,
+                        att.get("content"),
+                        att.get("filename"),
+                        att.get("content_type"),
+                        user,
+                        organization,
+                        report_id=str(report.id),
+                    )
+                    saved_names.append(saved.filename)
+                except Exception as e:
+                    print(f"Failed to save email attachment {att.get('filename')}: {e}")
+
+        # Note attached / skipped files in the prompt so the agent is aware.
+        note_lines = []
+        if saved_names:
+            note_lines.append("Attached file(s): " + ", ".join(saved_names))
+        if attachments_skipped:
+            note_lines.append(
+                f"(skipped {len(attachments_skipped)} attachment(s) over the size limit: "
+                + ", ".join(s.get("filename", "?") for s in attachments_skipped) + ")"
+            )
+        if note_lines:
+            message_text = (message_text + "\n\n" + "\n".join(note_lines)).strip()
+
         # Create completion data
         from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
 
         completion_data = CompletionCreate(
             prompt=PromptSchema(
-                content=processed_data.get("message_text"),
+                content=message_text,
                 widget_id=None,
                 step_id=None,
                 mentions=[

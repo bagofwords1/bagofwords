@@ -483,6 +483,26 @@ async def startup_event():
         from app.services.scheduled_prompt_service import scheduled_prompt_service
         await scheduled_prompt_service.register_all_jobs()
 
+    # Inbound email polling. Email has no native webhook, so the leader worker
+    # polls each org's analyst mailbox (IMAP) and routes authentic messages to
+    # the same agent path Slack/Teams use. Leader-gated like the warmup jobs so
+    # N workers don't all poll the same mailbox.
+    if is_scheduler_leader:
+        try:
+            import asyncio
+            from app.services.email_poller_service import run_email_pollers
+
+            app.state.email_poller_stop = asyncio.Event()
+            interval = settings.bow_config.email_poll_interval_seconds if hasattr(
+                settings.bow_config, "email_poll_interval_seconds"
+            ) else 30
+            app.state.email_poller_task = asyncio.create_task(
+                run_email_pollers(interval_seconds=interval, stop_event=app.state.email_poller_stop)
+            )
+            logger.info("Started inbound email poller (interval=%ss)", interval)
+        except Exception as e:
+            logger.error(f"Failed to start email poller: {e}")
+
     # Validate license at startup
     license_info = get_license_info()
     license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
@@ -512,6 +532,15 @@ Starting server with configuration:
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_tool_audit_worker()
+    stop_event = getattr(app.state, "email_poller_stop", None)
+    if stop_event is not None:
+        stop_event.set()
+    poller_task = getattr(app.state, "email_poller_task", None)
+    if poller_task is not None:
+        try:
+            await poller_task
+        except Exception:
+            pass
     scheduler.shutdown()
 
 if __name__ == "__main__":

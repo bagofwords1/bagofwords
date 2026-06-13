@@ -184,4 +184,37 @@ class SignupPolicySchema(BaseModel):
     """Read/write shape for the per-org signup policy."""
     enabled: bool = False
     allowed_domains: List[str] = []
-    auto_invite_role: str = "member" 
+    auto_invite_role: str = "member"
+
+
+class OrgSmtpSchema(BaseModel):
+    """Read shape for the org's SMTP server (the password is never returned)."""
+    enabled: bool = False
+    host: Optional[str] = None
+    port: int = 587
+    security: str = "starttls"  # "starttls" | "ssl" | "none"
+    username: Optional[str] = None
+    password_set: bool = False
+    from_address: Optional[str] = None
+    from_name: Optional[str] = None
+    # Advanced TLS: when False, skip certificate verification (self-signed /
+    # internal CA relays). Mirrors bow-config's global SMTP ``validate_certs``.
+    validate_certs: bool = True
+
+
+class OrgSmtpUpdate(BaseModel):
+    """Write shape; ``password`` is only sent when (re)setting it.
+
+    Username/password are optional — relays that accept unauthenticated mail
+    from trusted hosts (mirroring bow-config's ``use_credentials=False``) just
+    leave them blank and BOW skips SMTP AUTH.
+    """
+    enabled: bool = False
+    host: Optional[str] = None
+    port: int = 587
+    security: str = "starttls"
+    username: Optional[str] = None
+    password: Optional[str] = None
+    from_address: Optional[str] = None
+    from_name: Optional[str] = None
+    validate_certs: bool = True
