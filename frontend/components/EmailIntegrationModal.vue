@@ -32,6 +32,10 @@
         <UButton color="gray" variant="soft" :loading="testing" @click="test">Test connection</UButton>
         <UButton color="red" variant="soft" @click="disconnect">Disconnect</UButton>
       </div>
+      <p v-if="testResult" :class="testResult.ok ? 'text-green-600' : 'text-red-600'" class="text-sm mt-2 flex items-start gap-1">
+        <UIcon :name="testResult.ok ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-4 h-4 shrink-0 mt-0.5" />
+        <span>{{ testResult.text }}</span>
+      </p>
     </div>
 
     <!-- Setup form -->
@@ -167,6 +171,10 @@
             {{ submitting ? 'Connecting…' : 'Connect' }}
           </button>
         </div>
+        <p v-if="testResult" :class="testResult.ok ? 'text-green-600' : 'text-red-600'" class="text-sm mt-2 flex items-start gap-1">
+          <UIcon :name="testResult.ok ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{{ testResult.text }}</span>
+        </p>
       </form>
     </div>
 
@@ -223,6 +231,19 @@ const requireAuthPass = ref(true)
 const submitting = ref(false)
 const testing = ref(false)
 const testingForm = ref(false)
+const testResult = ref<{ ok: boolean; text: string } | null>(null)
+
+function applyTestResult(res: any) {
+  const data = res.data?.value as any
+  if (res.status.value === 'success' && data?.success) {
+    testResult.value = { ok: true, text: `Connection OK — SMTP ${data.smtp || 'ok'}${data.imap ? `, IMAP ${data.imap}` : ''}` }
+  } else {
+    const detail = (data?.smtp && data.smtp !== 'ok') ? data.smtp
+      : (data?.imap && data.imap !== 'ok') ? data.imap
+      : ((res.error?.value as any)?.data?.detail || 'Connection failed — check the credentials')
+    testResult.value = { ok: false, text: detail }
+  }
+}
 
 // Prefill From name from the org's AI analyst name, and Allowed domains from the
 // signup policy domains — once, when those values become available, without
@@ -278,15 +299,10 @@ function buildBody() {
 
 async function testForm() {
   testingForm.value = true
+  testResult.value = null
   try {
     const res = await useMyFetch('/api/settings/integrations/email/test', { method: 'POST', body: buildBody() })
-    const data = res.data.value as any
-    if (res.status.value === 'success' && data?.success) {
-      toast.add({ title: 'Connection OK', description: `SMTP ${data.smtp || 'ok'}${data.imap ? `, IMAP ${data.imap}` : ''}`, color: 'green' })
-    } else {
-      const detail = data?.smtp && data.smtp !== 'ok' ? data.smtp : (data?.imap || (res.error.value as any)?.data?.detail || 'Check the credentials')
-      toast.add({ title: 'Connection failed', description: detail, color: 'red' })
-    }
+    applyTestResult(res)
   } finally {
     testingForm.value = false
   }
@@ -310,14 +326,10 @@ async function connect() {
 async function test() {
   if (!props.integrationData?.id) return
   testing.value = true
+  testResult.value = null
   try {
     const res = await useMyFetch(`/api/settings/integrations/${props.integrationData.id}/test`, { method: 'POST' })
-    const data = res.data.value as any
-    if (res.status.value === 'success' && data?.success) {
-      toast.add({ title: 'Connection OK', description: `SMTP ${data.smtp || 'ok'}${data.imap ? `, IMAP ${data.imap}` : ''}`, color: 'green' })
-    } else {
-      toast.add({ title: 'Connection failed', description: data?.smtp || data?.imap || 'Check credentials', color: 'red' })
-    }
+    applyTestResult(res)
   } finally {
     testing.value = false
   }
