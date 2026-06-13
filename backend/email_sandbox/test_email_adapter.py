@@ -92,3 +92,68 @@ async def test_missing_sender_returns_none(make_email_adapter):
     raw = b"To: analyst@bow.test\nSubject: x\nMessage-ID: <n@x>\n\nbody"
     out = await a.process_incoming_message({"raw": raw})
     assert out is None
+
+
+# ---------- inbound attachments ----------
+
+from email.message import EmailMessage
+
+
+def _raw_multipart(filename="data.csv", payload=b"a,b\n1,2\n", maintype="text",
+                   subtype="csv", body="check this"):
+    m = EmailMessage()
+    m["From"] = "Alice <alice@acme.com>"
+    m["To"] = "analyst@bow.test"
+    m["Subject"] = "Fwd: data"
+    m["Message-ID"] = "<att1@acme.com>"
+    m["Authentication-Results"] = "mx; dmarc=pass; dkim=pass"
+    m.set_content(body)
+    m.add_attachment(payload, maintype=maintype, subtype=subtype, filename=filename)
+    return m.as_bytes()
+
+
+async def test_attachment_extracted(make_email_adapter):
+    a = make_email_adapter(CREDS, CONFIG)
+    out = await a.process_incoming_message({"raw": _raw_multipart()})
+    assert out["message_text"] == "check this"
+    atts = out["attachments"]
+    assert len(atts) == 1
+    assert atts[0]["filename"] == "data.csv"
+    assert atts[0]["content"] == b"a,b\n1,2\n"
+    assert atts[0]["content_type"] == "text/csv"
+    assert out["attachments_skipped"] == []
+
+
+async def test_attachment_oversized_skipped(make_email_adapter, monkeypatch):
+    import app.services.platform_adapters.email_adapter as ea
+    monkeypatch.setattr(ea, "_MAX_ATTACHMENT_BYTES", 3)
+    a = make_email_adapter(CREDS, CONFIG)
+    out = await a.process_incoming_message({"raw": _raw_multipart(payload=b"way too big")})
+    assert out["attachments"] == []
+    assert len(out["attachments_skipped"]) == 1
+    assert out["attachments_skipped"][0]["filename"] == "data.csv"
+
+
+async def test_attachment_count_capped(make_email_adapter, monkeypatch):
+    import app.services.platform_adapters.email_adapter as ea
+    monkeypatch.setattr(ea, "_MAX_ATTACHMENTS", 1)
+    m = EmailMessage()
+    m["From"] = "Alice <alice@acme.com>"
+    m["To"] = "analyst@bow.test"
+    m["Subject"] = "two files"
+    m["Message-ID"] = "<m2@acme.com>"
+    m["Authentication-Results"] = "mx; dmarc=pass"
+    m.set_content("two files")
+    m.add_attachment(b"one", maintype="text", subtype="plain", filename="a.txt")
+    m.add_attachment(b"two", maintype="text", subtype="plain", filename="b.txt")
+    a = make_email_adapter(CREDS, CONFIG)
+    out = await a.process_incoming_message({"raw": m.as_bytes()})
+    assert len(out["attachments"]) == 1
+    assert len(out["attachments_skipped"]) == 1
+
+
+async def test_plain_email_has_no_attachments(make_email_adapter):
+    a = make_email_adapter(CREDS, CONFIG)
+    out = await a.process_incoming_message({"raw": _raw()})
+    assert out["attachments"] == []
+    assert out["attachments_skipped"] == []

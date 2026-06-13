@@ -41,6 +41,10 @@ _QUOTE_MARKERS = (
     "________________________________",
 )
 
+# Inbound attachment limits (overridable via env).
+_MAX_ATTACHMENT_BYTES = int(os.environ.get("BOW_EMAIL_MAX_ATTACHMENT_BYTES", str(10 * 1024 * 1024)))  # 10 MB/file
+_MAX_ATTACHMENTS = int(os.environ.get("BOW_EMAIL_MAX_ATTACHMENTS", "10"))
+
 
 class EmailAdapter(PlatformAdapter):
     """IMAP/SMTP email adapter."""
@@ -147,6 +151,7 @@ class EmailAdapter(PlatformAdapter):
 
         body = self._strip_quoted(self._extract_plaintext(msg))
         auth = security.parse_authentication_results(msg)
+        attachments, attachments_skipped = self._extract_attachments(msg)
 
         return {
             "platform_type": "email",
@@ -162,11 +167,52 @@ class EmailAdapter(PlatformAdapter):
             "subject": (msg.get("Subject") or "").strip(),
             "from_domain": security.domain_of(from_address),
             "auth_results": auth,
+            # Inbound attachments (within size/count limits) + names skipped for size.
+            "attachments": attachments,
+            "attachments_skipped": attachments_skipped,
             # Thread context (root id powers report re-attachment).
             "thread_ts": effective_thread,
             "message_ts": message_id,
             "is_thread_reply": is_thread_reply,
         }
+
+    @staticmethod
+    def _extract_attachments(msg: Message):
+        """Pull attachment parts as ``[{filename, content, content_type, size}]``.
+
+        Body parts (text/plain, text/html that aren't dispositioned as
+        attachments) are skipped. Parts over ``_MAX_ATTACHMENT_BYTES`` or beyond
+        ``_MAX_ATTACHMENTS`` are dropped and reported in the skipped list.
+        """
+        out = []
+        skipped = []
+        if not msg.is_multipart():
+            return out, skipped
+        for part in msg.walk():
+            if part.is_multipart():
+                continue
+            disp = str(part.get("Content-Disposition") or "").lower()
+            ctype = (part.get_content_type() or "application/octet-stream").lower()
+            filename = part.get_filename()
+            is_attachment = "attachment" in disp or bool(filename)
+            # Skip the message body parts (not dispositioned as attachments).
+            if not is_attachment:
+                continue
+            if ctype in ("text/plain", "text/html") and "attachment" not in disp:
+                continue
+            try:
+                payload = part.get_payload(decode=True)
+            except Exception:  # noqa: BLE001
+                payload = None
+            if not payload:
+                continue
+            size = len(payload)
+            name = os.path.basename(filename or f"attachment-{len(out) + 1}")
+            if size > _MAX_ATTACHMENT_BYTES or len(out) >= _MAX_ATTACHMENTS:
+                skipped.append({"filename": name, "size": size})
+                continue
+            out.append({"filename": name, "content": payload, "content_type": ctype, "size": size})
+        return out, skipped
 
     # ---------- outbound ----------
 

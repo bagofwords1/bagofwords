@@ -19,7 +19,7 @@ cd backend/email_sandbox
 python -m pytest            # asyncio_mode=auto via pytest.ini
 ```
 
-Expected: **40 passed**.
+Expected: **48 passed**.
 
 ## What each file proves
 

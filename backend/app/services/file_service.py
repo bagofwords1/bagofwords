@@ -116,8 +116,63 @@ class FileService:
         
         # Return the file schema
         file_schema = FileSchema.from_orm(db_file)
-        
+
         return file_schema
+
+    async def save_bytes_as_file(
+        self,
+        db: AsyncSession,
+        content: bytes,
+        filename: str,
+        content_type: str,
+        current_user: User,
+        organization: Organization,
+        report_id: Optional[str] = None,
+    ) -> File:
+        """Persist raw bytes (e.g. an inbound email attachment) as a report File.
+
+        Mirrors ``upload_file`` but takes bytes instead of an ``UploadFile``:
+        writes to disk, creates the row, optionally links to a report, and
+        generates a preview. Returns the ``File`` ORM object.
+        """
+        import os as _os
+
+        safe_name = _os.path.basename(filename or "attachment") or "attachment"
+        unique_filename = f"{uuid.uuid4()}_{safe_name}"
+        file_location = f"uploads/files/{unique_filename}"
+
+        async with aiofiles.open(file_location, "wb") as buffer:
+            await buffer.write(content)
+
+        db_file = File(
+            filename=safe_name,
+            content_type=content_type or "application/octet-stream",
+            path=file_location,
+            user_id=current_user.id,
+            organization_id=organization.id,
+        )
+        db.add(db_file)
+        await db.commit()
+        await db.refresh(db_file)
+
+        if report_id:
+            stmt = select(Report).filter(Report.id == report_id)
+            result = await db.execute(stmt)
+            report = result.scalar_one_or_none()
+            if report:
+                report.files.append(db_file)
+                await db.commit()
+                await db.refresh(report)
+
+        try:
+            db_file.preview = generate_file_preview(db_file)
+            db.add(db_file)
+            await db.commit()
+            await db.refresh(db_file)
+        except Exception as e:  # noqa: BLE001 — preview is best-effort
+            logger.warning(f"Failed to generate preview for {db_file.filename}: {e}")
+
+        return db_file
     
     async def remove_file_from_report(self, db: AsyncSession, file_id: str, report_id: str, organization: Organization, current_user: User):
         stmt = select(Report).filter(Report.id == report_id)

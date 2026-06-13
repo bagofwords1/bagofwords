@@ -482,12 +482,48 @@ class ExternalPlatformManager:
             )
             await db.commit()
 
+        # Ingest inbound email attachments as report files (within size limits)
+        # so the agent can read them. They surface via report.files in context.
+        message_text = processed_data.get("message_text") or ""
+        attachments = processed_data.get("attachments") or []
+        attachments_skipped = processed_data.get("attachments_skipped") or []
+        saved_names = []
+        if attachments and platform_type == "email":
+            from app.services.file_service import FileService
+            file_service = FileService()
+            for att in attachments:
+                try:
+                    saved = await file_service.save_bytes_as_file(
+                        db,
+                        att.get("content"),
+                        att.get("filename"),
+                        att.get("content_type"),
+                        user,
+                        organization,
+                        report_id=str(report.id),
+                    )
+                    saved_names.append(saved.filename)
+                except Exception as e:
+                    print(f"Failed to save email attachment {att.get('filename')}: {e}")
+
+        # Note attached / skipped files in the prompt so the agent is aware.
+        note_lines = []
+        if saved_names:
+            note_lines.append("Attached file(s): " + ", ".join(saved_names))
+        if attachments_skipped:
+            note_lines.append(
+                f"(skipped {len(attachments_skipped)} attachment(s) over the size limit: "
+                + ", ".join(s.get("filename", "?") for s in attachments_skipped) + ")"
+            )
+        if note_lines:
+            message_text = (message_text + "\n\n" + "\n".join(note_lines)).strip()
+
         # Create completion data
         from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
 
         completion_data = CompletionCreate(
             prompt=PromptSchema(
-                content=processed_data.get("message_text"),
+                content=message_text,
                 widget_id=None,
                 step_id=None,
                 mentions=[
