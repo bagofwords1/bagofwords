@@ -158,9 +158,15 @@
           </ol>
         </div>
 
-        <button type="submit" :disabled="submitting" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
-          {{ submitting ? 'Connecting…' : 'Connect' }}
-        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" :disabled="testingForm" @click="testForm"
+            class="border border-gray-300 text-gray-700 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 disabled:opacity-50">
+            {{ testingForm ? 'Testing…' : 'Test connection' }}
+          </button>
+          <button type="submit" :disabled="submitting" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
+            {{ submitting ? 'Connecting…' : 'Connect' }}
+          </button>
+        </div>
       </form>
     </div>
 
@@ -216,6 +222,7 @@ const requireAuthPass = ref(true)
 
 const submitting = ref(false)
 const testing = ref(false)
+const testingForm = ref(false)
 
 // Prefill From name from the org's AI analyst name, and Allowed domains from the
 // signup policy domains — once, when those values become available, without
@@ -240,36 +247,55 @@ function formatDate(d: string | undefined) {
   return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+function buildBody() {
+  const body: any = {
+    auth_type: authType.value,
+    from_address: fromAddress.value || smtpUsername.value,
+    from_name: fromName.value,
+    inbound_enabled: inboundEnabled.value,
+    auto_link_by_email: autoLink.value,
+    require_auth_pass: requireAuthPass.value,
+    allowed_domains: allowedDomains.value.split(',').map((d) => d.trim()).filter(Boolean),
+  }
+  if (authType.value === 'password') {
+    Object.assign(body, {
+      smtp_host: smtpHost.value, smtp_port: smtpPort.value, smtp_username: smtpUsername.value,
+      smtp_password: smtpPassword.value, smtp_security: smtpSecurity.value,
+    })
+    if (inboundEnabled.value) {
+      Object.assign(body, {
+        imap_host: imapHost.value, imap_port: imapPort.value,
+        imap_username: imapUsername.value, imap_password: imapPassword.value,
+      })
+    }
+  } else if (authType.value === 'microsoft') {
+    Object.assign(body, { ms_tenant_id: msTenantId.value, ms_client_id: msClientId.value, ms_client_secret: msClientSecret.value })
+  } else if (authType.value === 'google') {
+    body.google_service_account_json = googleSaJson.value
+  }
+  return body
+}
+
+async function testForm() {
+  testingForm.value = true
+  try {
+    const res = await useMyFetch('/api/settings/integrations/email/test', { method: 'POST', body: buildBody() })
+    const data = res.data.value as any
+    if (res.status.value === 'success' && data?.success) {
+      toast.add({ title: 'Connection OK', description: `SMTP ${data.smtp || 'ok'}${data.imap ? `, IMAP ${data.imap}` : ''}`, color: 'green' })
+    } else {
+      const detail = data?.smtp && data.smtp !== 'ok' ? data.smtp : (data?.imap || (res.error.value as any)?.data?.detail || 'Check the credentials')
+      toast.add({ title: 'Connection failed', description: detail, color: 'red' })
+    }
+  } finally {
+    testingForm.value = false
+  }
+}
+
 async function connect() {
   submitting.value = true
   try {
-    const body: any = {
-      auth_type: authType.value,
-      from_address: fromAddress.value || smtpUsername.value,
-      from_name: fromName.value,
-      inbound_enabled: inboundEnabled.value,
-      auto_link_by_email: autoLink.value,
-      require_auth_pass: requireAuthPass.value,
-      allowed_domains: allowedDomains.value.split(',').map((d) => d.trim()).filter(Boolean),
-    }
-    if (authType.value === 'password') {
-      Object.assign(body, {
-        smtp_host: smtpHost.value, smtp_port: smtpPort.value, smtp_username: smtpUsername.value,
-        smtp_password: smtpPassword.value, smtp_security: smtpSecurity.value,
-      })
-      if (inboundEnabled.value) {
-        Object.assign(body, {
-          imap_host: imapHost.value, imap_port: imapPort.value,
-          imap_username: imapUsername.value, imap_password: imapPassword.value,
-        })
-      }
-    } else if (authType.value === 'microsoft') {
-      Object.assign(body, { ms_tenant_id: msTenantId.value, ms_client_id: msClientId.value, ms_client_secret: msClientSecret.value })
-    } else if (authType.value === 'google') {
-      body.google_service_account_json = googleSaJson.value
-    }
-
-    const res = await useMyFetch('/api/settings/integrations/email', { method: 'POST', body })
+    const res = await useMyFetch('/api/settings/integrations/email', { method: 'POST', body: buildBody() })
     if (res.status.value === 'success') {
       toast.add({ title: 'Email connected', description: 'Email integration successful', color: 'green' })
       emit('updated'); emit('close')

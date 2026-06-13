@@ -166,6 +166,21 @@ async def create_whatsapp_integration(
         pass
     return result
 
+@router.post("/settings/integrations/email/test", response_model=dict)
+@requires_permission('manage_settings')
+async def test_email_config(
+    data: EmailConfig,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Test email credentials WITHOUT saving the integration.
+
+    Backs the setup form's pre-save "Test connection" button. Returns
+    ``{success, smtp, imap}``.
+    """
+    return await external_platform_service.test_email_config(data)
+
 @router.post("/settings/integrations/email", response_model=ExternalPlatformSchema)
 @requires_permission('manage_settings')
 async def create_email_integration(

@@ -364,6 +364,90 @@ class ExternalPlatformService:
 
         return result
 
+    def _email_creds_and_config(self, data) -> tuple:
+        """Build (platform_config, credentials) from an EmailConfig payload.
+
+        Shared by create + test so both apply the same provider host defaults,
+        capability derivation, and secret layout.
+        """
+        auth_type = data.auth_type or "password"
+        defaults = self._email_provider_defaults(auth_type)
+        from_address = data.from_address or data.smtp_username or data.imap_username
+
+        smtp_host = data.smtp_host or defaults.get("smtp_host")
+        smtp_port = data.smtp_port or defaults.get("smtp_port") or 587
+        smtp_security = data.smtp_security or defaults.get("smtp_security") or "starttls"
+        imap_host = data.imap_host or defaults.get("imap_host")
+        imap_port = data.imap_port or defaults.get("imap_port") or 993
+        imap_use_ssl = data.imap_use_ssl if data.imap_use_ssl is not None else True
+
+        smtp_username = data.smtp_username or (from_address if auth_type != "password" else None)
+        imap_username = data.imap_username or (from_address if auth_type != "password" else None)
+
+        if auth_type == "password":
+            inbound_enabled = bool(imap_host and imap_username) or bool(data.inbound_enabled)
+        else:
+            inbound_enabled = bool(data.inbound_enabled)
+
+        google_sa = data.google_service_account_json
+        if isinstance(google_sa, str) and google_sa.strip():
+            try:
+                google_sa = json.loads(google_sa)
+            except Exception:
+                raise HTTPException(status_code=400, detail="google_service_account_json is not valid JSON")
+
+        platform_config = {
+            "from_address": from_address,
+            "from_name": data.from_name,
+            "auth_type": auth_type,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_security": smtp_security,
+            "imap_host": imap_host if inbound_enabled else None,
+            "imap_port": imap_port,
+            "imap_use_ssl": imap_use_ssl,
+            "imap_mailbox": data.imap_mailbox,
+            "inbound_enabled": inbound_enabled,
+            "allowed_domains": data.allowed_domains,
+            "auto_link_by_email": data.auto_link_by_email,
+            "require_auth_pass": data.require_auth_pass,
+            "ms_tenant_id": data.ms_tenant_id,
+            "ms_client_id": data.ms_client_id,
+            "capabilities": ["send", "receive"] if inbound_enabled else ["send"],
+        }
+        credentials = {
+            "auth_type": auth_type,
+            "from_address": from_address,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_security": smtp_security,
+            "smtp_username": smtp_username,
+            "smtp_password": data.smtp_password,
+            "imap_host": imap_host,
+            "imap_port": imap_port,
+            "imap_username": imap_username,
+            "imap_password": data.imap_password,
+            "ms_tenant_id": data.ms_tenant_id,
+            "ms_client_id": data.ms_client_id,
+            "ms_client_secret": data.ms_client_secret,
+            "google_service_account_info": google_sa,
+            "ms_refresh_token": data.ms_refresh_token,
+            "google_client_id": data.google_client_id,
+            "google_client_secret": data.google_client_secret,
+            "google_refresh_token": data.google_refresh_token,
+        }
+        return platform_config, credentials
+
+    async def test_email_config(self, data) -> dict:
+        """Validate an EmailConfig payload's connectivity WITHOUT persisting it.
+
+        Backs the form's "Test connection" button: mints a token (for OAuth),
+        authenticates SMTP (+IMAP if inbound), and returns the per-protocol
+        result — nothing is saved.
+        """
+        platform_config, credentials = self._email_creds_and_config(data)
+        return await self._test_email_credentials(credentials, platform_config)
+
     async def create_email_platform(
         self,
         db: AsyncSession,
@@ -383,83 +467,7 @@ class ExternalPlatformService:
                 detail="Email integration already exists for this organization",
             )
 
-        auth_type = data.auth_type or "password"
-        defaults = self._email_provider_defaults(auth_type)
-        from_address = data.from_address or data.smtp_username or data.imap_username
-
-        # Resolve effective hosts/ports (provider defaults for OAuth types).
-        smtp_host = data.smtp_host or defaults.get("smtp_host")
-        smtp_port = data.smtp_port or defaults.get("smtp_port") or 587
-        smtp_security = data.smtp_security or defaults.get("smtp_security") or "starttls"
-        imap_host = data.imap_host or defaults.get("imap_host")
-        imap_port = data.imap_port or defaults.get("imap_port") or 993
-        imap_use_ssl = data.imap_use_ssl if data.imap_use_ssl is not None else True
-
-        # For OAuth the mailbox address is the SMTP/IMAP "user"; default it.
-        smtp_username = data.smtp_username or (from_address if auth_type != "password" else None)
-        imap_username = data.imap_username or (from_address if auth_type != "password" else None)
-
-        # Inbound: for OAuth, hosts are defaulted so the explicit toggle decides;
-        # for password it's inferred from IMAP creds (or the toggle).
-        if auth_type == "password":
-            inbound_enabled = bool(imap_host and imap_username) or bool(data.inbound_enabled)
-        else:
-            inbound_enabled = bool(data.inbound_enabled)
-
-        # Parse the Google service-account JSON (accept a dict or a JSON string).
-        google_sa = data.google_service_account_json
-        if isinstance(google_sa, str) and google_sa.strip():
-            try:
-                google_sa = json.loads(google_sa)
-            except Exception:
-                raise HTTPException(status_code=400, detail="google_service_account_json is not valid JSON")
-
-        # Non-secret config (drives capability + channel behavior).
-        platform_config = {
-            "from_address": from_address,
-            "from_name": data.from_name,
-            "auth_type": auth_type,
-            "smtp_host": smtp_host,
-            "smtp_port": smtp_port,
-            "smtp_security": smtp_security,
-            "imap_host": imap_host if inbound_enabled else None,
-            "imap_port": imap_port,
-            "imap_use_ssl": imap_use_ssl,
-            "imap_mailbox": data.imap_mailbox,
-            "inbound_enabled": inbound_enabled,
-            "allowed_domains": data.allowed_domains,
-            "auto_link_by_email": data.auto_link_by_email,
-            "require_auth_pass": data.require_auth_pass,
-            # Non-secret OAuth identifiers (kept in config for display/refresh).
-            "ms_tenant_id": data.ms_tenant_id,
-            "ms_client_id": data.ms_client_id,
-            "capabilities": ["send", "receive"] if inbound_enabled else ["send"],
-        }
-
-        # Secrets (encrypted at rest).
-        credentials = {
-            "auth_type": auth_type,
-            "from_address": from_address,
-            "smtp_host": smtp_host,
-            "smtp_port": smtp_port,
-            "smtp_security": smtp_security,
-            "smtp_username": smtp_username,
-            "smtp_password": data.smtp_password,
-            "imap_host": imap_host,
-            "imap_port": imap_port,
-            "imap_username": imap_username,
-            "imap_password": data.imap_password,
-            # OAuth secrets (app-only)
-            "ms_tenant_id": data.ms_tenant_id,
-            "ms_client_id": data.ms_client_id,
-            "ms_client_secret": data.ms_client_secret,
-            "google_service_account_info": google_sa,
-            # OAuth secrets (delegated / refresh-token)
-            "ms_refresh_token": data.ms_refresh_token,
-            "google_client_id": data.google_client_id,
-            "google_client_secret": data.google_client_secret,
-            "google_refresh_token": data.google_refresh_token,
-        }
+        platform_config, credentials = self._email_creds_and_config(data)
 
         # Validate connectivity before persisting.
         test = await self._test_email_credentials(credentials, platform_config)
