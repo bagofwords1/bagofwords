@@ -117,9 +117,11 @@ class ImapMailboxReader(MailboxReader):
 
     async def _xoauth2_string(self) -> Optional[str]:
         if self.config.oauth is not None:
-            from app.services.email.oauth import get_xoauth2_string
+            # imaplib.authenticate base64-encodes our return value, so hand it
+            # the RAW SASL string (not the already-base64 one).
+            from app.services.email.oauth import get_xoauth2_raw
 
-            return await get_xoauth2_string(self.config.oauth)
+            return await get_xoauth2_raw(self.config.oauth)
         return None
 
     def _fetch_unseen_blocking(self, xoauth2: Optional[str] = None) -> List[Tuple[str, bytes]]:

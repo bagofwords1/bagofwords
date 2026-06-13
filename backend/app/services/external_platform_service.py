@@ -301,34 +301,37 @@ class ExternalPlatformService:
         import aiosmtplib
         from app.services.email.sender import SmtpConfig
         from app.services.email.mailbox_reader import ImapConfig
-        from app.services.email.oauth import OAuthSettings, get_xoauth2_string
+        from app.services.email.oauth import (
+            OAuthSettings, get_access_token, build_xoauth2, build_xoauth2_raw,
+        )
 
         result = {"success": True, "smtp": None, "imap": None}
         auth_type = creds.get("auth_type") or cfg.get("auth_type") or "password"
         oauth = OAuthSettings.from_credentials(creds, cfg)
 
-        # Mint the token once (reused for SMTP + IMAP) for OAuth auth types
-        # (app-only and delegated).
+        # Mint the token once (reused for SMTP + IMAP). SMTP wants the base64
+        # SASL; imaplib base64-encodes itself, so IMAP needs the raw string.
         sasl = None
+        sasl_raw = None
         if oauth is not None:
             try:
-                sasl = await get_xoauth2_string(oauth)
+                token = await get_access_token(oauth)
+                sasl = build_xoauth2(oauth.mailbox, token)
+                sasl_raw = build_xoauth2_raw(oauth.mailbox, token)
             except Exception as e:
                 return {"success": False, "smtp": f"oauth token failed: {e}", "imap": None}
 
-        # SMTP probe.
+        # SMTP probe. Negotiate TLS via start_tls in the constructor (a manual
+        # starttls() after connect double-negotiates -> "already using TLS").
         try:
             smtp = SmtpConfig.from_credentials(creds, cfg).resolved()
             client = aiosmtplib.SMTP(
                 hostname=smtp.host, port=smtp.port,
-                use_tls=(smtp.security == "ssl"), timeout=15,
+                use_tls=(smtp.security == "ssl"),
+                start_tls=(smtp.security == "starttls"),
+                timeout=15,
             )
             await client.connect()
-            if smtp.security == "starttls":
-                try:
-                    await client.starttls()
-                except Exception:
-                    pass
             if sasl is not None:
                 code, msg = await client.execute_command(b"AUTH", b"XOAUTH2", sasl.encode("ascii"))
                 if code != 235:
@@ -350,8 +353,8 @@ class ExternalPlatformService:
                         imaplib.IMAP4_SSL(imap.host, imap.port)
                         if imap.use_ssl else imaplib.IMAP4(imap.host, imap.port)
                     )
-                    if sasl is not None:
-                        conn.authenticate("XOAUTH2", lambda _c: sasl.encode("ascii"))
+                    if sasl_raw is not None:
+                        conn.authenticate("XOAUTH2", lambda _c: sasl_raw.encode("ascii"))
                     else:
                         conn.login(imap.username, imap.password)
                     conn.select(imap.mailbox)

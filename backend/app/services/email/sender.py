@@ -92,17 +92,19 @@ async def _send_xoauth2(cfg: SmtpConfig, msg: EmailMessage) -> bool:
     because ``aiosmtplib.send`` only does password AUTH.
     """
     sasl = await get_xoauth2_string(cfg.oauth)
+    # Let aiosmtplib negotiate TLS during connect() — passing start_tls here
+    # (instead of calling starttls() afterwards) avoids the "Connection already
+    # using TLS" error from a double STARTTLS.
     client = aiosmtplib.SMTP(
         hostname=cfg.host,
         port=cfg.port,
         use_tls=(cfg.security == "ssl"),
+        start_tls=(cfg.security == "starttls"),
         tls_context=_tls_context(cfg),
         timeout=30,
     )
     await client.connect()
     try:
-        if cfg.security == "starttls":
-            await client.starttls(tls_context=_tls_context(cfg))
         # AUTH XOAUTH2 <base64 initial response>
         code, message = await client.execute_command(
             b"AUTH", b"XOAUTH2", sasl.encode("ascii")

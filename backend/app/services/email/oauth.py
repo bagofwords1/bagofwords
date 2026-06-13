@@ -101,9 +101,18 @@ def build_xoauth2(user: str, access_token: str) -> str:
     Format (RFC 7628 / Google & Microsoft convention):
         base64("user=" + user + ^A + "auth=Bearer " + token + ^A^A)
     where ^A is Ctrl-A (0x01).
+
+    Use this for **SMTP** (``AUTH XOAUTH2 <b64>``). For **IMAP** via stdlib
+    ``imaplib.authenticate``, use :func:`build_xoauth2_raw` — imaplib base64-
+    encodes the auth object's return value itself, so passing this (already
+    base64) string would double-encode it.
     """
-    raw = f"user={user}\x01auth=Bearer {access_token}\x01\x01"
-    return base64.b64encode(raw.encode("utf-8")).decode("ascii")
+    return base64.b64encode(build_xoauth2_raw(user, access_token).encode("utf-8")).decode("ascii")
+
+
+def build_xoauth2_raw(user: str, access_token: str) -> str:
+    """Return the *raw* (pre-base64) XOAUTH2 SASL string for imaplib."""
+    return f"user={user}\x01auth=Bearer {access_token}\x01\x01"
 
 
 def _ms_token_url(tenant_id: str) -> str:
@@ -222,6 +231,12 @@ async def get_access_token(oauth: OAuthSettings) -> str:
 
 
 async def get_xoauth2_string(oauth: OAuthSettings) -> str:
-    """Convenience: mint a token and return the ready XOAUTH2 SASL string."""
+    """Mint a token and return the base64 XOAUTH2 string (for SMTP)."""
     token = await get_access_token(oauth)
     return build_xoauth2(oauth.mailbox, token)
+
+
+async def get_xoauth2_raw(oauth: OAuthSettings) -> str:
+    """Mint a token and return the raw XOAUTH2 string (for imaplib)."""
+    token = await get_access_token(oauth)
+    return build_xoauth2_raw(oauth.mailbox, token)
