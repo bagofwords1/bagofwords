@@ -322,6 +322,10 @@ async def get_connection(
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=has_credentials,
+        auto_reindex_enabled=bool(connection.auto_reindex_enabled),
+        reindex_interval_hours=connection.reindex_interval_hours,
+        next_retry_at=connection.next_retry_at.isoformat() if connection.next_retry_at else None,
+        last_reindex_error=connection.last_reindex_error,
     )
 
 

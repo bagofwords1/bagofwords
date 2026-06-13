@@ -76,6 +76,45 @@
         </div>
       </div>
 
+      <!-- Auto-reindex schedule (enterprise `scheduled_reindex`). Admin-only.
+           Periodically re-indexes the shared catalog so tables stay fresh
+           without a manual reindex. -->
+      <div v-if="canUpdateDataSource && !isToolProvider" class="py-3 border-t border-gray-100">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-medium text-gray-700">{{ $t('data.autoReindex') }}</span>
+            <UIcon v-if="!autoReindexLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400" />
+          </div>
+          <UToggle
+            :model-value="autoReindexEnabled"
+            :disabled="!autoReindexLicensed || savingAutoReindex"
+            size="sm"
+            @update:model-value="onToggleAutoReindex"
+          />
+        </div>
+        <p class="text-[11px] text-gray-400 mt-1">
+          {{ autoReindexLicensed ? $t('data.autoReindexHint') : $t('data.autoReindexEnterprise') }}
+        </p>
+
+        <!-- Interval picker — only when enabled & licensed. -->
+        <div v-if="autoReindexLicensed && autoReindexEnabled" class="mt-2 flex items-center justify-between">
+          <span class="text-xs text-gray-500">{{ $t('data.autoReindexEvery') }}</span>
+          <select
+            :value="autoReindexInterval"
+            :disabled="savingAutoReindex"
+            class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+            @change="onChangeInterval(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="opt in intervalOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+        </div>
+
+        <!-- Last background failure, if any. -->
+        <p v-if="autoReindexError" class="text-[11px] text-red-500 mt-1.5 truncate" :title="autoReindexError">
+          {{ $t('data.autoReindexLastError') }}: {{ autoReindexError }}
+        </p>
+      </div>
+
       <!-- Per-user summary — honest, user-scoped view for OBO viewers: what THEY
            can see, not the service-principal's "Discovered N tables" / logs. -->
       <div v-else-if="isPerUserViewer" class="py-3 border-t border-gray-100">
@@ -337,6 +376,7 @@ import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import { useCan } from '~/composables/usePermissions'
 import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const props = defineProps<{
   modelValue: boolean
@@ -533,6 +573,70 @@ function stopPolling() {
   }
 }
 
+// ── Auto-reindex schedule (enterprise `scheduled_reindex`) ──────────────────
+const { hasFeature } = useEnterprise()
+const autoReindexLicensed = computed(() => hasFeature('scheduled_reindex'))
+const autoReindexEnabled = ref(true)
+const autoReindexInterval = ref(12)
+const autoReindexError = ref<string | null>(null)
+const savingAutoReindex = ref(false)
+const intervalOptions = [
+  { value: 6, label: t('data.everyNHours', { n: 6 }) },
+  { value: 12, label: t('data.everyNHours', { n: 12 }) },
+  { value: 24, label: t('data.everyNHours', { n: 24 }) },
+  { value: 48, label: t('data.everyNHours', { n: 48 }) },
+]
+
+async function fetchAutoReindexConfig() {
+  // Only admins can read connection detail (config-bearing). The list payload
+  // doesn't carry the schedule fields, so fetch them here.
+  if (!props.connection?.id || !canUpdateDataSource.value || isToolProvider.value) return
+  try {
+    const { data } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'GET' })
+    const d = (data as any).value
+    if (d) {
+      autoReindexEnabled.value = d.auto_reindex_enabled !== false
+      autoReindexInterval.value = d.reindex_interval_hours || 12
+      autoReindexError.value = d.last_reindex_error || null
+    }
+  } catch {
+    // Non-fatal — section just shows defaults.
+  }
+}
+
+async function saveAutoReindex() {
+  if (!props.connection?.id || savingAutoReindex.value) return
+  savingAutoReindex.value = true
+  try {
+    const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
+      method: 'PUT',
+      body: {
+        auto_reindex_enabled: autoReindexEnabled.value,
+        reindex_interval_hours: autoReindexInterval.value,
+      },
+    })
+    if (error.value) {
+      toast.add({
+        title: t('data.autoReindexSaveFailed'),
+        description: (error.value as any)?.data?.detail || (error.value as any)?.message,
+        color: 'red',
+      })
+    }
+  } finally {
+    savingAutoReindex.value = false
+  }
+}
+
+function onToggleAutoReindex(val: boolean) {
+  autoReindexEnabled.value = val
+  saveAutoReindex()
+}
+
+function onChangeInterval(val: string) {
+  autoReindexInterval.value = parseInt(val, 10) || 12
+  saveAutoReindex()
+}
+
 async function reindex() {
   if (!props.connection?.id || reindexing.value) return
   reindexing.value = true
@@ -704,6 +808,7 @@ watch(isOpen, (val) => {
   pendingIdentity.value = null
   indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
   fetchIndexing().then(() => startPollingIfActive())
+  fetchAutoReindexConfig()
 })
 
 // If the parent swaps the connection prop while the modal is open, refresh.

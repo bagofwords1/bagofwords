@@ -1346,7 +1346,14 @@
     "disconnecting": "Disconnecting…",
     "disconnect": "Disconnect",
     "serviceAccountNote": "Queries run with the connection's service account.",
-    "switchIdentityFailed": "Failed to switch query identity"
+    "switchIdentityFailed": "Failed to switch query identity",
+    "autoReindex": "Auto-reindex schema",
+    "autoReindexHint": "Periodically re-index this connection so tables stay fresh.",
+    "autoReindexEnterprise": "Scheduled reindexing is an enterprise feature.",
+    "autoReindexEvery": "Reindex every",
+    "everyNHours": "Every {n} hours",
+    "autoReindexLastError": "Last error",
+    "autoReindexSaveFailed": "Failed to save auto-reindex settings"
   },
   "share": {
     "shareDashboard": "Share Dashboard",

@@ -378,6 +378,15 @@ class ConnectionIndexingService:
                             fresh.error = str(exc)[:4000]
                             fresh.finished_at = datetime.utcnow()
                             await err_db.commit()
+                        # Record the failure on the connection for the scheduled
+                        # auto-reindex sweeper's diagnostics. next_retry_at was
+                        # already stamped by the sweeper before kicking, so the
+                        # connection won't be re-kicked until its interval elapses
+                        # (user_required catalogs heal on user login meanwhile).
+                        conn_row = await err_db.get(Connection, row.connection_id)
+                        if conn_row is not None:
+                            conn_row.last_reindex_error = str(exc)[:4000]
+                            await err_db.commit()
                     await _append_event("error", _state_snapshot()["phase"], f"Indexing failed: {exc}")
                     return
 

@@ -28,6 +28,7 @@ TIER_FEATURES = {
         "ldap",
         "domain_signup",
         "usage_limits",
+        "scheduled_reindex",
     ],
 }
 
