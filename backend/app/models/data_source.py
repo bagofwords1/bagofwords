@@ -21,7 +21,19 @@ class DataSource(BaseSchema):
     # Connection-related fields have been moved to the Connection model
     # type, config, credentials, auth_policy, allowed_user_auth_modes are now on Connection
     last_synced_at = Column(DateTime, nullable=True)
+    # Connection health: system-managed, auto-toggled by connection test results.
+    # "Can we physically reach and query this data source right now?" — NOT a
+    # human-set flag. Do not overload it with publishing intent.
     is_active = Column(Boolean, nullable=False, default=True)
+    # Publishing lifecycle: manager-set, intentional. "Has a human decided this
+    # agent is ready for consumers?" Orthogonal to is_active (health).
+    #   published — visible to everyone with access (the selector, AI context)
+    #   draft     — visible only to users who can `manage` this agent (builders)
+    #   disabled  — off; hidden everywhere, excluded from AI context
+    # Stored as a plain string (not a DB enum) for clean SQLite/Postgres parity.
+    publish_status = Column(
+        String, nullable=False, default="published", server_default="published"
+    )
     # Data sources are private by default: only explicitly added members (plus
     # admins) can see them. Sharing org-wide is an opt-in (set is_public=True).
     is_public = Column(Boolean, nullable=False, default=False)

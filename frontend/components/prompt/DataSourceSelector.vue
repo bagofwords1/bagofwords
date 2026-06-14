@@ -72,6 +72,12 @@
                                     <div class="flex items-center min-w-0">
                                         <DataSourceIcon :type="ds.type" class="h-4 flex-shrink-0" />
                                         <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
+                                        <!-- Non-published agents only reach here for managers; flag
+                                             them so it's clear they aren't live for consumers yet. -->
+                                        <span
+                                            v-if="ds.publish_status && ds.publish_status !== 'published'"
+                                            :class="['ms-2 flex-shrink-0 text-[10px] rounded border px-1 py-0.5', publishStatusBadgeClass(ds.publish_status)]"
+                                        >{{ publishStatusLabel(ds.publish_status) }}</span>
                                         <!-- Running via the connection's system (service principal) creds -->
                                         <span
                                             v-if="isServiceAccount(ds)"
@@ -141,8 +147,9 @@ import AgentFlyout from '~/components/AgentFlyout.vue'
 import AgentIcon from '~/components/icons/AgentIcon.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
+import { publishStatusBadgeClass, publishStatusLabel } from '~/composables/useDataSourcePublishStatus'
 
-type DataSource = { id: string; name: string; type?: string; auth_policy?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
+type DataSource = { id: string; name: string; type?: string; auth_policy?: string; publish_status?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
 const internalSelectedDataSources = ref<DataSource[]>([])
 const dataSources = ref<DataSource[]>([])
 // user_required data sources the user hasn't connected yet — shown grayed out
