@@ -2,361 +2,140 @@
   <div class="mt-6">
     <h2 class="text-lg font-medium text-gray-900">
       {{ $t('settings.integrations.title') }}
-      <p class="text-sm text-gray-500 font-normal mb-8">
+      <p class="text-sm text-gray-500 font-normal mb-6">
         {{ $t('settings.integrations.subtitle') }}
       </p>
     </h2>
   </div>
-  <div class="mt-6 space-y-4">
-    <!-- Slack Integration Row -->
-    <div
-      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-      @click="showSlackModal = true"
-    >
-      <div class="flex items-center">
-        <img src="/icons/slack.png" alt="Slack" class="w-8 h-8 me-4" />
-        <div>
-          <div class="font-medium">Slack</div>
-          <div class="text-sm text-gray-500">
-            <span v-if="slackIntegrated">
-                <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
-            </span>
-            <span v-else>
-                <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
-            </span>
-          </div>
-          <div v-if="slackConfig && slackIntegrated" class="text-xs text-gray-400 mt-1">
-            <span>{{ $t('settings.integrations.workspace', { name: slackConfig.team_name }) }}</span>
-            <span class="ms-2">{{ $t('settings.integrations.id', { id: slackConfig.team_id }) }}</span>
-          </div>
-        </div>
-      </div>
+
+  <!-- Two-pane layout: list on the left, detail / empty state on the right -->
+  <div class="mt-2 flex gap-8 min-h-[26rem]">
+    <!-- Left pane: integrations list -->
+    <nav class="w-64 shrink-0 space-y-0.5">
       <button
-        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-        @click.stop="showSlackModal = true"
+        v-for="item in integrations"
+        :key="item.key"
+        type="button"
+        class="group w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors"
+        :class="selectedKey === item.key ? 'bg-gray-100' : 'hover:bg-gray-50'"
+        @click="selectedKey = item.key"
       >
-        {{ slackIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
+        <span class="w-6 h-6 shrink-0 flex items-center justify-center">
+          <img v-if="item.iconType === 'img'" :src="item.icon" :alt="item.name" class="w-6 h-6" />
+          <McpIcon v-else-if="item.iconType === 'mcp'" class="w-5 h-5 text-gray-600" />
+          <UIcon v-else :name="item.icon" class="w-5 h-5 text-gray-500" />
+        </span>
+        <span
+          class="flex-1 min-w-0 truncate text-sm"
+          :class="selectedKey === item.key ? 'font-medium text-gray-900' : 'text-gray-600'"
+        >
+          {{ item.name }}
+        </span>
+        <span
+          class="w-2 h-2 shrink-0 rounded-full"
+          :class="item.connected ? 'bg-green-500' : 'bg-gray-300'"
+          :title="item.connected ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected')"
+        />
       </button>
-    </div>
+    </nav>
 
-    <!-- Teams Integration Row -->
-    <div
-      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-      @click="showTeamsModal = true"
-    >
-      <div class="flex items-center">
-        <img src="/icons/teams.png" alt="Teams" class="w-8 h-8 me-4" />
-        <div>
-          <div class="font-medium">Microsoft Teams</div>
-          <div class="text-sm text-gray-500">
-            <span v-if="teamsIntegrated">
-                <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
-            </span>
-            <span v-else>
-                <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
-            </span>
-          </div>
-          <div v-if="teamsConfig && teamsIntegrated" class="text-xs text-gray-400 mt-1">
-            <span>{{ $t('settings.integrations.tenant', { id: teamsConfig.tenant_id }) }}</span>
+    <!-- Right pane: detail / empty state -->
+    <div class="flex-1 min-w-0 border-l border-gray-100 pl-8">
+      <!-- Empty state: illustration as backdrop with icon + copy centered on top -->
+      <div
+        v-if="!selectedItem"
+        class="flex items-start justify-center px-6"
+      >
+        <div class="relative w-full max-w-lg">
+          <img
+            src="/assets/empty-states/empty-integrations.png"
+            alt=""
+            class="w-full opacity-80 select-none pointer-events-none"
+          />
+          <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6">
+            <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm">
+              <UIcon name="i-heroicons-squares-plus" class="w-5 h-5 text-gray-400" />
+            </div>
+            <h3 class="mt-3 text-[15px] font-medium text-gray-900">
+              {{ $t('settings.integrations.emptyTitle') }}
+            </h3>
+            <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">
+              {{ $t('settings.integrations.emptySubtitle') }}
+            </p>
           </div>
         </div>
       </div>
-      <button
-        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-        @click.stop="showTeamsModal = true"
-      >
-        {{ teamsIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
-      </button>
-    </div>
 
-    <!-- WhatsApp Integration Row -->
-    <div
-      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-      @click="showWhatsAppModal = true"
-    >
-      <div class="flex items-center">
-        <img src="/icons/whatsapp.png" alt="WhatsApp" class="w-8 h-8 me-4" />
-        <div>
-          <div class="font-medium">WhatsApp</div>
-          <div class="text-sm text-gray-500">
-            <span v-if="whatsappIntegrated">
-                <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
-            </span>
-            <span v-else>
-                <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
+      <!-- MCP toggle (no modal component) -->
+      <div v-else-if="selectedItem.kind === 'toggle'" class="h-full flex flex-col">
+        <div class="flex items-center gap-3">
+          <McpIcon class="w-7 h-7 text-gray-700" />
+          <div class="min-w-0">
+            <h3 class="text-[15px] font-medium text-gray-900 leading-tight">{{ selectedItem.name }}</h3>
+            <span class="inline-flex items-center gap-1.5 text-xs" :class="selectedItem.connected ? 'text-green-600' : 'text-gray-400'">
+              <span class="w-1.5 h-1.5 rounded-full" :class="selectedItem.connected ? 'bg-green-500' : 'bg-gray-300'" />
+              {{ selectedItem.connected ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected') }}
             </span>
           </div>
-          <div v-if="whatsappConfig && whatsappIntegrated" class="text-xs text-gray-400 mt-1">
-            <span>{{ whatsappConfig.verified_name || $t('settings.integrations.business') }}</span>
-            <span class="ms-2">{{ whatsappConfig.display_phone_number }}</span>
-          </div>
+        </div>
+        <p class="mt-4 max-w-md text-sm leading-relaxed text-gray-500">{{ selectedItem.description }}</p>
+        <div class="mt-6 flex items-center gap-3">
+          <UToggle
+            v-model="mcpEnabled"
+            :loading="mcpUpdating"
+            @update:model-value="toggleMcp"
+          />
+          <span class="text-sm text-gray-500">
+            {{ mcpEnabled ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected') }}
+          </span>
         </div>
       </div>
-      <button
-        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-        @click.stop="showWhatsAppModal = true"
-      >
-        {{ whatsappIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
-      </button>
-    </div>
 
-    <!-- AI Mailbox Integration Row -->
-    <div
-      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-      @click="showEmailModal = true"
-    >
-      <div class="flex items-center">
-        <div class="w-8 h-8 me-4 flex items-center justify-center rounded bg-gray-100">
-          <UIcon name="i-heroicons-sparkles" class="w-5 h-5 text-gray-700" />
-        </div>
-        <div>
-          <div class="font-medium">AI Mailbox</div>
-          <div class="text-sm text-gray-500">
-            <span v-if="emailIntegrated">
-              <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
-            </span>
-            <span v-else>
-              <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
-            </span>
-            <span class="ms-2">— a mailbox the AI analyst sends replies from and (optionally) receives questions at</span>
-          </div>
-          <div v-if="emailConfig && emailIntegrated" class="text-xs text-gray-400 mt-1">
-            <span>{{ emailConfig.from_address }}</span>
-            <span class="ms-2">{{ emailConfig.inbound_enabled ? 'send + receive' : 'send only' }}</span>
-          </div>
-        </div>
-      </div>
-      <button
-        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-        @click.stop="showEmailModal = true"
-      >
-        {{ emailIntegrated ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
-      </button>
-    </div>
-
-    <!-- SMTP Server Row -->
-    <div
-      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-      @click="showSmtpModal = true"
-    >
-      <div class="flex items-center">
-        <div class="w-8 h-8 me-4 flex items-center justify-center rounded bg-gray-100">
-          <UIcon name="i-heroicons-paper-airplane" class="w-5 h-5 text-gray-700" />
-        </div>
-        <div>
-          <div class="font-medium">SMTP Server</div>
-          <div class="text-sm text-gray-500">
-            <span v-if="smtpEnabled">
-              <span class="text-green-600">{{ $t('settings.integrations.connected') }}</span>
-            </span>
-            <span v-else>
-              <span class="text-gray-400">{{ $t('settings.integrations.notConnected') }}</span>
-            </span>
-            <span class="ms-2">— the server used for system emails (shares, scheduled reports, invites); overrides the global SMTP</span>
-          </div>
-          <div v-if="smtpEnabled && smtpHostLabel" class="text-xs text-gray-400 mt-1">
-            <span>{{ smtpHostLabel }}</span>
-          </div>
-        </div>
-      </div>
-      <button
-        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-        @click.stop="showSmtpModal = true"
-      >
-        {{ smtpEnabled ? $t('settings.integrations.settings') : $t('settings.integrations.integrate') }}
-      </button>
-    </div>
-
-    <!-- Excel Add-in Integration Row -->
-    <div
-      v-if="excelAddinEnabled"
-      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-      @click="showExcelModal = true"
-    >
-      <div class="flex items-center">
-        <img src="/data_sources_icons/excel.png" alt="Excel" class="w-8 h-8 me-4" />
-        <div>
-          <div class="font-medium">{{ $t('settings.integrations.excelAddinName') }}</div>
-          <div class="text-sm text-gray-500">
-            {{ $t('settings.integrations.excelAddinDescription') }}
-          </div>
-        </div>
-      </div>
-      <button
-        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-        @click.stop="showExcelModal = true"
-      >
-        {{ $t('settings.integrations.setup') }}
-      </button>
-    </div>
-
-    <!-- MCP Integration Row -->
-    <div
-      class="flex items-center justify-between p-4 border rounded-lg"
-    >
-      <div class="flex items-center">
-        <McpIcon class="w-8 h-8 me-4 text-gray-700" />
-        <div>
-          <div class="font-medium">{{ $t('settings.integrations.mcpName') }}</div>
-          <div class="text-sm text-gray-500">
-            <span>
-              {{ $t('settings.integrations.mcpDescription') }}
-            </span>
-          </div>
-        </div>
-      </div>
-      <UToggle
-        v-model="mcpEnabled"
-        :loading="mcpUpdating"
-        @update:model-value="toggleMcp"
+      <!-- Selected integration: render its config inline (was a modal) -->
+      <component
+        v-else
+        :is="selectedItem.component"
+        :key="selectedItem.key"
+        v-bind="selectedItem.props"
+        @close="selectedKey = null"
+        @updated="selectedItem.onUpdated && selectedItem.onUpdated()"
       />
     </div>
-
-    <!-- OAuth Clients Row -->
-    <div
-      class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
-      @click="showOAuthModal = true"
-    >
-      <div class="flex items-center">
-        <div class="w-8 h-8 mr-4 flex items-center justify-center rounded bg-gray-100">
-          <UIcon name="heroicons-key" class="w-5 h-5 text-gray-700" />
-        </div>
-        <div>
-          <div class="font-medium">OAuth Clients</div>
-          <div class="text-sm text-gray-500">
-            <span v-if="oauthClientCount > 0">
-              <span class="text-green-600">{{ oauthClientCount }} connected</span>
-            </span>
-            <span v-else>
-              <span class="text-gray-400">Not connected</span>
-            </span>
-            <span class="ml-2">— register external apps that access this workspace via OAuth 2.1 (e.g. Claude Web)</span>
-          </div>
-        </div>
-      </div>
-      <button
-        class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md"
-        @click.stop="showOAuthModal = true"
-      >
-        {{ oauthClientCount > 0 ? 'Manage' : 'Add' }}
-      </button>
-    </div>
-
-    <!-- Slack Integration Modal -->
-    <UModal v-model="showSlackModal" :ui="{ width: 'max-w-lg' }">
-      <SlackIntegrationModal
-        :integrated="slackIntegrated"
-        :integration-data="slackIntegrationData"
-        @close="showSlackModal = false"
-        @updated="fetchIntegrations"
-      />
-    </UModal>
-
-    <!-- Teams Integration Modal -->
-    <UModal v-model="showTeamsModal" :ui="{ width: 'max-w-lg' }">
-      <TeamsIntegrationModal
-        :integrated="teamsIntegrated"
-        :integration-data="teamsIntegrationData"
-        @close="showTeamsModal = false"
-        @updated="fetchIntegrations"
-      />
-    </UModal>
-
-    <!-- WhatsApp Integration Modal -->
-    <UModal v-model="showWhatsAppModal" :ui="{ width: 'max-w-lg' }">
-      <WhatsAppIntegrationModal
-        :integrated="whatsappIntegrated"
-        :integration-data="whatsappIntegrationData"
-        @close="showWhatsAppModal = false"
-        @updated="fetchIntegrations"
-      />
-    </UModal>
-
-    <!-- AI Mailbox Modal -->
-    <UModal v-model="showEmailModal" :ui="{ width: 'sm:max-w-3xl' }">
-      <EmailIntegrationModal
-        :integrated="emailIntegrated"
-        :integration-data="emailIntegrationData"
-        :analyst-name="analystName"
-        :prefill-domains="signupDomains"
-        @close="showEmailModal = false"
-        @updated="fetchIntegrations"
-      />
-    </UModal>
-
-    <!-- SMTP Server Modal -->
-    <UModal v-model="showSmtpModal" :ui="{ width: 'max-w-lg' }">
-      <SmtpServerModal
-        @close="showSmtpModal = false"
-        @updated="fetchSmtp"
-      />
-    </UModal>
-
-    <!-- Excel Add-in Modal -->
-    <UModal v-model="showExcelModal" :ui="{ width: 'sm:max-w-3xl' }">
-      <ExcelAddinModal
-        @close="showExcelModal = false"
-      />
-    </UModal>
-
-    <!-- OAuth Clients Modal -->
-    <UModal v-model="showOAuthModal" :ui="{ width: 'sm:max-w-2xl' }">
-      <OAuthClientsModal
-        v-if="showOAuthModal"
-        @close="showOAuthModal = false"
-        @updated="fetchOAuthClientCount"
-      />
-    </UModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, markRaw } from 'vue'
+import { useI18n } from 'vue-i18n'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
 import TeamsIntegrationModal from '~/components/TeamsIntegrationModal.vue'
 import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
 import EmailIntegrationModal from '~/components/EmailIntegrationModal.vue'
-import SmtpServerModal from '~/components/SmtpServerModal.vue'
 import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
 import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
-const showSlackModal = ref(false)
+const { t } = useI18n()
+
+// Which integration is shown in the right pane (null = empty state)
+const selectedKey = ref<string | null>(null)
+
 const slackIntegrated = ref(false)
 const slackConfig = ref<{ team_id?: string; team_name?: string } | null>(null)
 const slackIntegrationData = ref<any>(null)
 
-const showTeamsModal = ref(false)
 const teamsIntegrated = ref(false)
 const teamsConfig = ref<{ tenant_id?: string; app_id?: string } | null>(null)
 const teamsIntegrationData = ref<any>(null)
 
-const showExcelModal = ref(false)
 const excelAddinEnabled = ref(false)
 
-const showWhatsAppModal = ref(false)
 const whatsappIntegrated = ref(false)
 const whatsappConfig = ref<{ phone_number_id?: string; display_phone_number?: string; verified_name?: string; waba_id?: string } | null>(null)
 const whatsappIntegrationData = ref<any>(null)
 
-const showSmtpModal = ref(false)
-const smtpEnabled = ref(false)
-const smtpHostLabel = ref('')
-
-async function fetchSmtp() {
-  try {
-    const res = await useMyFetch('/api/organization/smtp')
-    const s = res.data.value as any
-    smtpEnabled.value = !!s?.enabled
-    smtpHostLabel.value = s?.host ? `${s.host}:${s.port || 587}` : ''
-  } catch (e) {
-    smtpEnabled.value = false
-  }
-}
-
-const showEmailModal = ref(false)
 const emailIntegrated = ref(false)
 const emailConfig = ref<{ from_address?: string; inbound_enabled?: boolean; capabilities?: string[] } | null>(null)
 const emailIntegrationData = ref<any>(null)
@@ -379,10 +158,112 @@ const mcpEnabled = ref(false)
 const mcpUpdating = ref(false)
 
 // OAuth clients
-const showOAuthModal = ref(false)
 const oauthClientCount = ref(0)
 
 const { settings, fetchSettings } = useOrgSettings()
+
+// Raw component refs so Vue doesn't try to make them reactive.
+const Slack = markRaw(SlackIntegrationModal)
+const Teams = markRaw(TeamsIntegrationModal)
+const WhatsApp = markRaw(WhatsAppIntegrationModal)
+const Email = markRaw(EmailIntegrationModal)
+const Excel = markRaw(ExcelAddinModal)
+const OAuth = markRaw(OAuthClientsModal)
+
+// Build the integrations list that drives both panes. Each entry carries the
+// component to render inline in the right pane (the former modal contents).
+const integrations = computed(() => {
+  const items: any[] = [
+    {
+      key: 'slack',
+      name: 'Slack',
+      iconType: 'img',
+      icon: '/icons/slack.png',
+      connected: slackIntegrated.value,
+      kind: 'component',
+      component: Slack,
+      props: { integrated: slackIntegrated.value, integrationData: slackIntegrationData.value },
+      onUpdated: fetchIntegrations,
+    },
+    {
+      key: 'teams',
+      name: 'Microsoft Teams',
+      iconType: 'img',
+      icon: '/icons/teams.png',
+      connected: teamsIntegrated.value,
+      kind: 'component',
+      component: Teams,
+      props: { integrated: teamsIntegrated.value, integrationData: teamsIntegrationData.value },
+      onUpdated: fetchIntegrations,
+    },
+    {
+      key: 'whatsapp',
+      name: 'WhatsApp',
+      iconType: 'img',
+      icon: '/icons/whatsapp.png',
+      connected: whatsappIntegrated.value,
+      kind: 'component',
+      component: WhatsApp,
+      props: { integrated: whatsappIntegrated.value, integrationData: whatsappIntegrationData.value },
+      onUpdated: fetchIntegrations,
+    },
+    {
+      key: 'email',
+      name: t('settings.integrations.emailName'),
+      iconType: 'uicon',
+      icon: 'i-heroicons-sparkles',
+      connected: emailIntegrated.value,
+      kind: 'component',
+      component: Email,
+      props: {
+        integrated: emailIntegrated.value,
+        integrationData: emailIntegrationData.value,
+        analystName: analystName.value,
+        prefillDomains: signupDomains.value,
+      },
+      onUpdated: fetchIntegrations,
+    },
+  ]
+
+  if (excelAddinEnabled.value) {
+    items.push({
+      key: 'excel',
+      name: t('settings.integrations.excelAddinName'),
+      iconType: 'img',
+      icon: '/data_sources_icons/excel.png',
+      connected: false,
+      kind: 'component',
+      component: Excel,
+      props: {},
+    })
+  }
+
+  items.push({
+    key: 'mcp',
+    name: t('settings.integrations.mcpName'),
+    iconType: 'mcp',
+    icon: '',
+    description: t('settings.integrations.mcpDescription'),
+    connected: mcpEnabled.value,
+    kind: 'toggle',
+  })
+
+  items.push({
+    key: 'oauth',
+    name: t('settings.integrations.oauthName'),
+    iconType: 'uicon',
+    icon: 'i-heroicons-key',
+    connected: oauthClientCount.value > 0,
+    kind: 'component',
+    component: OAuth,
+    props: {},
+    onUpdated: fetchOAuthClientCount,
+  })
+
+  return items
+})
+
+const selectedItem = computed(() => integrations.value.find(i => i.key === selectedKey.value) || null)
 
 async function fetchIntegrations() {
   const res = await useMyFetch('/api/settings/integrations')
@@ -461,6 +342,5 @@ onMounted(() => {
   loadMcpState()
   fetchOAuthClientCount()
   fetchSignupDomains()
-  fetchSmtp()
 })
 </script>

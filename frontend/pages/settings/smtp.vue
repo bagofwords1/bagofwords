@@ -1,25 +1,23 @@
 <template>
-  <div class="p-4">
-    <div class="flex items-center gap-2 mb-2">
-      <UIcon name="i-heroicons-paper-airplane" class="w-5 h-5 text-gray-700" />
-      <h1 class="text-lg font-semibold">SMTP Server</h1>
-    </div>
-    <p class="text-sm text-gray-500">
-      The server used to send your organization's <strong>system emails</strong> —
-      report shares, scheduled‑report results, and invites. When set, it overrides
-      the global SMTP configured in <code>bow-config</code>.
-    </p>
+  <div class="mt-6">
+    <h2 class="text-lg font-medium text-gray-900">
+      SMTP Server
+      <p class="text-sm text-gray-500 font-normal mb-6">
+        The server used to send your organization's <strong>system emails</strong> —
+        report shares, scheduled‑report results, and invites. When set, it overrides
+        the global SMTP configured in <code>bow-config</code>.
+      </p>
+    </h2>
 
-    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 my-3 text-xs text-blue-800">
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 my-3 text-xs text-blue-800 md:w-2/3">
       <strong>SMTP Server vs AI Mailbox.</strong> This SMTP server only sends
       <em>system</em> notifications. It is <em>not</em> used by the AI analyst —
       the analyst's replies and answers always come from the separate
       <strong>AI Mailbox</strong>. Configure them independently.
     </div>
-    <hr class="my-3" />
 
-    <form @submit.prevent="save">
-      <label class="flex items-center gap-2 mb-3 cursor-pointer">
+    <form class="md:w-2/3" @submit.prevent="save">
+      <label class="flex items-center gap-2 my-4 cursor-pointer">
         <UToggle v-model="form.enabled" />
         <span class="text-sm font-semibold text-gray-800">Use a custom SMTP server for system emails</span>
       </label>
@@ -87,15 +85,14 @@
         <span>{{ testResult.text }}</span>
       </p>
     </form>
-
-    <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600" @click="$emit('close')">✕</button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { reactive, ref, onMounted } from 'vue'
 
-const emit = defineEmits(['close', 'updated'])
+definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+
 const toast = useToast()
 
 const form = reactive({
@@ -142,7 +139,6 @@ async function save() {
     const res = await useMyFetch('/api/organization/smtp', { method: 'PUT', body: payload() })
     if (res.status.value === 'success') {
       toast.add({ title: 'SMTP saved', color: 'green' })
-      emit('updated'); emit('close')
     } else {
       toast.add({ title: 'Failed to save SMTP', description: (res.error.value as any)?.data?.detail || 'Error', color: 'red' })
     }
@@ -167,7 +163,6 @@ async function test() {
     } else {
       testResult.value = { ok: false, text: data?.smtp || 'Connection failed — check the settings' }
     }
-    emit('updated')
   } finally {
     saving.value = false
     testing.value = false

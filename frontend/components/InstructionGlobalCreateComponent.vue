@@ -2,8 +2,10 @@
     <div class="flex flex-col h-full">
         <!-- VIEW MODE: Read-only display for existing instructions -->
         <div v-if="isEditing && isViewMode" class="flex-1 flex flex-col min-h-0">
-            <!-- Scrollable content area -->
-            <div class="flex-1 overflow-y-auto px-6 py-3 space-y-2">
+            <!-- Two-column body: content (left) + metadata sidebar (right) -->
+            <div class="flex-1 flex min-h-0">
+            <!-- Left: content -->
+            <div class="flex-1 min-w-0 overflow-y-auto px-6 py-3 space-y-2">
 
                 <!-- Title & Git Info -->
                 <div class="flex items-start justify-between gap-3">
@@ -186,27 +188,37 @@
                     />
                 </div>
 
+            </div>
+            <!-- Middle: analysis panel (only while analyzing) -->
+            <div v-if="analyzing" class="flex-1 min-w-0 overflow-hidden">
+                <slot name="analyze" />
+            </div>
+            <!-- Right: metadata sidebar -->
+            <div class="w-[340px] shrink-0 overflow-y-auto border-s border-gray-100 bg-gray-50/30 px-5 py-4 space-y-4">
+
                 <!-- Created/Approved By -->
-                <div v-if="props.instruction" class="flex flex-wrap items-center gap-4 text-xs">
+                <div v-if="props.instruction" class="flex flex-col gap-2 text-xs">
                     <!-- Created By -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.createdBy') }}</span>
-                        <div class="inline-flex items-center gap-1 text-gray-700">
-                            <Icon :name="getSourceTypeIcon()" class="w-3 h-3" :class="getSourceTypeIconClass()" />
-                            <span>{{ getCreatorDisplayName() }}</span>
+                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.createdBy') }}</span>
+                        <div class="inline-flex items-center gap-1 text-gray-700 min-w-0">
+                            <Icon :name="getSourceTypeIcon()" class="w-3 h-3 shrink-0" :class="getSourceTypeIconClass()" />
+                            <span class="truncate">{{ getCreatorDisplayName() }}</span>
                         </div>
-                        <span v-if="createdAtDisplay" class="text-gray-400">{{ createdAtDisplay }}</span>
                     </div>
+                    <div v-if="createdAtDisplay" class="text-[11px] text-gray-400 ps-0.5">{{ createdAtDisplay }}</div>
 
                     <!-- Approved By (if exists) -->
                     <div v-if="props.instruction?.reviewed_by" class="flex items-center gap-1.5">
-                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.approvedBy') }}</span>
-                        <span class="text-gray-700">{{ props.instruction.reviewed_by.name || props.instruction.reviewed_by.email }}</span>
+                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.approvedBy') }}</span>
+                        <span class="text-gray-700 truncate">{{ props.instruction.reviewed_by.name || props.instruction.reviewed_by.email }}</span>
                     </div>
                 </div>
 
+                <div class="border-t border-gray-100"></div>
+
                 <!-- Metadata Display (read-only) -->
-                <div class="flex flex-wrap items-center gap-3 text-xs">
+                <div class="flex flex-col gap-2.5 text-xs">
                     <!-- Status -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">{{ $t('instructionGlobalCreate.fields.status') }}</span>
@@ -304,7 +316,8 @@
                 </div>
 
             </div>
-            
+            </div>
+
             <!-- View Mode Actions (fixed at bottom) -->
             <div class="shrink-0 bg-white border-t px-5 py-3">
                 <div class="flex justify-between items-center">
@@ -340,8 +353,10 @@
 
         <!-- EDIT MODE: Form for creating/editing instructions -->
         <form v-else @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
-            <!-- Scrollable content area -->
-            <div class="flex-1 overflow-y-auto px-6 py-3 space-y-2">
+            <!-- Two-column body: editor (left) + config sidebar (right) -->
+            <div class="flex-1 flex min-h-0">
+            <!-- Left: title + editor -->
+            <div class="flex-1 min-w-0 overflow-y-auto px-6 py-3 space-y-2">
 
                 <!-- Title row: inline input + mode toggle + git sync -->
                 <div class="flex items-center justify-between gap-3">
@@ -446,16 +461,24 @@
                     </div>
                 </div>
 
-                <!-- Horizontal Config Row -->
-                <div class="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg">
-                    <!-- Status -->
-                    <USelectMenu 
-                        v-model="instructionForm.status" 
-                        :options="statusOptions" 
-                        option-attribute="label" 
-                        value-attribute="value" 
+            </div>
+            <!-- Middle: analysis panel (only while analyzing) -->
+            <div v-if="analyzing" class="flex-1 min-w-0 overflow-hidden">
+                <slot name="analyze" />
+            </div>
+            <!-- Right: config sidebar -->
+            <div class="w-[340px] shrink-0 overflow-y-auto border-s border-gray-100 bg-gray-50/30 px-5 py-4 space-y-4">
+
+                <!-- Status -->
+                <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.status') }}</label>
+                    <USelectMenu
+                        v-model="instructionForm.status"
+                        :options="statusOptions"
+                        option-attribute="label"
+                        value-attribute="value"
                         size="xs"
-                        class="w-auto"
+                        class="w-full"
                     >
                         <template #label>
                             <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
@@ -468,15 +491,18 @@
                             </span>
                         </template>
                     </USelectMenu>
-                    
-                    <!-- Category -->
-                    <USelectMenu 
-                        v-model="instructionForm.category" 
-                        :options="categoryOptions" 
-                        option-attribute="label" 
-                        value-attribute="value" 
+                </div>
+
+                <!-- Category -->
+                <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.category') }}</label>
+                    <USelectMenu
+                        v-model="instructionForm.category"
+                        :options="categoryOptions"
+                        option-attribute="label"
+                        value-attribute="value"
                         size="xs"
-                        class="min-w-[120px]"
+                        class="w-full"
                     >
                         <template #label>
                             <div class="inline-flex items-center text-xs text-gray-700">
@@ -491,16 +517,19 @@
                             </div>
                         </template>
                     </USelectMenu>
+                </div>
 
-                    <!-- AI Context Loading -->
-                    <USelectMenu 
-                        v-model="instructionForm.load_mode" 
-                        :options="loadModeOptions" 
-                        option-attribute="label" 
-                        value-attribute="value" 
+                <!-- AI Context Loading -->
+                <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.loading') }}</label>
+                    <USelectMenu
+                        v-model="instructionForm.load_mode"
+                        :options="loadModeOptions"
+                        option-attribute="label"
+                        value-attribute="value"
                         size="xs"
-                        class="w-auto"
-                        :ui-menu="{ width: 'w-60' }"
+                        class="w-full"
+                        :ui-menu="{ width: 'w-full' }"
                     >
                         <template #label>
                             <div class="inline-flex items-center text-xs text-gray-700">
@@ -518,8 +547,11 @@
                             </div>
                         </template>
                     </USelectMenu>
+                </div>
 
-                    <!-- Labels -->
+                <!-- Labels -->
+                <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.labels') }}</label>
                     <USelectMenu
                         :model-value="selectedLabelIds"
                         @update:modelValue="handleLabelSelectionChange"
@@ -528,7 +560,7 @@
                         value-attribute="id"
                         multiple
                         size="xs"
-                        class="flex-1 min-w-[120px]"
+                        class="w-full"
                         searchable
                         :searchable-placeholder="$t('instructionGlobalCreate.searchLabels')"
                     >
@@ -575,39 +607,45 @@
                             </div>
                         </template>
                     </USelectMenu>
+                </div>
 
-                    <!-- Visibility Toggle -->
+                <!-- Visibility -->
+                <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.visibility') }}</label>
                     <UTooltip
                         :text="instructionForm.is_seen ? $t('instructionGlobalCreate.tooltips.visibleInList') : $t('instructionGlobalCreate.tooltips.hiddenFromList')"
                         :popper="{ placement: 'top' }"
+                        class="block"
                     >
                         <button
                             type="button"
                             @click="instructionForm.is_seen = !instructionForm.is_seen"
-                            class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-all"
-                            :class="instructionForm.is_seen 
-                                ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50' 
+                            class="flex w-full items-center justify-between gap-1 px-2 py-1.5 text-xs rounded-md border transition-all"
+                            :class="instructionForm.is_seen
+                                ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                                 : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200'"
                         >
-                            <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3" />
-                            <span>{{ instructionForm.is_seen ? $t('instructionGlobalCreate.status.visible') : $t('instructionGlobalCreate.status.hidden') }}</span>
+                            <span class="inline-flex items-center gap-1">
+                                <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3" />
+                                <span>{{ instructionForm.is_seen ? $t('instructionGlobalCreate.status.visible') : $t('instructionGlobalCreate.status.hidden') }}</span>
+                            </span>
                         </button>
                     </UTooltip>
                 </div>
 
-                <!-- Scope Row -->
-                <div class="flex items-center gap-3">
-                    <span class="text-[11px] text-gray-500 shrink-0">{{ $t('instructionGlobalCreate.fields.scope') }}</span>
-                    
-                    <!-- Data Sources -->
-                    <USelectMenu 
-                        v-model="selectedDataSources" 
-                        :options="dataSourceOptions" 
+                <div class="border-t border-gray-100"></div>
+
+                <!-- Scope: Data Sources -->
+                <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.dataSources') }}</label>
+                    <USelectMenu
+                        v-model="selectedDataSources"
+                        :options="dataSourceOptions"
                         option-attribute="name"
                         value-attribute="id"
                         size="xs"
                         multiple
-                        class="min-w-[200px]"
+                        class="w-full"
                     >
                         <template #label>
                             <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">{{ $t('instructionGlobalCreate.allSources') }}</span>
@@ -628,8 +666,11 @@
                             </div>
                         </template>
                     </USelectMenu>
+                </div>
 
-                    <!-- References (Tables & Instructions) -->
+                <!-- Scope: References -->
+                <div>
+                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.references') }}</label>
                     <USelectMenu
                         :options="filteredMentionableOptions"
                         option-attribute="name"
@@ -640,7 +681,7 @@
                         :searchable-placeholder="$t('instructionGlobalCreate.searchReferences')"
                         :model-value="selectedReferenceIds"
                         @update:model-value="handleReferencesChange"
-                        class="min-w-[200px]"
+                        class="w-full"
                         :ui-menu="{ width: 'w-96', option: { base: 'py-1.5' } }"
                     >
                         <template #label>
@@ -670,6 +711,7 @@
                     </USelectMenu>
                 </div>
 
+            </div>
             </div>
             
             <!-- Form Actions (fixed at bottom) -->

@@ -446,21 +446,23 @@
 				</template>
 				<!-- Chat / deep mode empty state -->
 				<template v-else>
-					<h1 class="text-4xl mb-4">🪴</h1>
-					<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
-					<hr class="my-4">
-					<p class="text-gray-500 text-sm"><span class="font-semibold">{{ $t('reports.emptyTipLabel') }}</span> <br />
-						{{ $t('reports.emptyTipBody') }}
-					</p>
-					<div v-if="agentConversationStarters.length > 0" class="mt-4 flex flex-wrap gap-2">
-						<button
-							v-for="s in agentConversationStarters"
-							:key="s.title"
-							class="px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors"
-							@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
-						>
-							{{ s.title }}
-						</button>
+					<div class="flex flex-col items-center text-center">
+						<img
+							src="/assets/empty-states/empty-integrations.png"
+							alt=""
+							class="w-64 max-w-full mb-6 select-none pointer-events-none"
+						/>
+						<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
+						<div v-if="agentConversationStarters.length > 0" class="mt-5 flex flex-wrap justify-center gap-2">
+							<button
+								v-for="s in agentConversationStarters"
+								:key="s.title"
+								class="px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors"
+								@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
+							>
+								{{ s.title }}
+							</button>
+						</div>
 					</div>
 				</template>
 			</div>

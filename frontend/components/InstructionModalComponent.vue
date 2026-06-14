@@ -8,7 +8,7 @@
                 <div 
                     class="relative bg-white rounded-xl shadow-2xl w-[94vw] overflow-hidden z-10 overscroll-contain flex flex-col"
                     :style="{
-                        maxWidth: isAnalyzing ? '1200px' : '680px',
+                        maxWidth: isAnalyzing ? '1400px' : '960px',
                         maxHeight: 'min(85vh, 800px)',
                         transition: 'max-width 300ms cubic-bezier(0.4, 0, 0.2, 1)'
                     }"
@@ -25,7 +25,7 @@
                     <div 
                         class="flex-1 min-h-0 grid transition-all duration-300 ease-out"
                         :style="{
-                            gridTemplateColumns: isAnalyzing ? '1fr 1fr' : '1fr 0px'
+                            gridTemplateColumns: isAnalyzing ? 'minmax(0, 1.75fr) minmax(0, 1fr)' : '1fr 0px'
                         }"
                     >
                         <!-- Left: Form -->
