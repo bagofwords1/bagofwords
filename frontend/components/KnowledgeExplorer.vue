@@ -90,6 +90,19 @@
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" text="No tools connected." :pad="48" />
               </TreeGroup>
 
+              <TreeGroup label="Files" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)">
+                <button
+                  v-for="f in (agentFiles[agent.id] || [])" :key="f.id"
+                  class="w-full flex items-center gap-2 h-7 rounded-md text-xs transition-colors min-w-0"
+                  :class="previewFile && previewFile.id === f.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'"
+                  style="padding-left:48px;padding-right:8px" @click="openFile(f)"
+                >
+                  <UIcon :name="fileIcon(f.content_type, f.filename)" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  <span class="flex-1 text-left truncate">{{ f.filename }}</span>
+                </button>
+                <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" text="No files." :pad="48" />
+              </TreeGroup>
+
               <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
                 <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
                 <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
@@ -112,7 +125,33 @@
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
       <section class="flex-1 min-w-0 flex flex-col">
-        <template v-if="detail || creating">
+        <!-- File preview -->
+        <template v-if="previewFile">
+          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
+            <div class="flex items-center gap-2 min-w-0">
+              <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-4 h-4 text-gray-400 shrink-0" />
+              <span class="text-xs font-medium text-gray-700 truncate">{{ previewFile.filename }}</span>
+              <span class="text-[10px] text-gray-300 shrink-0">{{ previewFile.content_type }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button v-if="previewUrl" class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="downloadPreview">Open</button>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePreview"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-auto p-6">
+            <div v-if="previewLoading" class="text-center text-xs text-gray-400 py-10">Loading…</div>
+            <img v-else-if="isImage(previewFile) && previewUrl" :src="previewUrl" class="max-w-full rounded-lg border border-gray-200" />
+            <iframe v-else-if="isPdf(previewFile) && previewUrl" :src="previewUrl" class="w-full h-[72vh] rounded-lg border border-gray-200"></iframe>
+            <pre v-else-if="previewText !== null" class="text-xs text-gray-800 whitespace-pre-wrap font-mono bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-auto">{{ previewText }}</pre>
+            <div v-else class="text-center text-sm text-gray-400 py-10">
+              <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-9 h-9 mx-auto text-gray-200" />
+              <p class="mt-2">No inline preview for this file type.</p>
+              <button v-if="previewUrl" class="mt-2 text-xs text-gray-700 underline" @click="downloadPreview">Open file</button>
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="detail || creating">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
             <div class="flex items-center gap-2 min-w-0">
               <template v-if="creating">
@@ -253,7 +292,14 @@ const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSourc
 const expanded = ref<Set<string>>(new Set())
 const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean }[]>>({})
 const agentTools = ref<Record<string, any[]>>({})
+const agentFiles = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
+
+// file preview
+const previewFile = ref<any | null>(null)
+const previewUrl = ref<string | null>(null)
+const previewText = ref<string | null>(null)
+const previewLoading = ref(false)
 
 const selectedId = ref<string | null>(null)
 const detail = ref<Instruction | null>(null)
@@ -331,7 +377,33 @@ const loadAgentMeta = async (id: string) => {
   agentLoaded.value.add(id)
   try { const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema`, { method: 'GET' }); const items = Array.isArray(data.value) ? data.value : (data.value?.items || []); agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false })) } catch { agentTables.value[id] = [] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/tools`, { method: 'GET' }); agentTools.value[id] = data.value || [] } catch { agentTools.value[id] = [] }
-  agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }
+  try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/files`, { method: 'GET' }); agentFiles.value[id] = data.value || [] } catch { agentFiles.value[id] = [] }
+  agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }; agentFiles.value = { ...agentFiles.value }
+}
+
+// ── File preview ────────────────────────────────────────
+const TEXT_EXT = /\.(md|markdown|txt|csv|tsv|json|sql|ya?ml|log|xml|html?|ini|toml|env|sh)$/i
+const fileIcon = (ct?: string, name?: string) => {
+  const c = ct || ''
+  if (/^image\//.test(c) || /\.(png|jpe?g|gif|webp|svg)$/i.test(name || '')) return 'i-heroicons-photo'
+  if (c === 'application/pdf' || /\.pdf$/i.test(name || '')) return 'i-heroicons-document'
+  if (/csv|excel|spreadsheet/.test(c) || /\.(csv|tsv|xlsx?)$/i.test(name || '')) return 'i-heroicons-table-cells'
+  if (/^text\/|json/.test(c) || TEXT_EXT.test(name || '')) return 'i-heroicons-document-text'
+  return 'i-heroicons-paper-clip'
+}
+const isImage = (f: any) => /^image\//.test(f?.content_type || '') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f?.filename || '')
+const isPdf = (f: any) => f?.content_type === 'application/pdf' || /\.pdf$/i.test(f?.filename || '')
+const isText = (f: any) => /^text\/|json|csv/.test(f?.content_type || '') || TEXT_EXT.test(f?.filename || '')
+const closePreview = () => { previewFile.value = null; if (previewUrl.value) { URL.revokeObjectURL(previewUrl.value); previewUrl.value = null } previewText.value = null }
+const downloadPreview = () => { if (previewUrl.value) window.open(previewUrl.value, '_blank') }
+const openFile = async (f: any) => {
+  detail.value = null; creating.value = false; editing.value = false; selectedId.value = null
+  closePreview(); previewFile.value = f; previewLoading.value = true
+  try {
+    const { data } = await useMyFetch<any>(`/api/files/${f.id}/content`, { method: 'GET', responseType: 'blob' as any })
+    const blob = data.value as Blob | null
+    if (blob) { if (isText(f)) previewText.value = await blob.text(); else previewUrl.value = URL.createObjectURL(blob) }
+  } catch (e) { /* ignore */ } finally { previewLoading.value = false }
 }
 
 // ── Counts ──────────────────────────────────────────────
@@ -366,7 +438,7 @@ const listForTable = (agentId: string, tableId: string) => applyFilters(allInstr
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  creating.value = false; createRefs.value = []
+  closePreview(); creating.value = false; createRefs.value = []
   selectedId.value = ins.id; detail.value = ins; editing.value = false
   syncDraft(ins); loadVersions(ins.id)
   try {
@@ -387,7 +459,7 @@ const syncDraft = (ins: Instruction) => {
   draft.label_ids = (ins.labels || []).map((l: any) => l.id)
 }
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
-  detail.value = null; selectedId.value = null; versions.value = []
+  closePreview(); detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
   draft.title = ''; draft.text = ''; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
