@@ -882,7 +882,7 @@
     },
     "auditLogs": "Журналы аудита",
     "integrations": {
-      "title": "Интеграции",
+      "title": "Каналы",
       "subtitle": "Настройте внешние платформы, такие как Slack и Microsoft Teams, для вашей организации.",
       "connected": "Подключено",
       "notConnected": "Не подключено",

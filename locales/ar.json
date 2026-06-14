@@ -882,7 +882,7 @@
     },
     "auditLogs": "سجلات التدقيق",
     "integrations": {
-      "title": "التكاملات",
+      "title": "القنوات",
       "subtitle": "اضبط منصات خارجية مثل Slack وMicrosoft Teams لمؤسستك.",
       "connected": "متصل",
       "notConnected": "غير متصل",
