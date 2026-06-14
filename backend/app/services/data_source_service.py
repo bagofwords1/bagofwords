@@ -1246,12 +1246,32 @@ class DataSourceService:
         # Apply deletions before removing the data source to avoid NULLing non-nullable FKs
         await db.commit()
 
-        # 6) Delete schema tables associated with this data source (commits internally)
-        await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
-
-        # 7) Finally delete the data source
-        await db.delete(data_source)
-        await db.commit()
+        # 6) Delete schema tables and the data source, retrying if a concurrent
+        #    connection-indexing job re-creates datasource_tables rows in between.
+        #    Creating a domain from an existing connection can start background
+        #    indexing that syncs DataSourceTable for every linked data source, so
+        #    rows may reappear after we clear them but before the data source is
+        #    removed, causing a foreign-key violation. Re-clear and retry until
+        #    the indexer stops producing rows.
+        max_attempts = 8
+        for attempt in range(max_attempts):
+            # Delete (possibly re-created) schema tables for this data source
+            await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+            try:
+                await db.delete(data_source)
+                await db.commit()
+                break
+            except IntegrityError:
+                await db.rollback()
+                if attempt == max_attempts - 1:
+                    raise
+                # The data source object is expired after rollback; re-fetch it.
+                result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+                data_source = result.scalar_one_or_none()
+                if not data_source:
+                    # Already removed elsewhere; nothing left to delete.
+                    break
+                await asyncio.sleep(min(0.2 * (attempt + 1), 1.0))
 
         # Audit log
         try:
