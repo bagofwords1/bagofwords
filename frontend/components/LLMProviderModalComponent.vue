@@ -403,7 +403,7 @@
                         </div>
 
                 <div class="flex items-center pt-4">
-                    <div v-if="isNewProviderSelected && providerForm.provider_type">
+                    <div v-if="showTestConnection">
                         <UTooltip text="Regular charges may occur">
                             <UButton 
                                 variant="soft" 
@@ -589,6 +589,15 @@ function getFieldPlaceholder(field: CredentialField): string {
 
 const isNewProviderSelected = computed(() => {
     return selectedProvider.value?.type === 'new_provider';
+});
+
+const showTestConnection = computed(() => {
+    // New provider: show once a provider type has been picked
+    if (isNewProviderSelected.value) {
+        return !!providerForm.value.provider_type;
+    }
+    // Existing provider: show whenever a provider is selected for editing
+    return !!selectedProvider.value && selectedProvider.value.type !== 'new_provider';
 });
 
 // fieldsForProvider moved above to include required keys
@@ -1060,6 +1069,7 @@ async function testConnection() {
             }));
 
             payload = {
+                provider_id: selectedProvider.value.id,
                 name: selectedProvider.value.name,
                 provider_type: selectedProvider.value.provider_type || selectedProvider.value.type,
                 credentials: selectedProvider.value.credentials || {},
