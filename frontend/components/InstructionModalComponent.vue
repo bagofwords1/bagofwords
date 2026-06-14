@@ -36,6 +36,7 @@
                                 :instruction="instruction"
                                 :analyzing="isAnalyzing"
                                 :shared-form="sharedForm"
+                                :initial-text="initialText"
                                 :selected-data-sources="selectedDataSources"
                                 :is-git-sourced="isGitSourced"
                                 :is-git-synced="isGitSynced"
@@ -228,6 +229,7 @@ const props = defineProps<{
     initialType?: 'global' | 'private'
     isSuggestion?: boolean
     targetBuildId?: string | null  // If set, update instruction within this existing build
+    initialText?: string  // Seed the text field when creating (e.g. from the command palette)
 }>()
 
 const emit = defineEmits(['update:modelValue', 'instructionSaved'])
@@ -592,6 +594,12 @@ watch(() => props.instruction, (newInstruction) => {
     } else {
         // If the instruction prop is cleared, reset the form for a clean 'create' state.
         resetForm()
+        // Seed the text when opening straight into create mode (e.g. command palette).
+        // Runs here (immediate watcher) because the modal often mounts with
+        // modelValue already true, so the open watcher below never transitions.
+        if (props.initialText) {
+            sharedForm.value.text = props.initialText
+        }
     }
 }, { immediate: true })
 

@@ -222,6 +222,9 @@
   </div>
 
   <McpModal v-if="showMcpModal" v-model="showMcpModal" />
+
+  <!-- Global ⌘K / Ctrl+K command palette -->
+  <CommandPalette />
   </div>
 </template>
 
