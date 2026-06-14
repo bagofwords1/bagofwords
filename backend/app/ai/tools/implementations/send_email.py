@@ -164,6 +164,7 @@ class SendEmailTool(Tool):
                 attachment_specs=data.attachments,
                 report=runtime_ctx.get("report"),
                 organization=runtime_ctx.get("organization"),
+                system_completion=runtime_ctx.get("system_completion"),
             )
         except Exception as e:
             logger.exception("Failed to send email: %s", e)

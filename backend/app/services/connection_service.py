@@ -278,6 +278,25 @@ class ConnectionService:
                     detail="User authentication mode requires an enterprise license."
                 )
 
+        # Scheduled auto-reindex is an enterprise feature. Gate any attempt to
+        # customize the cadence / toggle so community installs can't configure a
+        # job the sweeper will never run for them (the sweeper itself also checks
+        # the license — this just rejects the write with a clear 402).
+        if ("auto_reindex_enabled" in updates) or ("reindex_interval_hours" in updates):
+            from app.ee.license import has_feature
+            if not has_feature("scheduled_reindex"):
+                raise HTTPException(
+                    status_code=402,
+                    detail="Scheduled schema reindexing requires an enterprise license.",
+                )
+            # Sanity-bound the interval (1 hour .. 7 days).
+            ivl = updates.get("reindex_interval_hours")
+            if ivl is not None and (ivl < 1 or ivl > 24 * 7):
+                raise HTTPException(
+                    status_code=400,
+                    detail="reindex_interval_hours must be between 1 and 168.",
+                )
+
         # Default allowed_user_auth_modes when switching to user_required (see create_connection)
         if new_auth_policy == "user_required" and not updates.get("allowed_user_auth_modes"):
             from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
@@ -834,6 +853,10 @@ class ConnectionService:
             # NOTE: our SQLAlchemy DateTime columns are stored as TIMESTAMP WITHOUT TIME ZONE,
             # so we must write naive UTC datetimes (asyncpg will error on tz-aware datetimes).
             connection.last_synced_at = datetime.utcnow()
+            # A successful index clears any scheduled-reindex failure backoff so
+            # the staleness gate alone governs the next auto-reload.
+            connection.next_retry_at = None
+            connection.last_reindex_error = None
             logger.info(f"refresh_schema: Committing {created_count} new tables to database...")
             await db.commit()
             logger.info(f"refresh_schema: Commit successful")

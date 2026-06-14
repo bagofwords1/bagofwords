@@ -28,6 +28,7 @@ TIER_FEATURES = {
         "ldap",
         "domain_signup",
         "usage_limits",
+        "scheduled_reindex",
     ],
 }
 
@@ -54,6 +55,11 @@ class LicenseInfo(BaseModel):
     expires_at: Optional[datetime] = None
     features: List[str] = []
     license_id: Optional[str] = None
+    # Per-organization quotas. -1 means "no limit" (the default when the license
+    # omits them or the instance is unlicensed/expired). A value >= 0 is a hard cap
+    # enforced on member invites and data source ("agent") creation.
+    max_users: int = -1
+    max_agents: int = -1
 
 
 # Cached license info (the license key's signature is verified and decoded once).
@@ -78,6 +84,21 @@ def _get_license_key() -> Optional[str]:
             return None
         return key
     return None
+
+
+def _coerce_limit(value) -> int:
+    """Normalize a quota claim from the JWT into an int limit.
+
+    Anything missing, non-numeric, or negative is treated as "no limit" (-1).
+    A value of 0 is preserved (a deliberate cap of zero), so only >= 0 caps bite.
+    """
+    if value is None:
+        return -1
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return -1
+    return limit if limit >= 0 else -1
 
 
 def _validate_license_key(key: str) -> LicenseInfo:
@@ -125,7 +146,10 @@ def _validate_license_key(key: str) -> LicenseInfo:
             org_name=payload.get("org_name"),
             expires_at=expires_at,
             features=payload.get("features", []),
-            license_id=payload.get("sub")
+            license_id=payload.get("sub"),
+            # Quotas only apply to an active license. Missing/negative → unlimited.
+            max_users=_coerce_limit(payload.get("max_users")),
+            max_agents=_coerce_limit(payload.get("max_agents")),
         )
 
     except jwt.InvalidTokenError as e:
@@ -241,6 +265,22 @@ def is_datasource_allowed(ds_type: str) -> bool:
 
     # Only enterprise tier gets access to enterprise data sources
     return license_info.tier == "enterprise"
+
+
+def get_max_users() -> int:
+    """Max members (active + pending invites) allowed per organization.
+
+    Returns -1 (unlimited) unless an *active* license sets an explicit cap.
+    """
+    return get_license_info().max_users
+
+
+def get_max_agents() -> int:
+    """Max data sources ("agents") allowed per organization.
+
+    Returns -1 (unlimited) unless an *active* license sets an explicit cap.
+    """
+    return get_license_info().max_agents
 
 
 def require_enterprise(feature: Optional[str] = None):

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, Integer, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from cryptography.fernet import Fernet
@@ -31,7 +31,31 @@ class Connection(BaseSchema):
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required
     allowed_user_auth_modes = Column(JSON, nullable=True, default=None)
-    
+
+    # Scheduled schema auto-reload (enterprise feature `scheduled_reindex`).
+    # A background sweeper periodically re-indexes the shared catalog so tables
+    # stay fresh without a manual reindex. Per-connection so admins can tune
+    # cadence (or disable) per source. NULL interval falls back to the default.
+    auto_reindex_enabled = Column(Boolean, nullable=False, default=True)
+    reindex_interval_hours = Column(Integer, nullable=True, default=None)
+    # Failure backoff / "wait for next attempt" state for the sweeper. On a
+    # failed (or skipped) background reindex we set next_retry_at so we don't
+    # hammer the source every tick — user_required catalogs heal on user login
+    # in the meantime. Cleared on a successful index.
+    next_retry_at = Column(DateTime, nullable=True, default=None)
+    last_reindex_error = Column(Text, nullable=True, default=None)
+
+    # Default cadence when reindex_interval_hours is unset (every 12 hours).
+    DEFAULT_REINDEX_INTERVAL_HOURS = 12
+
+    @property
+    def effective_reindex_interval_hours(self) -> int:
+        """Resolved reindex cadence — the per-connection override or the default."""
+        val = self.reindex_interval_hours
+        if val is None or val <= 0:
+            return self.DEFAULT_REINDEX_INTERVAL_HOURS
+        return val
+
     # Organization ownership
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False)
     organization = relationship("Organization", back_populates="connections")

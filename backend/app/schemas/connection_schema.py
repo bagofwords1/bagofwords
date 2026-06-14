@@ -27,6 +27,9 @@ class ConnectionUpdate(BaseModel):
     is_active: Optional[bool] = None
     auth_policy: Optional[str] = None  # system_only, user_required
     allowed_user_auth_modes: Optional[list] = None
+    # Scheduled auto-reindex (enterprise `scheduled_reindex` feature).
+    auto_reindex_enabled: Optional[bool] = None
+    reindex_interval_hours: Optional[int] = None
 
 
 class ConnectionSchema(BaseModel):
@@ -71,6 +74,11 @@ class ConnectionDetailSchema(BaseModel):
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
+    # Scheduled auto-reindex config (enterprise `scheduled_reindex` feature).
+    auto_reindex_enabled: bool = True
+    reindex_interval_hours: Optional[int] = None  # NULL -> default cadence
+    next_retry_at: Optional[str] = None
+    last_reindex_error: Optional[str] = None
 
     class Config:
         from_attributes = True

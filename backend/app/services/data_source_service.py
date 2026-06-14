@@ -279,7 +279,27 @@ class DataSourceService:
 
         if data_source_dict['name'] == '':
             raise HTTPException(status_code=400, detail="Data source name is required")
-        
+
+        # Enforce per-organization agent (data source) cap from the enterprise license.
+        # No-op when unlicensed/unset (max_agents == -1 → unlimited).
+        from app.ee.license import get_max_agents
+        max_agents = get_max_agents()
+        if max_agents >= 0:
+            count_result = await db.execute(
+                select(func.count(DataSource.id)).filter(
+                    DataSource.organization_id == organization.id
+                )
+            )
+            current_agents = count_result.scalar() or 0
+            if current_agents >= max_agents:
+                raise HTTPException(
+                    status_code=402,
+                    detail=(
+                        f"Agent limit reached for your license ({max_agents}). "
+                        "Contact sales to increase your agent count."
+                    ),
+                )
+
         # Remove legacy generation flags (generation now deferred to llm_sync after table selection)
         data_source_dict.pop("generate_summary", None)
         data_source_dict.pop("generate_conversation_starters", None)

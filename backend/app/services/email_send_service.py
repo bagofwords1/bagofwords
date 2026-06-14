@@ -109,12 +109,18 @@ class EmailSendService:
         attachment_specs: Optional[List[EmailAttachmentSpec]] = None,
         report: Any = None,
         organization: Any = None,
+        system_completion: Any = None,
     ) -> SendEmailOutput:
         """Send an email to ``recipient`` with the given attachments.
 
         Attachments are resolved against ``report`` / ``organization`` for
         scoping. Attachment failures are reported per-item but never block the
         send. Returns a :class:`SendEmailOutput`.
+
+        When the org has an Email integration, the message goes out the analyst
+        mailbox, gets a report deep link appended, and is threaded so the
+        recipient's reply re-attaches to this report (``system_completion`` is
+        stamped with the thread root).
         """
         attachment_specs = attachment_specs or []
 
@@ -135,15 +141,63 @@ class EmailSendService:
             from app.services.notification_service import notification_service
 
             subtype = "html" if body_format == "html" else "plain"
+            org_id = getattr(organization, "id", None)
+
+            # Does the org have an Email integration (analyst mailbox)? Drives
+            # the From identity, the reply-to copy, and report re-attachment.
+            integration = await self._email_integration_info(db, org_id)
+
+            # Thread context: reuse this report's existing email root if it has
+            # one (the agent is answering an email thread); otherwise start a new
+            # thread rooted at this message's id and stamp it on the completion.
+            existing_root = getattr(system_completion, "external_thread_ts", None) if system_completion else None
+            new_root = None
+            message_id = None
+            in_reply_to = None
+            references = None
+            if integration:
+                from app.services.email.message_builder import make_message_id
+
+                if existing_root and getattr(system_completion, "external_platform", None) == "email":
+                    message_id = make_message_id()
+                    in_reply_to = existing_root
+                    references = [existing_root]
+                else:
+                    new_root = make_message_id()
+                    message_id = new_root
+
+            body = self._append_report_link(
+                body, subtype, report, can_reply=bool(integration and integration.get("inbound"))
+            )
+
             send_result = await notification_service.send_custom_email(
                 recipients=[recipient],
                 subject=subject,
                 body=body,
                 subtype=subtype,
                 attachments=attachment_dicts or None,
+                db=db,
+                organization_id=org_id,
+                purpose="analyst",
+                message_id=message_id,
+                in_reply_to=in_reply_to,
+                references=references,
             )
 
             success = send_result.status == "sent"
+
+            # On a fresh thread, record the root on the completion so the
+            # recipient's reply re-attaches to THIS report.
+            if success and new_root and system_completion is not None:
+                try:
+                    system_completion.external_platform = "email"
+                    system_completion.external_user_id = recipient
+                    system_completion.external_thread_ts = new_root
+                    system_completion.external_message_ts = new_root
+                    system_completion.external_channel_id = recipient
+                    system_completion.external_channel_type = "im"
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Failed to stamp email thread root on completion: %s", e)
             return SendEmailOutput(
                 success=success,
                 recipient=recipient,
@@ -159,6 +213,51 @@ class EmailSendService:
                     os.unlink(p)
                 except Exception:
                     pass
+
+    async def _email_integration_info(self, db, org_id) -> Optional[Dict[str, Any]]:
+        """Return {"inbound": bool} if the org has an active Email integration, else None."""
+        if db is None or not org_id:
+            return None
+        try:
+            from sqlalchemy import select
+            from app.models.external_platform import ExternalPlatform
+
+            stmt = select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == org_id,
+                ExternalPlatform.platform_type == "email",
+                ExternalPlatform.is_active == True,  # noqa: E712
+            )
+            res = await db.execute(stmt)
+            platform = res.scalar_one_or_none()
+            if not platform:
+                return None
+            cfg = platform.platform_config or {}
+            return {"inbound": bool(cfg.get("inbound_enabled"))}
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _append_report_link(self, body: str, subtype: str, report: Any, can_reply: bool) -> str:
+        """Append a report deep link (and reply hint) to the email body."""
+        rid = getattr(report, "id", None)
+        if not rid:
+            return body
+        try:
+            from app.settings.config import settings
+            base = settings.bow_config.base_url
+        except Exception:  # noqa: BLE001
+            base = ""
+        url = f"{base}/reports/{rid}"
+        hint = (
+            "Reply to this email to continue the conversation, or open it in Bag of words:"
+            if can_reply else "Open this in Bag of words:"
+        )
+        if subtype == "html":
+            return (
+                f"{body}<hr>"
+                f"<p style=\"color:#888;font-size:12px\">{hint}<br>"
+                f"<a href=\"{url}\">{url}</a></p>"
+            )
+        return f"{body}\n\n— {hint}\n{url}"
 
     # ---- attachment resolution ----
 

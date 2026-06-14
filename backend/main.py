@@ -43,6 +43,7 @@ from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.data_sources.clients.powerbi_report_server_client import warm_all_pbirs_caches
+from app.services.scheduled_reindex import sweep_due_reindexes
 from app.core.otel import setup_telemetry, instrument_app
 from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
@@ -432,6 +433,26 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule PBIRS warmup job: {e}")
 
+    # Periodic schema auto-reload: re-index connection schemas whose tables are
+    # stale past their per-connection interval (enterprise `scheduled_reindex`).
+    # A frequent, cheap sweep + staleness gate keeps reindex work proportional
+    # to N/interval rather than O(N) per tick; the sweep no-ops without license.
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                sweep_due_reindexes,
+                trigger="interval",
+                minutes=10,
+                id="schema_reindex_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=600,
+            )
+            logger.info("Scheduled job: schema_reindex_sweep every 10 minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule schema reindex sweep job: {e}")
+
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):
         try:
@@ -462,6 +483,26 @@ async def startup_event():
         from app.services.scheduled_prompt_service import scheduled_prompt_service
         await scheduled_prompt_service.register_all_jobs()
 
+    # Inbound email polling. Email has no native webhook, so the leader worker
+    # polls each org's analyst mailbox (IMAP) and routes authentic messages to
+    # the same agent path Slack/Teams use. Leader-gated like the warmup jobs so
+    # N workers don't all poll the same mailbox.
+    if is_scheduler_leader:
+        try:
+            import asyncio
+            from app.services.email_poller_service import run_email_pollers
+
+            app.state.email_poller_stop = asyncio.Event()
+            interval = settings.bow_config.email_poll_interval_seconds if hasattr(
+                settings.bow_config, "email_poll_interval_seconds"
+            ) else 30
+            app.state.email_poller_task = asyncio.create_task(
+                run_email_pollers(interval_seconds=interval, stop_event=app.state.email_poller_stop)
+            )
+            logger.info("Started inbound email poller (interval=%ss)", interval)
+        except Exception as e:
+            logger.error(f"Failed to start email poller: {e}")
+
     # Validate license at startup
     license_info = get_license_info()
     license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
@@ -491,6 +532,15 @@ Starting server with configuration:
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_tool_audit_worker()
+    stop_event = getattr(app.state, "email_poller_stop", None)
+    if stop_event is not None:
+        stop_event.set()
+    poller_task = getattr(app.state, "email_poller_task", None)
+    if poller_task is not None:
+        try:
+            await poller_task
+        except Exception:
+            pass
     scheduler.shutdown()
 
 if __name__ == "__main__":

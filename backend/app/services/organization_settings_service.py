@@ -516,6 +516,105 @@ class OrganizationSettingsService:
             auto_invite_role=role_name,
         )
 
+    async def get_smtp(self, db: AsyncSession, organization: Organization, current_user: User):
+        """Return the org's SMTP server config (password redacted)."""
+        from app.schemas.organization_settings_schema import OrgSmtpSchema
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get("smtp") or {}
+        return OrgSmtpSchema(
+            enabled=bool(raw.get("enabled", False)),
+            host=raw.get("host"),
+            port=int(raw.get("port") or 587),
+            security=raw.get("security") or "starttls",
+            username=raw.get("username"),
+            password_set=bool(raw.get("password_enc")),
+            from_address=raw.get("from_address"),
+            from_name=raw.get("from_name"),
+            validate_certs=bool(raw.get("validate_certs", True)),
+        )
+
+    async def update_smtp(self, db: AsyncSession, organization: Organization, current_user: User, data):
+        """Persist the org's SMTP server; the password is Fernet-encrypted."""
+        from app.schemas.organization_settings_schema import OrgSmtpSchema
+        from app.services.email.secrets import encrypt_secret
+
+        settings = await self.get_settings(db, organization, current_user)
+        if settings.config is None:
+            settings.config = {}
+        current_config = dict(settings.config)
+        existing = current_config.get("smtp") or {}
+
+        smtp = {
+            "enabled": bool(data.enabled),
+            "host": (data.host or "").strip() or None,
+            "port": int(data.port or 587),
+            "security": data.security or "starttls",
+            "username": (data.username or "").strip() or None,
+            "from_address": (data.from_address or "").strip() or None,
+            "from_name": data.from_name,
+            "validate_certs": bool(data.validate_certs),
+            # Keep the existing encrypted password unless a new one is supplied.
+            "password_enc": existing.get("password_enc"),
+        }
+        if data.password:
+            smtp["password_enc"] = encrypt_secret(data.password)
+
+        if smtp["enabled"] and not smtp["host"]:
+            raise HTTPException(status_code=400, detail="SMTP host is required when enabled")
+
+        current_config["smtp"] = smtp
+        settings.config = current_config
+        settings.updated_at = datetime.utcnow()
+        flag_modified(settings, "config")
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="settings.org_smtp_updated", user_id=str(current_user.id),
+                resource_type="organization_settings", resource_id=str(settings.id),
+                details={"enabled": smtp["enabled"], "host": smtp["host"]},
+            )
+        except Exception:
+            pass
+
+        return await self.get_smtp(db, organization, current_user)
+
+    async def test_smtp(self, db: AsyncSession, organization: Organization, current_user: User) -> dict:
+        """Probe the org's saved SMTP server (connect + auth, no send)."""
+        from app.services.email_client_resolver import get_org_smtp
+        from app.services.email.sender import SmtpConfig, _tls_context
+        import aiosmtplib
+
+        smtp = await get_org_smtp(db, organization.id)
+        if not (smtp and smtp.get("host")):
+            return {"success": False, "smtp": "no SMTP host configured"}
+        cfg = SmtpConfig(
+            host=smtp["host"], port=int(smtp.get("port") or 587),
+            username=smtp.get("username"), password=smtp.get("password"),
+            security=smtp.get("security") or "starttls",
+            validate_certs=bool(smtp.get("validate_certs", True)),
+        ).resolved()
+        try:
+            kwargs = dict(
+                hostname=cfg.host, port=cfg.port,
+                use_tls=(cfg.security == "ssl"),
+                start_tls=(cfg.security == "starttls"), timeout=15,
+            )
+            tls_context = _tls_context(cfg)
+            if tls_context is not None:
+                kwargs["tls_context"] = tls_context
+            client = aiosmtplib.SMTP(**kwargs)
+            await client.connect()
+            if cfg.username and cfg.password:
+                await client.login(cfg.username, cfg.password)
+            await client.quit()
+            return {"success": True, "smtp": "ok"}
+        except Exception as e:
+            return {"success": False, "smtp": f"failed: {e}"}
+
     async def get_locale(
         self,
         db: AsyncSession,
