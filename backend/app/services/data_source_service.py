@@ -3111,6 +3111,9 @@ class DataSourceService:
                         db, data_source, conn, max_auto_select=None
                     )
                 if not per_user_conns:
+                    user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                    if user_scoped is not None:
+                        return user_scoped
                     schemas = await data_source.get_schemas(db=db, include_inactive=True)
                     return schemas
 
@@ -3121,13 +3124,50 @@ class DataSourceService:
 
             # Mixed (shared + per-user) already refreshed the shared side above.
             if shared_conns:
+                user_scoped = await self._refresh_shared_user_overlay(db, data_source, current_user)
+                if user_scoped is not None:
+                    return user_scoped
                 schemas = await data_source.get_schemas(db=db, include_inactive=True)
                 return schemas
 
         # No connections at all: legacy direct fetch (nothing to link against).
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas or []
-    
+
+    async def _refresh_shared_user_overlay(self, db: AsyncSession, data_source: DataSource, current_user: User):
+        """On an explicit reload of a SHARED-catalog, user_required (delegated/OBO,
+        e.g. Fabric/PowerBI) source, also refresh the CALLER's per-user overlay.
+
+        The shared-catalog refresh above only updates the canonical catalog
+        (ConnectionTable -> DataSourceTable). But the tables selector is
+        overlay-scoped for a caller running with their own delegated token
+        (effective_auth == "user"), so without this the caller sees ZERO tables
+        right after reloading and only sees them later, once an unrelated path
+        (sign-in, OAuth connect, credential upsert) lazily warms the overlay.
+
+        Returns the caller's user-scoped schema list when the overlay applies, or
+        None to signal the caller should get the full canonical catalog (admin via
+        service account, or a non-delegated source).
+        """
+        conns = getattr(data_source, "connections", None) or []
+        auth_policy = (conns[0].auth_policy if conns else "system_only") or "system_only"
+        if auth_policy != "user_required" or current_user is None:
+            return None
+        effective_auth = await self._resolve_effective_auth(db, data_source, current_user)
+        if effective_auth == "user":
+            # Caller runs with their own token: populate + return their overlay so
+            # the reload reflects exactly the tables they can query.
+            try:
+                schemas = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                return schemas or []
+            except Exception:
+                return []
+        if effective_auth == "none":
+            # No proven access (disconnected/expired) → nothing to show.
+            return []
+        # effective_auth == "system": admin via service account → full catalog.
+        return None
+
     async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
