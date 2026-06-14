@@ -958,7 +958,7 @@
     },
     "auditLogs": "יומני ביקורת",
     "integrations": {
-      "title": "אינטגרציות",
+      "title": "ערוצים",
       "subtitle": "הגדר פלטפורמות חיצוניות כמו Slack ו-Microsoft Teams עבור הארגון שלך.",
       "connected": "מחובר",
       "notConnected": "לא מחובר",
