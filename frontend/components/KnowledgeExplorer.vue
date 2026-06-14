@@ -112,13 +112,18 @@
         </div>
 
         <!-- Connections footer -->
-        <div v-if="connections.length" class="border-t border-gray-200 px-3 py-2 flex items-center gap-2">
+        <div class="border-t border-gray-200 px-3 py-2 flex items-center gap-2">
           <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mr-1">Connections</span>
           <UTooltip v-for="c in connections" :key="c.id" :text="`${c.name} · ${c.type}`">
-            <a :href="'/agents'" target="_blank" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 hover:bg-gray-50">
+            <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 hover:bg-gray-50" @click="openConnectionDetail(c)">
               <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
               <span class="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
-            </a>
+            </button>
+          </UTooltip>
+          <UTooltip v-if="canCreateDataSource" text="New connection">
+            <button type="button" class="inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600" @click="showAddConnection = true">
+              <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+            </button>
           </UTooltip>
         </div>
       </aside>
@@ -176,7 +181,24 @@
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto px-8 py-6 max-w-3xl">
+          <!-- Diff view (version compare / suggestion) -->
+          <div v-if="diff" class="flex-1 flex flex-col min-h-0">
+            <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs font-medium text-gray-700 truncate">{{ diff.title }}</span>
+                <span class="text-[10px] text-gray-400 shrink-0">current ↔ {{ diff.label }}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button v-if="diff.buildId && canApprove" class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50" :disabled="approving === diff.buildId" @click="approveSuggestion({ build_id: diff.buildId })">{{ approving === diff.buildId ? 'Approving…' : 'Approve' }}</button>
+                <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="closeDiff">Close</button>
+              </div>
+            </div>
+            <div class="flex-1 min-h-0 p-4">
+              <MonacoDiffEditor :original="diff.original" :modified="diff.modified" language="markdown" height="68vh" />
+            </div>
+          </div>
+
+          <div v-else class="flex-1 overflow-y-auto px-8 py-6 max-w-3xl">
             <!-- Title -->
             <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-4" />
             <h2 v-else class="text-lg font-semibold text-gray-900 mb-4">{{ displayTitle(detail) }}</h2>
@@ -246,25 +268,56 @@
         </div>
       </section>
 
-      <!-- ── Pane 3: Versions ─────────────────────────── -->
-      <aside v-if="detail && !creating && showHistory" class="w-60 shrink-0 border-l border-gray-200 flex flex-col">
-        <div class="h-11 shrink-0 px-3 flex items-center border-b border-gray-100"><span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Version history</span></div>
-        <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
-          <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
-          <div v-else-if="versions.length === 0" class="p-3 text-center text-[11px] text-gray-300">No history yet.</div>
-          <div v-for="(v, i) in versions" :key="v.id" class="px-2.5 py-2 rounded-md hover:bg-gray-50 transition-colors">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-gray-700">v{{ v.version_number }}</span>
-              <span v-if="i === 0" class="text-[9px] font-semibold uppercase tracking-wider text-gray-500 bg-gray-100 px-1.5 rounded">current</span>
-              <button v-else class="text-[10px] text-gray-400 hover:text-gray-700" @click="restore(v)">Restore</button>
+      <!-- ── Pane 3: Versions + suggestions ──────────── -->
+      <aside v-if="detail && !creating && showHistory" class="w-64 shrink-0 border-l border-gray-200 flex flex-col">
+        <div class="flex-1 overflow-y-auto">
+          <!-- Suggested changes (pending builds) -->
+          <template v-if="pendingBuilds.length">
+            <div class="h-9 px-3 flex items-center border-b border-gray-100 bg-amber-50/40">
+              <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-600">Suggested changes</span>
             </div>
-            <div class="text-[10px] text-gray-400 mt-0.5">{{ fmtDate(v.created_at) }}</div>
+            <div class="p-2 space-y-1 border-b border-gray-100">
+              <div v-for="pb in pendingBuilds" :key="pb.build_id"
+                   class="px-2.5 py-2 rounded-md border transition-colors cursor-pointer"
+                   :class="diff && diff.buildId === pb.build_id ? 'border-amber-300 bg-amber-50' : 'border-transparent hover:bg-amber-50/60'"
+                   @click="viewSuggestion(pb)">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-medium text-gray-700">{{ pb.source === 'ai' ? 'AI suggestion' : 'Proposed' }} · v{{ pb.pending_version_number }}</span>
+                  <span class="text-[9px] font-semibold uppercase tracking-wider px-1.5 rounded" :class="pb.status === 'pending_approval' ? 'text-amber-700 bg-amber-100' : 'text-gray-500 bg-gray-100'">{{ pb.status === 'pending_approval' ? 'review' : 'draft' }}</span>
+                </div>
+                <div class="text-[10px] text-gray-400 mt-0.5">{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</div>
+                <div v-if="canApprove" class="mt-1.5 flex items-center gap-1.5">
+                  <button class="h-5 px-2 rounded bg-gray-900 text-white text-[10px] font-medium hover:bg-black disabled:opacity-50" :disabled="approving === pb.build_id" @click.stop="approveSuggestion(pb)">{{ approving === pb.build_id ? '…' : 'Approve' }}</button>
+                  <button class="h-5 px-2 rounded text-gray-400 hover:text-gray-700 text-[10px]" @click.stop="viewSuggestion(pb)">View diff</button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Version history -->
+          <div class="h-9 px-3 flex items-center border-b border-gray-100"><span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Version history</span></div>
+          <div class="p-2 space-y-0.5">
+            <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
+            <div v-else-if="versions.length === 0" class="p-3 text-center text-[11px] text-gray-300">No history yet.</div>
+            <div v-for="(v, i) in versions" :key="v.id"
+                 class="px-2.5 py-2 rounded-md border transition-colors cursor-pointer"
+                 :class="diff && diff.versionId === v.id ? 'border-gray-300 bg-gray-50' : 'border-transparent hover:bg-gray-50'"
+                 @click="viewVersion(v, i === 0)">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-gray-700">v{{ v.version_number }}</span>
+                <span v-if="i === 0" class="text-[9px] font-semibold uppercase tracking-wider text-gray-500 bg-gray-100 px-1.5 rounded">current</span>
+                <button v-else class="text-[10px] text-gray-400 hover:text-gray-700" @click.stop="restore(v)">Restore</button>
+              </div>
+              <div class="text-[10px] text-gray-400 mt-0.5">{{ fmtDate(v.created_at) }}</div>
+            </div>
           </div>
         </div>
       </aside>
     </div>
 
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
+    <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
+    <AddConnectionModal v-model="showAddConnection" @created="onConnectionChanged" />
   </div>
 </template>
 
@@ -275,6 +328,10 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
+import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
+import AddConnectionModal from '~/components/AddConnectionModal.vue'
+import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
+import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 
 const h = useInstructionHelpers()
@@ -324,8 +381,50 @@ const statusOpts = [{ value: 'published', label: 'Active' }, { value: 'draft', l
 const statusEditOpts = [{ value: 'published', label: 'Active' }, { value: 'draft', label: 'Inactive' }]
 const loadOpts = [{ value: 'always', label: 'Always' }, { value: 'intelligent', label: 'Smart' }, { value: 'disabled', label: 'Off' }]
 const sourceOpts = [{ value: 'user', label: 'User' }, { value: 'ai', label: 'AI' }, { value: 'git', label: 'Git' }]
-const categoryOpts = computed(() => categories.value.map(c => ({ value: c, label: h.formatCategory(c) })))
-const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name })))
+const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
+const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
+
+// version diff + pending suggestions
+const pendingBuilds = ref<any[]>([])
+const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
+const approving = ref<string | null>(null)
+// connection modals
+const showConnectionModal = ref(false)
+const selectedConnection = ref<any>(null)
+const showAddConnection = ref(false)
+// perms
+const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
+const canCreateDataSource = computed(() => useCan('create_data_source'))
+
+const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
+const onConnectionChanged = async () => { await fetchAgents() }
+const loadPending = async (id: string) => {
+  pendingBuilds.value = []
+  try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch {}
+}
+const closeDiff = () => { diff.value = null }
+const viewVersion = async (v: any, isCurrent: boolean) => {
+  if (isCurrent || !detail.value) { closeDiff(); return }
+  try {
+    const { data } = await useMyFetch<any>(`/api/instructions/${detail.value.id}/versions/${v.id}`, { method: 'GET' })
+    diff.value = { title: `Version v${v.version_number}`, label: `v${v.version_number}`, original: detail.value?.text || '', modified: data.value?.text || '', versionId: v.id, buildId: null }
+  } catch {}
+}
+const viewSuggestion = (pb: any) => {
+  diff.value = { title: pb.source === 'ai' ? 'AI suggestion' : 'Proposed change', label: `v${pb.pending_version_number}`, original: detail.value?.text || '', modified: pb.pending_text || '', buildId: pb.build_id, versionId: null }
+}
+const approveSuggestion = async (pb: any) => {
+  if (!pb?.build_id) return
+  approving.value = pb.build_id
+  try {
+    await useMyFetch(`/api/builds/${pb.build_id}/publish`, { method: 'POST' })
+    toast.add({ title: 'Approved & published', color: 'green' })
+    closeDiff()
+    await fetchAll()
+    const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
+    if (fresh) openInstruction(fresh)
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { approving.value = null }
+}
 const labelOpts = computed(() => labels.value.map(l => ({ value: l.id, label: l.name })))
 const activeFilterCount = computed(() => fStatus.value.length + fLoad.value.length + fSource.value.length + fCategory.value.length)
 const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value = []; fCategory.value = [] }
@@ -398,7 +497,7 @@ const closePreview = () => { previewFile.value = null; if (previewUrl.value) { U
 const downloadPreview = () => { if (previewUrl.value) window.open(previewUrl.value, '_blank') }
 const openFile = async (f: any) => {
   detail.value = null; creating.value = false; editing.value = false; selectedId.value = null
-  closePreview(); previewFile.value = f; previewLoading.value = true
+  closeDiff(); pendingBuilds.value = []; closePreview(); previewFile.value = f; previewLoading.value = true
   try {
     const { data } = await useMyFetch<any>(`/api/files/${f.id}/content`, { method: 'GET', responseType: 'blob' as any })
     const blob = data.value as Blob | null
@@ -438,9 +537,9 @@ const listForTable = (agentId: string, tableId: string) => applyFilters(allInstr
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); creating.value = false; createRefs.value = []
+  closePreview(); closeDiff(); creating.value = false; createRefs.value = []
   selectedId.value = ins.id; detail.value = ins; editing.value = false
-  syncDraft(ins); loadVersions(ins.id)
+  syncDraft(ins); loadVersions(ins.id); loadPending(ins.id)
   try {
     const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' })
     if (data.value && selectedId.value === ins.id) {
@@ -459,7 +558,7 @@ const syncDraft = (ins: Instruction) => {
   draft.label_ids = (ins.labels || []).map((l: any) => l.id)
 }
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
-  closePreview(); detail.value = null; selectedId.value = null; versions.value = []
+  closePreview(); closeDiff(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
   draft.title = ''; draft.text = ''; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []

@@ -17,6 +17,7 @@
             <UIcon v-if="isSel(opt.value)" name="i-heroicons-check" class="w-2.5 h-2.5 text-white" />
           </span>
           <UIcon v-else name="i-heroicons-check" class="w-3 h-3 shrink-0" :class="isSel(opt.value) ? 'text-gray-900' : 'text-transparent'" />
+          <DataSourceIcon v-if="opt.type" :type="opt.type" class="w-3.5 h-3.5 shrink-0" />
           <span class="text-gray-700 truncate">{{ opt.label }}</span>
         </button>
         <button
@@ -31,9 +32,10 @@
 </template>
 
 <script setup lang="ts">
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
 const props = defineProps<{
   modelValue: any
-  options: { value: string; label: string }[]
+  options: { value: string; label: string; type?: string }[]
   multiple?: boolean
   icon?: string
   placeholder?: string
