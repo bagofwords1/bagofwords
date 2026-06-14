@@ -1047,8 +1047,6 @@
       "whatsappDescription": "Reach the AI analyst over WhatsApp Business.",
       "emailName": "AI Mailbox",
       "emailDescription": "A mailbox the AI analyst sends replies from and (optionally) receives questions at.",
-      "smtpName": "SMTP Server",
-      "smtpDescription": "The server used for system emails (shares, scheduled reports, invites); overrides the global SMTP.",
       "oauthName": "OAuth Clients",
       "oauthDescription": "Register external apps that access this workspace via OAuth 2.1 (e.g. Claude Web).",
       "manage": "Manage",

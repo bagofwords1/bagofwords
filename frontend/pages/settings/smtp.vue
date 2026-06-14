@@ -16,63 +16,60 @@
       <strong>AI Mailbox</strong>. Configure them independently.
     </div>
 
-    <form class="md:w-2/3" @submit.prevent="save">
-      <label class="flex items-center gap-2 my-4 cursor-pointer">
-        <UToggle v-model="form.enabled" />
-        <span class="text-sm font-semibold text-gray-800">Use a custom SMTP server for system emails</span>
+    <form class="md:w-2/3 mt-4" @submit.prevent="save">
+      <p class="text-xs text-gray-500 mb-4">
+        Fill in a host to use a custom SMTP server. Leave the host blank to fall back to the global SMTP from <code>bow-config</code>.
+      </p>
+
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">From name</label>
+          <input v-model="form.from_name" type="text" class="w-full border rounded px-2 py-1" placeholder="Acme" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">From address</label>
+          <input v-model="form.from_address" type="email" class="w-full border rounded px-2 py-1" placeholder="noreply@acme.com" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">Host</label>
+          <input v-model="form.host" type="text" class="w-full border rounded px-2 py-1" placeholder="smtp.acme.com" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Port</label>
+          <input v-model.number="form.port" type="number" class="w-full border rounded px-2 py-1" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mb-1">
+        <div>
+          <label class="block text-sm font-medium mb-1">Username <span class="text-gray-400 font-normal">(optional)</span></label>
+          <input v-model="form.username" type="text" class="w-full border rounded px-2 py-1" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Password <span class="text-gray-400 font-normal">(optional)</span></label>
+          <input v-model="form.password" type="password" class="w-full border rounded px-2 py-1"
+            :placeholder="passwordSet ? '•••••••• (unchanged)' : ''" />
+          <p v-if="passwordSet" class="text-xs text-gray-500 mt-1">Leave blank to keep the saved password.</p>
+        </div>
+      </div>
+      <p class="text-xs text-gray-500 mb-3">Leave username &amp; password empty for an open relay that doesn't require authentication.</p>
+      <div class="mb-3">
+        <label class="block text-sm font-medium mb-1">Security</label>
+        <select v-model="form.security" class="w-full border rounded px-2 py-1">
+          <option value="starttls">STARTTLS (587)</option>
+          <option value="ssl">SSL/TLS (465)</option>
+          <option value="none">None</option>
+        </select>
+      </div>
+      <label v-if="form.security !== 'none'" class="flex items-center gap-2 mb-4 cursor-pointer">
+        <UToggle v-model="form.validate_certs" />
+        <span class="text-sm text-gray-700">Validate TLS certificates</span>
+        <span class="text-xs text-gray-400">— turn off for self-signed / internal-CA relays</span>
       </label>
 
-      <div v-if="form.enabled">
-        <div class="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="block text-sm font-medium mb-1">From name</label>
-            <input v-model="form.from_name" type="text" class="w-full border rounded px-2 py-1" placeholder="Acme" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">From address</label>
-            <input v-model="form.from_address" type="email" class="w-full border rounded px-2 py-1" placeholder="noreply@acme.com" />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="block text-sm font-medium mb-1">Host</label>
-            <input v-model="form.host" type="text" class="w-full border rounded px-2 py-1" placeholder="smtp.acme.com" required />
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Port</label>
-            <input v-model.number="form.port" type="number" class="w-full border rounded px-2 py-1" />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-3 mb-1">
-          <div>
-            <label class="block text-sm font-medium mb-1">Username <span class="text-gray-400 font-normal">(optional)</span></label>
-            <input v-model="form.username" type="text" class="w-full border rounded px-2 py-1" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1">Password <span class="text-gray-400 font-normal">(optional)</span></label>
-            <input v-model="form.password" type="password" class="w-full border rounded px-2 py-1"
-              :placeholder="passwordSet ? '•••••••• (unchanged)' : ''" />
-            <p v-if="passwordSet" class="text-xs text-gray-500 mt-1">Leave blank to keep the saved password.</p>
-          </div>
-        </div>
-        <p class="text-xs text-gray-500 mb-3">Leave username &amp; password empty for an open relay that doesn't require authentication.</p>
-        <div class="mb-3">
-          <label class="block text-sm font-medium mb-1">Security</label>
-          <select v-model="form.security" class="w-full border rounded px-2 py-1">
-            <option value="starttls">STARTTLS (587)</option>
-            <option value="ssl">SSL/TLS (465)</option>
-            <option value="none">None</option>
-          </select>
-        </div>
-        <label v-if="form.security !== 'none'" class="flex items-center gap-2 mb-4 cursor-pointer">
-          <UToggle v-model="form.validate_certs" />
-          <span class="text-sm text-gray-700">Validate TLS certificates</span>
-          <span class="text-xs text-gray-400">— turn off for self-signed / internal-CA relays</span>
-        </label>
-      </div>
-
       <div class="flex items-center gap-2">
-        <button type="button" v-if="form.enabled" :disabled="testing" @click="test"
+        <button type="button" v-if="form.host" :disabled="testing" @click="test"
           class="border border-gray-300 text-gray-700 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 disabled:opacity-50">
           {{ testing ? 'Testing…' : 'Test connection' }}
         </button>
@@ -96,7 +93,7 @@ definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings
 const toast = useToast()
 
 const form = reactive({
-  enabled: false, host: '', port: 587, security: 'starttls',
+  host: '', port: 587, security: 'starttls',
   username: '', password: '', from_address: '', from_name: '', validate_certs: true,
 })
 const passwordSet = ref(false)
@@ -109,7 +106,6 @@ onMounted(async () => {
     const res = await useMyFetch('/api/organization/smtp')
     const s = res.data.value as any
     if (s) {
-      form.enabled = !!s.enabled
       form.host = s.host || ''
       form.port = s.port || 587
       form.security = s.security || 'starttls'
@@ -124,7 +120,8 @@ onMounted(async () => {
 
 function payload() {
   const p: any = {
-    enabled: form.enabled, host: form.host, port: form.port, security: form.security,
+    // Enabled is derived from the host: filled in → used, blank → falls back to global SMTP.
+    enabled: !!form.host.trim(), host: form.host.trim(), port: form.port, security: form.security,
     username: form.username, from_address: form.from_address, from_name: form.from_name,
     validate_certs: form.validate_certs,
   }

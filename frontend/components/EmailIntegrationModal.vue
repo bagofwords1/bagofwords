@@ -114,13 +114,12 @@
 
         <hr class="my-4" />
 
-        <!-- Receive toggle (all methods) -->
-        <label class="flex items-center gap-2 mb-3 cursor-pointer">
-          <UToggle v-model="inboundEnabled" color="blue" />
-          <span class="text-sm font-semibold text-gray-800">Receive email as a channel (optional)</span>
-        </label>
+        <!-- Receive inbound email (always enabled) -->
+        <div class="mb-3">
+          <span class="text-sm font-semibold text-gray-800">Receive email as a channel</span>
+        </div>
 
-        <div v-if="inboundEnabled">
+        <div>
           <!-- IMAP host/port only needed for the password method; OAuth hosts are defaulted -->
           <template v-if="authType === 'password'">
             <div class="grid grid-cols-2 gap-3 mb-3">

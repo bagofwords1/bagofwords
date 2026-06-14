@@ -161,7 +161,7 @@ const isAutoMode = computed(() =>
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
-const flyout = reactive({ visible: false, bottom: 0, left: 0 })
+const flyout = reactive({ visible: false, bottom: 0, left: 0, maxHeight: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
 
 // On touch/coarse-pointer devices there is no hover. Tapping a row would
@@ -254,6 +254,9 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
 
     flyout.left = left
     flyout.bottom = Math.max(12, bottom) // Clamp to viewport
+    // Cap height to the room available above the bottom anchor so the flyout
+    // never grows off the top of the screen — it scrolls internally instead.
+    flyout.maxHeight = Math.max(160, window.innerHeight - flyout.bottom - 12)
     flyout.visible = true
 }
 

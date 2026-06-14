@@ -3,9 +3,9 @@
         <!-- VIEW MODE: Read-only display for existing instructions -->
         <div v-if="isEditing && isViewMode" class="flex-1 flex flex-col min-h-0">
             <!-- Two-column body: content (left) + metadata sidebar (right) -->
-            <div class="flex-1 flex min-h-0">
+            <div :class="rowClass">
             <!-- Left: content -->
-            <div class="flex-1 min-w-0 overflow-y-auto px-6 py-3 space-y-2">
+            <div :class="leftColClass">
 
                 <!-- Title & Git Info -->
                 <div class="flex items-start justify-between gap-3">
@@ -194,7 +194,7 @@
                 <slot name="analyze" />
             </div>
             <!-- Right: metadata sidebar -->
-            <div class="w-[340px] shrink-0 overflow-y-auto border-s border-gray-100 bg-gray-50/30 px-5 py-4 space-y-4">
+            <div :class="sidebarClass">
 
                 <!-- Created/Approved By -->
                 <div v-if="props.instruction" class="flex flex-col gap-2 text-xs">
@@ -354,9 +354,9 @@
         <!-- EDIT MODE: Form for creating/editing instructions -->
         <form v-else @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
             <!-- Two-column body: editor (left) + config sidebar (right) -->
-            <div class="flex-1 flex min-h-0">
+            <div :class="rowClass">
             <!-- Left: title + editor -->
-            <div class="flex-1 min-w-0 overflow-y-auto px-6 py-3 space-y-2">
+            <div :class="leftColClass">
 
                 <!-- Title row: inline input + mode toggle + git sync -->
                 <div class="flex items-center justify-between gap-3">
@@ -467,7 +467,7 @@
                 <slot name="analyze" />
             </div>
             <!-- Right: config sidebar -->
-            <div class="w-[340px] shrink-0 overflow-y-auto border-s border-gray-100 bg-gray-50/30 px-5 py-4 space-y-4">
+            <div :class="sidebarClass">
 
                 <!-- Status -->
                 <div>
@@ -899,9 +899,24 @@ const props = withDefaults(defineProps<{
     initialTitle?: string  // Seed the title field when creating a new instruction
     uppercaseTitle?: boolean  // When false, do not force the title to uppercase (input & display)
     startInEditMode?: boolean  // When true (and an instruction is provided), open directly in edit mode instead of view mode
+    splitLayout?: boolean  // When true, render body/editor on the left and config/metadata in a right sidebar (wide modal). Defaults to a single stacked column for narrow/inline hosts.
 }>(), {
     uppercaseTitle: true,
+    splitLayout: false,
 })
+
+// Two-column "split" layout (wide modal) vs. stacked single column (narrow/inline hosts).
+const rowClass = computed(() =>
+    props.splitLayout ? 'flex-1 flex min-h-0' : 'flex-1 flex flex-col min-h-0 overflow-y-auto'
+)
+const leftColClass = computed(() =>
+    props.splitLayout ? 'flex-1 min-w-0 overflow-y-auto px-6 py-3 space-y-2' : 'px-6 py-3 space-y-2'
+)
+const sidebarClass = computed(() =>
+    props.splitLayout
+        ? 'w-[340px] shrink-0 overflow-y-auto border-s border-gray-100 bg-gray-50/30 px-5 py-4 space-y-4'
+        : 'border-t border-gray-100 px-6 py-4 space-y-4'
+)
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git', 'view-mode-changed'])
 
