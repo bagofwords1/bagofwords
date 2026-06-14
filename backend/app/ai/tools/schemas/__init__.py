@@ -13,6 +13,13 @@ from .edit_instruction import EditInstructionInput, EditInstructionOutput
 from .create_artifact import CreateArtifactInput, CreateArtifactOutput
 from .read_artifact import ReadArtifactInput, ReadArtifactOutput
 from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
+from .search_reports import SearchReportsInput, SearchReportsOutput, SearchReportsItem
+from .read_report import (
+    ReadReportInput,
+    ReadReportOutput,
+    ReadReportMessage,
+    ReadReportArtifact,
+)
 from .edit_artifact import EditArtifactInput, EditArtifactOutput
 from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
@@ -67,6 +74,13 @@ __all__ = [
     "ReadQueryInput",
     "ReadQueryOutput",
     "ReadQueryResult",
+    "SearchReportsInput",
+    "SearchReportsOutput",
+    "SearchReportsItem",
+    "ReadReportInput",
+    "ReadReportOutput",
+    "ReadReportMessage",
+    "ReadReportArtifact",
     "EditArtifactInput",
     "EditArtifactOutput",
     "SearchMCPsInput",
