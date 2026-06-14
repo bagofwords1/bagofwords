@@ -1,6 +1,6 @@
 <template>
-    <div class="ps-2 md:ps-4 text-sm h-full">
-        <div class="w-full px-4 ps-0 py-2 h-full">
+    <div class="text-sm h-full">
+        <div class="w-full h-full">
             <KnowledgeExplorer />
         </div>
     </div>
