@@ -41,15 +41,23 @@
     </div>
 
     <!-- Setup form -->
-    <div v-else>
-      <form @submit.prevent="connect">
+    <div v-else class="md:flex md:gap-6">
+      <form @submit.prevent="connect" class="md:flex-1 md:min-w-0">
         <!-- Auth method selector -->
-        <label class="block text-sm font-medium mb-1">How should BOW connect to the mailbox?</label>
-        <select v-model="authType" class="w-full border rounded px-2 py-1 mb-4">
-          <option value="password">Username &amp; password (on‑prem Exchange / app password)</option>
-          <option value="microsoft">Microsoft 365 (OAuth app‑only)</option>
-          <option value="google">Google Workspace (service account)</option>
-        </select>
+        <label class="block text-sm font-medium mb-2">How should BOW connect to the mailbox?</label>
+        <div class="grid grid-cols-3 gap-2 mb-4">
+          <button v-for="opt in authOptions" :key="opt.value" type="button" @click="authType = opt.value"
+            :class="[
+              'flex flex-col items-center justify-center gap-2 border rounded-lg py-3 px-2 transition',
+              authType === opt.value
+                ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50'
+                : 'border-gray-200 hover:border-gray-300 bg-white',
+            ]">
+            <img v-if="opt.img" :src="opt.img" :alt="opt.label" class="w-6 h-6" />
+            <UIcon v-else :name="opt.icon!" class="w-6 h-6 text-gray-600" />
+            <span :class="['text-xs font-medium text-center leading-tight', authType === opt.value ? 'text-blue-700' : 'text-gray-700']">{{ opt.label }}</span>
+          </button>
+        </div>
 
         <!-- Mailbox identity (all methods) -->
         <div class="grid grid-cols-2 gap-3 mb-3">
@@ -108,7 +116,7 @@
 
         <!-- Receive toggle (all methods) -->
         <label class="flex items-center gap-2 mb-3 cursor-pointer">
-          <UToggle v-model="inboundEnabled" />
+          <UToggle v-model="inboundEnabled" color="blue" />
           <span class="text-sm font-semibold text-gray-800">Receive email as a channel (optional)</span>
         </label>
 
@@ -134,34 +142,11 @@
             <p class="text-xs text-gray-500 mt-1">Comma‑separated. Blank = rely on an internal‑only mailbox + auth checks.</p>
           </div>
           <label class="flex items-center gap-2 mb-2 cursor-pointer">
-            <UToggle v-model="autoLink" /><span class="text-sm">Auto‑verify members by email — <span class="text-gray-500">off (recommended): first email gets a verification link to click</span></span>
+            <UToggle v-model="autoLink" color="blue" /><span class="text-sm">Auto‑verify members by email — <span class="text-gray-500">off (recommended): first email gets a verification link to click</span></span>
           </label>
           <label class="flex items-center gap-2 mb-4 cursor-pointer">
-            <UToggle v-model="requireAuthPass" /><span class="text-sm">Require DMARC/DKIM pass (recommended)</span>
+            <UToggle v-model="requireAuthPass" color="blue" /><span class="text-sm">Require DMARC/DKIM pass (recommended)</span>
           </label>
-        </div>
-
-        <!-- Admin setup steps (collapsible, per provider) -->
-        <div v-if="authType !== 'password'" class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
-          <button type="button" class="text-sm font-medium text-gray-700 flex items-center gap-1" @click="showSteps = !showSteps">
-            <UIcon :name="showSteps ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4" />
-            Admin setup steps ({{ authType === 'microsoft' ? 'Microsoft 365' : 'Google Workspace' }})
-          </button>
-          <ol v-if="showSteps" class="list-decimal list-inside text-xs text-gray-600 mt-2 space-y-1">
-            <template v-if="authType === 'microsoft'">
-              <li>Create the mailbox (a shared mailbox is fine — no license).</li>
-              <li>Entra → App registrations → New registration (single tenant). Copy the tenant ID + client ID.</li>
-              <li>API permissions → Office 365 Exchange Online → Application → <code>IMAP.AccessAsApp</code> + <code>SMTP.SendAsApp</code> → Grant admin consent.</li>
-              <li>Certificates &amp; secrets → New client secret.</li>
-              <li>Exchange PowerShell: <code>New-ServicePrincipal</code> then <code>Add-MailboxPermission … -AccessRights FullAccess</code> for this mailbox.</li>
-            </template>
-            <template v-else>
-              <li>Create the mailbox (a licensed Workspace user).</li>
-              <li>Google Cloud → new project → enable the Gmail API → create a service account → create a JSON key.</li>
-              <li>Admin console → Security → API controls → Domain‑wide delegation → add the SA Client ID with scope <code>https://mail.google.com/</code>.</li>
-              <li>Paste the JSON key above.</li>
-            </template>
-          </ol>
         </div>
 
         <div class="flex items-center gap-2">
@@ -178,6 +163,47 @@
           <span>{{ testResult.text }}</span>
         </p>
       </form>
+
+      <!-- Right: contextual setup guide -->
+      <aside class="md:w-72 md:shrink-0 mt-6 md:mt-0">
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <img v-if="activeOption.img" :src="activeOption.img" :alt="activeOption.label" class="w-5 h-5" />
+            <UIcon v-else :name="activeOption.icon!" class="w-5 h-5 text-gray-600" />
+            <h3 class="text-sm font-semibold text-gray-800">{{ activeOption.label }} setup</h3>
+          </div>
+
+          <!-- Microsoft 365 -->
+          <ol v-if="authType === 'microsoft'" class="list-decimal list-outside ps-4 text-xs text-gray-600 space-y-2">
+            <li>Create the mailbox (a shared mailbox is fine — no license needed).</li>
+            <li>Entra → <strong>App registrations</strong> → New registration (single tenant). Copy the <strong>tenant ID</strong> + <strong>client ID</strong>.</li>
+            <li>API permissions → Office 365 Exchange Online → <strong>Application</strong> → <code>IMAP.AccessAsApp</code> + <code>SMTP.SendAsApp</code> → <strong>Grant admin consent</strong>.</li>
+            <li>Certificates &amp; secrets → <strong>New client secret</strong>.</li>
+            <li>Exchange PowerShell: <code>New-ServicePrincipal</code>, then <code>Add-MailboxPermission … -AccessRights FullAccess</code> for this mailbox.</li>
+          </ol>
+
+          <!-- Google Workspace -->
+          <ol v-else-if="authType === 'google'" class="list-decimal list-outside ps-4 text-xs text-gray-600 space-y-2">
+            <li>Create the mailbox (a licensed Workspace user).</li>
+            <li>Google Cloud → new project → enable the <strong>Gmail API</strong> → create a <strong>service account</strong> → create a <strong>JSON key</strong>.</li>
+            <li>Admin console → Security → API controls → <strong>Domain‑wide delegation</strong> → add the SA client ID with scope <code>https://mail.google.com/</code>.</li>
+            <li>Paste the JSON key into the form.</li>
+          </ol>
+
+          <!-- IMAP / Password -->
+          <div v-else class="text-xs text-gray-600 space-y-2">
+            <p>Connect any mailbox that speaks plain SMTP + IMAP — on‑prem Exchange, a hosting provider, or a personal app password.</p>
+            <ul class="list-disc list-outside ps-4 space-y-1">
+              <li>Use an <strong>app password</strong> if the provider enforces MFA (basic auth is blocked on Microsoft 365 / Gmail — use those tiles instead).</li>
+              <li>SMTP is usually <code>587</code> (STARTTLS) or <code>465</code> (SSL).</li>
+              <li>IMAP is usually <code>993</code> (SSL).</li>
+              <li>Toggle <strong>Receive email as a channel</strong> to let the analyst answer inbound mail.</li>
+            </ul>
+          </div>
+
+          <p class="text-[11px] text-gray-400 mt-3">Use <strong>Test connection</strong> before saving to validate credentials.</p>
+        </div>
+      </aside>
     </div>
 
     <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600" @click="$emit('close')">✕</button>
@@ -198,8 +224,14 @@ const toast = useToast()
 
 const cfg = computed(() => props.integrationData?.platform_config || null)
 
-const authType = ref<'password' | 'microsoft' | 'google'>('password')
-const showSteps = ref(false)
+type AuthType = 'password' | 'microsoft' | 'google'
+const authOptions: { value: AuthType; label: string; img?: string; icon?: string }[] = [
+  { value: 'google', label: 'Google Workspace', img: '/icons/google.svg' },
+  { value: 'microsoft', label: 'Microsoft 365', img: '/icons/microsoft.svg' },
+  { value: 'password', label: 'IMAP / Password', icon: 'i-heroicons-envelope' },
+]
+const authType = ref<AuthType>('password')
+const activeOption = computed(() => authOptions.find((o) => o.value === authType.value) || authOptions[2])
 
 // Mailbox identity
 const fromName = ref('Bag of words Analyst')
@@ -220,8 +252,8 @@ const msClientSecret = ref('')
 // Google
 const googleSaJson = ref('')
 
-// Inbound
-const inboundEnabled = ref(false)
+// Inbound — on by default; the analyst answering inbound mail is the headline use case.
+const inboundEnabled = ref(true)
 const imapHost = ref('')
 const imapPort = ref(993)
 const imapUsername = ref('')

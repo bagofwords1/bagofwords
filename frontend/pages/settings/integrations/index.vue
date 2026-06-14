@@ -273,7 +273,7 @@
     </UModal>
 
     <!-- AI Mailbox Modal -->
-    <UModal v-model="showEmailModal" :ui="{ width: 'max-w-lg' }">
+    <UModal v-model="showEmailModal" :ui="{ width: 'sm:max-w-3xl' }">
       <EmailIntegrationModal
         :integrated="emailIntegrated"
         :integration-data="emailIntegrationData"
