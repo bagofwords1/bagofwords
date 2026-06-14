@@ -20,7 +20,7 @@
     <!-- Body: tree → detail → versions -->
     <div class="flex-1 min-h-0 flex border-t border-gray-200">
       <!-- ── Pane 1: Tree ───────────────────────────────── -->
-      <aside class="w-[300px] shrink-0 border-r border-gray-200 flex flex-col">
+      <aside class="shrink-0 border-r border-gray-200 flex flex-col relative" :style="{ width: treeWidth + 'px' }">
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
             <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
@@ -72,7 +72,7 @@
             <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :open="isOpen('agent:' + agent.id)" @toggle="expand('agent:' + agent.id)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)">
+              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" label-clickable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)" @label="openPanel('tables', agent.id)">
                 <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" text="No rules attached." add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -80,7 +80,7 @@
                 <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" text="No accessible tables." :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" :open="isOpen('tools:' + agent.id)" @toggle="expand('tools:' + agent.id)">
+              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" label-clickable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="expand('tools:' + agent.id)" @label="openPanel('tools', agent.id)">
                 <div v-for="tool in (agentTools[agent.id] || [])" :key="tool.id || tool.name" class="flex items-center gap-2 h-7 rounded-md text-xs text-gray-600" style="padding-left:48px;padding-right:8px">
                   <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
                   <span class="flex-1 text-left truncate font-mono text-[11px]">{{ tool.name }}</span>
@@ -126,12 +126,48 @@
             </button>
           </UTooltip>
         </div>
+
+        <!-- Drag handle to resize the tree pane -->
+        <div class="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-gray-300 transition-colors z-10" title="Drag to resize" @mousedown="startTreeResize"></div>
       </aside>
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
       <section class="flex-1 min-w-0 flex flex-col">
+        <!-- Tables / Tools editable panel -->
+        <template v-if="panelView">
+          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
+            <div class="flex items-center gap-2 min-w-0">
+              <UIcon :name="panelView.kind === 'tables' ? 'i-heroicons-table-cells' : 'i-heroicons-wrench-screwdriver'" class="w-4 h-4 text-gray-400 shrink-0" />
+              <span class="text-xs font-medium text-gray-700 truncate">{{ panelAgent?.name || 'Agent' }}</span>
+              <span class="text-[10px] text-gray-300 shrink-0">{{ panelView.kind === 'tables' ? 'Tables' : 'Tools' }}</span>
+              <span v-if="!panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
+            </div>
+            <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+          </div>
+          <div class="flex-1 overflow-auto px-6 py-4">
+            <TablesSelector
+              v-if="panelView.kind === 'tables'"
+              :key="'tables-' + panelView.agentId"
+              :ds-id="panelView.agentId"
+              schema="full"
+              :can-update="panelCanUpdate"
+              :show-refresh="panelCanUpdate"
+              :show-save="panelCanUpdate"
+              :show-stats="true"
+              max-height="calc(100vh - 240px)"
+            />
+            <ToolsSelector
+              v-else
+              :key="'tools-' + panelView.agentId"
+              :ds-id="panelView.agentId"
+              :connections="panelConnections"
+              :can-update="panelCanUpdate"
+            />
+          </div>
+        </template>
+
         <!-- File preview -->
-        <template v-if="previewFile">
+        <template v-else-if="previewFile">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
             <div class="flex items-center gap-2 min-w-0">
               <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-4 h-4 text-gray-400 shrink-0" />
@@ -331,6 +367,8 @@ import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
+import TablesSelector from '~/components/datasources/TablesSelector.vue'
+import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 
@@ -384,6 +422,41 @@ const sourceOpts = [{ value: 'user', label: 'User' }, { value: 'ai', label: 'AI'
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
 const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
 
+// right-pane panel for Tables/Tools selectors
+const panelView = ref<null | { kind: 'tables' | 'tools'; agentId: string }>(null)
+const closePanel = () => { panelView.value = null }
+const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
+const panelConnections = computed(() => {
+  const a = panelAgent.value as any
+  return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
+})
+const openPanel = (kind: 'tables' | 'tools', agentId: string) => {
+  closePreview(); closeDiff(); pendingBuilds.value = []
+  detail.value = null; selectedId.value = null; creating.value = false; editing.value = false; versions.value = []
+  loadAgentMeta(agentId)
+  panelView.value = { kind, agentId }
+}
+
+// tree pane resize
+const treeWidth = ref(300)
+const clampTreeWidth = (w: number) => Math.min(600, Math.max(220, w))
+const startTreeResize = (e: MouseEvent) => {
+  e.preventDefault()
+  const startX = e.clientX
+  const startWidth = treeWidth.value
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
+  const onMove = (ev: MouseEvent) => { treeWidth.value = clampTreeWidth(startWidth + (ev.clientX - startX)) }
+  const onUp = () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
 // version diff + pending suggestions
 const pendingBuilds = ref<any[]>([])
 const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
@@ -395,6 +468,9 @@ const showAddConnection = ref(false)
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canCreateDataSource = computed(() => useCan('create_data_source'))
+// Editing tables/tools requires manage on the data source (org-wide or on this resource).
+const canManageAgent = (id?: string) => id ? (useCan('update_data_source') || useCan('update_data_source', { type: 'data_source', id })) : false
+const panelCanUpdate = computed(() => canManageAgent(panelView.value?.agentId))
 
 const openConnectionDetail = (c: any) => { selectedConnection.value = c; showConnectionModal.value = true }
 const onConnectionChanged = async () => { await fetchAgents() }
@@ -497,7 +573,7 @@ const closePreview = () => { previewFile.value = null; if (previewUrl.value) { U
 const downloadPreview = () => { if (previewUrl.value) window.open(previewUrl.value, '_blank') }
 const openFile = async (f: any) => {
   detail.value = null; creating.value = false; editing.value = false; selectedId.value = null
-  closeDiff(); pendingBuilds.value = []; closePreview(); previewFile.value = f; previewLoading.value = true
+  closeDiff(); closePanel(); pendingBuilds.value = []; closePreview(); previewFile.value = f; previewLoading.value = true
   try {
     const { data } = await useMyFetch<any>(`/api/files/${f.id}/content`, { method: 'GET', responseType: 'blob' as any })
     const blob = data.value as Blob | null
@@ -537,7 +613,7 @@ const listForTable = (agentId: string, tableId: string) => applyFilters(allInstr
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); closeDiff(); creating.value = false; createRefs.value = []
+  closePreview(); closeDiff(); closePanel(); creating.value = false; createRefs.value = []
   selectedId.value = ins.id; detail.value = ins; editing.value = false
   syncDraft(ins); loadVersions(ins.id); loadPending(ins.id)
   try {
@@ -558,7 +634,7 @@ const syncDraft = (ins: Instruction) => {
   draft.label_ids = (ins.labels || []).map((l: any) => l.id)
 }
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
-  closePreview(); closeDiff(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
+  closePreview(); closeDiff(); closePanel(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
   draft.title = ''; draft.text = ''; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
@@ -612,18 +688,20 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).to
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, badge: String, disabled: Boolean },
-  emits: ['toggle', 'add', 'badge'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, badge: String, disabled: Boolean, labelClickable: Boolean, active: Boolean },
+  emits: ['toggle', 'add', 'badge', 'label'],
   setup(props, { slots, emit }) {
+    // When `labelClickable` is set, the chevron/icon area toggles the tree and the
+    // label text opens the panel (`@label`); otherwise the whole row toggles.
     return () => createElement('div', {}, [
       createElement('div', {
-        class: ['group w-full flex items-center gap-1.5 h-7 rounded-md text-xs text-gray-600 transition-colors min-w-0', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 cursor-pointer'],
+        class: ['group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0', props.active ? 'bg-gray-100 text-gray-900' : 'text-gray-600', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 cursor-pointer'],
         style: { paddingLeft: (6 + props.indent * 14) + 'px', paddingRight: '8px' },
-        onClick: () => { if (!props.disabled) emit('toggle') },
+        onClick: () => { if (!props.disabled && !props.labelClickable) emit('toggle') },
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200' : 'text-gray-300', props.open ? 'rotate-90' : ''] }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200' : 'text-gray-300', props.open ? 'rotate-90' : '', props.labelClickable ? 'cursor-pointer hover:text-gray-500' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 shrink-0' }) : null),
-        createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-[11px]' : ''] }, props.label),
+        createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-[11px]' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
         props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 text-blue-600 text-[10px] font-medium hover:bg-blue-100', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
         (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add instruction', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
         (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-[11px] tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
@@ -646,7 +724,7 @@ const InstrLeaf = defineComponent({
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', h.getStatusIconClass(ins)], title: h.getStatusTooltip(ins) }),
         createElement('span', { class: 'flex-1 text-left truncate' }, displayTitle(ins)),
-        createElement('span', { class: 'shrink-0 hidden xl:inline-flex items-center px-1.5 h-4 rounded bg-gray-50 text-gray-400 text-[10px] font-medium' }, h.formatCategory(ins.category)),
+        createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.getSourceTooltip(ins) }),
         createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 text-gray-500 text-[10px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
         (ins.data_sources && ins.data_sources.length > 1) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 text-gray-500 text-[10px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length)) : null,
