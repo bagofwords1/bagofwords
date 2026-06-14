@@ -47,8 +47,9 @@
         </div>
 
         <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
-          <TreeGroup label="All instructions" icon="i-heroicons-square-3-stack-3d" :count="allInstructions.length" :open="isOpen('all')" @toggle="expand('all')">
-            <InstrLeaf v-for="ins in listFor('all')" :key="ins.id" :ins="ins" />
+          <TreeGroup label="Global instructions" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
+            <EmptyHint v-if="listFor('global').length === 0" text="No global rules." add @add="openCreate()" />
+            <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
           </TreeGroup>
           <TreeGroup label="Skills" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
             <EmptyHint v-if="skillCount === 0" text="No skills yet." />
@@ -61,18 +62,13 @@
 
           <div class="h-px bg-gray-100 my-2 mx-1"></div>
 
-          <TreeGroup label="Global / Org-wide" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
-            <EmptyHint v-if="listFor('global').length === 0" text="No global rules." add @add="openCreate()" />
-            <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
-          </TreeGroup>
-
-          <div class="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Agents</div>
+          <div class="px-2 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Agents</div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :open="isOpen('agent:' + agent.id)" @toggle="expand('agent:' + agent.id)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" label-clickable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)" @label="openPanel('tables', agent.id)">
+              <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" gearable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)" @gear="openPanel('tables', agent.id)">
                 <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" text="No rules attached." add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -80,7 +76,7 @@
                 <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" text="No accessible tables." :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" label-clickable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="expand('tools:' + agent.id)" @label="openPanel('tools', agent.id)">
+              <TreeGroup label="Tools" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" gearable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="expand('tools:' + agent.id)" @gear="openPanel('tools', agent.id)">
                 <div v-for="tool in (agentTools[agent.id] || [])" :key="tool.id || tool.name" class="flex items-center gap-2 h-7 rounded-md text-xs text-gray-600" style="padding-left:48px;padding-right:8px">
                   <UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-300 shrink-0" />
                   <span class="flex-1 text-left truncate font-mono text-[11px]">{{ tool.name }}</span>
@@ -90,7 +86,7 @@
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" text="No tools connected." :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Files" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)">
+              <TreeGroup label="Files" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" addable :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)" @add="triggerUpload(agent.id)">
                 <button
                   v-for="f in (agentFiles[agent.id] || [])" :key="f.id"
                   class="w-full flex items-center gap-2 h-7 rounded-md text-xs transition-colors min-w-0"
@@ -100,7 +96,8 @@
                   <UIcon :name="fileIcon(f.content_type, f.filename)" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
                   <span class="flex-1 text-left truncate">{{ f.filename }}</span>
                 </button>
-                <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" text="No files." :pad="48" />
+                <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" text="No files." add @add="triggerUpload(agent.id)" :pad="48" />
+                <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 italic py-1" style="padding-left:48px">Uploading…</div>
               </TreeGroup>
 
               <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
@@ -133,8 +130,45 @@
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
       <section class="flex-1 min-w-0 flex flex-col">
+        <!-- Agent overview (primary instruction) -->
+        <template v-if="agentView">
+          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
+            <div class="flex items-center gap-2 min-w-0">
+              <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" class="w-4 h-4 shrink-0" />
+              <span class="text-sm font-semibold text-gray-900 truncate">{{ agentDetail?.name || agentViewName }}</span>
+              <span v-if="agentDetail" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded shrink-0" :class="agentDetail.is_public ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'">{{ agentDetail.is_public ? 'Public' : 'Private' }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="openAgentTab(agentView.agentId)">Open agent</button>
+              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closeAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto px-8 py-6 max-w-3xl">
+            <div class="flex flex-wrap items-center gap-2 mb-5 text-[11px] text-gray-500">
+              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-table-cells" class="w-3 h-3 text-gray-400" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
+              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3 h-3 text-gray-400" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
+              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-paper-clip" class="w-3 h-3 text-gray-400" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
+              <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100"><UIcon name="i-heroicons-document-text" class="w-3 h-3 text-gray-400" />{{ agentCount(agentView.agentId) }} instructions</span>
+            </div>
+            <p v-if="agentDetail?.description" class="text-sm text-gray-500 mb-6">{{ agentDetail.description }}</p>
+
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Primary instruction</div>
+            <template v-if="agentDetail?.primary_instruction">
+              <button class="w-full text-left rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors p-4" @click="openInstruction(agentDetail.primary_instruction)">
+                <div class="text-sm font-medium text-gray-900 mb-1">{{ agentDetail.primary_instruction.title || displayTitle(agentDetail.primary_instruction) }}</div>
+                <p class="text-xs text-gray-500 line-clamp-4 whitespace-pre-wrap">{{ agentDetail.primary_instruction.text }}</p>
+                <span class="inline-flex items-center gap-1 mt-2 text-[11px] text-gray-500 font-medium">Open &amp; edit <UIcon name="i-heroicons-arrow-up-right" class="w-3 h-3" /></span>
+              </button>
+            </template>
+            <div v-else class="rounded-lg border border-dashed border-gray-200 p-6 text-center">
+              <p class="text-xs text-gray-400">No primary instruction set for this agent.</p>
+              <button class="mt-2 text-[11px] font-medium text-gray-700 hover:text-gray-900" @click="openCreate({ agentId: agentView.agentId })">+ Add an instruction</button>
+            </div>
+          </div>
+        </template>
+
         <!-- Tables / Tools editable panel -->
-        <template v-if="panelView">
+        <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
             <div class="flex items-center gap-2 min-w-0">
               <UIcon :name="panelView.kind === 'tables' ? 'i-heroicons-table-cells' : 'i-heroicons-wrench-screwdriver'" class="w-4 h-4 text-gray-400 shrink-0" />
@@ -158,10 +192,14 @@
             />
             <ToolsSelector
               v-else
-              :key="'tools-' + panelView.agentId"
+              :key="'tools-' + panelView.agentId + '-' + toolsRefreshKey"
               :ds-id="panelView.agentId"
               :connections="panelConnections"
               :can-update="panelCanUpdate"
+              @add-mcp="showAddMCP = true"
+              @add-custom-api="showAddConnection = true"
+              @edit-connection="openConnectionDetail"
+              @delete-connection="onToolsConnectionChanged"
             />
           </div>
         </template>
@@ -229,8 +267,8 @@
                 <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="closeDiff">Close</button>
               </div>
             </div>
-            <div class="flex-1 min-h-0 p-4">
-              <MonacoDiffEditor :original="diff.original" :modified="diff.modified" language="markdown" height="68vh" />
+            <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
+              <TrackedChangesView :diff-ops="diffOps" />
             </div>
           </div>
 
@@ -266,12 +304,17 @@
                   <span class="text-[11px] text-gray-400">Labels</span>
                   <div><KSelect v-model="draft.label_ids" :options="labelOpts" multiple placeholder="None" icon="i-heroicons-tag" /></div>
                 </template>
-                <template v-if="createRefs.length">
-                  <span class="text-[11px] text-gray-400">Attached to</span>
-                  <div class="flex flex-wrap gap-1.5">
-                    <span v-for="(r, i) in createRefs" :key="i" class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono"><UIcon name="i-heroicons-table-cells" class="w-3 h-3 text-gray-400" />{{ r.display_text }}</span>
+                <span class="text-[11px] text-gray-400 self-start pt-1">References</span>
+                <div class="space-y-1.5">
+                  <div v-if="draft.references.length" class="flex flex-wrap gap-1.5">
+                    <span v-for="(r, i) in draft.references" :key="i" class="inline-flex items-center gap-1 pl-2 pr-1 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono">
+                      <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400" />{{ r.display_text || r.object_id }}
+                      <button type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 flex items-center justify-center" @click="removeRef(i)"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
+                    </span>
                   </div>
-                </template>
+                  <KSelect v-if="refOptions.length" v-model="refIds" :options="refOptions" multiple placeholder="Add a table…" icon="i-heroicons-table-cells" />
+                  <span v-else class="text-[11px] text-gray-300 italic">Pick agents to reference their tables, or type @ in the text.</span>
+                </div>
               </div>
             </div>
 
@@ -354,6 +397,8 @@
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
     <AddConnectionModal v-model="showAddConnection" @created="onConnectionChanged" />
+    <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onToolsConnectionChanged" />
+    <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
   </div>
 </template>
 
@@ -366,9 +411,11 @@ import GitConnectionButton from '~/components/instructions/GitConnectionButton.v
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
-import MonacoDiffEditor from '~/components/MonacoDiffEditor.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
+import AddMCPModal from '~/components/AddMCPModal.vue'
+import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
+import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 
@@ -401,10 +448,30 @@ const detail = ref<Instruction | null>(null)
 const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
-const createRefs = ref<any[]>([])
-const draft = reactive<{ title: string; text: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[] }>(
-  { title: '', text: '', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [] }
+const draft = reactive<{ title: string; text: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[] }>(
+  { title: '', text: '', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [] }
 )
+// Reference options come from the selected agents' tables (valid datasource_table ids).
+const refOptions = computed(() => {
+  const opts: { value: string; label: string; type?: string }[] = []
+  for (const aid of draft.data_source_ids) {
+    const a = agents.value.find(x => x.id === aid)
+    for (const t of (agentTables.value[aid] || [])) opts.push({ value: t.id, label: t.name, type: a?.type })
+  }
+  return opts
+})
+const refIds = computed<string[]>({
+  get: () => draft.references.map(r => String(r.object_id)),
+  set: (ids) => {
+    draft.references = ids.map(id => {
+      const ex = draft.references.find(r => String(r.object_id) === id)
+      if (ex) return ex
+      const opt = refOptions.value.find(o => o.value === id)
+      return { object_type: 'datasource_table', object_id: id, relation_type: 'scope', display_text: opt?.label || id }
+    })
+  },
+})
+const removeRef = (i: number) => { draft.references.splice(i, 1) }
 
 const showHistory = ref(true)
 const versions = ref<any[]>([])
@@ -431,10 +498,57 @@ const panelConnections = computed(() => {
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
 const openPanel = (kind: 'tables' | 'tools', agentId: string) => {
-  closePreview(); closeDiff(); pendingBuilds.value = []
-  detail.value = null; selectedId.value = null; creating.value = false; editing.value = false; versions.value = []
+  clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
+}
+
+// ── Agent overview (primary instruction) ────────────────
+const agentView = ref<null | { agentId: string }>(null)
+const agentDetail = ref<any | null>(null)
+const agentViewName = computed(() => agentView.value ? (agents.value.find(a => a.id === agentView.value!.agentId)?.name || 'Agent') : '')
+const closeAgentView = () => { agentView.value = null; agentDetail.value = null }
+const openAgent = async (id: string) => {
+  clearRightPane()
+  agentView.value = { agentId: id }
+  agentDetail.value = null
+  try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {}
+}
+const onAgentClick = (agent: any) => {
+  if (needsSignIn(agent)) { openAgentTab(agent.id); return }
+  if (!isOpen('agent:' + agent.id)) expand('agent:' + agent.id)
+  openAgent(agent.id)
+}
+
+// ── File upload (per agent) ─────────────────────────────
+const uploadingAgent = ref<string | null>(null)
+const uploadTargetAgent = ref<string | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const triggerUpload = (agentId: string) => { uploadTargetAgent.value = agentId; nextTick(() => fileInputRef.value?.click()) }
+const onUploadInput = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  const agentId = uploadTargetAgent.value
+  if (!files.length || !agentId) return
+  uploadingAgent.value = agentId
+  try {
+    for (const file of files) {
+      const fd = new FormData(); fd.append('file', file)
+      await useMyFetch(`/data_sources/${agentId}/files`, { method: 'POST', body: fd })
+    }
+    toast.add({ title: `Uploaded ${files.length} file(s)`, color: 'green' })
+    agentLoaded.value.delete(agentId)
+    await loadAgentMeta(agentId)
+    if (!isOpen('files:' + agentId)) expand('files:' + agentId)
+  } catch (err: any) { toast.add({ title: 'Upload failed', description: err?.message, color: 'red' }) }
+  finally { uploadingAgent.value = null; if (input) input.value = '' }
+}
+
+// Clear every right-pane mode (preview / diff / tables-tools panel / agent view / detail)
+const clearRightPane = () => {
+  closePreview(); closeDiff(); closePanel(); closeAgentView()
+  detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
+  versions.value = []; pendingBuilds.value = []
 }
 
 // tree pane resize
@@ -459,12 +573,39 @@ const startTreeResize = (e: MouseEvent) => {
 
 // version diff + pending suggestions
 const pendingBuilds = ref<any[]>([])
+// Global set of instruction ids that have a pending/draft build (the list endpoint
+// doesn't carry build status, so derive it from pending builds' contents).
+const pendingInstrIds = ref<Set<string>>(new Set())
+const fetchPendingMap = async () => {
+  try {
+    const { data } = await useMyFetch<any>('/api/builds', { method: 'GET', query: { status: 'pending_approval', limit: 100 } })
+    const builds = Array.isArray(data.value) ? data.value : (data.value?.items || [])
+    const ids = new Set<string>()
+    await Promise.all(builds.map(async (bld: any) => {
+      try {
+        const { data: c } = await useMyFetch<any>(`/api/builds/${bld.id}/contents`, { method: 'GET' })
+        const items = Array.isArray(c.value) ? c.value : (c.value?.items || [])
+        for (const it of items) if (it.instruction_id) ids.add(String(it.instruction_id))
+      } catch {}
+    }))
+    pendingInstrIds.value = ids
+  } catch {}
+}
 const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
 const approving = ref<string | null>(null)
 // connection modals
 const showConnectionModal = ref(false)
 const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
+const showAddMCP = ref(false)
+const toolsRefreshKey = ref(0)
+const mcpExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'mcp'))
+const onToolsConnectionChanged = async () => {
+  showAddMCP.value = false
+  const aid = panelView.value?.agentId
+  if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid) }
+  await fetchAgents(); toolsRefreshKey.value++
+}
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canCreateDataSource = computed(() => useCan('create_data_source'))
@@ -479,6 +620,17 @@ const loadPending = async (id: string) => {
   try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch {}
 }
 const closeDiff = () => { diff.value = null }
+// Clean inline word-diff (current ↔ selected version / suggestion), like ReportAgent/GlobalCreate.
+const diffOps = computed(() => {
+  if (!diff.value) return []
+  const base = diff.value.original || ''
+  const next = diff.value.modified || ''
+  if (base === next) return [{ type: 0, text: base }]
+  const dmp = new (DiffMatchPatch as any)()
+  const ops = dmp.diff_main(base, next)
+  dmp.diff_cleanupSemantic(ops)
+  return ops.map((o: [number, string]) => ({ type: o[0], text: o[1] }))
+})
 const viewVersion = async (v: any, isCurrent: boolean) => {
   if (isCurrent || !detail.value) { closeDiff(); return }
   try {
@@ -573,7 +725,7 @@ const closePreview = () => { previewFile.value = null; if (previewUrl.value) { U
 const downloadPreview = () => { if (previewUrl.value) window.open(previewUrl.value, '_blank') }
 const openFile = async (f: any) => {
   detail.value = null; creating.value = false; editing.value = false; selectedId.value = null
-  closeDiff(); closePanel(); pendingBuilds.value = []; closePreview(); previewFile.value = f; previewLoading.value = true
+  closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; closePreview(); previewFile.value = f; previewLoading.value = true
   try {
     const { data } = await useMyFetch<any>(`/api/files/${f.id}/content`, { method: 'GET', responseType: 'blob' as any })
     const blob = data.value as Blob | null
@@ -582,7 +734,7 @@ const openFile = async (f: any) => {
 }
 
 // ── Counts ──────────────────────────────────────────────
-const isPending = (ins: Instruction) => h.getEffectiveStatus(ins) === 'pending_review'
+const isPending = (ins: Instruction) => pendingInstrIds.value.has(ins.id) || h.getEffectiveStatus(ins) === 'pending_review'
 const pendingCount = computed(() => allInstructions.value.filter(isPending).length)
 const globalCount = computed(() => allInstructions.value.filter(i => (i.data_sources || []).length === 0).length)
 const skillCount = computed(() => allInstructions.value.filter(i => (i as any).kind === 'skill').length)
@@ -613,7 +765,7 @@ const listForTable = (agentId: string, tableId: string) => applyFilters(allInstr
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); closeDiff(); closePanel(); creating.value = false; createRefs.value = []
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); creating.value = false
   selectedId.value = ins.id; detail.value = ins; editing.value = false
   syncDraft(ins); loadVersions(ins.id); loadPending(ins.id)
   try {
@@ -632,28 +784,30 @@ const syncDraft = (ins: Instruction) => {
   draft.category = ins.category || 'general'
   draft.data_source_ids = (ins.data_sources || []).map(d => d.id)
   draft.label_ids = (ins.labels || []).map((l: any) => l.id)
+  draft.references = (ins.references || []).map((r: any) => ({ object_type: r.object_type, object_id: String(r.object_id), relation_type: r.relation_type || 'scope', display_text: r.display_text || r.object?.name || String(r.object_id), column_name: r.column_name || null }))
+  draft.data_source_ids.forEach(id => loadAgentMeta(id))
 }
 const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
-  closePreview(); closeDiff(); closePanel(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []
   creating.value = true; editing.value = true
   draft.title = ''; draft.text = ''; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
   draft.label_ids = []
-  createRefs.value = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
+  draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
+  draft.data_source_ids.forEach(id => loadAgentMeta(id))
 }
 const startEdit = () => { if (detail.value) { syncDraft(detail.value); editing.value = true } }
-const cancelEdit = () => { if (creating.value) { creating.value = false; editing.value = false; createRefs.value = [] } else { if (detail.value) syncDraft(detail.value); editing.value = false } }
+const cancelEdit = () => { if (creating.value) { creating.value = false; editing.value = false; draft.references = [] } else { if (detail.value) syncDraft(detail.value); editing.value = false } }
 const save = async () => {
   saving.value = true
   try {
-    const body: any = { title: draft.title || null, text: draft.text, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids }
+    const body: any = { title: draft.title || null, text: draft.text, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
     if (creating.value) {
-      body.references = createRefs.value
       const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Create failed')
       toast.add({ title: 'Created', color: 'green' })
-      creating.value = false; editing.value = false; createRefs.value = []
+      creating.value = false; editing.value = false; draft.references = []
       await fetchAll()
       const created = (data.value as any)?.id ? allInstructions.value.find(i => i.id === (data.value as any).id) : null
       if (created) openInstruction(created)
@@ -688,8 +842,8 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).to
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, badge: String, disabled: Boolean, labelClickable: Boolean, active: Boolean },
-  emits: ['toggle', 'add', 'badge', 'label'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, gearable: Boolean, badge: String, disabled: Boolean, labelClickable: Boolean, active: Boolean },
+  emits: ['toggle', 'add', 'gear', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
@@ -703,7 +857,8 @@ const TreeGroup = defineComponent({
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 shrink-0' }) : null),
         createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-[11px]' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
         props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 text-blue-600 text-[10px] font-medium hover:bg-blue-100', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
-        (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add instruction', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
+        (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Manage', onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,
+        (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
         (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-[11px] tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
       ]),
       (props.open && !props.disabled) ? createElement('div', { class: 'space-y-0.5 mt-0.5' }, slots.default ? slots.default() : []) : null,
@@ -722,7 +877,7 @@ const InstrLeaf = defineComponent({
         style: { paddingLeft: (20 + props.indent * 14) + 'px', paddingRight: '8px' },
         onClick: () => openInstruction(ins),
       }, [
-        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', h.getStatusIconClass(ins)], title: h.getStatusTooltip(ins) }),
+        createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pendingInstrIds.value.has(ins.id) ? 'bg-amber-400' : h.getStatusIconClass(ins)], title: pendingInstrIds.value.has(ins.id) ? 'Pending review' : h.getStatusTooltip(ins) }),
         createElement('span', { class: 'flex-1 text-left truncate' }, displayTitle(ins)),
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.getSourceTooltip(ins) }),
