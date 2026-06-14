@@ -139,4 +139,25 @@ demo1; `exchange_obo_token` for Fabric/PowerBI.
   overlay** — so reload can't fix it. Bug confirmed and isolated to the overlay
   scoping + reload paths above.
 
-No fix is implemented (per request) — this is the validation harness only.
+## The fix
+
+`DataSourceService._refresh_shared_user_overlay` (`data_source_service.py`), wired
+into `refresh_data_source_schema`'s shared-catalog branch: after the canonical
+refresh, if the source is `user_required` and the caller resolves to
+`effective_auth == "user"`, refresh the **caller's** per-user overlay
+(`get_user_data_source_schema`) and return their user-scoped tables. Admins on the
+service account (`effective_auth == "system"`) still get the full canonical
+catalog; disconnected callers (`"none"`) get nothing (no canonical leak).
+
+Result (Loop A, after fix):
+
+```
+[before] admin1 sees total=2; admin2 sees total=0   # overlay-scoped, empty
+[after]  admin2 overlay rows=2; admin2 tables=2      # reload populated it now
+```
+
+> Regression note: some `tests/e2e/test_connection_oauth_flow.py` tests fail in
+> this sandbox with `create_user -> 404 Not Found` (the HTTP signup route isn't
+> available under this config). This is **pre-existing and unrelated** — it
+> reproduces with the fix stashed. The repro/fix test seeds users directly to
+> avoid that harness dependency.

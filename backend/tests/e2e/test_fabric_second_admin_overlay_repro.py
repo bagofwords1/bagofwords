@@ -1,6 +1,12 @@
 """
-Reproduction: second admin sees NO tables on a shared-catalog, user-required
-(Fabric / PowerBI / OBO) data source — and "Reload tables" does not fix it.
+Fix validation: second admin on a shared-catalog, user-required (Fabric /
+PowerBI / OBO) data source.
+
+Before the fix: the second admin saw NO tables, and "Reload tables" did not help
+(they only appeared later, once an unrelated path warmed the per-user overlay).
+After the fix: clicking "Reload tables" refreshes the caller's per-user overlay,
+so their tables appear immediately (see
+DataSourceService._refresh_shared_user_overlay).
 
 Scenario (mirrors the reported Entra ID / OBO bug):
   - Admin1 creates an ms_fabric connection (auth_policy=user_required,
@@ -225,33 +231,46 @@ async def _count_overlay(ids, user_id):
         return res.scalar() or 0
 
 
+class _FakeFabricClient:
+    """Stands in for the live Fabric client: returns the tables the caller can
+    see (HAS_PERMS-filtered upstream). Here admin2 can see both."""
+    async def aget_schemas(self):
+        return [
+            {"name": "sales", "columns": [{"name": "id", "dtype": "int"}],
+             "pks": [], "fks": [], "metadata_json": {"schema": "dbo"}},
+            {"name": "finance", "columns": [{"name": "id", "dtype": "int"}],
+             "pks": [], "fks": [], "metadata_json": {"schema": "dbo"}},
+        ]
+
+
 @pytest.mark.e2e
-def test_second_admin_sees_no_tables_and_reload_does_not_help(monkeypatch):
+def test_reload_populates_second_admin_overlay(monkeypatch):
+    """FIX validation: after the fix, clicking 'Reload tables' as the second
+    admin refreshes THEIR per-user overlay, so tables appear immediately."""
     ids = _run(_seed())
 
-    # CLAIM 1 — display scoping: admin1 sees both tables, admin2 sees none.
-    a1_total, a1_len = _run(_paginated_total(ids, ids["admin1_id"]))
-    a2_total, a2_len = _run(_paginated_total(ids, ids["admin2_id"]))
-    print(f"\n[display] admin1 sees total={a1_total} rows={a1_len}; "
-          f"admin2 sees total={a2_total} rows={a2_len}")
-
-    assert a1_total == 2 and a1_len == 2, "admin1 (with overlay) should see both tables"
-    assert a2_total == 0 and a2_len == 0, (
-        "BUG REPRODUCED: admin2 has a valid OBO token (can run queries) but an "
-        "empty overlay, so the tables selector shows ZERO tables"
-    )
-
-    # CLAIM 2 — reload doesn't populate admin2's overlay. Stub the connection
-    # schema refresh (canonical catalog already seeded) and confirm the shared
-    # catalog reload path never writes admin2's UserDataSourceTable rows.
+    # Initial display scoping: admin1 (has overlay) sees both; admin2 sees none
+    # (overlay empty — the paginated read is overlay-scoped). This part is the
+    # original symptom and is unchanged by the fix.
+    a1_total, _ = _run(_paginated_total(ids, ids["admin1_id"]))
+    a2_total, _ = _run(_paginated_total(ids, ids["admin2_id"]))
+    print(f"\n[before] admin1 sees total={a1_total}; admin2 sees total={a2_total}")
+    assert a1_total == 2
+    assert a2_total == 0
     assert _run(_count_overlay(ids, ids["admin2_id"])) == 0
 
+    # Stub the live seams: canonical refresh is a no-op (already seeded), and the
+    # per-user fetch returns admin2's visible tables via the fake client.
     from app.services.connection_service import ConnectionService
 
     async def _noop_refresh_schema(self, db, connection, current_user=None):
-        return []  # simulate a successful canonical refresh, no overlay writes
+        return []
+
+    async def _fake_construct_client(self, db, data_source, current_user):
+        return _FakeFabricClient()
 
     monkeypatch.setattr(ConnectionService, "refresh_schema", _noop_refresh_schema)
+    monkeypatch.setattr(DataSourceService, "construct_client", _fake_construct_client)
 
     async def _reload_as_admin2():
         svc = DataSourceService()
@@ -268,14 +287,16 @@ def test_second_admin_sees_no_tables_and_reload_does_not_help(monkeypatch):
     _run(_reload_as_admin2())
 
     overlay_after = _run(_count_overlay(ids, ids["admin2_id"]))
-    a2_total_after, _ = _run(_paginated_total(ids, ids["admin2_id"]))
-    print(f"[reload]  admin2 overlay rows after reload={overlay_after}; "
-          f"admin2 tables after reload={a2_total_after}")
+    a2_total_after, a2_len_after = _run(_paginated_total(ids, ids["admin2_id"]))
+    print(f"[after]  admin2 overlay rows={overlay_after}; "
+          f"admin2 tables={a2_total_after} rows={a2_len_after}")
 
-    assert overlay_after == 0, "reload must NOT have populated admin2's overlay"
-    assert a2_total_after == 0, (
-        "BUG REPRODUCED: after 'Reload tables', admin2 STILL sees zero tables — "
-        "the shared-catalog reload refreshes only the canonical catalog"
+    assert overlay_after == 2, (
+        "FIX: reload must populate the second admin's per-user overlay"
+    )
+    assert a2_total_after == 2 and a2_len_after == 2, (
+        "FIX: after 'Reload tables' the second admin now sees their tables "
+        "immediately (no need to leave and return)"
     )
 
 
