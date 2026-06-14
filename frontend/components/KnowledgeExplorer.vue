@@ -3,14 +3,15 @@
     <!-- Header -->
     <div class="flex items-center justify-between pl-3 pr-4 py-3 shrink-0">
       <div>
-        <h1 class="text-[15px] font-semibold text-gray-900 tracking-tight">Knowledge</h1>
+        <h1 class="text-[15px] font-semibold text-gray-900 tracking-tight">Agents</h1>
         <p class="text-xs text-gray-400 mt-0.5">The instructions, rules and skills your agents reason with.</p>
       </div>
       <div class="flex items-center gap-2">
         <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="expand('pending', true)">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ pendingCount }} pending review
         </button>
-        <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black transition-colors" @click="openCreate">
+        <GitConnectionButton :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
+        <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black transition-colors" @click="openCreate()">
           <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" /> Add instruction
         </button>
       </div>
@@ -60,21 +61,21 @@
 
           <div class="h-px bg-gray-100 my-2 mx-1"></div>
 
-          <TreeGroup label="Global / Org-wide" icon="i-heroicons-globe-alt" :count="globalCount" :open="isOpen('global')" @toggle="expand('global')">
-            <EmptyHint v-if="listFor('global').length === 0" text="No global rules." add @add="openCreate" />
+          <TreeGroup label="Global / Org-wide" icon="i-heroicons-globe-alt" :count="globalCount" addable :open="isOpen('global')" @toggle="expand('global')" @add="openCreate()">
+            <EmptyHint v-if="listFor('global').length === 0" text="No global rules." add @add="openCreate()" />
             <InstrLeaf v-for="ins in listFor('global')" :key="ins.id" :ins="ins" />
           </TreeGroup>
 
           <div class="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Agents</div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :open="isOpen('agent:' + agent.id)" @toggle="expand('agent:' + agent.id)">
+            <TreeGroup :label="agent.name" :count="agentCount(agent.id)" :pending="agentPending(agent.id)" :badge="needsSignIn(agent) ? 'Sign in' : ''" :disabled="needsSignIn(agent)" :open="isOpen('agent:' + agent.id)" @toggle="expand('agent:' + agent.id)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" class="w-4 h-4 shrink-0" /></template>
 
               <TreeGroup label="Tables" icon="i-heroicons-table-cells" :count="agentTables[agent.id]?.length" :indent="1" :open="isOpen('tables:' + agent.id)" @toggle="expand('tables:' + agent.id)">
-                <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)">
+                <TreeGroup v-for="t in (agentTables[agent.id] || [])" :key="t.id" :label="t.name" :icon="t.is_active ? 'i-heroicons-check-circle' : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono addable :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
-                  <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" text="No rules attached." add @add="openCreate" :pad="62" />
+                  <EmptyHint v-if="listForTable(agent.id, t.id).length === 0" text="No rules attached." add @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
                 <EmptyHint v-if="(agentTables[agent.id]?.length ?? -1) === 0" text="No accessible tables." :pad="48" />
               </TreeGroup>
@@ -89,25 +90,41 @@
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" text="No tools connected." :pad="48" />
               </TreeGroup>
 
-              <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)">
+              <TreeGroup label="Instructions" icon="i-heroicons-document-text" :count="listForAgent(agent.id).length" addable :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })">
                 <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
-                <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate" :pad="48" />
+                <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
               </TreeGroup>
             </TreeGroup>
           </template>
+        </div>
+
+        <!-- Connections footer -->
+        <div v-if="connections.length" class="border-t border-gray-200 px-3 py-2 flex items-center gap-2">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mr-1">Connections</span>
+          <UTooltip v-for="c in connections" :key="c.id" :text="`${c.name} · ${c.type}`">
+            <a :href="'/agents'" target="_blank" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 hover:bg-gray-50">
+              <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />
+              <span class="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+            </a>
+          </UTooltip>
         </div>
       </aside>
 
       <!-- ── Pane 2: Detail ───────────────────────────── -->
       <section class="flex-1 min-w-0 flex flex-col">
-        <template v-if="detail">
+        <template v-if="detail || creating">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
             <div class="flex items-center gap-2 min-w-0">
-              <span class="w-1.5 h-1.5 rounded-full" :class="h.getStatusIconClass(detail)"></span>
-              <span class="text-xs font-medium text-gray-500">{{ h.getStatusLabel(detail) }}</span>
+              <template v-if="creating">
+                <span class="text-xs font-medium text-gray-500">New instruction</span>
+              </template>
+              <template v-else>
+                <span class="w-1.5 h-1.5 rounded-full" :class="h.getStatusIconClass(detail)"></span>
+                <span class="text-xs font-medium text-gray-500">{{ h.getStatusLabel(detail) }}</span>
+              </template>
             </div>
             <div class="flex items-center gap-1.5">
-              <button class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="showHistory = !showHistory">
+              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="showHistory = !showHistory">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
               <template v-if="!editing">
@@ -115,40 +132,54 @@
               </template>
               <template v-else>
                 <button class="h-7 px-3 rounded-md text-gray-500 text-xs hover:bg-gray-100" @click="cancelEdit">Cancel</button>
-                <button class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? 'Saving…' : 'Save' }}</button>
+                <button class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}</button>
               </template>
             </div>
           </div>
 
           <div class="flex-1 overflow-y-auto px-8 py-6 max-w-3xl">
+            <!-- Title -->
             <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-4" />
             <h2 v-else class="text-lg font-semibold text-gray-900 mb-4">{{ displayTitle(detail) }}</h2>
 
-            <!-- Edit: full set of properties, clean -->
-            <div v-if="editing" class="grid grid-cols-[80px_1fr] gap-x-3 gap-y-2 items-center mb-5">
-              <span class="text-[11px] text-gray-400">Status</span>
-              <div><KSelect v-model="draft.status" :options="statusEditOpts" /></div>
-              <span class="text-[11px] text-gray-400">Loading</span>
-              <div><KSelect v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" /></div>
-              <span class="text-[11px] text-gray-400">Category</span>
-              <div><KSelect v-model="draft.category" :options="categoryOpts" placeholder="General" /></div>
-              <span class="text-[11px] text-gray-400">Agents</span>
-              <div><KSelect v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents (global)" icon="i-heroicons-cpu-chip" /></div>
-              <span v-if="labelOpts.length" class="text-[11px] text-gray-400">Labels</span>
-              <div v-if="labelOpts.length"><KSelect v-model="draft.label_ids" :options="labelOpts" multiple placeholder="None" icon="i-heroicons-tag" /></div>
-            </div>
-            <!-- View: chips -->
-            <div v-else class="flex flex-wrap items-center gap-2 mb-5">
+            <!-- View-mode property chips -->
+            <div v-if="!editing" class="flex flex-wrap items-center gap-2 mb-5">
               <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
               <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
               <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getSourceTooltip(detail) }}</span>
             </div>
 
+            <!-- Body -->
             <div class="prose-instruction">
-              <InstructionEditor :key="detail.id + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="(detail.data_sources || []).map(d => d.id)" :is-all-data-sources="(detail.data_sources || []).length === 0" placeholder="Write the instruction in markdown…" />
+              <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
             </div>
 
-            <div v-if="!editing" class="mt-6 pt-5 border-t border-gray-100">
+            <!-- Edit-mode properties (below a separator, like the agent panel) -->
+            <div v-if="editing" class="mt-6 pt-5 border-t border-gray-100">
+              <div class="grid grid-cols-[84px_1fr] gap-x-3 gap-y-2.5 items-center">
+                <span class="text-[11px] text-gray-400">Status</span>
+                <div><KSelect v-model="draft.status" :options="statusEditOpts" /></div>
+                <span class="text-[11px] text-gray-400">Loading</span>
+                <div><KSelect v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" /></div>
+                <span class="text-[11px] text-gray-400">Category</span>
+                <div><KSelect v-model="draft.category" :options="categoryOpts" placeholder="General" /></div>
+                <span class="text-[11px] text-gray-400">Agents</span>
+                <div><KSelect v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents (global)" icon="i-heroicons-cpu-chip" /></div>
+                <template v-if="labelOpts.length">
+                  <span class="text-[11px] text-gray-400">Labels</span>
+                  <div><KSelect v-model="draft.label_ids" :options="labelOpts" multiple placeholder="None" icon="i-heroicons-tag" /></div>
+                </template>
+                <template v-if="createRefs.length">
+                  <span class="text-[11px] text-gray-400">Attached to</span>
+                  <div class="flex flex-wrap gap-1.5">
+                    <span v-for="(r, i) in createRefs" :key="i" class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono"><UIcon name="i-heroicons-table-cells" class="w-3 h-3 text-gray-400" />{{ r.display_text }}</span>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- View-mode reach -->
+            <div v-if="!editing && detail" class="mt-6 pt-5 border-t border-gray-100">
               <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Used by</div>
               <div v-if="(detail.data_sources || []).length === 0" class="flex items-center gap-1.5 text-xs text-gray-500"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400" /> All agents (global)</div>
               <div v-else class="flex flex-wrap gap-1.5">
@@ -168,9 +199,7 @@
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-0 w-full opacity-80 select-none pointer-events-none" />
             <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
-              <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm">
-                <UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400" />
-              </div>
+              <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm"><UIcon name="i-heroicons-book-open" class="w-5 h-5 text-gray-400" /></div>
               <h3 class="mt-3 text-[15px] font-medium text-gray-900">Your team's knowledge</h3>
               <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">Open an agent and pick an instruction to view, edit, and track its versions.</p>
             </div>
@@ -179,10 +208,8 @@
       </section>
 
       <!-- ── Pane 3: Versions ─────────────────────────── -->
-      <aside v-if="detail && showHistory" class="w-60 shrink-0 border-l border-gray-200 flex flex-col">
-        <div class="h-11 shrink-0 px-3 flex items-center border-b border-gray-100">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Version history</span>
-        </div>
+      <aside v-if="detail && !creating && showHistory" class="w-60 shrink-0 border-l border-gray-200 flex flex-col">
+        <div class="h-11 shrink-0 px-3 flex items-center border-b border-gray-100"><span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Version history</span></div>
         <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
           <div v-if="versionsLoading" class="p-3 text-center text-[11px] text-gray-400">Loading…</div>
           <div v-else-if="versions.length === 0" class="p-3 text-center text-[11px] text-gray-300">No history yet.</div>
@@ -198,16 +225,17 @@
       </aside>
     </div>
 
-    <InstructionModalComponent v-model="showCreate" :instruction="null" @instruction-saved="onCreated" />
+    <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { h as createElement } from 'vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
-import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import KSelect from '~/components/KSelect.vue'
+import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
+import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 
 const h = useInstructionHelpers()
@@ -215,16 +243,12 @@ const toast = useToast()
 
 // ── State ───────────────────────────────────────────────
 const allInstructions = ref<Instruction[]>([])
-const agents = ref<{ id: string; name: string; type?: string }[]>([])
+const agents = ref<any[]>([])
 const labels = ref<{ id: string; name: string }[]>([])
 const categories = ref<string[]>([])
 const search = ref('')
 
-// filters (multi)
-const fStatus = ref<string[]>([])
-const fLoad = ref<string[]>([])
-const fSource = ref<string[]>([])
-const fCategory = ref<string[]>([])
+const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSource = ref<string[]>([]); const fCategory = ref<string[]>([])
 
 const expanded = ref<Set<string>>(new Set())
 const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean }[]>>({})
@@ -234,7 +258,9 @@ const agentLoaded = ref<Set<string>>(new Set())
 const selectedId = ref<string | null>(null)
 const detail = ref<Instruction | null>(null)
 const editing = ref(false)
+const creating = ref(false)
 const saving = ref(false)
+const createRefs = ref<any[]>([])
 const draft = reactive<{ title: string; text: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[] }>(
   { title: '', text: '', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [] }
 )
@@ -242,9 +268,12 @@ const draft = reactive<{ title: string; text: string; load_mode: string; status:
 const showHistory = ref(true)
 const versions = ref<any[]>([])
 const versionsLoading = ref(false)
-const showCreate = ref(false)
 
-// option lists
+// git
+const gitRepos = ref<{ provider: string; repoName: string }[]>([])
+const gitLastIndexed = ref<string | null>(null)
+const showGitModal = ref(false)
+
 const statusOpts = [{ value: 'published', label: 'Active' }, { value: 'draft', label: 'Inactive' }, { value: 'pending_review', label: 'Pending review' }]
 const statusEditOpts = [{ value: 'published', label: 'Active' }, { value: 'draft', label: 'Inactive' }]
 const loadOpts = [{ value: 'always', label: 'Always' }, { value: 'intelligent', label: 'Smart' }, { value: 'disabled', label: 'Off' }]
@@ -255,40 +284,52 @@ const labelOpts = computed(() => labels.value.map(l => ({ value: l.id, label: l.
 const activeFilterCount = computed(() => fStatus.value.length + fLoad.value.length + fSource.value.length + fCategory.value.length)
 const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value = []; fCategory.value = [] }
 
+// connections (deduped from agents)
+const connections = computed(() => { const m = new Map<string, any>(); for (const a of agents.value) for (const c of (a.connections || [])) if (!m.has(c.id)) m.set(c.id, c); return Array.from(m.values()) })
+
+// requires sign-in (ported from /agents/index.vue)
+const requiresUserAuth = (a: any) => (a.connections || []).some((c: any) => c.auth_policy === 'user_required')
+const needsSignIn = (a: any) => {
+  if (!requiresUserAuth(a)) return false
+  for (const c of (a.connections || [])) {
+    if (c.auth_policy === 'user_required' && !c.user_status?.has_user_credentials && c.user_status?.effective_auth !== 'system') return true
+  }
+  return false
+}
+const openAgentTab = (id: string) => { window.open(`/agents/${id}/connection`, '_blank') }
+
 // ── Expansion ───────────────────────────────────────────
 const isOpen = (key: string) => expanded.value.has(key)
 const expand = (key: string, force?: boolean) => {
   if (force) expanded.value.add(key)
   else if (expanded.value.has(key)) expanded.value.delete(key)
   else expanded.value.add(key)
-  if (key.startsWith('agent:') && expanded.value.has(key)) {
-    const id = key.slice('agent:'.length)
-    expanded.value.add('instr:' + id)
-    loadAgentMeta(id)
-  }
+  if (key.startsWith('agent:') && expanded.value.has(key)) { const id = key.slice('agent:'.length); expanded.value.add('instr:' + id); loadAgentMeta(id) }
   expanded.value = new Set(expanded.value)
 }
 
 // ── Fetching ────────────────────────────────────────────
 const fetchAll = async () => {
-  try {
-    const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } })
-    allInstructions.value = data.value?.items || []
-  } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any>('/api/instructions', { method: 'GET', query: { skip: 0, limit: 200, include_own: true, include_drafts: true, include_archived: true } }); allInstructions.value = data.value?.items || [] } catch (e) { console.error(e) }
 }
 const fetchAgents = async () => {
-  try { const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET' }); agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type })) } catch (e) { console.error(e) }
+  try { const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET' }); agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, connections: d.connections || [], user_status: d.user_status })) } catch (e) { console.error(e) }
 }
 const fetchLabels = async () => { try { const { data } = await useMyFetch<any[]>('/instructions/labels', { method: 'GET' }); labels.value = data.value || [] } catch {} }
 const fetchCategories = async () => { try { const { data } = await useMyFetch<string[]>('/instructions/categories', { method: 'GET' }); categories.value = data.value || [] } catch {} }
+const fetchGitStatus = async () => {
+  try {
+    const { data } = await useMyFetch<any[]>('/git/repositories', { method: 'GET' })
+    const repos = data.value || []
+    gitRepos.value = repos.map((r: any) => ({ provider: r.provider, repoName: (r.repo_url || '').split('/').pop()?.replace(/\.git$/, '') || 'Repo' }))
+    gitLastIndexed.value = repos.map((r: any) => r.last_indexed_at).filter(Boolean).sort().pop() || null
+  } catch {}
+}
+const onGitChanged = () => { fetchGitStatus(); fetchAll() }
 const loadAgentMeta = async (id: string) => {
   if (agentLoaded.value.has(id)) return
   agentLoaded.value.add(id)
-  try {
-    const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema`, { method: 'GET' })
-    const items = Array.isArray(data.value) ? data.value : (data.value?.items || [])
-    agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false }))
-  } catch { agentTables.value[id] = [] }
+  try { const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema`, { method: 'GET' }); const items = Array.isArray(data.value) ? data.value : (data.value?.items || []); agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false })) } catch { agentTables.value[id] = [] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/tools`, { method: 'GET' }); agentTools.value[id] = data.value || [] } catch { agentTools.value[id] = [] }
   agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }
 }
@@ -301,7 +342,7 @@ const skillCount = computed(() => allInstructions.value.filter(i => (i as any).k
 const agentCount = (id: string) => allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id)).length
 const agentPending = (id: string) => allInstructions.value.some(i => isPending(i) && (i.data_sources || []).some(d => d.id === id))
 
-// ── Leaf lists (search + filters) ───────────────────────
+// ── Leaf lists ──────────────────────────────────────────
 const applyFilters = (list: Instruction[]) => {
   let out = list
   if (fStatus.value.length) out = out.filter(i => fStatus.value.includes(isPending(i) ? 'pending_review' : i.status))
@@ -323,11 +364,20 @@ const hasTableRef = (ins: Instruction) => (ins.references || []).some((r: any) =
 const listForAgent = (id: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === id) && !hasTableRef(i)))
 const listForTable = (agentId: string, tableId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && (i.references || []).some((r: any) => r.object_type === 'datasource_table' && String(r.object_id) === tableId)))
 
-// ── Detail ──────────────────────────────────────────────
+// ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
+  creating.value = false; createRefs.value = []
   selectedId.value = ins.id; detail.value = ins; editing.value = false
   syncDraft(ins); loadVersions(ins.id)
-  try { const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' }); if (data.value && selectedId.value === ins.id) { detail.value = data.value; if (!editing.value) syncDraft(data.value) } } catch (e) {}
+  try {
+    const { data } = await useMyFetch<Instruction>(`/api/instructions/${ins.id}`, { method: 'GET' })
+    if (data.value && selectedId.value === ins.id) {
+      detail.value = data.value; if (!editing.value) syncDraft(data.value)
+      // keep the tree leaf consistent with the hydrated build/status
+      const idx = allInstructions.value.findIndex(i => i.id === ins.id)
+      if (idx >= 0) { allInstructions.value[idx] = { ...allInstructions.value[idx], status: data.value.status, current_build_id: data.value.current_build_id, current_build_status: data.value.current_build_status }; allInstructions.value = [...allInstructions.value] }
+    }
+  } catch (e) {}
 }
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.text = ins.text || ''
@@ -336,23 +386,40 @@ const syncDraft = (ins: Instruction) => {
   draft.data_source_ids = (ins.data_sources || []).map(d => d.id)
   draft.label_ids = (ins.labels || []).map((l: any) => l.id)
 }
+const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string }) => {
+  detail.value = null; selectedId.value = null; versions.value = []
+  creating.value = true; editing.value = true
+  draft.title = ''; draft.text = ''; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
+  draft.data_source_ids = scope?.agentId ? [scope.agentId] : []
+  draft.label_ids = []
+  createRefs.value = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
+}
 const startEdit = () => { if (detail.value) { syncDraft(detail.value); editing.value = true } }
-const cancelEdit = () => { if (detail.value) syncDraft(detail.value); editing.value = false }
+const cancelEdit = () => { if (creating.value) { creating.value = false; editing.value = false; createRefs.value = [] } else { if (detail.value) syncDraft(detail.value); editing.value = false } }
 const save = async () => {
-  if (!detail.value) return
   saving.value = true
   try {
-    const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, {
-      method: 'PUT',
-      body: { title: draft.title || null, text: draft.text, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids },
-    })
-    if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
-    toast.add({ title: 'Saved', color: 'green' }); editing.value = false
-    if (data.value) detail.value = { ...detail.value, ...data.value }
-    await fetchAll()
-    const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
-    if (fresh) { detail.value = fresh; syncDraft(fresh) }
-    loadVersions(detail.value!.id)
+    const body: any = { title: draft.title || null, text: draft.text, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids }
+    if (creating.value) {
+      body.references = createRefs.value
+      const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
+      const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
+      if (error.value) throw new Error((error.value as any)?.message || 'Create failed')
+      toast.add({ title: 'Created', color: 'green' })
+      creating.value = false; editing.value = false; createRefs.value = []
+      await fetchAll()
+      const created = (data.value as any)?.id ? allInstructions.value.find(i => i.id === (data.value as any).id) : null
+      if (created) openInstruction(created)
+    } else if (detail.value) {
+      const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
+      if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
+      toast.add({ title: 'Saved', color: 'green' }); editing.value = false
+      if (data.value) detail.value = { ...detail.value, ...data.value }
+      await fetchAll()
+      const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
+      if (fresh) { detail.value = fresh; syncDraft(fresh) }
+      loadVersions(detail.value!.id)
+    }
   } catch (e: any) { toast.add({ title: 'Error', description: e.message, color: 'red' }) } finally { saving.value = false }
 }
 
@@ -364,40 +431,33 @@ const loadVersions = async (id: string) => {
 const restore = async (v: any) => {
   if (!detail.value) return
   if (!window.confirm(`Restore version v${v.version_number}? This creates a new version.`)) return
-  try {
-    await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' })
-    toast.add({ title: `Restored v${v.version_number}`, color: 'green' })
-    await fetchAll(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh)
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+  try { await useMyFetch(`/api/instructions/${detail.value.id}/versions/${v.id}/revert`, { method: 'POST' }); toast.add({ title: `Restored v${v.version_number}`, color: 'green' }); await fetchAll(); const fresh = allInstructions.value.find(i => i.id === detail.value?.id); if (fresh) openInstruction(fresh) } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
 }
 
-// ── Create ──────────────────────────────────────────────
-const openCreate = () => { showCreate.value = true }
-const onCreated = async () => { showCreate.value = false; await fetchAll() }
-
 // ── Display helpers ─────────────────────────────────────
-const displayTitle = (ins: Instruction) => ins.title || (ins.text || '').split('\n')[0].slice(0, 60) || 'Untitled'
+const displayTitle = (ins: Instruction) => ins?.title || (ins?.text || '').split('\n')[0].slice(0, 60) || 'Untitled'
 const refLabel = (ref: any) => ref.display_text || ref.object?.name || ref.object_type
 const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 } },
-  emits: ['toggle'],
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, badge: String, disabled: Boolean },
+  emits: ['toggle', 'add', 'badge'],
   setup(props, { slots, emit }) {
     return () => createElement('div', {}, [
-      createElement('button', {
-        class: ['w-full flex items-center gap-1.5 h-7 rounded-md text-xs text-gray-600 hover:bg-gray-100 transition-colors min-w-0'],
+      createElement('div', {
+        class: ['group w-full flex items-center gap-1.5 h-7 rounded-md text-xs text-gray-600 transition-colors min-w-0', props.disabled ? 'opacity-90' : 'hover:bg-gray-100 cursor-pointer'],
         style: { paddingLeft: (6 + props.indent * 14) + 'px', paddingRight: '8px' },
-        onClick: () => emit('toggle'),
+        onClick: () => { if (!props.disabled) emit('toggle') },
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 text-gray-300 transition-transform shrink-0', props.open ? 'rotate-90' : ''] }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200' : 'text-gray-300', props.open ? 'rotate-90' : ''] }),
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 shrink-0' }) : null),
         createElement('span', { class: ['flex-1 text-left truncate', props.mono ? 'font-mono text-[11px]' : ''] }, props.label),
-        props.pending ? createElement('span', { class: 'w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0', title: 'Has pending changes' }) : null,
-        props.count !== undefined ? createElement('span', { class: ['text-[11px] tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
+        props.badge ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 text-blue-600 text-[10px] font-medium hover:bg-blue-100', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge]) : null,
+        (props.addable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: 'Add instruction', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-plus', class: 'w-3 h-3' })]) : null,
+        (props.count !== undefined && !props.badge) ? createElement('span', { class: ['text-[11px] tabular-nums shrink-0', props.countAccent ? 'text-amber-600 font-medium' : 'text-gray-400'] }, String(props.count)) : null,
       ]),
-      props.open ? createElement('div', { class: 'space-y-0.5 mt-0.5' }, slots.default ? slots.default() : []) : null,
+      (props.open && !props.disabled) ? createElement('div', { class: 'space-y-0.5 mt-0.5' }, slots.default ? slots.default() : []) : null,
     ])
   },
 })
@@ -415,11 +475,10 @@ const InstrLeaf = defineComponent({
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', h.getStatusIconClass(ins)], title: h.getStatusTooltip(ins) }),
         createElement('span', { class: 'flex-1 text-left truncate' }, displayTitle(ins)),
+        createElement('span', { class: 'shrink-0 hidden xl:inline-flex items-center px-1.5 h-4 rounded bg-gray-50 text-gray-400 text-[10px] font-medium' }, h.formatCategory(ins.category)),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 shrink-0', title: h.getSourceTooltip(ins) }),
         createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-gray-100 text-gray-500 text-[10px] font-medium' }, h.getLoadModeLabel(ins.load_mode)),
-        (ins.data_sources && ins.data_sources.length > 1)
-          ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 text-gray-500 text-[10px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length))
-          : null,
+        (ins.data_sources && ins.data_sources.length > 1) ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 text-gray-500 text-[10px] font-medium', title: ins.data_sources.map(d => d.name).join(', ') }, String(ins.data_sources.length)) : null,
       ])
     }
   },
@@ -427,10 +486,11 @@ const InstrLeaf = defineComponent({
 
 const EmptyHint = defineComponent({
   props: { text: String, add: Boolean, pad: { type: Number, default: 34 } },
-  setup(props) {
+  emits: ['add'],
+  setup(props, { emit }) {
     return () => createElement('div', { class: 'flex items-center gap-2 py-1', style: { paddingLeft: props.pad + 'px' } }, [
       createElement('span', { class: 'text-[11px] text-gray-300 italic' }, props.text),
-      props.add ? createElement('button', { class: 'text-[11px] text-gray-500 hover:text-gray-900 font-medium', onClick: (e: Event) => { e.stopPropagation(); openCreate() } }, '+ Add') : null,
+      props.add ? createElement('button', { class: 'text-[11px] text-gray-500 hover:text-gray-900 font-medium', onClick: (e: Event) => { e.stopPropagation(); emit('add') } }, '+ Add') : null,
     ])
   },
 })
@@ -442,18 +502,12 @@ const FilterSection = defineComponent({
     const toggle = (v: string) => { const cur = [...(props.modelValue || [])]; const i = cur.indexOf(v); i >= 0 ? cur.splice(i, 1) : cur.push(v); emit('update:modelValue', cur) }
     return () => createElement('div', {}, [
       createElement('div', { class: 'text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1' }, props.label),
-      createElement('div', { class: 'flex flex-wrap gap-1' }, props.options.map(o =>
-        createElement('button', {
-          key: o.value, type: 'button',
-          class: ['px-2 h-6 rounded-md text-[11px] font-medium transition-colors', (props.modelValue || []).includes(o.value) ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'],
-          onClick: () => toggle(o.value),
-        }, o.label)
-      )),
+      createElement('div', { class: 'flex flex-wrap gap-1' }, props.options.map(o => createElement('button', { key: o.value, type: 'button', class: ['px-2 h-6 rounded-md text-[11px] font-medium transition-colors', (props.modelValue || []).includes(o.value) ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'], onClick: () => toggle(o.value) }, o.label))),
     ])
   },
 })
 
-onMounted(async () => { await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories()]) })
+onMounted(async () => { await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus()]) })
 </script>
 
 <style scoped>
