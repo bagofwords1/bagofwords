@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.412 (June 16, 2026)
+- Agents page redesign - easier navigation around instructions, tools, tables, tc
+- **Continual Learning** - trigger evals -> retrain loop on table change or instruction change for high autonomy
+
 ## Version 0.0.411 (June 15, 2026)
 - **⌘K command palette** — a global **⌘K / Ctrl+K** palette for quick navigation and creation, opened from anywhere in the app. One input searches across **recent reports**, **agents**, and **instructions** (server-side search for reports/instructions, client-side filtering for agents; recents shown by default), with pinned, query-echoing create actions: `New report "…"` (creates and navigates) and a permission-aware `New instruction "…"` / `Suggest instruction "…"` that opens the instruction modal pre-filled with the typed text. No-match queries still surface the create actions.
 - **Publishing lifecycle for agents (`publish_status`)** — a manager-set publishing state, distinct from the system-managed connection-health flag: **published** (visible to everyone with access), **draft** (visible only to builders who can `manage` the agent), and **disabled** (hidden everywhere and excluded from AI context). Viewer-aware filtering applies across the data-source/agent selector, schema context, and public (Slack) listing; consumers see only published agents while managers also see drafts. Existing agents are backfilled to *published*.
