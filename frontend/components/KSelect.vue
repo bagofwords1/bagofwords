@@ -1,7 +1,10 @@
 <template>
   <UPopover :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
     <button type="button" class="inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[11px] text-gray-600 bg-gray-50 hover:bg-gray-100 transition-colors max-w-[180px]">
-      <UIcon v-if="icon" :name="icon" class="w-3 h-3 text-gray-400 shrink-0" />
+      <template v-if="selectedTypes.length">
+        <DataSourceIcon v-for="(t, i) in selectedTypes.slice(0, 3)" :key="i" :type="t" class="w-3.5 h-3.5 shrink-0" />
+      </template>
+      <UIcon v-else-if="icon" :name="icon" class="w-3 h-3 text-gray-400 shrink-0" />
       <span class="truncate">{{ displayLabel }}</span>
       <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 text-gray-300 shrink-0" />
     </button>
@@ -42,6 +45,11 @@ const props = defineProps<{
 }>()
 const emit = defineEmits(['update:modelValue'])
 
+const selectedOptions = computed(() => {
+  const vals = props.multiple ? (props.modelValue || []) : (props.modelValue != null && props.modelValue !== '' ? [props.modelValue] : [])
+  return vals.map((v: string) => props.options.find(o => o.value === v)).filter(Boolean) as { value: string; label: string; type?: string }[]
+})
+const selectedTypes = computed(() => selectedOptions.value.map(o => o.type).filter(Boolean) as string[])
 const isSel = (v: string) => props.multiple ? (props.modelValue || []).includes(v) : props.modelValue === v
 const pick = (v: string, close?: () => void) => {
   if (props.multiple) {

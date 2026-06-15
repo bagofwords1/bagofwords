@@ -123,8 +123,15 @@
 
               <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
                 <span class="w-3 shrink-0"></span>
-                <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-gray-400 shrink-0" />
+                <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 shrink-0" />
                 <span class="flex-1 text-left truncate">Evals</span>
+                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
+              </button>
+
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0" :class="panelView?.kind === 'settings' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('settings', agent.id)">
+                <span class="w-3 shrink-0"></span>
+                <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400 shrink-0" />
+                <span class="flex-1 text-left truncate">Settings</span>
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
               </button>
             </TreeGroup>
@@ -191,6 +198,10 @@
             </div>
           </div>
           <div class="flex-1 overflow-y-auto px-6 py-5 max-w-3xl">
+            <div v-if="agentDetailLoading" class="flex items-center justify-center py-16 text-gray-400">
+              <Spinner class="w-5 h-5 animate-spin" />
+            </div>
+            <template v-else>
             <!-- Connections / Connect -->
             <div class="flex flex-wrap items-center gap-1.5 mb-3">
               <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 text-gray-600 text-[11px] hover:bg-gray-50" @click="openConnectionDetail(c)">
@@ -240,10 +251,14 @@
                 <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline" @click="openEditStarters">Edit</button>
               </div>
               <div v-if="(agentDetail?.conversation_starters || []).length" class="flex flex-wrap gap-2">
-                <div v-for="(cs, i) in agentDetail.conversation_starters" :key="i" class="bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-700">{{ starterTitle(cs) }}</div>
+                <button v-for="(cs, i) in agentDetail.conversation_starters" :key="i" type="button" :disabled="startingReport" class="group/cs inline-flex items-center gap-1.5 bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-700 hover:bg-gray-900 hover:text-white disabled:opacity-50 transition-colors" @click="startReportWithStarter(agentView.agentId, cs, i)">
+                  <Spinner v-if="startingReport && startingStarterIdx === i" class="w-3 h-3 animate-spin shrink-0" />
+                  <span>{{ starterTitle(cs) }}</span>
+                </button>
               </div>
               <p v-else class="text-[11px] text-gray-300 italic">No conversation starters.</p>
             </div>
+            </template>
           </div>
         </template>
 
@@ -256,13 +271,14 @@
                 <span class="text-xs font-medium text-gray-700 truncate hover:text-gray-900">{{ panelAgent?.name || 'Agent' }}</span>
               </button>
               <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0" />
-              <span class="text-xs text-gray-500 shrink-0">{{ panelView.kind === 'tables' ? 'Tables' : (panelView.kind === 'tools' ? 'Tools' : 'Evals') }}</span>
-              <span v-if="panelView.kind !== 'evals' && !panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
+              <span class="text-xs text-gray-500 shrink-0">{{ panelKindLabel }}</span>
+              <span v-if="(panelView.kind === 'tables' || panelView.kind === 'tools') && !panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
             </div>
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
             <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
+            <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
               <TablesSelector
                 v-if="panelView.kind === 'tables'"
@@ -518,6 +534,7 @@ import { h as createElement } from 'vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
+import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
@@ -602,19 +619,22 @@ const sourceOpts = [{ value: 'user', label: 'User' }, { value: 'ai', label: 'AI'
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
 const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
 
-// right-pane panel for Tables/Tools/Evals
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals'; agentId: string }>(null)
+// right-pane panel for Tables/Tools/Evals/Settings
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
+const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Evals', settings: 'Settings' } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'evals', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
 }
+const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
+const onAgentDeleted = async () => { closePanel(); await fetchAgents() }
 // Row-click on Tables/Tools opens the editable panel immediately (like clicking
 // an agent). Re-clicking the already-open row just collapses the tree node.
 const onPanelRowClick = (kind: 'tables' | 'tools', agentId: string) => {
@@ -634,10 +654,11 @@ const editingDesc = ref(false); const descForm = ref(''); const descInputRef = r
 const creatingPrimary = ref(false); const editingPrimary = ref(false)
 const showEditStarters = ref(false); const editStarters = ref<{ title: string; prompt: string }[]>([]); const savingStarters = ref(false)
 
-const closeAgentView = () => { agentView.value = null; agentDetail.value = null; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false }
+const agentDetailLoading = ref(false)
+const closeAgentView = () => { agentView.value = null; agentDetail.value = null; agentDetailLoading.value = false; editingDesc.value = false; creatingPrimary.value = false; editingPrimary.value = false }
 const refreshAgentDetail = async () => {
   const id = agentView.value?.agentId; if (!id) return
-  try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {}
+  try { const { data } = await useMyFetch<any>(`/data_sources/${id}`, { method: 'GET' }); if (agentView.value?.agentId === id) agentDetail.value = data.value } catch {} finally { if (agentView.value?.agentId === id) agentDetailLoading.value = false }
 }
 const fetchAgentReports = async (id: string) => {
   agentReportCount.value = 0
@@ -654,7 +675,7 @@ const setAgentPublic = async (val: boolean) => {
 }
 const openAgent = async (id: string) => {
   clearRightPane()
-  agentView.value = { agentId: id }; agentDetail.value = null
+  agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
   loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail()
 }
@@ -710,6 +731,24 @@ const savePrimary = async () => {
 }
 // conversation starters edit
 const starterTitle = (cs: any) => typeof cs === 'string' ? (cs.split('\n')[0] || '') : (cs?.title || cs?.prompt || '')
+// The prompt to submit: body for "title\nprompt" strings, else the title/whole string.
+const starterPrompt = (cs: any) => {
+  if (typeof cs === 'string') { const parts = cs.split('\n'); return (parts.slice(1).join('\n').trim() || parts[0] || '').trim() }
+  return (cs?.prompt || cs?.title || '').trim()
+}
+// Click a starter → create a report for this agent and submit the prompt (like AgentFlyout).
+const startingReport = ref(false); const startingStarterIdx = ref<number | null>(null)
+const startReportWithStarter = async (agentId: string, cs: any, idx: number) => {
+  if (startingReport.value) return
+  const prompt = starterPrompt(cs); if (!prompt) return
+  startingReport.value = true; startingStarterIdx.value = idx
+  try {
+    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'untitled report', files: [], new_message: prompt, data_sources: agentId ? [agentId] : [] } })
+    const rid = (data.value as any)?.id
+    if (error.value || !rid) throw new Error('Failed to create report')
+    await navigateTo({ path: `/reports/${rid}`, query: { new_message: prompt } })
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { startingReport.value = false; startingStarterIdx.value = null }
+}
 const openEditStarters = () => {
   const arr = agentDetail.value?.conversation_starters || []
   editStarters.value = arr.map((s: any) => typeof s === 'string'
