@@ -2116,6 +2116,64 @@ class InstructionService:
                 )
             )
         
+        # Batch-populate current_build_{id,status} so the list can show a
+        # "Pending review" status. A build snapshots the whole instruction set,
+        # so mere membership in a non-main draft/pending build is NOT a real
+        # change — mirror GET /instructions/{id}/pending-builds and only count
+        # builds whose instruction version DIFFERS from the main build's version
+        # (or where the instruction isn't in main at all, i.e. created in a draft).
+        if list_items:
+            try:
+                from app.models.instruction_build import InstructionBuild
+                from app.models.build_content import BuildContent
+                inst_ids = [it.id for it in list_items]
+                # main build version per instruction
+                main_rows = await db.execute(
+                    select(BuildContent.instruction_id, BuildContent.instruction_version_id)
+                    .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+                    .where(
+                        BuildContent.instruction_id.in_(inst_ids),
+                        InstructionBuild.organization_id == str(organization.id),
+                        InstructionBuild.is_main == True,  # noqa: E712
+                        InstructionBuild.deleted_at == None,  # noqa: E711
+                        BuildContent.deleted_at == None,  # noqa: E711
+                    )
+                )
+                main_ver: dict = {str(iid): vid for iid, vid in main_rows.all()}
+                # non-main draft/pending builds, newest first
+                build_rows = await db.execute(
+                    select(
+                        BuildContent.instruction_id,
+                        InstructionBuild.id,
+                        InstructionBuild.status,
+                        BuildContent.instruction_version_id,
+                    )
+                    .join(InstructionBuild, BuildContent.build_id == InstructionBuild.id)
+                    .where(
+                        BuildContent.instruction_id.in_(inst_ids),
+                        InstructionBuild.organization_id == str(organization.id),
+                        InstructionBuild.is_main == False,  # noqa: E712
+                        InstructionBuild.status.in_(['draft', 'pending_approval']),
+                        InstructionBuild.deleted_at == None,  # noqa: E711
+                        BuildContent.deleted_at == None,  # noqa: E711
+                    )
+                    .order_by(InstructionBuild.created_at.desc())
+                )
+                latest_by_inst: dict = {}
+                for inst_id, b_id, b_status, ver_id in build_rows.all():
+                    key = str(inst_id)
+                    mv = main_ver.get(key)
+                    if mv is not None and ver_id == mv:
+                        continue  # inherited the main version — not a real pending change
+                    if key not in latest_by_inst:  # rows are newest-first
+                        latest_by_inst[key] = (str(b_id), b_status)
+                for it in list_items:
+                    hit = latest_by_inst.get(str(it.id))
+                    if hit:
+                        it.current_build_id, it.current_build_status = hit
+            except Exception as e:
+                logger.warning(f"Failed to batch-resolve current builds for instruction list: {e}")
+
         # Post-filter by per-user table accessibility (user_data_source_tables overlay).
         # Excludes instructions whose table references are ALL inaccessible to the user.
         if current_user:

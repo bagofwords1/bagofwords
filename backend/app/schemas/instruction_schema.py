@@ -220,6 +220,10 @@ class InstructionListSchema(BaseModel):
 
     # === Build System fields ===
     current_version_id: Optional[str] = None
+    # In-flight (non-main) build for this instruction, if any, so the list can
+    # derive a "Pending review" status the same way the detail view does.
+    current_build_id: Optional[str] = None
+    current_build_status: Optional[str] = None
 
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []
