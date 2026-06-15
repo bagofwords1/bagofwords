@@ -747,12 +747,19 @@ const openAgent = async (id: string) => {
   clearRightPane()
   agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
-  // Reflect the agent in the URL (/agents/<id>) without remounting the explorer.
-  if (String(route.params.id || '') !== id) router.replace(`/agents/${id}`)
+  // Reflect the agent in the URL (/agents/<id>) WITHOUT a router navigation —
+  // router.replace re-runs the global middleware (auth/onboarding/permissions)
+  // and flickers the page. history.replaceState just updates the address bar.
+  if (process.client && !location.pathname.replace(/\/$/, '').endsWith('/agents/' + id)) {
+    try { history.replaceState({ ...history.state }, '', `/agents/${id}`) } catch {}
+  }
   loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail(); fetchActivity(id)
 }
 // Close button: clear the view and drop the agent id from the URL.
-const exitAgentView = () => { closeAgentView(); if (route.params.id) router.replace('/agents') }
+const exitAgentView = () => {
+  closeAgentView()
+  if (process.client && /\/agents\/.+/.test(location.pathname)) { try { history.replaceState({ ...history.state }, '', '/agents') } catch {} }
+}
 const onAgentClick = (agent: any) => {
   if (needsSignIn(agent)) { openAgentTab(agent.id); return }
   // Re-clicking the already-open agent just collapses its tree node; keeps the pane.
