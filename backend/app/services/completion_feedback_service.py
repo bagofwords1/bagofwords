@@ -687,6 +687,63 @@ class CompletionFeedbackService:
         except Exception as e:
             logger.debug(f"_maybe_schedule_eval_draft failed: {e}")
 
+    async def _maybe_auto_promote_eval(
+        self,
+        db,
+        organization,
+        user,
+        *,
+        case_id: Optional[str],
+        data_source_ids: Optional[list],
+    ) -> bool:
+        """Promote a just-drafted auto-eval to ``active`` when the resolved
+        agent automation policy sets ``auto_promote_evals == auto``.
+
+        Policy is resolved per data source the case is scoped to; if ANY scoped
+        agent opts in we promote (the case applies to it). Returns True if
+        promoted.
+        """
+        if not case_id or not data_source_ids:
+            return False
+        from app.services.agent_reliability_service import AgentReliabilityService
+        from app.schemas.agent_automation_schema import AUTONOMY_AUTO
+        from app.core.permission_resolver import resolve_permissions
+        from app.models.data_source import DataSource as _DS
+        from app.models.eval import TEST_CASE_STATUS_ACTIVE
+
+        # Agent-scoped gate (defense in depth): only promote when the user holds
+        # manage_evals on every agent the eval is scoped to — agent admin and
+        # above. Promotion to ``active`` makes the case a real pass/fail gate, so
+        # it's at least as privileged as drafting.
+        try:
+            resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+        except Exception:
+            return False
+        if not all(
+            resolved.has_resource_permission("data_source", str(ds_id), "manage_evals")
+            for ds_id in data_source_ids
+        ):
+            return False
+
+        rel = AgentReliabilityService()
+        opted_in = False
+        for ds_id in data_source_ids:
+            ds = await db.get(_DS, str(ds_id))
+            if ds is None:
+                continue
+            policy = await rel.resolve_policy(db, organization, ds)
+            if policy.stage("auto_promote_evals") == AUTONOMY_AUTO:
+                opted_in = True
+                break
+        if not opted_in:
+            return False
+
+        from app.services.test_case_service import TestCaseService
+        await TestCaseService().update_case_status(
+            db, str(organization.id), user, str(case_id), TEST_CASE_STATUS_ACTIVE,
+        )
+        return True
+
     async def maybe_draft_eval_from_feedback(
         self,
         *,
@@ -795,11 +852,12 @@ class CompletionFeedbackService:
         except Exception:
             return None
 
-        # Gate 3: user has manage_evals.
+        # Gate 3: resolve permissions. The agent-scoped check happens below,
+        # once we know which data source(s) the eval is scoped to (line ~869) —
+        # see Gate 3b. We don't reject on org-level manage_evals here, because a
+        # user may hold manage_evals only on the specific agent (resource grant).
         try:
             resolved = await resolve_permissions(db, user_id, organization_id)
-            if not resolved.has_org_permission("manage_evals"):
-                return None
         except Exception:
             return None
 
@@ -825,6 +883,21 @@ class CompletionFeedbackService:
 
         # Deterministic data-source ids from create_data inputs.
         data_source_ids = self._extract_data_source_ids(create_data_tes)
+
+        # Gate 3b: agent-scoped permission. Auto-drafting an eval for an agent
+        # is an admin action on THAT agent — require manage_evals on every
+        # resolved agent (agent admin and above). Org-level manage_evals implies
+        # the resource permission, so org admins still pass; a user with only a
+        # resource grant on a different agent does not. A global eval (no agent
+        # scope) falls back to org-level manage_evals.
+        if data_source_ids:
+            if not all(
+                resolved.has_resource_permission("data_source", str(ds_id), "manage_evals")
+                for ds_id in data_source_ids
+            ):
+                return None
+        elif not resolved.has_org_permission("manage_evals"):
+            return None
 
         # Verbatim user prompt (the head completion's prompt).
         user_prompt = ""
@@ -972,6 +1045,20 @@ class CompletionFeedbackService:
 
         if not created_summary:
             return None
+
+        # Auto-promote the freshly-drafted eval to ``active`` when the agent's
+        # resolved automation policy opts in (auto_promote_evals == auto). The
+        # duplicate-classifier gate already ran upstream, so this only promotes
+        # a case we considered novel. Best-effort and scoped to the case's data
+        # sources; on any error we leave it as a draft for human review.
+        try:
+            await self._maybe_auto_promote_eval(
+                db, organization, user,
+                case_id=created_summary.get("case_id"),
+                data_source_ids=data_source_ids,
+            )
+        except Exception:
+            logger.debug("draft_eval_from_feedback: auto-promote skipped", exc_info=True)
 
         try:
             await telemetry.capture(

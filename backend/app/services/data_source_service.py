@@ -2719,7 +2719,23 @@ class DataSourceService:
             )
         )
         total_selected = selected_count_result.scalar() or 0
-        
+
+        # A newly-activated table changes what the agent can use → re-measure.
+        # Only fire on activation (newly-in-scope tables); deactivation only
+        # shrinks scope and won't introduce new failures worth a loop.
+        if activated_count:
+            try:
+                from app.services.agent_reliability_service import AgentReliabilityService
+                from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
+                AgentReliabilityService().schedule(
+                    organization_id=str(organization.id),
+                    data_source_id=str(data_source_id),
+                    trigger=TRIGGER_TABLE_CHANGE,
+                    changed_hint=f"{activated_count} table(s) activated",
+                )
+            except Exception:
+                logger.debug("update_tables_status_delta: reliability trigger skipped", exc_info=True)
+
         return DeltaUpdateTablesResponse(
             activated_count=activated_count,
             deactivated_count=deactivated_count,
@@ -3918,6 +3934,18 @@ class DataSourceService:
         )
         existing_rows = existing.scalars().all()
         existing_by_conn_table_id = {t.connection_table_id: t for t in existing_rows if t.connection_table_id}
+
+        # Snapshot the per-table column structure BEFORE we overwrite it below,
+        # so we can detect a real structural change (added/removed column or a
+        # dtype change) after the refresh and trigger the agent-reliability
+        # loop. Keyed by table name; value is a stable signature of the columns.
+        # Captured for active tables only — the agent only "uses" active tables,
+        # so an inactive table's schema drift isn't worth a re-eval.
+        pre_schema_sig = {
+            t.name: self._column_signature(t.columns)
+            for t in existing_rows
+            if getattr(t, "is_active", False)
+        }
         # Unlinked rows (connection_table_id is NULL) keyed by name. These are
         # legacy name-keyed rows from the old save_or_update_tables path. We adopt
         # them below instead of creating a duplicate linked row, which both
@@ -4073,6 +4101,49 @@ class DataSourceService:
         # If too many tables for auto-select, use smart selection algorithm
         if needs_smart_selection and max_auto_select:
             await self._select_active_tables_sql(db, str(data_source.id), max_auto_select)
+
+        # Detect a structural change vs. the pre-refresh snapshot and fire the
+        # agent-reliability loop (debounced to one schedule per sync). Skipped on
+        # the initial population (empty pre-snapshot) so onboarding doesn't storm
+        # the loop. Best-effort: never let trigger wiring break a schema sync.
+        try:
+            post_rows = (await db.execute(
+                select(DataSourceTable).where(
+                    DataSourceTable.datasource_id == data_source.id,
+                    DataSourceTable.is_active == True,  # noqa: E712
+                )
+            )).scalars().all()
+            post_schema_sig = {t.name: self._column_signature(t.columns) for t in post_rows}
+            if pre_schema_sig:
+                changed = sorted({
+                    name for name in (set(pre_schema_sig) | set(post_schema_sig))
+                    if pre_schema_sig.get(name) != post_schema_sig.get(name)
+                })
+                if changed:
+                    from app.services.agent_reliability_service import AgentReliabilityService
+                    from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
+                    hint = "Table/column structure changed: " + ", ".join(changed[:8])
+                    AgentReliabilityService().schedule(
+                        organization_id=str(data_source.organization_id),
+                        data_source_id=str(data_source.id),
+                        trigger=TRIGGER_TABLE_CHANGE,
+                        changed_hint=hint,
+                    )
+        except Exception:
+            logger.debug("sync_domain_tables: reliability trigger skipped", exc_info=True)
+
+    @staticmethod
+    def _column_signature(columns) -> tuple:
+        """Stable, order-independent signature of a table's columns for change
+        detection: a sorted tuple of (name, dtype). Tolerates missing/None
+        column lists and varied dict shapes."""
+        sig = []
+        for col in (columns or []):
+            if isinstance(col, dict):
+                sig.append((str(col.get("name", "")), str(col.get("dtype", "") or col.get("type", ""))))
+            else:
+                sig.append((str(col), ""))
+        return tuple(sorted(sig))
 
     async def get_domain_connections(
         self,

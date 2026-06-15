@@ -135,8 +135,8 @@
 
               <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
                 <span class="w-3 shrink-0"></span>
-                <UIcon name="i-heroicons-check-circle" class="w-4 h-4 text-gray-400 shrink-0" />
-                <span class="flex-1 text-left truncate">Evals</span>
+                <UIcon name="i-heroicons-shield-check" class="w-4 h-4 text-gray-400 shrink-0" />
+                <span class="flex-1 text-left truncate">Reliability</span>
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
               </button>
 
@@ -685,7 +685,7 @@ const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.
 // right-pane panel for Tables/Tools/Evals/Settings
 const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals' | 'settings'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Evals', settings: 'Settings' } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: 'Tables', tools: 'Tools', evals: 'Reliability', settings: 'Settings' } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any

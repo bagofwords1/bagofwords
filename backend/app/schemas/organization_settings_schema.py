@@ -116,6 +116,14 @@ class OrganizationSettingsConfig(BaseModel):
 
     signup_policy: SignupPolicy = SignupPolicy()
 
+    # Org-wide default automation policy for agent reliability (the
+    # self-learning loop). A plain dict matching AgentAutomationPolicy; agents
+    # inherit this and may override per-agent via
+    # DataSource.automation_settings. Empty/partial is fine — unset keys fall
+    # back to the built-in conservative defaults (master switch off). Gate:
+    # full_admin_access / manage settings.
+    agent_automation_defaults: Dict[str, Any] = {}
+
     # Update defaults to use 'value' instead of 'enabled'
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
     enable_training_mode: FeatureConfig = FeatureConfig(value=True, name="Training Mode", description="Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines ", is_lab=False, editable=True)

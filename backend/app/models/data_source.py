@@ -50,6 +50,23 @@ class DataSource(BaseSchema):
     # this map (only external channels pass a ``channel`` to the selectors).
     channel_availability = Column(JSON, nullable=True)
 
+    # Per-agent reliability-automation override. A (possibly partial)
+    # AgentAutomationPolicy dict; only the keys present here override the org
+    # default (OrganizationSettings.config['agent_automation_defaults']). None /
+    # empty means "fully inherit the org default".
+    automation_settings = Column(JSON, nullable=True)
+
+    # Outcome of the reliability loop, orthogonal to publish_status. The
+    # automation system writes this; humans set publish_status. Keeping them
+    # separate lets an agent stay "published" while flagged "under_review"
+    # (still serving the last-good build), instead of forcing it offline.
+    #   ok            — healthy / not flagged
+    #   under_review  — repeated eval failures the loop couldn't fix; needs eyes
+    # The "disable" outcome instead sets publish_status='disabled'.
+    reliability_status = Column(
+        String, nullable=False, default="ok", server_default="ok"
+    )
+
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)
     owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     context = Column(Text, nullable=True)
