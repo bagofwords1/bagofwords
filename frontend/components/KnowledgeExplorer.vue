@@ -182,9 +182,9 @@
                   <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? 'Active' : 'Inactive'"></span>
                   <h2 class="text-base font-semibold text-gray-900 truncate">{{ agentDetail?.name || agentViewName }}</h2>
                   <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
-                    <button type="button" class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 transition-colors" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'">
-                      <UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}
-                      <UIcon name="i-heroicons-chevron-down" class="w-2.5 h-2.5 opacity-60" />
+                    <button type="button" class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0 transition-colors" :class="agentDetail?.is_public ? 'border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100'">
+                      <UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}
+                      <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 opacity-60" />
                     </button>
                     <template #panel="{ close }">
                       <div class="p-1 w-40">
@@ -193,7 +193,7 @@
                       </div>
                     </template>
                   </UPopover>
-                  <span v-else class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
+                  <span v-else class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shrink-0" :class="agentDetail?.is_public ? 'border-blue-200 bg-blue-50 text-blue-600' : 'border-gray-200 bg-gray-50 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-3 h-3" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
                   <PublishStatusControl v-if="agentDetail" :key="agentView.agentId" :data-source-id="agentView.agentId" :status="agentDetail.publish_status || 'published'" @updated="onAgentPublishUpdated" />
                   <!-- Auth badges (parity with the legacy agents page) -->
                   <UTooltip v-if="agentDetail && usesServiceAccount(agentDetail)" text="Runs via the connection's service account (admin/owner fallback) — no personal sign-in needed">
@@ -213,10 +213,15 @@
               </div>
               <div class="flex items-center gap-2 shrink-0">
                 <!-- Per-agent activity sparkline + task total -->
-                <NuxtLink v-if="activitySeries.length" to="/monitoring" class="flex items-center gap-1.5 pr-1 group/spark" title="Tasks over the last 14 days">
-                  <svg width="78" height="22" viewBox="0 0 96 26" preserveAspectRatio="none" class="overflow-visible"><path :d="sparkPath" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" /></svg>
-                  <span class="text-xs font-semibold text-gray-900 tabular-nums group-hover/spark:text-blue-600">{{ totalTasks.toLocaleString() }}</span>
-                  <span class="text-[10px] text-gray-400">tasks</span>
+                <NuxtLink v-if="activitySeries.length" to="/monitoring" class="flex items-center gap-2.5 pr-1 group/spark" title="Tasks over the last 14 days">
+                  <span class="flex flex-col items-center leading-none">
+                    <svg width="78" height="20" viewBox="0 0 96 26" preserveAspectRatio="none" class="overflow-visible"><path :d="sparkPath" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" /></svg>
+                    <span class="mt-1 text-[10px] text-gray-400">Activity</span>
+                  </span>
+                  <span class="flex flex-col items-start leading-none">
+                    <span class="text-sm font-semibold text-gray-900 tabular-nums group-hover/spark:text-blue-600">{{ totalTasks.toLocaleString() }}</span>
+                    <span class="mt-1 text-[10px] text-gray-400">tasks</span>
+                  </span>
                 </NuxtLink>
                 <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
@@ -1281,12 +1286,15 @@ const saveMeta = async () => {
   savingMeta.value = true
   try {
     const body: any = { title: draft.title || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
-    const { data } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
+    const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
+    // useMyFetch doesn't throw on HTTP errors — surface them so the change isn't silently dropped.
+    if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Save failed')
     if (data.value) detail.value = { ...detail.value, ...(data.value as any) }
     await fetchAll()
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh && !editing.value) { detail.value = fresh; syncDraft(fresh) }
-  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
+    toast.add({ title: 'Saved', color: 'green' })
+  } catch (e: any) { toast.add({ title: 'Couldn’t save', description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
 }
 // Fire after a metadata control changes (user-initiated only — not on load/edit).
 const onMetaChange = () => { if (editing.value || creating.value) return; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
