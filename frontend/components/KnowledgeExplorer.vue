@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-[calc(100vh-64px)] text-sm">
+  <div class="flex flex-col h-screen text-sm">
     <!-- Header -->
     <div class="flex items-center justify-between pl-3 pr-4 py-3 shrink-0">
       <div>
@@ -132,28 +132,42 @@
       <section class="flex-1 min-w-0 flex flex-col">
         <!-- Agent overview -->
         <template v-if="agentView">
-          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
-            <div class="flex items-center gap-2 min-w-0">
-              <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" class="w-4 h-4 shrink-0" />
-              <span class="text-sm font-semibold text-gray-900 truncate">{{ agentDetail?.name || agentViewName }}</span>
-              <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded font-medium shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'"><span class="w-1.5 h-1.5 rounded-full" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-400'"></span>{{ (agentDetail?.status || 'active') === 'active' ? 'Published' : 'Draft' }}</span>
-              <span class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <button class="h-7 px-2.5 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
-              <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closeAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
-            </div>
-          </div>
-          <div class="flex-1 overflow-y-auto px-8 py-6 max-w-3xl">
-            <!-- Description (inline edit) -->
-            <div v-if="agentDetail" class="group mb-3">
-              <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
-              <div v-else class="flex items-center gap-2">
-                <p class="text-sm text-gray-500 rounded px-1 -mx-1" :class="agentCanUpdate ? 'cursor-pointer hover:bg-gray-100' : ''" @click="agentCanUpdate && startEditDesc()">{{ agentDetail.description || (agentCanUpdate ? 'Add a description…' : '') }}</p>
-                <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 shrink-0" @click="startEditDesc">Edit</button>
+          <div class="shrink-0 px-6 pt-4 pb-4 border-b border-gray-100">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 min-w-0">
+                  <DataSourceIcon v-if="agentDetail" :type="agentDetail.type" class="w-4 h-4 shrink-0" />
+                  <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="(agentDetail?.status || 'active') === 'active' ? 'bg-green-500' : 'bg-gray-300'" :title="(agentDetail?.status || 'active') === 'active' ? 'Active' : 'Inactive'"></span>
+                  <h2 class="text-base font-semibold text-gray-900 truncate">{{ agentDetail?.name || agentViewName }}</h2>
+                  <UPopover v-if="agentCanUpdate" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
+                    <button type="button" class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0 transition-colors" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'">
+                      <UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}
+                      <UIcon name="i-heroicons-chevron-down" class="w-2.5 h-2.5 opacity-60" />
+                    </button>
+                    <template #panel="{ close }">
+                      <div class="p-1 w-40">
+                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 text-left" @click="setAgentPublic(true); close()"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400" />Public<UIcon v-if="agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900" /></button>
+                        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] rounded hover:bg-gray-50 text-left" @click="setAgentPublic(false); close()"><UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5 text-gray-400" />Private<UIcon v-if="!agentDetail?.is_public" name="i-heroicons-check" class="w-3 h-3 ml-auto text-gray-900" /></button>
+                      </div>
+                    </template>
+                  </UPopover>
+                  <span v-else class="inline-flex items-center gap-1 text-[10px] px-1.5 h-5 rounded shrink-0" :class="agentDetail?.is_public ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="w-2.5 h-2.5" />{{ agentDetail?.is_public ? 'Public' : 'Private' }}</span>
+                </div>
+                <div class="mt-1.5 group">
+                  <input v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" placeholder="Add a description…" class="w-full text-sm text-gray-600 border-b border-blue-400 bg-transparent outline-none py-0.5" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
+                  <div v-else class="flex items-center gap-2">
+                    <p class="text-sm text-gray-500 rounded px-1 -mx-1" :class="agentCanUpdate ? 'cursor-pointer hover:bg-gray-100' : ''" @click="agentCanUpdate && startEditDesc()">{{ agentDetail?.description || (agentCanUpdate ? 'Add a description…' : '') }}</p>
+                    <button v-if="agentCanUpdate" class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 shrink-0" @click="startEditDesc">Edit</button>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <button class="h-7 px-2.5 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New report</button>
+                <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closeAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
-
+          </div>
+          <div class="flex-1 overflow-y-auto px-6 py-5 max-w-3xl">
             <!-- Counts (clean) -->
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mb-3">
               <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
@@ -172,8 +186,8 @@
               <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-medium hover:bg-blue-100" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />Connect</button>
             </div>
 
-            <!-- Primary instruction (inline, no label/border) -->
-            <div v-if="creatingPrimary || editingPrimary" class="border border-gray-200 rounded-xl overflow-hidden bg-white" style="height:min(560px,68vh)">
+            <!-- Primary instruction (inline, clean editor) -->
+            <div v-if="creatingPrimary || editingPrimary" class="flex flex-col bg-white" style="height:min(640px,70vh)">
               <InstructionGlobalCreateComponent
                 :key="agentDetail?.primary_instruction?.id || 'new-primary'"
                 :instruction="editingPrimary ? agentDetail?.primary_instruction : undefined"
@@ -215,10 +229,11 @@
         <!-- Tables / Tools editable panel -->
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
-            <div class="flex items-center gap-2 min-w-0">
-              <UIcon :name="panelView.kind === 'tables' ? 'i-heroicons-table-cells' : 'i-heroicons-wrench-screwdriver'" class="w-4 h-4 text-gray-400 shrink-0" />
+            <div class="flex items-center gap-1.5 min-w-0">
+              <DataSourceIcon :type="panelAgent?.type" class="w-4 h-4 shrink-0" />
               <span class="text-xs font-medium text-gray-700 truncate">{{ panelAgent?.name || 'Agent' }}</span>
-              <span class="text-[10px] text-gray-300 shrink-0">{{ panelView.kind === 'tables' ? 'Tables' : 'Tools' }}</span>
+              <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0" />
+              <span class="text-xs text-gray-500 shrink-0">{{ panelView.kind === 'tables' ? 'Tables' : 'Tools' }}</span>
               <span v-if="!panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
             </div>
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
@@ -290,7 +305,7 @@
               <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="showHistory = !showHistory">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
-              <template v-if="!editing">
+              <template v-if="!editing && !diff">
                 <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="startEdit">Edit</button>
               </template>
               <template v-else>
@@ -593,6 +608,15 @@ const refreshAgentDetail = async () => {
 const fetchAgentReports = async (id: string) => {
   agentReportCount.value = 0
   try { const { data } = await useMyFetch<any>('/reports', { method: 'GET', query: { data_source_id: id, limit: 1, filter: 'published' } }); agentReportCount.value = (data.value as any)?.total ?? 0 } catch {}
+}
+const setAgentPublic = async (val: boolean) => {
+  const id = agentView.value?.agentId; if (!id) return
+  try {
+    await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { is_public: val } })
+    if (agentDetail.value) agentDetail.value.is_public = val
+    const a = agents.value.find(x => x.id === id); if (a) { a.is_public = val; agents.value = [...agents.value] }
+    toast.add({ title: val ? 'Made public' : 'Made private', color: 'green' })
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
 }
 const openAgent = async (id: string) => {
   clearRightPane()
