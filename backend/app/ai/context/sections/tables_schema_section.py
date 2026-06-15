@@ -47,6 +47,40 @@ class TablesSchemaContext(ContextSection):
         tables: List[PromptTable] = []
         mcp_tools: List[MCPToolItem] = []
 
+        # Short, human-readable explanations of each agent (data source) status
+        # value so the planner understands what the status MEANS, not just the
+        # bare token. Kept terse — these go into every schema block.
+        _STATUS_DESCRIPTIONS: ClassVar[dict] = {
+            "active": "connection is healthy and reachable; tables can be queried right now",
+            "inactive": "connection is currently unreachable; queries against it may fail until it recovers",
+        }
+        _PUBLISH_STATUS_DESCRIPTIONS: ClassVar[dict] = {
+            "published": "live and available to everyone with access",
+            "draft": "still being configured by builders; not yet released to consumers",
+            "disabled": "turned off and excluded from normal use",
+        }
+
+        def _render_status_xml(self) -> str:
+            """Render an agent status block describing the data source's state.
+
+            Surfaces both the connection-health status (active/inactive) and the
+            publishing lifecycle (published/draft/disabled), each paired with a
+            short explanation so the planner knows what the status means and can
+            caveat its answers (e.g. warn when a source is inactive/draft).
+            """
+            parts: List[str] = []
+            status = (getattr(self.info, 'status', None) or '').strip().lower()
+            if status:
+                desc = self._STATUS_DESCRIPTIONS.get(status, "")
+                parts.append(xml_tag("connection_health", xml_escape(desc), {"value": status}))
+            publish = (getattr(self.info, 'publish_status', None) or '').strip().lower()
+            if publish:
+                desc = self._PUBLISH_STATUS_DESCRIPTIONS.get(publish, "")
+                parts.append(xml_tag("publishing", xml_escape(desc), {"value": publish}))
+            if not parts:
+                return ""
+            return xml_tag("status", "\n".join(parts))
+
         def _group_tables_by_connection(self) -> dict:
             """Group tables by connection_id. Tables without connection_id go under 'default'."""
             from collections import defaultdict
@@ -180,6 +214,9 @@ class TablesSchemaContext(ContextSection):
             conn_groups = self._group_tables_by_connection()
 
             content_parts = []
+            status_xml = self._render_status_xml()
+            if status_xml:
+                content_parts.append(status_xml)
             if self.info.context:
                 content_parts.append(xml_tag("context", xml_escape(self.info.context)))
 
@@ -445,6 +482,9 @@ class TablesSchemaContext(ContextSection):
             has_multi_connection = '<connection ' in sample_xml if sample_xml else False
 
             inner_parts: List[str] = []
+            status_xml = ds._render_status_xml()
+            if status_xml:
+                inner_parts.append(status_xml)
             if getattr(ds.info, 'context', None):
                 inner_parts.append(xml_tag("description", xml_escape(ds.info.context)))
             if sample_xml:

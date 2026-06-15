@@ -384,6 +384,13 @@ class SchemaContextBuilder:
                         type=getattr(ds, 'type', None) or (ds.connections[0].type if getattr(ds, 'connections', None) else None),
                         # Prefer the richer human-written description when available; fallback to context
                         context=(getattr(ds, 'description', None) or getattr(ds, 'context', None)),
+                        # Connection health → "active"/"inactive". Some Pydantic
+                        # list schemas already expose a `status` health string;
+                        # prefer it, else derive from the ORM `is_active` flag
+                        # (which defaults to True, so a missing attr means active).
+                        status=(getattr(ds, 'status', None) or ("active" if getattr(ds, 'is_active', True) else "inactive")),
+                        # Manager-set publishing lifecycle (published/draft/disabled).
+                        publish_status=getattr(ds, 'publish_status', None),
                     ),
                     tables=tables,
                     mcp_tools=mcp_tools,
