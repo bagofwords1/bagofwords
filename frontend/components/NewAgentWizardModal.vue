@@ -107,6 +107,23 @@
               <span class="text-xs text-gray-700">Use LLM to learn agent</span>
             </div>
 
+            <!-- Channel availability -->
+            <div v-if="connectedChannels.length > 0" class="mb-4">
+              <label class="block text-xs font-medium text-gray-700 mb-1">Available in channels</label>
+              <p class="text-[11px] text-gray-400 mb-2">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
+              <div class="space-y-2">
+                <div v-for="ch in connectedChannels" :key="ch.key" class="flex items-center gap-2">
+                  <UToggle v-model="channelAvailability[ch.key]" :disabled="creatingFromConnection" size="xs" color="blue" />
+                  <span class="inline-flex items-center gap-1.5 text-xs text-gray-700">
+                    <img v-if="channelIcon(ch.key).img" :src="channelIcon(ch.key).img" :alt="ch.name" class="w-3.5 h-3.5" />
+                    <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600" />
+                    <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-500" />
+                    {{ ch.name }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <div v-if="errorMessage" class="p-3 bg-red-50 text-red-700 rounded-lg text-sm mb-4">
               {{ errorMessage }}
             </div>
@@ -272,6 +289,7 @@ import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
+import McpIcon from '~/components/icons/McpIcon.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -317,7 +335,10 @@ watch(isOpen, (val) => {
     instructionText.value = ''
     draftInstructionId.value = null
     integration.value = null
+    connectedChannels.value = []
+    channelAvailability.value = {}
     loadConnections()
+    loadChannels()
   }
 })
 
@@ -338,6 +359,36 @@ const useLlmSync = ref(true)
 const creatingFromConnection = ref(false)
 const errorMessage = ref('')
 const showAddConnectionModal = ref(false)
+
+// ── Channel availability ──────────────────────────────────────────────────────
+interface ChannelInfo { key: string; name: string; connected: boolean }
+const connectedChannels = ref<ChannelInfo[]>([])
+const channelAvailability = ref<Record<string, boolean>>({})
+
+function channelIcon(key: string): { img?: string; mcp?: boolean; uicon?: string } {
+  switch (key) {
+    case 'slack': return { img: '/icons/slack.png' }
+    case 'teams': return { img: '/icons/teams.png' }
+    case 'whatsapp': return { img: '/icons/whatsapp.png' }
+    case 'email': return { uicon: 'i-heroicons-envelope' }
+    case 'mcp': return { mcp: true }
+    default: return { uicon: 'i-heroicons-chat-bubble-left-right' }
+  }
+}
+
+async function loadChannels() {
+  try {
+    const response = await useMyFetch('/data_sources/connected_channels', { method: 'GET' })
+    const all = (response.data.value || []) as ChannelInfo[]
+    connectedChannels.value = all.filter(c => c.connected)
+    // Default every connected channel to available.
+    const avail: Record<string, boolean> = {}
+    for (const c of connectedChannels.value) avail[c.key] = true
+    channelAvailability.value = avail
+  } catch (err) {
+    connectedChannels.value = []
+  }
+}
 
 const canSubmitExisting = computed(() =>
   selectedConnections.value.length > 0 &&
@@ -376,7 +427,7 @@ async function createAgentFromExistingConnection() {
   creatingFromConnection.value = true
   errorMessage.value = ''
   try {
-    const payload = {
+    const payload: Record<string, any> = {
       name: agentName.value.trim(),
       connection_ids: selectedConnections.value.map(c => c.id),
       use_llm_sync: useLlmSync.value,
@@ -384,6 +435,18 @@ async function createAgentFromExistingConnection() {
       generate_summary: false,
       generate_conversation_starters: false,
       generate_ai_rules: false,
+    }
+    // Only send channel_availability when channels exist and at least one is
+    // turned off — a null map means "available everywhere" (the default).
+    if (connectedChannels.value.length > 0) {
+      const map: Record<string, boolean> = {}
+      let anyOff = false
+      for (const c of connectedChannels.value) {
+        const enabled = channelAvailability.value[c.key] !== false
+        map[c.key] = enabled
+        if (!enabled) anyOff = true
+      }
+      if (anyOff) payload.channel_availability = map
     }
     const response = await useMyFetch('/data_sources', { method: 'POST', body: payload })
     if (response.error.value) {

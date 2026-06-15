@@ -67,7 +67,7 @@ class CreateReportTool(MCPTool):
         # all visibility filtering and attaches every org data source —
         # including private ones the user isn't a member of.
         data_sources = await ds_service.get_active_data_sources(
-            db, organization, current_user=user
+            db, organization, current_user=user, channel="mcp"
         )
         
         # Create the report with MCP platform
