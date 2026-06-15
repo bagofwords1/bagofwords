@@ -897,6 +897,7 @@ const props = withDefaults(defineProps<{
     initialVersionNumber?: number  // If set (and initialVersionId not), preselect by version_number after the version list loads
     agentId?: string  // When opened from an agent panel, seed the data source scope
     initialTitle?: string  // Seed the title field when creating a new instruction
+    initialText?: string  // Seed the text/body when creating a new instruction (e.g. command palette)
     uppercaseTitle?: boolean  // When false, do not force the title to uppercase (input & display)
     startInEditMode?: boolean  // When true (and an instruction is provided), open directly in edit mode instead of view mode
     splitLayout?: boolean  // When true, render body/editor on the left and config/metadata in a right sidebar (wide modal). Defaults to a single stacked column for narrow/inline hosts.
@@ -1629,7 +1630,7 @@ const buildInstructionPayload = () => {
 const resetForm = () => {
     const seedTitle = props.initialTitle || ''
     instructionForm.value = {
-        text: '',
+        text: props.initialText || '',
         title: props.uppercaseTitle ? seedTitle.toUpperCase() : seedTitle,
         status: props.defaultStatus || 'draft',
         category: 'general',

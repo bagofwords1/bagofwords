@@ -1,4 +1,20 @@
 {
+  "commandPalette": {
+    "placeholder": "Search reports, agents, instructions…",
+    "actions": "Actions",
+    "newReport": "New report",
+    "newReportWithQuery": "New report “{query}”",
+    "newInstruction": "New instruction",
+    "newInstructionWithQuery": "New instruction “{query}”",
+    "suggestInstruction": "Suggest instruction",
+    "suggestInstructionWithQuery": "Suggest instruction “{query}”",
+    "suggestionHint": "sent for review",
+    "reports": "Recent reports",
+    "agents": "Agents",
+    "instructions": "Instructions",
+    "emptyLabel": "Start typing to search",
+    "emptyQueryLabel": "No results found"
+  },
   "smoke": {
     "hello": "Hello",
     "subtitle": "i18n plumbing is live"
