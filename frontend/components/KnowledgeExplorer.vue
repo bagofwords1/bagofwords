@@ -6,7 +6,18 @@
         <h1 class="text-[15px] font-semibold text-gray-900 tracking-tight">Agents</h1>
         <p class="text-xs text-gray-400 mt-0.5">The instructions, rules and skills your agents reason with.</p>
       </div>
-      <div class="flex items-center gap-1.5">
+      <div class="flex items-center gap-2.5">
+        <!-- Activity sparkline + total tasks (last 14 days) -->
+        <NuxtLink v-if="activitySeries.length" to="/monitoring" class="flex items-center gap-2 h-9 px-2.5 rounded-lg hover:bg-gray-50 transition-colors" title="Activity (last 14 days)">
+          <svg width="96" height="26" viewBox="0 0 96 26" class="overflow-visible">
+            <path :d="sparkPath" fill="none" stroke="#10b981" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+          </svg>
+          <div class="text-right leading-tight">
+            <div class="text-sm font-semibold text-gray-900 tabular-nums">{{ totalTasks.toLocaleString() }}</div>
+            <div class="text-[10px] text-gray-400">tasks · 14d</div>
+          </div>
+        </NuxtLink>
+        <div class="w-px h-6 bg-gray-200" v-if="activitySeries.length"></div>
         <button v-if="pendingCount > 0" class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors" @click="expand('pending', true)">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>{{ pendingCount }} pending
         </button>
@@ -339,32 +350,58 @@
         </template>
 
         <template v-else-if="detail || creating">
-          <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100">
-            <div class="flex items-center gap-2 min-w-0">
+          <!-- Header: VSCode-like tabs + actions -->
+          <div class="h-11 shrink-0 pl-3 pr-3 flex items-stretch justify-between border-b border-gray-100">
+            <div class="flex items-stretch min-w-0">
               <template v-if="creating">
-                <span class="text-xs font-medium text-gray-500">New instruction</span>
+                <span class="flex items-center text-xs font-medium text-gray-500">New instruction</span>
               </template>
               <template v-else>
-                <span class="w-1.5 h-1.5 rounded-full" :class="h.getStatusIconClass(detail)"></span>
-                <span class="text-xs font-medium text-gray-500">{{ h.getStatusLabel(detail) }}</span>
+                <!-- Instruction tab -->
+                <button type="button" class="relative flex items-center gap-1.5 px-3 text-xs font-medium border-b-2 -mb-px transition-colors" :class="detailTab === 'instruction' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-400 hover:text-gray-700'" @click="detailTab = 'instruction'">
+                  <span class="w-1.5 h-1.5 rounded-full" :class="h.getStatusIconClass(detail)"></span>
+                  Instruction
+                </button>
+                <!-- Analyze tab -->
+                <button type="button" class="flex items-center gap-1.5 px-3 text-xs font-medium border-b-2 -mb-px transition-colors" :class="detailTab === 'analyze' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-400 hover:text-gray-700'" @click="openAnalyzeTab">
+                  <UIcon name="i-heroicons-chart-bar" class="w-3.5 h-3.5" />Analyze
+                </button>
               </template>
             </div>
             <div class="flex items-center gap-1.5">
-              <button v-if="!creating" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="showHistory = !showHistory">
+              <span v-if="savingMeta" class="text-[10px] text-gray-400">Saving…</span>
+              <button v-if="!creating && detailTab === 'instruction'" class="h-7 w-7 rounded-md flex items-center justify-center transition-colors" :class="showHistory ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:bg-gray-100'" title="Version history" @click="showHistory = !showHistory">
                 <UIcon name="i-heroicons-clock" class="w-4 h-4" />
               </button>
-              <template v-if="!editing && !diff">
-                <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="startEdit">Edit</button>
-              </template>
-              <template v-else>
-                <button class="h-7 px-3 rounded-md text-gray-500 text-xs hover:bg-gray-100" @click="cancelEdit">Cancel</button>
-                <button class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}</button>
+              <template v-if="detailTab === 'instruction'">
+                <template v-if="!editing && !diff">
+                  <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="startEdit">Edit</button>
+                </template>
+                <template v-else-if="!diff">
+                  <button class="h-7 px-3 rounded-md text-gray-500 text-xs hover:bg-gray-100" @click="cancelEdit">Cancel</button>
+                  <button class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}</button>
+                </template>
               </template>
             </div>
           </div>
 
+          <!-- Analyze tab content -->
+          <div v-if="detailTab === 'analyze' && !creating" class="flex-1 overflow-y-auto px-6 py-5">
+            <InstructionAnalysisPanel
+              :related="analysis.related"
+              :is-loading-related="analyzeLoading"
+              :impacted-prompts="analysis.impactedPrompts"
+              :is-loading-impact="analyzeLoading"
+              :impact-score="analysis.impactScore"
+              :impact-matched-count="analysis.impactMatched"
+              :impact-total-count="analysis.impactTotal"
+              section-max-height="38vh"
+              @refresh="runAnalysis"
+            />
+          </div>
+
           <!-- Diff view (version compare / suggestion) -->
-          <div v-if="diff" class="flex-1 flex flex-col min-h-0">
+          <div v-else-if="diff" class="flex-1 flex flex-col min-h-0">
             <div class="px-6 py-3 flex items-center justify-between border-b border-gray-100">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="text-xs font-medium text-gray-700 truncate">{{ diff.title }}</span>
@@ -380,80 +417,72 @@
             </div>
           </div>
 
-          <div v-else class="flex-1 overflow-y-auto px-8 py-6 max-w-3xl">
-            <!-- Title -->
-            <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-4" />
-            <h2 v-else class="text-lg font-semibold text-gray-900 mb-4">{{ displayTitle(detail) }}</h2>
-
-            <!-- Body -->
-            <div class="prose-instruction">
-              <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
+          <div v-else class="flex-1 flex flex-col min-h-0">
+            <!-- Scrollable content: title + body -->
+            <div class="flex-1 overflow-y-auto px-8 py-6 w-full">
+              <div class="max-w-3xl">
+                <input v-if="editing" v-model="draft.title" placeholder="Untitled instruction" class="w-full text-lg font-semibold text-gray-900 outline-none placeholder:text-gray-300 mb-4" />
+                <h2 v-else class="text-lg font-semibold text-gray-900 mb-4">{{ displayTitle(detail) }}</h2>
+                <div class="prose-instruction">
+                  <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" placeholder="Write the instruction in markdown… (type @ to mention a table or instruction)" />
+                </div>
+              </div>
             </div>
 
-            <!-- Edit-mode properties (below a separator, like the agent panel) -->
-            <div v-if="editing" class="mt-6 pt-5 border-t border-gray-100">
-              <div class="grid grid-cols-[84px_1fr] gap-x-3 gap-y-2.5 items-center">
+            <!-- Frozen Details panel (structured; inline-editable for admins) -->
+            <div v-if="detail || creating" class="shrink-0 border-t border-gray-100 bg-gray-50/40 px-8 py-3.5 w-full overflow-y-auto" style="max-height:42vh">
+              <div class="max-w-3xl grid grid-cols-[88px_1fr] gap-x-3 gap-y-2 items-center">
+                <!-- Kind -->
                 <span class="text-[11px] text-gray-400">Kind</span>
-                <div><KSelect v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" /></div>
+                <div v-if="metaEditable"><KSelect v-model="draft.kind" :options="kindOpts" :icon="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" @update:modelValue="onMetaChange" /></div>
+                <span v-else class="inline-flex items-center w-fit px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="draft.kind === 'skill' ? 'i-heroicons-sparkles' : 'i-heroicons-document-text'" class="w-3 h-3 mr-1 text-gray-400" />{{ draft.kind === 'skill' ? 'Skill' : 'Instruction' }}</span>
+                <!-- Status -->
                 <span class="text-[11px] text-gray-400">Status</span>
-                <div><KSelect v-model="draft.status" :options="statusEditOpts" /></div>
+                <div v-if="metaEditable"><KSelect v-model="draft.status" :options="statusEditOpts" @update:modelValue="onMetaChange" /></div>
+                <span v-else class="inline-flex items-center w-fit px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.getStatusLabel(detail) }}</span>
+                <!-- Loading -->
                 <span class="text-[11px] text-gray-400">Loading</span>
-                <div><KSelect v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" /></div>
+                <div v-if="metaEditable"><KSelect v-model="draft.load_mode" :options="loadOpts" icon="i-heroicons-bolt" @update:modelValue="onMetaChange" /></div>
+                <span v-else class="inline-flex items-center w-fit px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
+                <!-- Category -->
                 <span class="text-[11px] text-gray-400">Category</span>
-                <div><KSelect v-model="draft.category" :options="categoryOpts" placeholder="General" /></div>
+                <div v-if="metaEditable"><KSelect v-model="draft.category" :options="categoryOpts" placeholder="General" @update:modelValue="onMetaChange" /></div>
+                <span v-else class="inline-flex items-center w-fit px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
+                <!-- Agents -->
                 <span class="text-[11px] text-gray-400">Agents</span>
-                <div><KSelect v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents (global)" icon="i-heroicons-cpu-chip" /></div>
-                <template v-if="labelOpts.length">
+                <div v-if="metaEditable"><KSelect v-model="draft.data_source_ids" :options="agentOpts" multiple placeholder="All agents (global)" icon="i-heroicons-cpu-chip" @update:modelValue="onMetaChange" /></div>
+                <div v-else class="flex flex-wrap gap-1.5">
+                  <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1.5 text-xs text-gray-500"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400" />All agents (global)</span>
+                  <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" />{{ ds.name }}</span>
+                </div>
+                <!-- Labels -->
+                <template v-if="labelOpts.length || (detail && (detail.labels || []).length)">
                   <span class="text-[11px] text-gray-400">Labels</span>
-                  <div><KSelect v-model="draft.label_ids" :options="labelOpts" multiple placeholder="None" icon="i-heroicons-tag" /></div>
+                  <div v-if="metaEditable"><KSelect v-model="draft.label_ids" :options="labelOpts" multiple placeholder="None" icon="i-heroicons-tag" @update:modelValue="onMetaChange" /></div>
+                  <div v-else class="flex flex-wrap gap-1.5"><span v-for="l in (detail.labels || [])" :key="l.id" class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px]">{{ l.name }}</span><span v-if="!(detail.labels||[]).length" class="text-[11px] text-gray-300 italic">None</span></div>
                 </template>
+                <!-- References (always shown) -->
                 <span class="text-[11px] text-gray-400 self-start pt-1">References</span>
                 <div class="space-y-1.5">
                   <div v-if="draft.references.length" class="flex flex-wrap gap-1.5">
-                    <span v-for="(r, i) in draft.references" :key="i" class="inline-flex items-center gap-1 pl-2 pr-1 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono">
+                    <span v-for="(r, i) in draft.references" :key="i" class="inline-flex items-center gap-1 pl-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono" :class="metaEditable ? 'pr-1' : 'pr-2'">
                       <UIcon :name="h.getRefIcon(r.object_type)" class="w-3 h-3 text-gray-400" />{{ r.display_text || r.object_id }}
-                      <button type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 flex items-center justify-center" @click="removeRef(i)"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
+                      <button v-if="metaEditable" type="button" class="w-3.5 h-3.5 rounded hover:bg-gray-200 flex items-center justify-center" @click="removeRef(i); onMetaChange()"><UIcon name="i-heroicons-x-mark" class="w-2.5 h-2.5" /></button>
                     </span>
                   </div>
-                  <KSelect v-if="refOptions.length" v-model="refIds" :options="refOptions" multiple placeholder="Add a table…" icon="i-heroicons-table-cells" />
-                  <span v-else class="text-[11px] text-gray-300 italic">Pick agents to reference their tables, or type @ in the text.</span>
+                  <KSelect v-if="metaEditable && refOptions.length" v-model="refIds" :options="refOptions" multiple placeholder="Add a table…" icon="i-heroicons-table-cells" @update:modelValue="onMetaChange" />
+                  <span v-else-if="!draft.references.length" class="text-[11px] text-gray-300 italic">{{ metaEditable ? 'Pick agents to reference their tables, or type @ in the text.' : 'None' }}</span>
                 </div>
-              </div>
-            </div>
-
-            <!-- View-mode metadata (badges + author/timestamps + reach) -->
-            <div v-if="!editing && detail" class="mt-6 pt-5 border-t border-gray-100 space-y-4">
-              <!-- Property badges -->
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getLoadModeLabel(detail.load_mode) }}</span>
-                <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium">{{ h.formatCategory(detail.category) }}</span>
-                <span class="inline-flex items-center px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-medium"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3 mr-1 text-gray-400" />{{ h.getSourceTooltip(detail) }}</span>
-              </div>
-
-              <!-- Author + timestamps -->
-              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-400">
-                <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3.5 h-3.5" />Created by <span class="text-gray-600 font-medium">{{ detail.user.name || detail.user.email }}</span></span>
-                <span v-if="detail.created_at">Created {{ fmtDate(detail.created_at) }}</span>
-                <span v-if="detail.updated_at && detail.updated_at !== detail.created_at">Updated {{ fmtDate(detail.updated_at) }}</span>
-              </div>
-
-              <!-- Used by -->
-              <div>
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Used by</div>
-                <div v-if="(detail.data_sources || []).length === 0" class="flex items-center gap-1.5 text-xs text-gray-500"><UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400" /> All agents (global)</div>
-                <div v-else class="flex flex-wrap gap-1.5">
-                  <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px]"><DataSourceIcon :type="ds.type" class="w-3 h-3" /> {{ ds.name }}</span>
-                </div>
-              </div>
-
-              <template v-if="(detail.references || []).length">
-                <div>
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Attached to</div>
-                  <div class="flex flex-wrap gap-1.5">
-                    <span v-for="(ref, i) in detail.references" :key="i" class="inline-flex items-center gap-1 px-2 h-6 rounded-md bg-gray-100 text-gray-600 text-[11px] font-mono"><UIcon :name="h.getRefIcon(ref.object_type)" class="w-3 h-3 text-gray-400" /> {{ refLabel(ref) }}</span>
+                <!-- Source + author/timestamps -->
+                <template v-if="detail">
+                  <span class="text-[11px] text-gray-400 self-start pt-0.5">Details</span>
+                  <div class="flex flex-col gap-1 text-[11px] text-gray-400">
+                    <span class="inline-flex items-center gap-1"><UIcon :name="h.getSourceIcon(detail)" class="w-3 h-3 text-gray-400" />{{ h.getSourceTooltip(detail) }}</span>
+                    <span v-if="detail.user" class="inline-flex items-center gap-1"><UIcon name="i-heroicons-user-circle" class="w-3 h-3" />Created by <span class="text-gray-600 font-medium">{{ detail.user.name || detail.user.email }}</span></span>
+                    <span>{{ detail.created_at ? 'Created ' + fmtDate(detail.created_at) : '' }}<template v-if="detail.updated_at && detail.updated_at !== detail.created_at"> · Updated {{ fmtDate(detail.updated_at) }}</template></span>
                   </div>
-                </div>
-              </template>
+                </template>
+              </div>
             </div>
           </div>
         </template>
@@ -466,8 +495,8 @@
               <h3 class="mt-3 text-[15px] font-medium text-gray-900">Your agents &amp; their knowledge</h3>
               <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500">{{ agents.length ? 'Pick an agent on the left, then an instruction to view, edit, and track its versions.' : 'Connect your data to create your first agent.' }}</p>
               <div v-if="canCreateDataSource" class="mt-4 flex items-center gap-2">
-                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New agent</button>
-                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white/70 text-gray-700 text-xs font-medium hover:bg-gray-50 transition-colors" @click="navigateTo('/agents/new')"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />Connect data</button>
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black transition-colors" @click="showNewAgent = true"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />New agent</button>
+                <button class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 bg-white/70 text-gray-700 text-xs font-medium hover:bg-gray-50 transition-colors" @click="connTargetAgentId = null; showAddConnection = true"><UIcon name="i-heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400" />Connect data</button>
               </div>
             </div>
           </div>
@@ -561,6 +590,7 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
+import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
@@ -1116,7 +1146,7 @@ const listForTable = (agentId: string, tableId: string) => applyFilters(allInstr
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); creating.value = false
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); creating.value = false; detailTab.value = 'instruction'
   selectedId.value = ins.id; detail.value = ins; editing.value = false
   syncDraft(ins); loadVersions(ins.id); loadPending(ins.id)
   try {
@@ -1175,6 +1205,59 @@ const save = async () => {
     }
   } catch (e: any) { toast.add({ title: 'Error', description: e.message, color: 'red' }) } finally { saving.value = false }
 }
+
+// ── Detail tabs (Instruction / Analyze) ─────────────────
+const detailTab = ref<'instruction' | 'analyze'>('instruction')
+// Admins edit the bottom metadata inline (autosave); others see read-only chips.
+const canEditInstr = computed(() => useCan('manage_instructions'))
+// Editable controls also show while creating (the new instruction is authored here).
+const metaEditable = computed(() => canEditInstr.value || creating.value)
+const savingMeta = ref(false)
+let metaTimer: any = null
+const saveMeta = async () => {
+  if (!detail.value || creating.value || editing.value) return
+  savingMeta.value = true
+  try {
+    const body: any = { title: draft.title || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references }
+    const { data } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
+    if (data.value) detail.value = { ...detail.value, ...(data.value as any) }
+    await fetchAll()
+    const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
+    if (fresh && !editing.value) { detail.value = fresh; syncDraft(fresh) }
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { savingMeta.value = false }
+}
+// Fire after a metadata control changes (user-initiated only — not on load/edit).
+const onMetaChange = () => { if (editing.value || creating.value) return; clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 400) }
+
+// ── Analyze (related instructions + impact) ─────────────
+const analysis = reactive<{ related: any[]; tokens: string[]; impactedPrompts: any[]; impactScore: number; impactMatched: number; impactTotal: number }>(
+  { related: [], tokens: [], impactedPrompts: [], impactScore: 0, impactMatched: 0, impactTotal: 0 }
+)
+const analyzeLoading = ref(false)
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c])
+const highlightRelated = (text: string, tokens: string[]) => {
+  let out = escapeHtml(text || '')
+  for (const tok of (tokens || [])) {
+    if (!tok || tok.length < 3) continue
+    try { out = out.replace(new RegExp('(' + tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'), '<mark class="bg-yellow-100 rounded px-0.5">$1</mark>') } catch {}
+  }
+  return out
+}
+const runAnalysis = async () => {
+  const text = (editing.value ? draft.text : detail.value?.text) || ''
+  if (!text.trim()) { analysis.related = []; analysis.impactedPrompts = []; analysis.impactScore = 0; return }
+  analyzeLoading.value = true
+  try {
+    const { data } = await useMyFetch<any>('/api/instructions/analysis', { method: 'POST', body: { text, include: ['impact', 'related_instructions'], instruction_id: detail.value?.id || undefined, limits: { prompts: 5, instructions: 5 } } })
+    const res = data.value as any
+    if (res?.impact) { analysis.impactScore = res.impact.score ?? 0; analysis.impactedPrompts = res.impact.prompts || []; analysis.impactMatched = res.impact.matched_count ?? 0; analysis.impactTotal = res.impact.total_count ?? 0 }
+    if (res?.related_instructions) {
+      analysis.tokens = res.related_instructions.tokens || []
+      analysis.related = (res.related_instructions.items || []).map((it: any) => ({ id: it.id, text: it.text, status: it.status, createdByName: it.createdByName || 'unknown', highlightedHtml: highlightRelated(it.text || '', analysis.tokens) }))
+    }
+  } catch (e) {} finally { analyzeLoading.value = false }
+}
+const openAnalyzeTab = () => { detailTab.value = 'analyze'; runAnalysis() }
 
 // ── Versions ────────────────────────────────────────────
 const loadVersions = async (id: string) => {
@@ -1281,8 +1364,31 @@ const openAgentFromRoute = () => {
 }
 watch(() => route.params.id, () => openAgentFromRoute())
 
+// ── Activity sparkline + total tasks (org-wide, last 14 days) ───────────
+const activitySeries = ref<number[]>([])
+const totalTasks = ref(0)
+const sparkPath = computed(() => {
+  const v = activitySeries.value
+  if (v.length < 2) return ''
+  const w = 96, h = 26
+  const max = Math.max(...v, 1), min = Math.min(...v, 0)
+  const span = (max - min) || 1
+  return v.map((y, i) => { const x = (i / (v.length - 1)) * w; const yy = h - ((y - min) / span) * h; return `${i ? 'L' : 'M'}${x.toFixed(1)},${yy.toFixed(1)}` }).join(' ')
+})
+const fetchActivity = async () => {
+  try {
+    const end = new Date(); const start = new Date(); start.setDate(start.getDate() - 13)
+    const query = { start_date: start.toISOString(), end_date: end.toISOString() }
+    const { data: ts } = await useMyFetch<any>('/console/metrics/timeseries', { method: 'GET', query })
+    const msgs = (ts.value as any)?.activity_metrics?.messages || []
+    activitySeries.value = msgs.map((p: any) => Number(p.value) || 0)
+    const { data: cmp } = await useMyFetch<any>('/console/metrics/comparison', { method: 'GET', query })
+    totalTasks.value = (cmp.value as any)?.current?.total_messages ?? activitySeries.value.reduce((a, b) => a + b, 0)
+  } catch {}
+}
+
 onMounted(async () => {
-  await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus()])
+  await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchActivity()])
   openAgentFromRoute()
 })
 </script>
