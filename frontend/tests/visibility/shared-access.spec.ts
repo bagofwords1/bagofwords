@@ -22,7 +22,7 @@ test.describe('Shared page visibility (both admin and member)', () => {
     await adminPage.goto('/instructions');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.getByRole('heading', { name: 'Instructions', exact: true }))
+    await expect(adminPage.getByRole('heading', { name: 'Agents', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 
@@ -30,7 +30,7 @@ test.describe('Shared page visibility (both admin and member)', () => {
     await memberPage.goto('/instructions');
     await memberPage.waitForLoadState('domcontentloaded');
 
-    await expect(memberPage.getByRole('heading', { name: 'Instructions', exact: true }))
+    await expect(memberPage.getByRole('heading', { name: 'Agents', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 
