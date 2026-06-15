@@ -11,9 +11,22 @@
       icon="i-heroicons-magnifying-glass"
       :loading="loading"
       class="!h-auto"
+      :ui="{
+        input: { size: 'sm:text-[13px]' },
+        group: {
+          container: 'text-[13px] text-gray-700 dark:text-gray-200',
+          label: 'px-2.5 my-1.5 text-[11px] font-semibold text-gray-700 dark:text-white',
+          command: { icon: { base: 'flex-shrink-0 w-4 h-4' } }
+        }
+      }"
       @update:model-value="onSelect"
       @close="close"
-    />
+    >
+      <!-- Agents use the real data-source logo for their type -->
+      <template #agents-icon="{ command }">
+        <DataSourceIcon :type="command.dsType" class="h-4 w-4 flex-shrink-0" />
+      </template>
+    </UCommandPalette>
 
     <!-- Footer keyboard hints -->
     <div class="flex items-center gap-4 px-4 py-2 border-t border-gray-100 text-[11px] text-gray-400 bg-gray-50/60 rounded-b-lg">
@@ -36,6 +49,7 @@
 
 <script setup lang="ts">
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useCan, useCanAny } from '~/composables/usePermissions'
 
 const { t } = useI18n()
@@ -63,7 +77,7 @@ const instructionItems = ref<any[]>([])
 
 async function fetchReports(q: string) {
   try {
-    const qs = `/reports?filter=my&limit=6${q ? `&search=${encodeURIComponent(q)}` : ''}`
+    const qs = `/reports?filter=my&limit=3${q ? `&search=${encodeURIComponent(q)}` : ''}`
     const res: any = await useMyFetch(qs, { method: 'GET' })
     reportItems.value = res?.data?.value?.reports ?? []
   } catch { reportItems.value = [] }
@@ -71,7 +85,7 @@ async function fetchReports(q: string) {
 
 async function fetchInstructions(q: string) {
   try {
-    const qs = `/instructions?limit=6&include_drafts=true${q ? `&search=${encodeURIComponent(q)}` : ''}`
+    const qs = `/instructions?limit=3&include_drafts=true${q ? `&search=${encodeURIComponent(q)}` : ''}`
     const res: any = await useMyFetch(qs, { method: 'GET' })
     instructionItems.value = res?.data?.value?.items ?? []
   } catch { instructionItems.value = [] }
@@ -178,7 +192,7 @@ const agentsGroup = computed(() => {
     commands: filtered.map((a: any) => ({
       id: `agent-${a.id}`,
       label: a.name,
-      icon: 'i-heroicons-circle-stack',
+      dsType: a.type,
       suffix: a.status === 'active' ? 'active' : 'inactive',
       to: `/agents/${a.id}`,
     })),
