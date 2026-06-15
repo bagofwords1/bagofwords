@@ -22,7 +22,7 @@
                 <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800">Instruction</span><span class="block text-[10px] text-gray-400">A rule, skill or note for your agents</span></span>
               </button>
-              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="connTargetAgentId = null; showAddConnection = true; close()">
+              <button v-if="canCreateDataSource" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 text-left" @click="showNewAgent = true; close()">
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800">Agent</span><span class="block text-[10px] text-gray-400">Connect data, tools and tables</span></span>
               </button>
@@ -513,6 +513,7 @@
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
+    <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
 
@@ -554,6 +555,7 @@ import GitConnectionButton from '~/components/instructions/GitConnectionButton.v
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
+import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
@@ -870,7 +872,16 @@ const approving = ref<string | null>(null)
 const showConnectionModal = ref(false)
 const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
+const showNewAgent = ref(false)
 const showAddMCP = ref(false)
+// New agent wizard finished: refresh the agent list and open the new agent's page.
+const onNewAgentFinished = async (id: string) => {
+  showNewAgent.value = false
+  if (!id) return
+  await fetchAgents()
+  expand('agent:' + id, true)
+  openAgent(id)
+}
 const toolsRefreshKey = ref(0)
 // When a connection is created from an agent's Tools panel, link it to that agent.
 // Null when creating a brand-new agent (header "New › Agent").
