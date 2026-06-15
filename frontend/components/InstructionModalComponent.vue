@@ -8,7 +8,7 @@
                 <div 
                     class="relative bg-white rounded-xl shadow-2xl w-[94vw] overflow-hidden z-10 overscroll-contain flex flex-col"
                     :style="{
-                        maxWidth: isAnalyzing ? '1200px' : '680px',
+                        maxWidth: isAnalyzing ? '1400px' : '960px',
                         maxHeight: 'min(85vh, 800px)',
                         transition: 'max-width 300ms cubic-bezier(0.4, 0, 0.2, 1)'
                     }"
@@ -22,156 +22,81 @@
                     </div>
 
                     <!-- Body -->
-                    <div 
-                        class="flex-1 min-h-0 grid transition-all duration-300 ease-out"
-                        :style="{
-                            gridTemplateColumns: isAnalyzing ? '1fr 1fr' : '1fr 0px'
-                        }"
-                    >
-                        <!-- Left: Form -->
-                        <div class="flex flex-col h-full overflow-y-auto min-w-0">
-                            <!-- Conditional rendering based on the computed selectedInstructionType -->
-                            <InstructionGlobalCreateComponent
-                                v-if="selectedInstructionType === 'global'"
-                                :instruction="instruction"
-                                :analyzing="isAnalyzing"
-                                :shared-form="sharedForm"
-                                :selected-data-sources="selectedDataSources"
-                                :is-git-sourced="isGitSourced"
-                                :is-git-synced="isGitSynced"
-                                :target-build-id="targetBuildId || undefined"
-                                @instruction-saved="handleInstructionSaved"
-                                @cancel="closeModal"
-                                @update-form="updateSharedForm"
-                                @update-data-sources="updateSelectedDataSources"
-                                @toggle-analyze="toggleAnalyze"
-                                @unlink-from-git="unlinkFromGit"
-                                @relink-to-git="relinkToGit"
-                                @view-mode-changed="handleViewModeChanged"
-                            />
-                            <InstructionPrivateCreateComponent 
-                                v-else
-                                :instruction="instruction"
-                                :shared-form="sharedForm"
-                                :selected-data-sources="selectedDataSources"
-                                :is-suggestion="effectiveIsSuggestion"
-                                :is-git-sourced="isGitSourced"
-                                :is-git-synced="isGitSynced"
-                                @instruction-saved="handleInstructionSaved"
-                                @cancel="closeModal"
-                                @update-form="updateSharedForm"
-                                @update-data-sources="updateSelectedDataSources"
-                                @toggle-analyze="toggleAnalyze"
-                                @unlink-from-git="unlinkFromGit"
-                                @relink-to-git="relinkToGit"
-                            />
-                        </div>
+                    <div class="flex-1 min-h-0">
+                        <!-- GLOBAL: component owns its columns; analysis renders in the middle slot -->
+                        <InstructionGlobalCreateComponent
+                            v-if="selectedInstructionType === 'global'"
+                            :instruction="instruction"
+                            :analyzing="isAnalyzing"
+                            :split-layout="true"
+                            :shared-form="sharedForm"
+                            :initial-text="initialText"
+                            :selected-data-sources="selectedDataSources"
+                            :is-git-sourced="isGitSourced"
+                            :is-git-synced="isGitSynced"
+                            :target-build-id="targetBuildId || undefined"
+                            @instruction-saved="handleInstructionSaved"
+                            @cancel="closeModal"
+                            @update-form="updateSharedForm"
+                            @update-data-sources="updateSelectedDataSources"
+                            @toggle-analyze="toggleAnalyze"
+                            @unlink-from-git="unlinkFromGit"
+                            @relink-to-git="relinkToGit"
+                            @view-mode-changed="handleViewModeChanged"
+                        >
+                            <template #analyze>
+                                <InstructionAnalysisPanel
+                                    :related="relatedForPanel"
+                                    :is-loading-related="isLoadingRelated"
+                                    :impacted-prompts="impactedPrompts"
+                                    :is-loading-impact="isLoadingImpact"
+                                    :impact-score="impactScore"
+                                    :impact-matched-count="impactMatchedCount"
+                                    :impact-total-count="impactTotalCount"
+                                    :section-max-height="sectionMaxHeight"
+                                    @refresh="refreshAnalysis"
+                                />
+                            </template>
+                        </InstructionGlobalCreateComponent>
 
-                        <!-- Right: Analysis panel -->
-                        <div class="overflow-hidden">
-                            <div 
-                                v-if="isAnalyzing" 
-                                class="h-full border-s border-gray-200 bg-gradient-to-b from-gray-50 to-white flex flex-col"
-                            >
-                                <!-- Panel header -->
-                                <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
-                                    <h3 class="text-sm font-semibold text-gray-800">{{ $t('instructionModal.analysis') }}</h3>
-                                    <UButton size="xs" variant="ghost" color="blue" @click="refreshAnalysis">
-                                        <Icon name="heroicons:arrow-path" class="w-3.5 h-3.5 me-1" />
-                                        {{ $t('instructionModal.refresh') }}
-                                    </UButton>
-                                </div>
-                                <div class="flex-1 overflow-y-auto p-4 space-y-4">
-                                <!-- Related Instructions (moved to top) -->
-                                <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-                                    <div class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors" @click="showRelated = !showRelated">
-                                        <div class="flex items-center gap-2">
-                                            <h3 class="text-sm font-medium text-gray-900">{{ $t('instructionModal.related') }}</h3>
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{{ relatedInstructions.length }}</span>
-                                        </div>
-                                        <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-400 transition-transform" />
-                                    </div>
-                                    <div v-show="showRelated" class="border-t border-gray-100 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
-                                        <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500">
-                                            <Spinner class="w-4 h-4 me-2" /> <span class="text-xs">{{ $t('instructionModal.loading') }}</span>
-                                        </div>
-                                        <div v-else-if="relatedInstructions.length === 0" class="text-xs text-gray-500 py-2">{{ $t('instructionModal.noRelated') }}</div>
-                                        <ul v-else class="divide-y divide-gray-100">
-                                            <li v-for="inst in relatedInstructions" :key="inst.id" class="py-2">
-                                                <div class="flex-1">
-                                                    <!-- Collapsed view with highlighted snippet -->
-                                                    <div v-if="expandedInstructionId !== inst.id">
-                                                        <p class="text-xs text-gray-900 related-text" v-html="highlightAndTrimText(inst.text)"></p>
-                                                        <div class="mt-1 flex items-center gap-2">
-                                                            <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px]"
-                                                                  :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'">
-                                                                {{ inst.status }}
-                                                            </span>
-                                                            <span class="text-[10px] text-gray-500">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
-                                                            <button
-                                                                @click="expandedInstructionId = inst.id"
-                                                                class="text-[10px] text-blue-600 hover:text-blue-800 hover:underline"
-                                                            >
-                                                                {{ $t('instructionModal.readMore') }}
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                    <!-- Expanded view with full MDC content -->
-                                                    <div v-else class="space-y-2">
-                                                        <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                                                            <MDC :value="inst.text" class="text-xs text-gray-900 prose prose-xs max-w-none" />
-                                                        </div>
-                                                        <div class="flex items-center gap-2">
-                                                            <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px]"
-                                                                  :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'">
-                                                                {{ inst.status }}
-                                                            </span>
-                                                            <span class="text-[10px] text-gray-500">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
-                                                            <button
-                                                                @click="expandedInstructionId = null"
-                                                                class="text-[10px] text-blue-600 hover:text-blue-800 hover:underline"
-                                                            >
-                                                                {{ $t('instructionModal.showLess') }}
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </div>
-
-                                <!-- Impact Estimation -->
-                                <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-                                    <div class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors" @click="showImpact = !showImpact">
-                                        <div class="flex items-center gap-2">
-                                            <h3 class="text-sm font-medium text-gray-900">{{ $t('instructionModal.impact') }}</h3>
-                                            <UTooltip :text="impactTotalCount ? $t('instructionModal.impactTooltip', { matched: impactMatchedCount, total: impactTotalCount }) : $t('instructionModal.impactTooltipEmpty')">
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                                                    {{ Math.round(impactScore * 100) }}%
-                                                </span>
-                                            </UTooltip>
-                                        </div>
-                                        <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-400 transition-transform" />
-                                    </div>
-                                    <div v-show="showImpact" class="border-t border-gray-100 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
-                                        <p class="text-xs text-gray-500 mb-2">{{ $t('instructionModal.sampleImpacted') }}</p>
-                                        <div v-if="isLoadingImpact" class="py-6 flex items-center justify-center text-gray-500">
-                                            <Spinner class="w-4 h-4 me-2" /> <span class="text-xs">{{ $t('instructionModal.loading') }}</span>
-                                        </div>
-                                        <div v-else-if="impactedPrompts.length === 0" class="text-xs text-gray-500 py-2">{{ $t('instructionModal.noRelevantPrompts') }}</div>
-                                        <ul v-else class="divide-y divide-gray-100">
-                                            <li v-for="(prompt, idx) in impactedPrompts" :key="idx" class="py-2">
-                                                <div class="flex items-start justify-between gap-3">
-                                                    <p class="text-xs text-gray-900 flex-1">{{ prompt.content }}</p>
-                                                    <span v-if="prompt.created_at" class="text-[10px] text-gray-500 whitespace-nowrap">{{ formatDate(prompt.created_at) }}</span>
-                                                </div>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </div>
-
-                                </div>
+                        <!-- PRIVATE: single-column form with analysis panel on the right -->
+                        <div
+                            v-else
+                            class="h-full grid transition-all duration-300 ease-out"
+                            :style="{
+                                gridTemplateColumns: isAnalyzing ? 'minmax(0, 1.75fr) minmax(0, 1fr)' : '1fr 0px'
+                            }"
+                        >
+                            <div class="flex flex-col h-full overflow-y-auto min-w-0">
+                                <InstructionPrivateCreateComponent
+                                    :instruction="instruction"
+                                    :shared-form="sharedForm"
+                                    :selected-data-sources="selectedDataSources"
+                                    :is-suggestion="effectiveIsSuggestion"
+                                    :is-git-sourced="isGitSourced"
+                                    :is-git-synced="isGitSynced"
+                                    @instruction-saved="handleInstructionSaved"
+                                    @cancel="closeModal"
+                                    @update-form="updateSharedForm"
+                                    @update-data-sources="updateSelectedDataSources"
+                                    @toggle-analyze="toggleAnalyze"
+                                    @unlink-from-git="unlinkFromGit"
+                                    @relink-to-git="relinkToGit"
+                                />
+                            </div>
+                            <div class="overflow-hidden">
+                                <InstructionAnalysisPanel
+                                    v-if="isAnalyzing"
+                                    :related="relatedForPanel"
+                                    :is-loading-related="isLoadingRelated"
+                                    :impacted-prompts="impactedPrompts"
+                                    :is-loading-impact="isLoadingImpact"
+                                    :impact-score="impactScore"
+                                    :impact-matched-count="impactMatchedCount"
+                                    :impact-total-count="impactTotalCount"
+                                    :section-max-height="sectionMaxHeight"
+                                    @refresh="refreshAnalysis"
+                                />
                             </div>
                         </div>
                     </div>
@@ -191,6 +116,7 @@
 <script setup lang="ts">
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
+import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
 import { usePermissionsLoaded, useCan, useCanAny } from '~/composables/usePermissions'
 import Spinner from '~/components/Spinner.vue'
@@ -228,6 +154,7 @@ const props = defineProps<{
     initialType?: 'global' | 'private'
     isSuggestion?: boolean
     targetBuildId?: string | null  // If set, update instruction within this existing build
+    initialText?: string  // Seed the text field when creating (e.g. from the command palette)
 }>()
 
 const emit = defineEmits(['update:modelValue', 'instructionSaved'])
@@ -273,8 +200,6 @@ const instructionModalOpen = computed({
 })
 
 const isAnalyzing = ref(false)
-const showImpact = ref(true)
-const showRelated = ref(true)
 const showManageLabelsModal = ref(false)
 
 // Mock data for the analysis pane
@@ -286,7 +211,6 @@ const impactScore = ref(0)
 const impactedPrompts = ref<PromptSample[]>([])
 const relatedInstructions = ref<Array<{ id: string; text: string; status: 'draft' | 'published' | 'archived'; createdByName: string }>>([])
 const matchedTokens = ref<string[]>([])  // Keywords from backend for highlighting
-const expandedInstructionId = ref<string | null>(null)  // Track which related instruction is expanded
 
 const refreshAnalysis = async () => {
     const text = sharedForm.value?.text || (props.instruction?.text || '')
@@ -340,13 +264,6 @@ watch(isAnalyzing, (val) => {
         refreshAnalysis()
     }
 })
-
-const formatDate = (d: string | Date | null | undefined) => {
-    if (!d) return ''
-    const dt = typeof d === 'string' ? new Date(d) : d
-    if (!(dt instanceof Date) || isNaN(dt.getTime())) return ''
-    return dt.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
 
 // Highlight and trim text to show relevant snippets around matched keywords
 const highlightAndTrimText = (text: string): string => {
@@ -431,6 +348,14 @@ const escapeHtml = (str: string): string => {
 const escapeRegex = (str: string): string => {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
+
+// Pre-render the highlighted snippet HTML so the analysis panel stays presentational.
+const relatedForPanel = computed(() =>
+    relatedInstructions.value.map(it => ({
+        ...it,
+        highlightedHtml: highlightAndTrimText(it.text),
+    }))
+)
 
 // Each section's max height for the analysis panel
 const sectionMaxHeight = 'calc((min(85vh, 800px) - 120px) / 2)'
@@ -592,6 +517,12 @@ watch(() => props.instruction, (newInstruction) => {
     } else {
         // If the instruction prop is cleared, reset the form for a clean 'create' state.
         resetForm()
+        // Seed the text when opening straight into create mode (e.g. command palette).
+        // Runs here (immediate watcher) because the modal often mounts with
+        // modelValue already true, so the open watcher below never transitions.
+        if (props.initialText) {
+            sharedForm.value.text = props.initialText
+        }
     }
 }, { immediate: true })
 

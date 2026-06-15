@@ -93,6 +93,10 @@
                                     <UTooltip v-if="ds.admin_only" :text="$t('data.adminOnlyHint')">
                                         <span class="text-[9px] font-medium uppercase tracking-wide text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">{{ $t('data.adminOnlyTag') }}</span>
                                     </UTooltip>
+                                    <!-- Publishing lifecycle badge (only when not the default published) -->
+                                    <UTooltip v-if="ds.publish_status && ds.publish_status !== 'published'" :text="publishStatusDescription(ds.publish_status)">
+                                        <span :class="['text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded border', publishStatusBadgeClass(ds.publish_status)]">{{ publishStatusLabel(ds.publish_status) }}</span>
+                                    </UTooltip>
                                 </div>
 
                                 <!-- Metadata -->
@@ -216,6 +220,11 @@ import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import DataSourceGrid from '~/components/datasources/DataSourceGrid.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
+import {
+    publishStatusBadgeClass,
+    publishStatusLabel,
+    publishStatusDescription,
+} from '~/composables/useDataSourcePublishStatus'
 import { resolveComponent } from 'vue'
 
 const NuxtLink = resolveComponent('NuxtLink')

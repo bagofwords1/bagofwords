@@ -882,7 +882,7 @@
     },
     "auditLogs": "Granskningsloggar",
     "integrations": {
-      "title": "Integrationer",
+      "title": "Kanaler",
       "subtitle": "Konfigurera externa plattformar som Slack och Microsoft Teams för din organisation.",
       "connected": "Ansluten",
       "notConnected": "Ej ansluten",

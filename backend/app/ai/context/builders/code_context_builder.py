@@ -420,6 +420,8 @@ class CodeContextBuilder:
         stmt = select(DataSource.id).where(
             DataSource.organization_id == self.organization.id,
             DataSource.is_active == True,
+            # Disabled agents are off — never feed their schema into AI context.
+            DataSource.publish_status != "disabled",
         )
         if not is_admin:
             clauses = [DataSource.is_public == True]

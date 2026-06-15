@@ -10,7 +10,7 @@ from app.models.user import User
 from app.settings.config import settings
 from app.models.llm_provider import LLM_PROVIDER_DETAILS
 from app.models.llm_model import LLM_MODEL_DETAILS
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate, LLMProviderTestConnection
 from app.ai.llm.llm import LLM
 from app.dependencies import async_session_maker
 from datetime import datetime
@@ -996,9 +996,23 @@ class LLMService:
         db: AsyncSession,
         organization: Organization,
         current_user: User,
-        provider: LLMProviderCreate
+        provider: LLMProviderTestConnection
     ):
-        logger.info("Testing LLM connection: provider_type=%s, name=%s, org_id=%s, user_id=%s", provider.provider_type, provider.name, organization.id, current_user.id)
+        logger.info("Testing LLM connection: provider_type=%s, name=%s, provider_id=%s, org_id=%s, user_id=%s", provider.provider_type, provider.name, getattr(provider, 'provider_id', None), organization.id, current_user.id)
+
+        # When testing an already-saved provider, load it so blank credential
+        # fields fall back to the stored (encrypted) values.
+        stored_provider = None
+        if getattr(provider, 'provider_id', None):
+            result = await db.execute(
+                select(LLMProvider)
+                .filter(LLMProvider.id == provider.provider_id)
+                .filter(LLMProvider.organization_id == organization.id)
+                .filter(LLMProvider.deleted_at == None)
+            )
+            stored_provider = result.unique().scalar_one_or_none()
+            if stored_provider is None:
+                raise HTTPException(status_code=404, detail="Provider not found")
 
         # Build an in-memory provider based on the payload (no DB writes)
         provider_obj = LLMProvider(
@@ -1011,8 +1025,15 @@ class LLMService:
             additional_config=None
         )
 
+        # Seed encrypted credentials + config from the saved provider; any
+        # credentials supplied in the payload override these below.
+        if stored_provider is not None:
+            provider_obj.api_key = stored_provider.api_key
+            provider_obj.api_secret = stored_provider.api_secret
+            provider_obj.additional_config = dict(stored_provider.additional_config or {})
+
         # Set credentials and merge provider-specific additional_config
-        self._set_provider_credentials(provider_obj, provider.credentials)
+        self._set_provider_credentials(provider_obj, provider.credentials or {})
 
         # Choose a model to test from user-provided list, preferring default or custom
         selected_model = None

@@ -149,6 +149,9 @@ class DataSourceSchema(DataSourceBase):
     conversation_starters: Optional[list] = None
     is_active: bool
     is_public: bool = False
+    # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
+    # Distinct from is_active (connection health).
+    publish_status: str = "published"
     use_llm_sync: bool = False
     owner_user_id: Optional[str] = None
     git_repository: Optional[GitRepositorySchema] = None
@@ -187,7 +190,10 @@ class DataSourceListItemSchema(BaseModel):
     description: Optional[str]
     conversation_starters: Optional[list] = None
     created_at: UTCDatetime
-    status: str  # "active" | "inactive"
+    # Connection-health derived state, kept for backward compatibility.
+    status: str  # "active" | "inactive" (mirrors is_active)
+    # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
+    publish_status: str = "published"
 
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
@@ -282,8 +288,21 @@ class DataSourceUpdate(DataSourceBase):
     conversation_starters: Optional[list] = None
     is_public: Optional[bool] = None
     use_llm_sync: Optional[bool] = None
+    # Manager-set publishing lifecycle. Guarded by the 'manage' resource
+    # permission on the data source (see routes/data_source.py).
+    publish_status: Optional[str] = None
     member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
     primary_instruction_id: Optional[Union[str, None]] = None  # None = clear, str = set
+
+    @field_validator('publish_status')
+    @classmethod
+    def _validate_publish_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"published", "draft", "disabled"}
+        if v not in allowed:
+            raise ValueError(f"publish_status must be one of {sorted(allowed)}")
+        return v
 
     # Connection-related fields (will be delegated to Connection update)
     config: Optional[dict] = None

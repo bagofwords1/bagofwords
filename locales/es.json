@@ -958,7 +958,7 @@
     },
     "auditLogs": "Registros de auditoría",
     "integrations": {
-      "title": "Integraciones",
+      "title": "Canales",
       "subtitle": "Configura plataformas externas como Slack y Microsoft Teams para tu organización.",
       "connected": "Conectado",
       "notConnected": "No conectado",
