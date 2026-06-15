@@ -42,9 +42,9 @@
         :href="nav ? '/agents' : undefined"
         @click="nav ? onNavClick($event) : undefined"
         :class="nav ? [
-          'flex items-center w-full rounded-md transition-colors',
-          isRouteActive('/agents') ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
-          collapsed ? 'justify-center px-3 py-1.5' : 'gap-2.5 px-3 py-1.5'
+          'flex items-center w-full rounded-lg border transition-all duration-200',
+          isRouteActive('/agents') ? 'border-gray-300 bg-white shadow-sm text-gray-900 font-semibold' : 'border-gray-200 bg-white shadow-sm text-gray-700 hover:border-gray-300 hover:shadow',
+          collapsed ? 'justify-center p-2' : 'gap-2.5 px-3 py-2'
         ] : [
           'flex items-center w-full rounded-lg transition-all duration-200',
           'bg-white hover:bg-gray-50',
