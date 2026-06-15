@@ -1,7 +1,8 @@
 import { test, expect } from '../fixtures/feature-test';
 
 test('can view instructions page', async ({ page }) => {
-  await page.goto('/instructions');
+  // The instructions page is now the Agents explorer at /agents.
+  await page.goto('/agents');
   await page.waitForLoadState('networkidle');
 
   // Verify page heading (longer timeout for CI).

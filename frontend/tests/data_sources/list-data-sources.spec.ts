@@ -2,7 +2,8 @@
 import { test, expect } from '../fixtures/feature-test';
 
 test('can list data sources', async ({ page }) => {
-  await page.goto('/agents');
+  // The legacy data-sources list moved to /old_agents (/agents is now the explorer).
+  await page.goto('/old_agents');
   await page.waitForLoadState('networkidle');
 
   // Wait for page to fully load (either Data Agents or Connections section)

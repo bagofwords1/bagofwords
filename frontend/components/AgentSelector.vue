@@ -28,21 +28,41 @@
 
     <UPopover
       v-else
-      :popper="{ placement: 'bottom-start', offsetDistance: 4, strategy: 'fixed' }"
+      :mode="nav ? 'hover' : 'click'"
+      :popper="{ placement: nav ? 'right-start' : 'bottom-start', offsetDistance: 4, strategy: 'fixed' }"
       :ui="{
         width: 'max-w-none',
         container: 'overflow-visible',
         inner: 'overflow-visible'
       }"
     >
-      <button
-        :class="[
+      <!-- Nav mode: the trigger is a link to the Agents explorer; the dropdown opens on hover. -->
+      <component
+        :is="nav ? 'a' : 'button'"
+        :href="nav ? '/agents' : undefined"
+        @click="nav ? onNavClick($event) : undefined"
+        :class="nav ? [
+          'flex items-center w-full rounded-md transition-colors',
+          isRouteActive('/agents') ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
+          collapsed ? 'justify-center px-3 py-1.5' : 'gap-2.5 px-3 py-1.5'
+        ] : [
           'flex items-center w-full rounded-lg transition-all duration-200',
           'bg-white hover:bg-gray-50',
           'border border-gray-200 shadow-sm hover:shadow hover:border-gray-300',
           collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
         ]"
       >
+        <!-- Nav mode trigger content: cube icon + "Agents" label -->
+        <template v-if="nav">
+          <UTooltip v-if="collapsed" text="Agents" :popper="{ placement: 'right' }">
+            <span class="flex items-center justify-center w-5 h-5"><UIcon name="heroicons-cube" class="w-[18px] h-[18px]" /></span>
+          </UTooltip>
+          <template v-else>
+            <span class="flex items-center justify-center w-[18px] h-[18px]"><UIcon name="heroicons-cube" /></span>
+            <span v-if="showText" class="font-medium">Agents</span>
+          </template>
+        </template>
+        <template v-else>
         <UTooltip v-if="collapsed" :text="currentAgentName" :popper="{ placement: 'right' }">
           <span class="flex items-center justify-center w-5 h-5">
             <Spinner v-if="loading" class="w-4 h-4 text-gray-400 animate-spin" />
@@ -63,7 +83,8 @@
           </span>
           <UIcon v-if="showText" name="heroicons-chevron-up-down" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
         </template>
-      </button>
+        </template>
+      </component>
 
       <template #panel>
         <div class="overflow-visible">
@@ -77,7 +98,7 @@
               <template v-else>
                 <!-- All Agents -->
                 <button
-                  @click="toggleAgent(null)"
+                  @click="nav ? goToAgents() : toggleAgent(null)"
                   @mouseenter="hoveredAgentId = null"
                   @mouseleave="onAgentHoverLeave()"
                   :class="[
@@ -97,7 +118,7 @@
                   <button
                     v-for="a in agents"
                     :key="a.id"
-                    @click="toggleAgent(a.id)"
+                    @click="nav ? goToAgent(a.id) : toggleAgent(a.id)"
                     @mouseenter="onAgentHover(a.id, $event)"
                     @mouseleave="onAgentHoverLeave()"
                     :class="[
@@ -183,11 +204,24 @@ const props = withDefaults(defineProps<{
   collapsed?: boolean
   showText?: boolean
   showLabel?: boolean
+  // Nav mode: render as a left-nav item. Dropdown opens on hover, clicking the
+  // trigger goes to the Agents explorer, and clicking an agent deep-links to it.
+  nav?: boolean
 }>(), {
   collapsed: false,
   showText: true,
-  showLabel: true
+  showLabel: true,
+  nav: false
 })
+
+const router = useRouter()
+const isRouteActive = (path: string) => {
+  const p = useRoute().path
+  return p === path || p.startsWith(path + '/')
+}
+const onNavClick = (e: MouseEvent) => { e.preventDefault(); router.push('/agents') }
+const goToAgents = () => router.push('/agents')
+const goToAgent = (id: string) => router.push(`/agents?agent=${id}`)
 
 // Agent management
 const {

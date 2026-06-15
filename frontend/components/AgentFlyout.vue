@@ -57,7 +57,7 @@
               <!-- Open agent link - top right -->
               <NuxtLink
                 v-if="agentId"
-                :to="`/agents/${agentId}`"
+                :to="`/agents?agent=${agentId}`"
                 class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline flex-shrink-0 whitespace-nowrap"
               >
                 {{ $t('agentFlyout.openAgent') }}
@@ -286,7 +286,7 @@
                       <NuxtLink
                         v-for="inst in instructionsResources"
                         :key="inst.id"
-                        :to="`/instructions?search=${encodeURIComponent(inst.title || '')}`"
+                        :to="`/agents?search=${encodeURIComponent(inst.title || '')}`"
                         class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                       >
                         <div class="flex-1 min-w-0">

@@ -929,7 +929,7 @@ const needsSignIn = (a: any) => {
   }
   return false
 }
-const openAgentTab = (id: string) => { window.open(`/agents/${id}/connection`, '_blank') }
+const openAgentTab = (id: string) => { window.open(`/old_agents/${id}/connection`, '_blank') }
 
 // ── Expansion ───────────────────────────────────────────
 const isOpen = (key: string) => expanded.value.has(key)
@@ -1187,7 +1187,21 @@ const FilterSection = defineComponent({
   },
 })
 
-onMounted(async () => { await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus()]) })
+// Deep-link: /agents?agent=<id> opens that agent's overview in the explorer.
+const route = useRoute()
+const openAgentFromQuery = () => {
+  const qid = route.query.agent
+  const id = Array.isArray(qid) ? qid[0] : qid
+  if (!id) return
+  const agent = agents.value.find(a => a.id === id)
+  if (agent) { expand('agent:' + agent.id, true); openAgent(agent.id) }
+}
+watch(() => route.query.agent, () => openAgentFromQuery())
+
+onMounted(async () => {
+  await Promise.all([fetchAgents(), fetchAll(), fetchLabels(), fetchCategories(), fetchGitStatus()])
+  openAgentFromQuery()
+})
 </script>
 
 <style scoped>

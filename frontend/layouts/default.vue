@@ -64,21 +64,10 @@
             </button>
         </li>
 
-        <!-- Agents (top-level) -->
+        <!-- Agents (top-level) — AgentSelector in nav mode: hover opens the
+             agent dropdown, click goes to the explorer, agent click deep-links. -->
         <li class="mt-4">
-          <NuxtLink to="/instructions" :class="[
-            'flex items-center px-3 py-1.5 w-full rounded-md',
-            isRouteActive('/instructions') ? 'text-gray-900 bg-gray-200/70 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
-            isCollapsed ? 'justify-center' : 'gap-2.5'
-          ]">
-            <UTooltip v-if="isCollapsed" text="Agents" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']"><UIcon name="heroicons-cube" /></span>
-            </UTooltip>
-            <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-[18px] h-[18px]']"><UIcon name="heroicons-cube" /></span>
-              <span v-if="showText" class="font-medium">Agents</span>
-            </template>
-          </NuxtLink>
+          <AgentSelector nav :collapsed="isCollapsed" :show-text="showText" />
         </li>
 
         <li>

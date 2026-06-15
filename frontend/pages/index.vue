@@ -273,7 +273,7 @@ const menuItems = computed(() => {
     { label: t('nav.reports'), icon: 'i-heroicons-chat-bubble-left-right', to: '/reports' },
     { label: t('nav.dashboards'), icon: 'i-heroicons-chart-bar-square', to: '/dashboards' },
     { label: t('nav.scheduled'), icon: 'i-heroicons-clock', to: '/scheduled-tasks' },
-    { label: t('nav.instructions'), icon: 'i-heroicons-cube', to: '/instructions' },
+    { label: t('nav.instructions'), icon: 'i-heroicons-cube', to: '/agents' },
     { label: t('nav.queries'), slot: 'queries', to: '/queries' },
   ]
   if (isAdmin.value) {
