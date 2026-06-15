@@ -63,6 +63,43 @@ Spec used (`tests/instructions/knowledge-explorer-shot.spec.ts`): navigates to
 `/instructions`, creates an instruction (exercising the **save → left-list
 refresh** path), opens it, and screenshots the three-pane Knowledge Explorer.
 
+## 3b. Pending-suggestion screenshots (no LLM)
+
+The Discard / Run-eval / pending-review controls only render when an agent has a
+**pending instruction build**. You don't need onboarding or an LLM for this — a
+**member** editing an instruction produces a suggestion (it lands in
+`pending_approval` because they're not an org admin). `seed_access_demo.py` does
+exactly this against the live backend:
+
+```bash
+# 1. The seed expects admin sandbox@bow.dev to already exist AND own the org.
+#    The FIRST uninvited signup auto-creates "Main Org" + admin role
+#    (_ensure_org_for_first_uninvited_user), so register it first on a fresh DB:
+curl -s -X POST http://localhost:8000/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"sandbox@bow.dev","password":"Sandbox123!","name":"Sandbox Admin"}'
+
+# 2. Seed agents (chinook.sqlite) + an editor member + many pending suggestions:
+cd backend && BOW_SEED_BASE=http://localhost:8000 python scripts/seed_access_demo.py
+```
+
+Then capture the suggestion UI as the admin. The screenshot specs live in
+`frontend/tests/instructions/*.shot.ts` and run via a screenshot-only config
+(`frontend/pw.shot.config.ts`) that has **no** `globalSetup` (so it logs in as
+the seeded admin instead of creating a fresh org-less one):
+
+```bash
+cd frontend
+export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers PLAYWRIGHT_BASE_URL=http://localhost:3000
+npx playwright test tests/instructions/knowledge-explorer-suggestion.shot.ts --config=pw.shot.config.ts
+# → screenshots/sugg-3-detail-suggested.png (Approve + Discard, no "View diff")
+# → screenshots/sugg-4-diff-runeval.png      (diff header + Run-eval strip)
+```
+
+`*.shot.ts` files are intentionally NOT matched by the main `playwright.config.ts`
+(which only runs `**/*.spec.ts`), so they never run in CI — they're manual
+screenshot tools that depend on the seed above.
+
 ## 4. The loop
 
 1. Edit `frontend/components/KnowledgeExplorer.vue`.
@@ -74,11 +111,12 @@ Backend changes need a uvicorn restart (no `--reload` above).
 ## Notes / gotchas
 
 - **Pending-review state** (suggestion cards, Discard button, Run-eval strip)
-  only renders when an agent has a *pending instruction build*. A fresh admin
-  signup has none, so that exact UI needs seeded data
-  (`backend/scripts/seed_knowledge_demo.py` / `seed_access_demo.py`) or a
-  non-admin edit that lands as a suggestion. The admin view still verifies the
-  page, the create→left-refresh wiring, and the diff/version pane.
+  only renders when an agent has a *pending instruction build* — see §3b for the
+  no-LLM seed recipe that produces it.
+- **First-user / org bootstrap**: only the FIRST uninvited signup auto-gets an
+  org + admin role; later signups have no org until invited. The Playwright
+  `globalSetup` creates a *new* admin each run, so repeated runs accumulate
+  org-less admins — use a fresh DB + a single known admin for seeding.
 - Everything is **ephemeral** — sqlite DB, signup, and screenshots vanish when
   the sandbox is reclaimed. Commit screenshots worth keeping.
 - No `typecheck`/`lint` script exists; `nuxt dev` booting + the spec passing is
