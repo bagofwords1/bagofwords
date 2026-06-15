@@ -87,15 +87,16 @@
               </TreeGroup>
 
               <TreeGroup label="Files" icon="i-heroicons-paper-clip" :count="agentFiles[agent.id]?.length" :indent="1" addable :open="isOpen('files:' + agent.id)" @toggle="expand('files:' + agent.id)" @add="triggerUpload(agent.id)">
-                <button
+                <div
                   v-for="f in (agentFiles[agent.id] || [])" :key="f.id"
-                  class="w-full flex items-center gap-2 h-7 rounded-md text-xs transition-colors min-w-0"
+                  class="group/file w-full flex items-center gap-2 h-7 rounded-md text-xs transition-colors min-w-0 cursor-pointer"
                   :class="previewFile && previewFile.id === f.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'"
-                  style="padding-left:48px;padding-right:8px" @click="openFile(f)"
+                  style="padding-left:48px;padding-right:8px" @click="openFile(f, agent.id)"
                 >
                   <UIcon :name="fileIcon(f.content_type, f.filename)" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
                   <span class="flex-1 text-left truncate">{{ f.filename }}</span>
-                </button>
+                  <button v-if="canManageAgent(agent.id)" class="shrink-0 w-4 h-4 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600 opacity-0 group-hover/file:opacity-100 flex items-center justify-center" title="Delete file" @click.stop="deleteFile(agent.id, f)"><UIcon name="i-heroicons-trash" class="w-3 h-3" /></button>
+                </div>
                 <EmptyHint v-if="(agentFiles[agent.id]?.length ?? -1) === 0" text="No files." add @add="triggerUpload(agent.id)" :pad="48" />
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 italic py-1" style="padding-left:48px">Uploading…</div>
               </TreeGroup>
@@ -104,6 +105,12 @@
                 <InstrLeaf v-for="ins in listForAgent(agent.id)" :key="ins.id" :ins="ins" :indent="2" />
                 <EmptyHint v-if="listForAgent(agent.id).length === 0" text="No instructions yet." add @add="openCreate({ agentId: agent.id })" :pad="48" />
               </TreeGroup>
+
+              <button v-if="canManageAgent(agent.id)" type="button" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-xs transition-colors min-w-0" :class="panelView?.kind === 'evals' && panelView?.agentId === agent.id ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100'" style="padding-left:20px;padding-right:8px" @click="openPanel('evals', agent.id)">
+                <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-gray-400 shrink-0" />
+                <span class="flex-1 text-left truncate">Evals</span>
+                <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0 opacity-0 group-hover:opacity-100" />
+              </button>
             </TreeGroup>
           </template>
         </div>
@@ -168,17 +175,8 @@
             </div>
           </div>
           <div class="flex-1 overflow-y-auto px-6 py-5 max-w-3xl">
-            <!-- Counts (clean) -->
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mb-3">
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400" />{{ agentCount(agentView.agentId) }} instructions</span>
-              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-chat-bubble-left-right" class="w-3.5 h-3.5 text-gray-400" />{{ agentReportCount }} reports</span>
-            </div>
-
             <!-- Connections / Connect -->
-            <div class="flex flex-wrap items-center gap-1.5 mb-6 pb-5 border-b border-gray-100">
+            <div class="flex flex-wrap items-center gap-1.5 mb-3">
               <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 text-gray-600 text-[11px] hover:bg-gray-50" @click="openConnectionDetail(c)">
                 <DataSourceIcon :type="c.type" class="w-3.5 h-3.5" />{{ c.name }}
                 <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
@@ -186,30 +184,37 @@
               <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 border border-blue-200 text-blue-600 text-[11px] font-medium hover:bg-blue-100" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />Connect</button>
             </div>
 
+            <!-- Counts (clean) -->
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mb-6 pb-5 border-b border-gray-100">
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400" />{{ agentTables[agentView.agentId]?.length ?? '–' }} tables</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-wrench-screwdriver" class="w-3.5 h-3.5 text-gray-400" />{{ agentTools[agentView.agentId]?.length ?? '–' }} tools</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-paper-clip" class="w-3.5 h-3.5 text-gray-400" />{{ agentFiles[agentView.agentId]?.length ?? '–' }} files</span>
+              <span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400" />{{ agentCount(agentView.agentId) }} instructions</span>
+            </div>
+
             <!-- Primary instruction (inline, clean editor) -->
-            <div v-if="creatingPrimary || editingPrimary" class="flex flex-col bg-white" style="height:min(640px,70vh)">
-              <InstructionGlobalCreateComponent
-                :key="agentDetail?.primary_instruction?.id || 'new-primary'"
-                :instruction="editingPrimary ? agentDetail?.primary_instruction : undefined"
-                :agent-id="agentView.agentId"
-                :initial-title="agentDetail?.name ? agentDetail.name + ' - Main' : 'Main'"
-                :uppercase-title="false"
-                :start-in-edit-mode="editingPrimary"
-                default-status="published"
-                @instruction-saved="onPrimarySaved"
-                @cancel="creatingPrimary = false; editingPrimary = false"
-              />
+            <div v-if="creatingPrimary || editingPrimary">
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <input v-model="primaryDraft.title" type="text" placeholder="Untitled" class="flex-1 min-w-0 text-sm font-medium text-gray-900 bg-transparent outline-none placeholder:text-gray-300" />
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button class="h-7 px-3 rounded-md text-gray-500 text-xs hover:bg-gray-100" @click="cancelPrimary">Cancel</button>
+                  <button class="h-7 px-3 rounded-md bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? 'Saving…' : 'Save' }}</button>
+                </div>
+              </div>
+              <div class="prose-instruction">
+                <InstructionEditor key="primary-edit" v-model="primaryDraft.text" mode="wysiwyg" :editable="true" :data-source-ids="[agentView.agentId]" placeholder="Write the agent's primary instruction in markdown… (type @ to mention a table or instruction)" />
+              </div>
             </div>
             <template v-else-if="agentDetail?.primary_instruction">
               <div class="flex items-center justify-between gap-2 mb-1.5">
                 <span class="text-sm font-medium text-gray-800">{{ agentDetail.primary_instruction.title || 'Primary instruction' }}</span>
-                <button v-if="agentCanUpdate" class="text-[11px] text-blue-600 hover:underline" @click="editingPrimary = true">Edit</button>
+                <button v-if="agentCanUpdate" class="text-[11px] text-blue-600 hover:underline" @click="startEditPrimary">Edit</button>
               </div>
               <InstructionText :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" :prose="true" :markdown="true" />
             </template>
             <div v-else class="rounded-lg border border-dashed border-gray-200 p-6 text-center">
               <p class="text-xs text-gray-400">No primary instruction set for this agent.</p>
-              <button v-if="agentCanUpdate" class="mt-2 text-[11px] font-medium text-gray-700 hover:text-gray-900" @click="creatingPrimary = true">+ Add a primary instruction</button>
+              <button v-if="agentCanUpdate" class="mt-2 text-[11px] font-medium text-gray-700 hover:text-gray-900" @click="startCreatePrimary">+ Add a primary instruction</button>
             </div>
 
             <!-- Conversation starters (editable) -->
@@ -233,34 +238,37 @@
               <DataSourceIcon :type="panelAgent?.type" class="w-4 h-4 shrink-0" />
               <span class="text-xs font-medium text-gray-700 truncate">{{ panelAgent?.name || 'Agent' }}</span>
               <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 shrink-0" />
-              <span class="text-xs text-gray-500 shrink-0">{{ panelView.kind === 'tables' ? 'Tables' : 'Tools' }}</span>
-              <span v-if="!panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
+              <span class="text-xs text-gray-500 shrink-0">{{ panelView.kind === 'tables' ? 'Tables' : (panelView.kind === 'tools' ? 'Tools' : 'Evals') }}</span>
+              <span v-if="panelView.kind !== 'evals' && !panelCanUpdate" class="text-[10px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 text-gray-400 shrink-0">read-only</span>
             </div>
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
-          <div class="flex-1 overflow-auto px-6 py-4">
-            <TablesSelector
-              v-if="panelView.kind === 'tables'"
-              :key="'tables-' + panelView.agentId"
-              :ds-id="panelView.agentId"
-              schema="full"
-              :can-update="panelCanUpdate"
-              :show-refresh="panelCanUpdate"
-              :show-save="panelCanUpdate"
-              :show-stats="true"
-              max-height="calc(100vh - 240px)"
-            />
-            <ToolsSelector
-              v-else
-              :key="'tools-' + panelView.agentId + '-' + toolsRefreshKey"
-              :ds-id="panelView.agentId"
-              :connections="panelConnections"
-              :can-update="panelCanUpdate"
-              @add-mcp="showAddMCP = true"
-              @add-custom-api="showAddConnection = true"
-              @edit-connection="openConnectionDetail"
-              @delete-connection="onToolsConnectionChanged"
-            />
+          <div class="flex-1 overflow-auto">
+            <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" />
+            <div v-else class="px-6 py-4">
+              <TablesSelector
+                v-if="panelView.kind === 'tables'"
+                :key="'tables-' + panelView.agentId"
+                :ds-id="panelView.agentId"
+                schema="full"
+                :can-update="panelCanUpdate"
+                :show-refresh="panelCanUpdate"
+                :show-save="panelCanUpdate"
+                :show-stats="true"
+                max-height="calc(100vh - 240px)"
+              />
+              <ToolsSelector
+                v-else
+                :key="'tools-' + panelView.agentId + '-' + toolsRefreshKey"
+                :ds-id="panelView.agentId"
+                :connections="panelConnections"
+                :can-update="panelCanUpdate"
+                @add-mcp="showAddMCP = true"
+                @add-custom-api="showAddConnection = true"
+                @edit-connection="openConnectionDetail"
+                @delete-connection="onToolsConnectionChanged"
+              />
+            </div>
           </div>
         </template>
 
@@ -274,6 +282,7 @@
             </div>
             <div class="flex items-center gap-1.5">
               <button v-if="previewUrl" class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="downloadPreview">Open</button>
+              <button v-if="previewFileAgentId && canManageAgent(previewFileAgentId)" class="h-7 px-3 rounded-md border border-gray-200 text-red-600 text-xs font-medium hover:bg-red-50" @click="deleteFile(previewFileAgentId, previewFile)">Delete</button>
               <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100" @click="closePreview"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
             </div>
           </div>
@@ -490,7 +499,7 @@
 import { h as createElement } from 'vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
-import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
+import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
@@ -575,15 +584,15 @@ const sourceOpts = [{ value: 'user', label: 'User' }, { value: 'ai', label: 'AI'
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
 const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
 
-// right-pane panel for Tables/Tools selectors
-const panelView = ref<null | { kind: 'tables' | 'tools'; agentId: string }>(null)
+// right-pane panel for Tables/Tools/Evals
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'evals'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'evals', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
@@ -650,12 +659,29 @@ const saveDesc = async () => {
   if (v === (agentDetail.value?.description || '')) return
   try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { description: v } }); if (agentDetail.value) agentDetail.value.description = v; toast.add({ title: 'Saved', color: 'green' }) } catch { toast.add({ title: 'Failed to save description', color: 'red' }) }
 }
-// primary instruction inline edit
-const onPrimarySaved = async (saved: any) => {
+// primary instruction inline edit (clean editor: title + body + save/cancel)
+const primaryDraft = reactive<{ title: string; text: string }>({ title: '', text: '' })
+const primarySaving = ref(false)
+const startCreatePrimary = () => { primaryDraft.title = agentDetail.value?.name ? agentDetail.value.name + ' - Main' : 'Main'; primaryDraft.text = ''; creatingPrimary.value = true; editingPrimary.value = false }
+const startEditPrimary = () => { const p = agentDetail.value?.primary_instruction; primaryDraft.title = p?.title || ''; primaryDraft.text = p?.text || ''; editingPrimary.value = true; creatingPrimary.value = false }
+const cancelPrimary = () => { creatingPrimary.value = false; editingPrimary.value = false }
+const savePrimary = async () => {
+  if (primarySaving.value || !primaryDraft.text.trim()) return
+  primarySaving.value = true
   const id = agentView.value?.agentId
-  if (creatingPrimary.value && saved?.id && id) { try { await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { primary_instruction_id: saved.id } }) } catch {} }
-  creatingPrimary.value = false; editingPrimary.value = false
-  await refreshAgentDetail()
+  try {
+    if (editingPrimary.value && agentDetail.value?.primary_instruction?.id) {
+      const piid = agentDetail.value.primary_instruction.id
+      await useMyFetch(`/api/instructions/${piid}`, { method: 'PUT', body: { title: primaryDraft.title || null, text: primaryDraft.text } })
+    } else {
+      const { data } = await useMyFetch<any>('/api/instructions', { method: 'POST', body: { title: primaryDraft.title || null, text: primaryDraft.text, status: 'published', load_mode: 'always', category: 'general', data_source_ids: id ? [id] : [] } })
+      const newId = (data.value as any)?.id
+      if (newId && id) await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: { primary_instruction_id: newId } })
+    }
+    creatingPrimary.value = false; editingPrimary.value = false
+    await Promise.all([refreshAgentDetail(), fetchAll()])
+    toast.add({ title: 'Saved', color: 'green' })
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { primarySaving.value = false }
 }
 // conversation starters edit
 const starterTitle = (cs: any) => typeof cs === 'string' ? (cs.split('\n')[0] || '') : (cs?.title || cs?.prompt || '')
@@ -889,11 +915,23 @@ const fileIcon = (ct?: string, name?: string) => {
 const isImage = (f: any) => /^image\//.test(f?.content_type || '') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f?.filename || '')
 const isPdf = (f: any) => f?.content_type === 'application/pdf' || /\.pdf$/i.test(f?.filename || '')
 const isText = (f: any) => /^text\/|json|csv/.test(f?.content_type || '') || TEXT_EXT.test(f?.filename || '')
-const closePreview = () => { previewFile.value = null; if (previewUrl.value) { URL.revokeObjectURL(previewUrl.value); previewUrl.value = null } previewText.value = null }
+const previewFileAgentId = ref<string | null>(null)
+const closePreview = () => { previewFile.value = null; previewFileAgentId.value = null; if (previewUrl.value) { URL.revokeObjectURL(previewUrl.value); previewUrl.value = null } previewText.value = null }
 const downloadPreview = () => { if (previewUrl.value) window.open(previewUrl.value, '_blank') }
-const openFile = async (f: any) => {
+const deleteFile = async (agentId: string, f: any) => {
+  if (!agentId || !f?.id) return
+  if (!window.confirm(`Delete "${f.filename}"? This can't be undone.`)) return
+  try {
+    await useMyFetch(`/data_sources/${agentId}/files/${f.id}`, { method: 'DELETE' })
+    agentFiles.value[agentId] = (agentFiles.value[agentId] || []).filter((x: any) => x.id !== f.id)
+    agentFiles.value = { ...agentFiles.value }
+    if (previewFile.value?.id === f.id) closePreview()
+    toast.add({ title: 'File deleted', color: 'green' })
+  } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) }
+}
+const openFile = async (f: any, agentId?: string) => {
   detail.value = null; creating.value = false; editing.value = false; selectedId.value = null
-  closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; closePreview(); previewFile.value = f; previewLoading.value = true
+  closeDiff(); closePanel(); closeAgentView(); pendingBuilds.value = []; closePreview(); previewFile.value = f; previewFileAgentId.value = agentId || null; previewLoading.value = true
   try {
     const { data } = await useMyFetch<any>(`/api/files/${f.id}/content`, { method: 'GET', responseType: 'blob' as any })
     const blob = data.value as Blob | null
