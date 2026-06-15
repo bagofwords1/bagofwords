@@ -40,6 +40,27 @@
                 </div>
             </div>
 
+            <!-- Channels -->
+            <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 pb-5 mb-5">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Channels</div>
+                <p class="text-[11px] text-gray-400 mb-3">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
+                <div class="space-y-2">
+                    <div v-for="ch in connectedChannels" :key="ch.key" class="flex items-center gap-3">
+                        <UToggle
+                            :model-value="channelAvailability[ch.key] !== false"
+                            :disabled="!canManageDs || savingChannels"
+                            @update:model-value="onToggleChannel(ch.key, $event)"
+                        />
+                        <span class="inline-flex items-center gap-1.5 text-[11px] text-gray-600">
+                            <img v-if="channelIcon(ch.key).img" :src="channelIcon(ch.key).img" :alt="ch.name" class="w-3.5 h-3.5" />
+                            <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600" />
+                            <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-400" />
+                            {{ ch.name }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Members (only shown when not public) -->
             <div v-if="!form.isPublic" class="border-b border-gray-100 pb-5 mb-5">
                 <div class="flex items-center justify-between mb-2">
@@ -245,6 +266,7 @@
 import { useCan } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '~/components/Spinner.vue'
+import McpIcon from '~/components/icons/McpIcon.vue'
 
 const props = defineProps<{ agentId: string }>()
 const emit = defineEmits(['updated', 'deleted'])
@@ -267,6 +289,50 @@ const original = reactive({
 })
 
 const saving = reactive({ name: false, public: false })
+
+// ── Channel availability ─────────────────────────────────────────────────
+interface ChannelInfo { key: string; name: string; connected: boolean }
+const connectedChannels = ref<ChannelInfo[]>([])
+const channelAvailability = ref<Record<string, boolean>>({})
+const savingChannels = ref(false)
+
+function channelIcon(key: string): { img?: string; mcp?: boolean; uicon?: string } {
+    switch (key) {
+        case 'slack': return { img: '/icons/slack.png' }
+        case 'teams': return { img: '/icons/teams.png' }
+        case 'whatsapp': return { img: '/icons/whatsapp.png' }
+        case 'email': return { uicon: 'i-heroicons-envelope' }
+        case 'mcp': return { mcp: true }
+        default: return { uicon: 'i-heroicons-chat-bubble-left-right' }
+    }
+}
+
+async function loadChannels() {
+    try {
+        const { data } = await useMyFetch('/data_sources/connected_channels', { method: 'GET' })
+        connectedChannels.value = ((data.value as ChannelInfo[]) || []).filter(c => c.connected)
+    } catch {
+        connectedChannels.value = []
+    }
+}
+
+async function onToggleChannel(key: string, enabled: boolean) {
+    if (!ready.value || savingChannels.value) return
+    savingChannels.value = true
+    // Build the full map across connected channels so the saved value is
+    // self-contained (default true for any channel not explicitly set).
+    const map: Record<string, boolean> = {}
+    for (const c of connectedChannels.value) {
+        map[c.key] = c.key === key ? enabled : (channelAvailability.value[c.key] !== false)
+    }
+    const ok = await updateDataSource({ channel_availability: map })
+    if (ok) {
+        channelAvailability.value = map
+        if (integration.value) integration.value.channel_availability = map
+        emit('updated')
+    }
+    savingChannels.value = false
+}
 const deleting = ref(false)
 const ready = computed(() => !loading.value && !!integration.value)
 const showDelete = ref(false)
@@ -338,6 +404,9 @@ watch(integration, (ds) => {
         form.isPublic = ds?.is_public ?? false
         original.name = form.name
         original.isPublic = form.isPublic
+        channelAvailability.value = (ds?.channel_availability && typeof ds.channel_availability === 'object')
+            ? { ...ds.channel_availability }
+            : {}
     }
 }, { immediate: true })
 
@@ -351,6 +420,7 @@ watch(() => props.agentId, async () => {
         loadGroups(),
         loadRoles(),
         loadDsPermOptions(),
+        loadChannels(),
     ])
 }, { immediate: true })
 
