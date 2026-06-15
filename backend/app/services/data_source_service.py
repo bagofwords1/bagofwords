@@ -1029,7 +1029,7 @@ class DataSourceService:
             schemas.append(s)
         return schemas
 
-    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False) -> List[DataSourceListItemSchema]:
+    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None, include_unconnected: bool = False, show_all: bool = False) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape"""
         # See get_data_sources above for the lazyload("*") rationale — same
         # cascade applies here. The list schema doesn't expose
@@ -1046,17 +1046,32 @@ class DataSourceService:
             )
         )
         
-        # Apply access control if user is provided (same logic as get_data_sources)
+        # Apply access control if user is provided (same logic as get_data_sources).
+        # When ``show_all`` is requested AND the caller holds org-wide data-source
+        # governance, drop the membership filter and return every DS in the org —
+        # the admin "show all" view. Entries the admin isn't a member of are
+        # flagged ``admin_only`` below.
+        member_id_set: set = set()
+        show_all_effective = False
         if current_user:
-            from app.core.permission_resolver import get_member_data_source_ids
+            from app.core.permission_resolver import (
+                get_member_data_source_ids,
+                can_view_all_data_sources,
+            )
             member_ids = await get_member_data_source_ids(
                 db, str(current_user.id), str(organization.id)
             )
-            clauses = [DataSource.is_public == True]
-            if member_ids:
-                clauses.append(DataSource.id.in_(member_ids))
-            stmt = stmt.filter(or_(*clauses))
-            
+            member_id_set = {str(m) for m in member_ids}
+            if show_all:
+                show_all_effective = await can_view_all_data_sources(
+                    db, str(current_user.id), str(organization.id)
+                )
+            if not show_all_effective:
+                clauses = [DataSource.is_public == True]
+                if member_ids:
+                    clauses.append(DataSource.id.in_(member_ids))
+                stmt = stmt.filter(or_(*clauses))
+
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
         
@@ -1123,6 +1138,13 @@ class DataSourceService:
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
                 user_status=connections_list[0].user_status if connections_list else None,
+                # Flag entries surfaced only by the admin "show all" view:
+                # private and not an explicit membership of the caller.
+                admin_only=(
+                    show_all_effective
+                    and not bool(d.is_public)
+                    and str(d.id) not in member_id_set
+                ),
             )
 
             # Exclude user_required data sources lacking user credentials,
