@@ -399,7 +399,8 @@
                 <span class="text-[10px] text-gray-400 shrink-0">current ↔ {{ diff.label }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <button v-if="diff.buildId && canApprove" class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === diff.buildId" @click="approveSuggestion({ build_id: diff.buildId })">{{ approving === diff.buildId ? 'Approving…' : 'Approve' }}</button>
+                <button v-if="diff.buildId && canApprove" class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === diff.buildId || discarding === diff.buildId" @click="approveSuggestion({ build_id: diff.buildId })">{{ approving === diff.buildId ? 'Approving…' : 'Approve' }}</button>
+                <button v-if="diff.buildId && canApprove" class="h-7 px-3 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:text-red-600 hover:border-red-200 disabled:opacity-50" :disabled="discarding === diff.buildId || approving === diff.buildId" @click="discardSuggestion({ build_id: diff.buildId })">{{ discarding === diff.buildId ? 'Discarding…' : 'Discard' }}</button>
                 <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="closeDiff">Close</button>
               </div>
             </div>
@@ -520,8 +521,9 @@
                 </div>
                 <div class="text-[10px] text-gray-400 mt-0.5">{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</div>
                 <div v-if="canApprove" class="mt-1.5 flex items-center gap-1.5">
-                  <button class="h-5 px-2 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === pb.build_id" @click.stop="approveSuggestion(pb)">{{ approving === pb.build_id ? '…' : 'Approve' }}</button>
+                  <button class="h-5 px-2 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === pb.build_id || discarding === pb.build_id" @click.stop="approveSuggestion(pb)">{{ approving === pb.build_id ? '…' : 'Approve' }}</button>
                   <button class="h-5 px-2 rounded text-gray-400 hover:text-gray-700 text-[10px]" @click.stop="viewSuggestion(pb)">View diff</button>
+                  <button class="h-5 px-2 rounded text-gray-400 hover:text-red-600 text-[10px] ml-auto disabled:opacity-50" :disabled="discarding === pb.build_id || approving === pb.build_id" @click.stop="discardSuggestion(pb)">{{ discarding === pb.build_id ? '…' : 'Discard' }}</button>
                 </div>
               </div>
             </div>
@@ -1069,6 +1071,21 @@ const approveSuggestion = async (pb: any) => {
     const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
     if (fresh) openInstruction(fresh)
   } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { approving.value = null }
+}
+const discarding = ref<string | null>(null)
+const discardSuggestion = async (pb: any) => {
+  if (!pb?.build_id || discarding.value) return
+  if (!window.confirm('Discard this suggested change? It will be rejected and removed from the review queue.')) return
+  discarding.value = pb.build_id
+  try {
+    const { error } = await useMyFetch(`/api/builds/${pb.build_id}/reject`, { method: 'POST', body: { reason: 'Discarded from the Agents review queue' } })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Reject failed')
+    toast.add({ title: 'Suggestion discarded', color: 'gray' })
+    if (diff.value?.buildId === pb.build_id) closeDiff()
+    await fetchAll()
+    const fresh = allInstructions.value.find(i => i.id === detail.value?.id)
+    if (fresh) openInstruction(fresh)
+  } catch (e: any) { toast.add({ title: 'Couldn’t discard', description: e?.message, color: 'red' }) } finally { discarding.value = null }
 }
 const labelOpts = computed(() => labels.value.map(l => ({ value: l.id, label: l.name })))
 const activeFilterCount = computed(() => fStatus.value.length + fLoad.value.length + fSource.value.length + fCategory.value.length)
