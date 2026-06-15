@@ -404,6 +404,41 @@
                 <button class="h-7 px-3 rounded-md border border-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-50" @click="closeDiff">Close</button>
               </div>
             </div>
+            <!-- Run this suggestion's evals (validate the candidate build) -->
+            <div v-if="diff.buildId && canManageTests" class="px-6 py-3 border-b border-gray-100 bg-gray-50/40 shrink-0">
+              <div v-if="evalSuiteOptions.length" class="flex items-center gap-2">
+                <UIcon name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                <select v-model="selectedEvalSuiteId" class="h-7 flex-1 min-w-0 text-xs border border-gray-200 rounded-md px-2 bg-white text-gray-700 outline-none">
+                  <option v-for="o in evalSuiteOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+                <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1 shrink-0" :disabled="!selectedEvalSuiteId || evalRunning || !evalHasCases" @click="runSuggestionEval">
+                  <UIcon :name="evalRunning ? 'i-heroicons-arrow-path' : 'i-heroicons-play'" :class="['w-3 h-3', { 'animate-spin': evalRunning }]" />
+                  {{ evalRunning ? 'Running…' : 'Run eval' }}
+                </button>
+              </div>
+              <p v-else class="text-[11px] text-gray-400">No test cases yet — create them in <NuxtLink to="/evals" class="text-blue-600 hover:underline">/evals</NuxtLink>.</p>
+
+              <!-- Active / latest run progress -->
+              <div v-if="evalActiveRun" class="mt-2 bg-white border border-gray-200 rounded-lg p-2.5 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-1.5">
+                    <UIcon :name="evalActiveRun.status === 'in_progress' ? 'i-heroicons-arrow-path' : (evalActiveRun.status === 'success' ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle')" :class="['w-3.5 h-3.5', evalActiveRun.status === 'in_progress' ? 'text-blue-500 animate-spin' : (evalActiveRun.status === 'success' ? 'text-green-500' : 'text-red-500')]" />
+                    <span class="text-xs font-medium text-gray-700">{{ evalPrettyStatus(evalActiveRun.status) }}</span>
+                  </div>
+                  <NuxtLink :to="`/evals/runs/${evalActiveRun.id}`" class="text-[10px] text-blue-500 hover:underline inline-flex items-center gap-0.5">View details<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" /></NuxtLink>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <span class="px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">Cases: {{ evalSummary.total }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-green-50 text-green-700 border-green-200">Pass: {{ evalSummary.passed }}</span>
+                  <span class="px-1.5 py-0.5 rounded border bg-red-50 text-red-700 border-red-200">Fail: {{ evalSummary.failed }}</span>
+                  <span v-if="evalSummary.inProgress" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200"><UIcon name="i-heroicons-arrow-path" class="w-2.5 h-2.5 animate-spin" />Running: {{ evalSummary.inProgress }}</span>
+                </div>
+                <div v-if="evalActiveRun.status === 'in_progress'" class="w-full bg-gray-100 rounded-full h-1.5">
+                  <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="{ width: `${evalSummary.progressPercent}%` }" />
+                </div>
+              </div>
+            </div>
+
             <div class="flex-1 min-h-0 overflow-auto px-8 py-6 max-w-3xl">
               <TrackedChangesView :diff-ops="diffOps" />
             </div>
@@ -522,7 +557,6 @@
                 <div class="text-[10px] text-gray-400 mt-0.5">{{ pb.created_by?.name || 'system' }} · {{ fmtDate(pb.created_at) }}</div>
                 <div v-if="canApprove" class="mt-1.5 flex items-center gap-1.5">
                   <button class="h-5 px-2 rounded bg-blue-600 text-white text-[10px] font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="approving === pb.build_id || discarding === pb.build_id" @click.stop="approveSuggestion(pb)">{{ approving === pb.build_id ? '…' : 'Approve' }}</button>
-                  <button class="h-5 px-2 rounded text-gray-400 hover:text-gray-700 text-[10px]" @click.stop="viewSuggestion(pb)">View diff</button>
                   <button class="h-5 px-2 rounded text-gray-400 hover:text-red-600 text-[10px] ml-auto disabled:opacity-50" :disabled="discarding === pb.build_id || approving === pb.build_id" @click.stop="discardSuggestion(pb)">{{ discarding === pb.build_id ? '…' : 'Discard' }}</button>
                 </div>
               </div>
@@ -936,6 +970,7 @@ const fetchPendingMap = async () => {
 }
 const diff = ref<null | { title: string; label: string; original: string; modified: string; buildId?: string | null; versionId?: string | null }>(null)
 const approving = ref<string | null>(null)
+const discarding = ref<string | null>(null)
 // connection modals
 const showConnectionModal = ref(false)
 const selectedConnection = ref<any>(null)
@@ -1038,7 +1073,7 @@ const loadPending = async (id: string) => {
   pendingBuilds.value = []
   try { const { data } = await useMyFetch<any[]>(`/api/instructions/${id}/pending-builds`, { method: 'GET' }); pendingBuilds.value = data.value || [] } catch {}
 }
-const closeDiff = () => { diff.value = null }
+const closeDiff = () => { diff.value = null; evalActiveRun.value = null; evalResults.value = []; stopEvalPoll() }
 // Clean inline word-diff (current ↔ selected version / suggestion), like ReportAgent/GlobalCreate.
 const diffOps = computed(() => {
   if (!diff.value) return []
@@ -1059,6 +1094,9 @@ const viewVersion = async (v: any, isCurrent: boolean) => {
 }
 const viewSuggestion = (pb: any) => {
   diff.value = { title: pb.source === 'ai' ? 'AI suggestion' : 'Proposed change', label: `v${pb.pending_version_number}`, original: detail.value?.text || '', modified: pb.pending_text || '', buildId: pb.build_id, versionId: null }
+  // Reset any prior run view and lazily load eval suites for the run strip.
+  evalActiveRun.value = null; evalResults.value = []; stopEvalPoll()
+  fetchEvalSuites()
 }
 const approveSuggestion = async (pb: any) => {
   if (!pb?.build_id) return
@@ -1072,7 +1110,6 @@ const approveSuggestion = async (pb: any) => {
     if (fresh) openInstruction(fresh)
   } catch (e: any) { toast.add({ title: 'Error', description: e?.message, color: 'red' }) } finally { approving.value = null }
 }
-const discarding = ref<string | null>(null)
 const discardSuggestion = async (pb: any) => {
   if (!pb?.build_id || discarding.value) return
   if (!window.confirm('Discard this suggested change? It will be rejected and removed from the review queue.')) return
@@ -1087,6 +1124,74 @@ const discardSuggestion = async (pb: any) => {
     if (fresh) openInstruction(fresh)
   } catch (e: any) { toast.add({ title: 'Couldn’t discard', description: e?.message, color: 'red' }) } finally { discarding.value = null }
 }
+
+// ── Suggestion evals: run a test suite against the candidate (pending) build,
+//    showing live progress like BuildExplorerModal. ───────────────────────────
+const canManageTests = computed(() => useCan('manage_tests'))
+const evalSuites = ref<any[]>([])
+const selectedEvalSuiteId = ref<string | null>(null)
+const evalRunning = ref(false)
+const evalActiveRun = ref<any | null>(null)
+const evalResults = ref<any[]>([])
+let evalPoll: ReturnType<typeof setInterval> | null = null
+
+const evalSuiteOptions = computed(() => evalSuites.value.map((s: any) => ({ value: s.id, label: `${s.name} (${s.tests_count || 0})` })))
+const evalHasCases = computed(() => {
+  const s = evalSuites.value.find((x: any) => x.id === selectedEvalSuiteId.value)
+  return (s?.tests_count || 0) > 0
+})
+const evalSummary = computed(() => {
+  const r = evalResults.value
+  const total = r.length
+  const passed = r.filter((x: any) => x.status === 'pass').length
+  const failed = r.filter((x: any) => x.status === 'fail' || x.status === 'error').length
+  const inProgress = r.filter((x: any) => x.status === 'in_progress').length
+  const progressPercent = total > 0 ? Math.round(((passed + failed) / total) * 100) : 0
+  return { total, passed, failed, inProgress, progressPercent }
+})
+const evalPrettyStatus = (s?: string) => s === 'in_progress' ? 'Running' : s === 'success' ? 'Passed' : (s === 'fail' || s === 'error') ? 'Failed' : (s || '—')
+
+const fetchEvalSuites = async () => {
+  if (!canManageTests.value || evalSuites.value.length) return
+  try {
+    const { data } = await useMyFetch<any[]>('/api/tests/suites/summary', { method: 'GET' })
+    evalSuites.value = data.value || []
+    if (evalSuites.value.length && !selectedEvalSuiteId.value) selectedEvalSuiteId.value = evalSuites.value[0].id
+  } catch {}
+}
+const fetchEvalResults = async (runId: string) => {
+  try { const { data } = await useMyFetch<any[]>(`/api/tests/runs/${runId}/results`, { method: 'GET' }); evalResults.value = data.value || [] } catch {}
+}
+const stopEvalPoll = () => { if (evalPoll) { clearInterval(evalPoll); evalPoll = null } }
+const pollEvalRun = async () => {
+  if (!evalActiveRun.value) return
+  try {
+    const { data } = await useMyFetch<any>(`/api/tests/runs/${evalActiveRun.value.id}`, { method: 'GET' })
+    if (data.value) {
+      evalActiveRun.value = data.value
+      await fetchEvalResults(data.value.id)
+      if (data.value.status !== 'in_progress') stopEvalPoll()
+    }
+  } catch {}
+}
+const startEvalPoll = () => { if (evalPoll) return; evalPoll = setInterval(pollEvalRun, 2000) }
+const runSuggestionEval = async () => {
+  const buildId = diff.value?.buildId
+  if (!buildId || !selectedEvalSuiteId.value || evalRunning.value) return
+  evalRunning.value = true
+  try {
+    const { data, error } = await useMyFetch<any>('/api/tests/runs/batch', { method: 'POST', body: { suite_id: selectedEvalSuiteId.value, build_id: buildId, trigger_reason: 'manual' } })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed to start eval')
+    if (data.value) {
+      evalActiveRun.value = data.value
+      await fetchEvalResults(data.value.id)
+      startEvalPoll()
+      toast.add({ title: 'Eval started', color: 'blue' })
+    }
+  } catch (e: any) { toast.add({ title: 'Failed to start eval', description: e?.message, color: 'red' }) } finally { evalRunning.value = false }
+}
+onUnmounted(() => stopEvalPoll())
+
 const labelOpts = computed(() => labels.value.map(l => ({ value: l.id, label: l.name })))
 const activeFilterCount = computed(() => fStatus.value.length + fLoad.value.length + fSource.value.length + fCategory.value.length)
 const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value = []; fCategory.value = [] }
