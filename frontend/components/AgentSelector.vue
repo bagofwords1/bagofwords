@@ -52,23 +52,25 @@
           collapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
         ]"
       >
-        <!-- Nav mode trigger content: stacked agent icons (up to 3) + "Agents" label -->
+        <!-- Nav mode trigger: reflects a single selected agent, else stacked icons + "Agents" -->
         <template v-if="nav">
-          <UTooltip v-if="collapsed" text="Agents" :popper="{ placement: 'right' }">
+          <UTooltip v-if="collapsed" :text="navLabel" :popper="{ placement: 'right' }">
             <span class="relative flex items-center justify-center w-5 h-5">
-              <DataSourceIcon v-if="navIconTypes.length" :type="navIconTypes[0]" class="w-[18px] h-[18px] rounded" />
+              <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" class="w-[18px] h-[18px] rounded" />
+              <DataSourceIcon v-else-if="navIconTypes.length" :type="navIconTypes[0]" class="w-[18px] h-[18px] rounded" />
               <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
-              <span v-if="agents.length > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-[8px] font-semibold leading-none flex items-center justify-center">{{ agents.length > 9 ? '9+' : agents.length }}</span>
+              <span v-if="!navSelected && agents.length > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-[8px] font-semibold leading-none flex items-center justify-center">{{ agents.length > 9 ? '9+' : agents.length }}</span>
             </span>
           </UTooltip>
           <template v-else>
             <span class="flex items-center justify-center">
-              <span v-if="navIconTypes.length" class="flex -space-x-1.5 items-center">
+              <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" class="w-[18px] h-[18px] rounded" />
+              <span v-else-if="navIconTypes.length" class="flex -space-x-1.5 items-center">
                 <DataSourceIcon v-for="(t, i) in navIconTypes" :key="i" :type="t" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
               </span>
               <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
             </span>
-            <span v-if="showText" class="font-medium">Agents</span>
+            <span v-if="showText" class="font-medium truncate">{{ navLabel }}</span>
           </template>
         </template>
         <template v-else>
@@ -216,6 +218,14 @@ const isRouteActive = (path: string) => {
 const onNavClick = (e: MouseEvent) => { e.preventDefault(); router.push('/agents') }
 const goToAgents = () => router.push('/agents')
 const goToAgent = (id: string) => router.push(`/agents?agent=${id}`)
+// Nav trigger reflects a single selected agent (like the old context selector),
+// else shows "Agents" with stacked icons.
+const navSelected = computed(() => (!isAllAgents.value && selectedAgentObjects.value.length === 1) ? selectedAgentObjects.value[0] : null)
+const navLabel = computed(() => {
+  if (navSelected.value) return navSelected.value.name || 'Agent'
+  const n = selectedAgentObjects.value.length
+  return (!isAllAgents.value && n > 1) ? `${n} agents` : 'Agents'
+})
 // First 3 agents' connection types, for the stacked nav icons.
 const navIconTypes = computed(() => {
   const types: string[] = []
